@@ -1,0 +1,14 @@
+[package]
+name = "interstice-core"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+wasmtime = { version = "*", features = ["component-model"] }
+anyhow = "*"
+thiserror = "*"
+serde = { version = "*", features = ["derive"] }
+serde_json = "*"
+slotmap = "*"
+parking_lot = "*"
+crossbeam = "*"                                              # later for scheduling

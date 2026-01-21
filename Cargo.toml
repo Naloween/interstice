@@ -1,6 +1,8 @@
-[package]
-name = "interstice"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = ["crates/*", "examples/*"]
+resolver = "3"
 
-[dependencies]
+# [package]
+# name = "interstice"
+# version = "0.0.1"
+# edition = "2024"
