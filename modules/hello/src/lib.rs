@@ -1,3 +1,4 @@
+use interstice_abi::{ModuleSchema, PrimitiveType, ReducerSchema};
 use std::alloc::{alloc as local_alloc, dealloc as local_dealloc, Layout};
 use std::slice;
 
@@ -35,4 +36,26 @@ pub extern "C" fn hello(ptr: i32, len: i32) -> i64 {
     }
 
     pack(out_ptr, bytes.len() as i32)
+}
+
+#[no_mangle]
+pub extern "C" fn interstice_describe() -> i64 {
+    let schema = ModuleSchema::new(
+        "hello",
+        1,
+        vec![ReducerSchema::new(
+            "hello",
+            vec![PrimitiveType::String],
+            Some(PrimitiveType::String),
+        )],
+    );
+
+    let bytes = schema.to_bytes().unwrap();
+
+    let ptr = alloc(bytes.len() as i32);
+    unsafe {
+        core::slice::from_raw_parts_mut(ptr as *mut u8, bytes.len()).copy_from_slice(&bytes);
+    }
+
+    pack(ptr, bytes.len() as i32)
 }

@@ -24,7 +24,7 @@ impl Runtime {
             .schema()
             .reducers
             .iter()
-            .find(|r| *r == reducer_name)
+            .find(|r| r.name == reducer_name)
             .ok_or_else(|| IntersticeError::ReducerNotFound {
                 module: module_name.into(),
                 reducer: reducer_name.into(),

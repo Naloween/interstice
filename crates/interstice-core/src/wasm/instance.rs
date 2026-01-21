@@ -1,4 +1,5 @@
 use crate::error::IntersticeError;
+use interstice_abi::module::ModuleSchema;
 use wasmtime::{Func, Instance, Memory, Store};
 
 pub struct WasmInstance {
@@ -30,6 +31,42 @@ impl WasmInstance {
             alloc,
             dealloc,
         })
+    }
+
+    pub fn load_schema(&mut self) -> Result<ModuleSchema, IntersticeError> {
+        let func = self
+            .instance
+            .get_func(&mut self.store, "interstice_describe")
+            .ok_or(IntersticeError::MissingExport("interstice_describe"))?;
+
+        let typed = func
+            .typed::<(), i64>(&self.store)
+            .map_err(|_| IntersticeError::BadSignature("interstice_describe".into()))?;
+
+        let packed = typed
+            .call(&mut self.store, ())
+            .map_err(|e| IntersticeError::WasmTrap(e.to_string()))?;
+
+        let ptr = (packed >> 32) as i32;
+        let len = (packed & 0xffffffff) as i32;
+
+        let mut bytes = vec![0u8; len as usize];
+        self.memory
+            .read(&mut self.store, ptr as usize, &mut bytes)
+            .map_err(|_| IntersticeError::MemoryRead)?;
+
+        // IMPORTANT: module owns allocation → module must free
+        let dealloc = self
+            .dealloc
+            .typed::<(i32, i32), ()>(&self.store)
+            .map_err(|_| IntersticeError::BadSignature("dealloc".into()))?;
+
+        let _ = dealloc.call(&mut self.store, (ptr, len));
+
+        let schema =
+            ModuleSchema::from_bytes(&bytes).map_err(|_| IntersticeError::InvalidSchema)?;
+
+        Ok(schema)
     }
 
     pub fn call_reducer(

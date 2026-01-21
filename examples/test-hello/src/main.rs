@@ -1,3 +1,6 @@
+use interstice_abi::module::ModuleSchema;
+use interstice_abi::reducer::ReducerSchema;
+use interstice_abi::types::PrimitiveType;
 use interstice_core::runtime::{Module, Runtime};
 use interstice_core::wasm::{engine::WasmEngine, hostcalls::add_hostcalls};
 use wasmtime::{Linker, Module as wasmtimeModule};
@@ -7,23 +10,18 @@ fn main() -> anyhow::Result<()> {
     let mut linker = Linker::new(&engine.engine);
     add_hostcalls(&mut linker)?;
 
-    let module = wasmtimeModule::from_file(
+    let wasm_module = wasmtimeModule::from_file(
         &engine.engine,
         "../../modules/hello/target/wasm32-unknown-unknown/release/hello.wasm",
     )?;
 
     let mut store = engine.new_store(());
-    let instance = linker.instantiate(&mut store, &module)?;
+    let instance = linker.instantiate(&mut store, &wasm_module)?;
 
     let wasm_instance = interstice_core::wasm::instance::WasmInstance::new(store, instance)?;
 
     let mut runtime = Runtime::new();
-
-    runtime.register_module(Module::new(
-        "hello".into(),
-        wasm_instance,
-        vec!["hello".into()],
-    ))?;
+    runtime.register_module(wasm_instance)?;
 
     let result = runtime.call_reducer("hello", "hello", b"Interstice")?;
 

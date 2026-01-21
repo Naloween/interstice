@@ -4,7 +4,7 @@ pub mod reducer;
 // optional re-exports (recommended)
 pub use module::Module;
 
-use crate::{error::IntersticeError, runtime::reducer::ReducerFrame};
+use crate::{error::IntersticeError, runtime::reducer::ReducerFrame, wasm::instance::WasmInstance};
 use std::collections::HashMap;
 
 pub struct Runtime {
@@ -20,12 +20,16 @@ impl Runtime {
         }
     }
 
-    pub fn register_module(&mut self, module: Module) -> Result<(), IntersticeError> {
-        let name = &module.schema().name;
-        if self.modules.contains_key(name) {
-            return Err(IntersticeError::ModuleAlreadyExists(name.into()));
+    pub fn register_module(&mut self, mut instance: WasmInstance) -> Result<(), IntersticeError> {
+        let schema = instance.load_schema()?;
+
+        if self.modules.contains_key(&schema.name) {
+            return Err(IntersticeError::ModuleAlreadyExists(schema.name));
         }
-        self.modules.insert(name.into(), module);
+
+        let module = Module::new(instance, schema);
+        self.modules.insert(module.schema.name.clone(), module);
+
         Ok(())
     }
 }

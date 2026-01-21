@@ -14,6 +14,7 @@ pub enum IntersticeError {
     MissingExport(&'static str),
     WasmFuncNotFound(String),
     BadSignature(String),
+    InvalidSchema,
 
     // ─── WASM execution ────────────────────────────────────────────────────
     WasmTrap(String),
@@ -55,6 +56,9 @@ impl fmt::Display for IntersticeError {
             }
             BadSignature(name) => {
                 write!(f, "invalid wasm signature for '{}'", name)
+            }
+            InvalidSchema => {
+                write!(f, "invalid module schema")
             }
             WasmTrap(msg) => {
                 write!(f, "wasm trapped: {}", msg)
