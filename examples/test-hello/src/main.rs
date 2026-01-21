@@ -4,7 +4,7 @@ use interstice_core::runtime::Runtime;
 fn main() -> anyhow::Result<()> {
     let mut runtime = Runtime::new();
 
-    let path = "../../modules/hello/target/wasm32-unknown-unknown/release/hello.wasm";
+    let path = "../../modules/hello/target/wasm32-unknown-unknown/debug/hello.wasm";
 
     runtime.load_module(path)?;
 

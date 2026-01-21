@@ -1,4 +1,7 @@
-use interstice_abi::{decode, encode, ModuleSchema, PrimitiveType, PrimitiveValue, ReducerSchema};
+use interstice_abi::{
+    codec::pack_ptr_len, decode, encode, HostCall, LogRequest, ModuleSchema, PrimitiveType,
+    PrimitiveValue, ReducerSchema,
+};
 use std::alloc::{alloc as local_alloc, dealloc as local_dealloc, Layout};
 use std::slice;
 
@@ -17,10 +20,6 @@ pub extern "C" fn alloc(size: i32) -> i32 {
 pub extern "C" fn dealloc(ptr: i32, size: i32) {
     let layout = Layout::from_size_align(size as usize, 8).unwrap();
     unsafe { local_dealloc(ptr as *mut u8, layout) }
-}
-
-fn pack(ptr: i32, len: i32) -> i64 {
-    ((ptr as i64) << 32) | (len as u32 as i64)
 }
 
 #[no_mangle]
@@ -42,7 +41,25 @@ pub extern "C" fn interstice_describe() -> i64 {
         core::slice::from_raw_parts_mut(ptr as *mut u8, bytes.len()).copy_from_slice(&bytes);
     }
 
-    pack(ptr, bytes.len() as i32)
+    pack_ptr_len(ptr, bytes.len() as i32)
+}
+
+// raw ABI import
+#[link(wasm_import_module = "interstice")]
+extern "C" {
+    fn interstice_host_call(ptr: i32, len: i32) -> i64;
+}
+
+fn host_log(message: &str) {
+    let call = HostCall::Log(LogRequest {
+        message: message.to_string(),
+    });
+
+    let bytes = encode(&call).unwrap();
+
+    unsafe {
+        interstice_host_call(bytes.as_ptr() as i32, bytes.len() as i32);
+    }
 }
 
 // REDUCERS
@@ -56,12 +73,14 @@ pub extern "C" fn hello(ptr: i32, len: i32) -> i64 {
         let msg = PrimitiveValue::String(format!("Hello, {}!", name));
         let bytes = encode(&msg).unwrap();
 
+        host_log("First log !");
+
         let out_ptr = alloc(bytes.len() as i32);
         unsafe {
             slice::from_raw_parts_mut(out_ptr as *mut u8, bytes.len()).copy_from_slice(&bytes);
         }
-        return pack(out_ptr, bytes.len() as i32);
+        return pack_ptr_len(out_ptr, bytes.len() as i32);
     }
 
-    return pack(0, 0);
+    return pack_ptr_len(0, 0);
 }

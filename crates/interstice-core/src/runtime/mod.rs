@@ -25,7 +25,7 @@ impl Runtime {
     pub fn new() -> Self {
         let engine = Arc::new(Engine::default());
         let mut linker = Linker::new(&engine);
-        define_host_calls(&mut linker).unwrap();
+        define_host_calls(&mut linker).expect("Couldn't add host calls to the linker");
         Self {
             modules: HashMap::new(),
             call_stack: Vec::new(),

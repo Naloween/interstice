@@ -2,7 +2,7 @@ use crate::{
     runtime::Runtime,
     wasm::{StoreState, read_bytes},
 };
-use interstice_abi::{host_calls, types::ModuleId};
+use interstice_abi::{decode, host::HostCall, types::ModuleId};
 use wasmtime::Caller;
 
 impl Runtime {
@@ -11,7 +11,6 @@ impl Runtime {
         caller_module: ModuleId,
         memory: &wasmtime::Memory,
         caller: &mut Caller<'_, StoreState>,
-        call_id: u32,
         ptr: i32,
         len: i32,
     ) -> i64 {
@@ -20,14 +19,18 @@ impl Runtime {
             Err(_) => return 0,
         };
 
-        match call_id {
-            host_calls::CALL_REDUCER => self.handle_call_reducer(memory, caller, &bytes),
-            host_calls::LOG => {
-                self.handle_log(caller_module, &bytes);
+        let host_call: HostCall = decode(&bytes).unwrap();
+
+        match host_call {
+            HostCall::CallReducer(call_reducer_request) => {
+                self.handle_call_reducer(memory, caller, call_reducer_request)
+            }
+            HostCall::Log(log_request) => {
+                self.handle_log(caller_module, log_request);
                 0
             }
-            host_calls::ABORT => {
-                self.handle_abort(&bytes);
+            HostCall::Abort(abort_request) => {
+                self.handle_abort(abort_request);
                 unreachable!()
             }
             _ => 0,

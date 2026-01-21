@@ -1,4 +1,4 @@
-use interstice_abi::{codec::pack_ptr_len, decode, encode, host_calls::CallReducerRequest};
+use interstice_abi::{codec::pack_ptr_len, encode, host::CallReducerRequest};
 use wasmtime::{Caller, Memory};
 
 use crate::{runtime::Runtime, wasm::StoreState};
@@ -8,14 +8,13 @@ impl Runtime {
         &mut self,
         memory: &Memory,
         caller: &mut Caller<'_, StoreState>,
-        bytes: &[u8],
+        call_reducer_request: CallReducerRequest,
     ) -> i64 {
-        let req: CallReducerRequest = match decode(bytes) {
-            Ok(v) => v,
-            Err(_) => return 0,
-        };
-
-        let result = match self.invoke_reducer(&req.target_module, &req.reducer, req.input) {
+        let result = match self.invoke_reducer(
+            &call_reducer_request.target_module,
+            &call_reducer_request.reducer,
+            call_reducer_request.input,
+        ) {
             Ok(v) => v,
             Err(_) => return 0,
         };

@@ -1,6 +1,13 @@
 use crate::PrimitiveValue;
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Deserialize, Serialize)]
+pub enum HostCall {
+    CallReducer(CallReducerRequest),
+    Log(LogRequest),
+    Abort(AbortRequest),
+}
+
 /// Host call: CALL_REDUCER
 ///
 /// Semantics:
@@ -15,10 +22,6 @@ use serde::{Deserialize, Serialize};
 /// Memory:
 /// - Request buffer owned by caller
 /// - Response buffer owned by host
-
-pub const CALL_REDUCER: u32 = 1;
-pub const LOG: u32 = 2;
-pub const ABORT: u32 = 3;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CallReducerRequest {
