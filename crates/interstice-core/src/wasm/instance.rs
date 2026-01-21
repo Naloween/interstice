@@ -1,12 +1,9 @@
-use crate::error::IntersticeError;
-use interstice_abi::{
-    module::ModuleSchema,
-    types::{PrimitiveValue, decode, encode},
-};
+use crate::{error::IntersticeError, wasm::StoreState};
+use interstice_abi::{ModuleSchema, PrimitiveValue, decode, encode};
 use wasmtime::{Func, Instance, Memory, Store};
 
 pub struct WasmInstance {
-    store: Store<()>,
+    pub store: Store<StoreState>,
     instance: Instance,
     memory: Memory,
     alloc: Func,
@@ -14,7 +11,7 @@ pub struct WasmInstance {
 }
 
 impl WasmInstance {
-    pub fn new(mut store: Store<()>, instance: Instance) -> Result<Self, IntersticeError> {
+    pub fn new(mut store: Store<StoreState>, instance: Instance) -> Result<Self, IntersticeError> {
         let memory = instance
             .get_memory(&mut store, "memory")
             .ok_or(IntersticeError::MissingExport("memory"))?;

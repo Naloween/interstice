@@ -1,9 +1,10 @@
+pub mod codec;
 pub mod host_calls;
-pub mod module;
-pub mod reducer;
-pub mod tables;
+pub mod schema;
 pub mod types;
 
-pub use module::ModuleSchema;
-pub use reducer::ReducerSchema;
-pub use types::{ABI_VERSION, PrimitiveType, PrimitiveValue, decode, encode};
+pub use codec::{decode, encode};
+pub use schema::{ModuleSchema, ReducerSchema};
+pub use types::{PrimitiveType, PrimitiveValue};
+
+pub const ABI_VERSION: u16 = 1;
