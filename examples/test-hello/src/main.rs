@@ -1,7 +1,5 @@
-use interstice_abi::module::ModuleSchema;
-use interstice_abi::reducer::ReducerSchema;
-use interstice_abi::types::PrimitiveType;
-use interstice_core::runtime::{Module, Runtime};
+use interstice_abi::PrimitiveValue;
+use interstice_core::runtime::Runtime;
 use interstice_core::wasm::{engine::WasmEngine, hostcalls::add_hostcalls};
 use wasmtime::{Linker, Module as wasmtimeModule};
 
@@ -23,8 +21,13 @@ fn main() -> anyhow::Result<()> {
     let mut runtime = Runtime::new();
     runtime.register_module(wasm_instance)?;
 
-    let result = runtime.call_reducer("hello", "hello", b"Interstice")?;
-
-    println!("Result: {}", String::from_utf8_lossy(&result));
+    let result = runtime.call_reducer(
+        "hello",
+        "hello",
+        PrimitiveValue::String("Interstice".into()),
+    )?;
+    if let PrimitiveValue::String(msg) = result {
+        println!("Result: {}", msg);
+    }
     Ok(())
 }

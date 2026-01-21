@@ -1,5 +1,6 @@
 use crate::error::IntersticeError;
 use crate::runtime::Runtime;
+use interstice_abi::PrimitiveValue;
 
 #[derive(Debug)]
 pub struct ReducerFrame {
@@ -12,8 +13,8 @@ impl Runtime {
         &mut self,
         module_name: &str,
         reducer_name: &str,
-        args: &[u8],
-    ) -> Result<Vec<u8>, IntersticeError> {
+        args: PrimitiveValue,
+    ) -> Result<PrimitiveValue, IntersticeError> {
         // 1. Lookup module
         let module = self
             .modules

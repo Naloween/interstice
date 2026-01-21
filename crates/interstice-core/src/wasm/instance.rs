@@ -1,5 +1,8 @@
 use crate::error::IntersticeError;
-use interstice_abi::module::ModuleSchema;
+use interstice_abi::{
+    module::ModuleSchema,
+    types::{PrimitiveValue, decode, encode},
+};
 use wasmtime::{Func, Instance, Memory, Store};
 
 pub struct WasmInstance {
@@ -63,8 +66,7 @@ impl WasmInstance {
 
         let _ = dealloc.call(&mut self.store, (ptr, len));
 
-        let schema =
-            ModuleSchema::from_bytes(&bytes).map_err(|_| IntersticeError::InvalidSchema)?;
+        let schema = decode(&bytes).map_err(|_| IntersticeError::InvalidSchema)?;
 
         Ok(schema)
     }
@@ -72,8 +74,11 @@ impl WasmInstance {
     pub fn call_reducer(
         &mut self,
         func_name: &str,
-        args: &[u8],
-    ) -> Result<Vec<u8>, IntersticeError> {
+        args: PrimitiveValue,
+    ) -> Result<PrimitiveValue, IntersticeError> {
+        let args_bytes = encode(&args)
+            .map_err(|_| IntersticeError::Internal("failed to serialize reducer arguments"))?;
+
         let alloc = self
             .alloc
             .typed::<i32, i32>(&self.store)
@@ -95,21 +100,23 @@ impl WasmInstance {
 
         // --- allocate input ---
         let ptr = alloc
-            .call(&mut self.store, args.len() as i32)
+            .call(&mut self.store, args_bytes.len() as i32)
             .map_err(|e| IntersticeError::WasmTrap(e.to_string()))?;
 
         // write args
         self.memory
-            .write(&mut self.store, ptr as usize, args)
+            .write(&mut self.store, ptr as usize, &args_bytes)
             .map_err(|_| IntersticeError::MemoryWrite)?;
 
         // --- call reducer ---
         let packed = reducer
-            .call(&mut self.store, (ptr, args.len() as i32))
+            .call(&mut self.store, (ptr, args_bytes.len() as i32))
             .map_err(|e| IntersticeError::WasmTrap(e.to_string()))?;
 
         // free input
-        dealloc.call(&mut self.store, (ptr, args.len() as i32)).ok();
+        dealloc
+            .call(&mut self.store, (ptr, args_bytes.len() as i32))
+            .ok();
 
         // unpack result
         let res_ptr = (packed >> 32) as i32;
@@ -122,6 +129,9 @@ impl WasmInstance {
 
         // free output
         dealloc.call(&mut self.store, (res_ptr, res_len)).ok();
+
+        let out = decode(&out)
+            .map_err(|_| IntersticeError::Internal("failed to deserialize reducer output"))?;
 
         Ok(out)
     }

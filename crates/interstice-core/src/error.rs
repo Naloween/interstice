@@ -15,6 +15,7 @@ pub enum IntersticeError {
     WasmFuncNotFound(String),
     BadSignature(String),
     InvalidSchema,
+    AbiVersionMismatch { expected: u16, found: u16 },
 
     // ─── WASM execution ────────────────────────────────────────────────────
     WasmTrap(String),
@@ -59,6 +60,13 @@ impl fmt::Display for IntersticeError {
             }
             InvalidSchema => {
                 write!(f, "invalid module schema")
+            }
+            AbiVersionMismatch { expected, found } => {
+                write!(
+                    f,
+                    "ABI version mismatch: expected {}, found {}",
+                    expected, found
+                )
             }
             WasmTrap(msg) => {
                 write!(f, "wasm trapped: {}", msg)
