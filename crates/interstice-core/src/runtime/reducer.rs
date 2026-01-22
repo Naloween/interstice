@@ -1,12 +1,33 @@
 use crate::error::IntersticeError;
 use crate::runtime::Runtime;
-use interstice_abi::PrimitiveValue;
-use interstice_abi::types::ModuleId;
+use interstice_abi::{DeleteRowRequest, InsertRowRequest, PrimitiveValue, UpdateRowRequest};
+
+#[derive(Debug)]
+pub struct Transaction {
+    pub inserts: Vec<InsertRowRequest>,
+    pub updates: Vec<UpdateRowRequest>,
+    pub deletes: Vec<DeleteRowRequest>,
+}
 
 #[derive(Debug)]
 pub struct ReducerFrame {
     pub module: String,
     pub reducer: String,
+    pub transaction: Transaction,
+}
+
+impl ReducerFrame {
+    pub fn new(module: String, reducer: String) -> Self {
+        Self {
+            module,
+            reducer,
+            transaction: Transaction {
+                inserts: Vec::new(),
+                updates: Vec::new(),
+                deletes: Vec::new(),
+            },
+        }
+    }
 }
 
 impl Runtime {
@@ -46,16 +67,50 @@ impl Runtime {
         }
 
         // Push frame
-        self.call_stack.push(ReducerFrame {
-            module: module_name.into(),
-            reducer: reducer_name.into(),
-        });
+        self.call_stack
+            .push(ReducerFrame::new(module_name.into(), reducer_name.into()));
 
         // Call WASM function
         let result = module.call_reducer(reducer_name, args)?;
 
         // Pop frame
-        self.call_stack.pop();
+        let reducer_frame = self.call_stack.pop().unwrap();
+
+        // Apply transaction
+        for insert in reducer_frame.transaction.inserts {
+            module
+                .tables
+                .get_mut(&insert.table)
+                .ok_or_else(|| IntersticeError::TableNotFound {
+                    module: module_name.into(),
+                    table: insert.table.clone(),
+                })?
+                .rows
+                .push(insert.row);
+        }
+        for update in reducer_frame.transaction.updates {
+            let table = module.tables.get_mut(&update.table).ok_or_else(|| {
+                IntersticeError::TableNotFound {
+                    module: module_name.into(),
+                    table: update.table.clone(),
+                }
+            })?;
+            for row in table.rows.iter_mut() {
+                if row.primary_key == update.row.primary_key {
+                    *row = update.row;
+                    break;
+                }
+            }
+        }
+        for delete in reducer_frame.transaction.deletes {
+            let table = module.tables.get_mut(&delete.table).ok_or_else(|| {
+                IntersticeError::TableNotFound {
+                    module: module_name.into(),
+                    table: delete.table.clone(),
+                }
+            })?;
+            table.rows.retain(|row| row.primary_key != delete.key);
+        }
 
         Ok(result)
     }

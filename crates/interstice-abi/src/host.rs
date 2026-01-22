@@ -1,4 +1,4 @@
-use crate::PrimitiveValue;
+use crate::{PrimitiveValue, types::Row};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -6,6 +6,10 @@ pub enum HostCall {
     CallReducer(CallReducerRequest),
     Log(LogRequest),
     Abort(AbortRequest),
+    InsertRow(InsertRowRequest),
+    UpdateRow(UpdateRowRequest),
+    DeleteRow(DeleteRowRequest),
+    TableScan(TableScanRequest),
 }
 
 /// Host call: CALL_REDUCER
@@ -40,4 +44,42 @@ pub struct LogRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AbortRequest {
     pub message: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct InsertRowRequest {
+    pub table: String,
+    pub row: Row,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct InsertRowResponse {}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct UpdateRowRequest {
+    pub table: String,
+    pub key: PrimitiveValue,
+    pub row: Row,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct UpdateRowResponse {}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DeleteRowRequest {
+    pub table: String,
+    pub key: PrimitiveValue,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DeleteRowResponse {}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct TableScanRequest {
+    pub table: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct TableScanResponse {
+    pub rows: Vec<Row>,
 }

@@ -1,16 +1,14 @@
 use serde::{Deserialize, Serialize};
 
-/// Opaque identifiers used across modules
-pub type ModuleId = u64;
-pub type ReducerId = u64;
-pub type TableId = u64;
-pub type SubscriptionId = u64;
-
-/// Generic byte buffer for ABI serialization
-pub type AbiBytes = Vec<u8>;
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct Row {
+    pub primary_key: PrimitiveValue,
+    pub entries: Vec<PrimitiveValue>,
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum PrimitiveType {
+    Void,
     I32,
     I64,
     F32,
@@ -18,25 +16,12 @@ pub enum PrimitiveType {
     Bool,
     String,
     Vec(Box<PrimitiveType>),
+    Option(Box<PrimitiveType>),
 }
 
-impl PrimitiveType {
-    pub fn matches(&self, value: &PrimitiveValue) -> bool {
-        matches!(
-            (self, value),
-            (PrimitiveType::I32, PrimitiveValue::I32(_))
-                | (PrimitiveType::I64, PrimitiveValue::I64(_))
-                | (PrimitiveType::F32, PrimitiveValue::F32(_))
-                | (PrimitiveType::F64, PrimitiveValue::F64(_))
-                | (PrimitiveType::Bool, PrimitiveValue::Bool(_))
-                | (PrimitiveType::String, PrimitiveValue::String(_))
-                | (PrimitiveType::Vec(_), PrimitiveValue::Vec(_))
-        )
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub enum PrimitiveValue {
+    Void,
     I32(i32),
     I64(i64),
     F32(f32),
@@ -44,4 +29,23 @@ pub enum PrimitiveValue {
     Bool(bool),
     String(String),
     Vec(Vec<PrimitiveValue>),
+    Option(Option<Box<PrimitiveValue>>),
+}
+
+pub fn validate_value(value: &PrimitiveValue, ty: &PrimitiveType) -> bool {
+    match (value, ty) {
+        (PrimitiveValue::Void, PrimitiveType::Void) => true,
+        (PrimitiveValue::I64(_), PrimitiveType::I64) => true,
+        (PrimitiveValue::F64(_), PrimitiveType::F64) => true,
+        (PrimitiveValue::F32(_), PrimitiveType::F32) => true,
+        (PrimitiveValue::Bool(_), PrimitiveType::Bool) => true,
+        (PrimitiveValue::I32(_), PrimitiveType::I32) => true,
+        (PrimitiveValue::String(_), PrimitiveType::String) => true,
+        (PrimitiveValue::Vec(v), PrimitiveType::Vec(inner)) => {
+            v.iter().all(|x| validate_value(x, inner))
+        }
+        (PrimitiveValue::Option(None), PrimitiveType::Option(_)) => true,
+        (PrimitiveValue::Option(Some(v)), PrimitiveType::Option(inner)) => validate_value(v, inner),
+        _ => false,
+    }
 }

@@ -4,17 +4,17 @@ use interstice_core::runtime::Runtime;
 fn main() -> anyhow::Result<()> {
     let mut runtime = Runtime::new();
 
-    let path = "../../modules/hello/target/wasm32-unknown-unknown/debug/hello.wasm";
+    let hello_path = "../../target/wasm32-unknown-unknown/debug/hello.wasm";
+    let caller_path = "../../target/wasm32-unknown-unknown/debug/caller.wasm";
 
-    runtime.load_module(path)?;
+    runtime.load_module(hello_path)?;
+    runtime.load_module(caller_path)?;
 
-    let result = runtime.invoke_reducer(
+    runtime.invoke_reducer(
         "hello",
         "hello",
-        PrimitiveValue::String("Interstice".into()),
+        PrimitiveValue::String("Naloween !".to_string()),
     )?;
-    if let PrimitiveValue::String(msg) = result {
-        println!("Result: {}", msg);
-    }
+    runtime.invoke_reducer("caller", "caller", PrimitiveValue::Option(None))?;
     Ok(())
 }

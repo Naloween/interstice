@@ -6,6 +6,7 @@ pub enum IntersticeError {
     ModuleAlreadyExists(String),
     ModuleNotFound(String),
 
+    TableNotFound { module: String, table: String },
     ReducerNotFound { module: String, reducer: String },
 
     ReducerCycle { module: String, reducer: String },
@@ -38,6 +39,9 @@ impl fmt::Display for IntersticeError {
             }
             ModuleNotFound(name) => {
                 write!(f, "module '{}' not found", name)
+            }
+            TableNotFound { module, table } => {
+                write!(f, "table '{}' not found in module '{}'", table, module)
             }
             ReducerNotFound { module, reducer } => {
                 write!(f, "reducer '{}' not found in module '{}'", reducer, module)

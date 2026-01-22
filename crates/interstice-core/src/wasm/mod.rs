@@ -1,14 +1,13 @@
 pub mod instance;
 pub mod linker;
 
-use interstice_abi::types::ModuleId;
 use wasmtime::{Caller, Memory};
 
 use crate::{error::IntersticeError, runtime::Runtime};
 
 pub struct StoreState {
     pub runtime: *mut Runtime,
-    pub module_id: ModuleId,
+    pub module_name: String,
 }
 
 pub fn read_bytes(

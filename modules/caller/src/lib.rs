@@ -1,7 +1,6 @@
-use interstice_abi::schema::EntrySchema;
 use interstice_abi::{
-    codec::pack_ptr_len, decode, encode, HostCall, LogRequest, ModuleSchema, PrimitiveType,
-    PrimitiveValue, ReducerSchema,
+    codec::pack_ptr_len, encode, CallReducerRequest, HostCall, LogRequest, ModuleSchema,
+    PrimitiveType, PrimitiveValue, ReducerSchema,
 };
 use std::alloc::{alloc as local_alloc, dealloc as local_dealloc, Layout};
 use std::slice;
@@ -26,16 +25,9 @@ pub extern "C" fn dealloc(ptr: i32, size: i32) {
 #[no_mangle]
 pub extern "C" fn interstice_describe() -> i64 {
     let schema = ModuleSchema::new(
-        "hello",
+        "caller",
         1,
-        vec![ReducerSchema::new(
-            "hello",
-            vec![EntrySchema {
-                name: "name".to_string(),
-                value_type: PrimitiveType::String,
-            }],
-            PrimitiveType::String,
-        )],
+        vec![ReducerSchema::new("caller", vec![], PrimitiveType::Void)],
         vec![],
     );
 
@@ -67,25 +59,36 @@ fn host_log(message: &str) {
     }
 }
 
+fn host_call(target_module: String, reducer: String, input: PrimitiveValue) {
+    let call = HostCall::CallReducer(CallReducerRequest {
+        target_module,
+        reducer,
+        input,
+    });
+
+    let bytes = encode(&call).unwrap();
+
+    unsafe {
+        interstice_host_call(bytes.as_ptr() as i32, bytes.len() as i32);
+    }
+}
+
 // REDUCERS
 
 #[no_mangle]
-pub extern "C" fn hello(ptr: i32, len: i32) -> i64 {
-    let bytes = unsafe { slice::from_raw_parts(ptr as *const u8, len as usize) };
-    let input: PrimitiveValue = decode(bytes).unwrap();
+pub extern "C" fn caller(_ptr: i32, _len: i32) -> i64 {
+    host_log("Calling hello....");
+    host_call(
+        "hello".to_string(),
+        "hello".to_string(),
+        PrimitiveValue::String("called from caller".to_string()),
+    );
+    host_log("hello called !");
 
-    if let PrimitiveValue::String(name) = input {
-        let msg = PrimitiveValue::String(format!("Hello, {}!", name));
-        let bytes = encode(&msg).unwrap();
-
-        host_log("First log !");
-
-        let out_ptr = alloc(bytes.len() as i32);
-        unsafe {
-            slice::from_raw_parts_mut(out_ptr as *mut u8, bytes.len()).copy_from_slice(&bytes);
-        }
-        return pack_ptr_len(out_ptr, bytes.len() as i32);
+    let bytes = encode(&PrimitiveValue::Void).unwrap();
+    let out_ptr = alloc(bytes.len() as i32);
+    unsafe {
+        slice::from_raw_parts_mut(out_ptr as *mut u8, bytes.len()).copy_from_slice(&bytes);
     }
-
-    return pack_ptr_len(0, 0);
+    return pack_ptr_len(out_ptr, bytes.len() as i32);
 }
