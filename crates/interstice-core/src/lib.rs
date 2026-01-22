@@ -1,4 +1,6 @@
-pub mod error;
+mod error;
 mod host;
-pub mod runtime;
+mod runtime;
 mod wasm;
+
+pub use crate::runtime::Runtime;

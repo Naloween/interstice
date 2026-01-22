@@ -2,7 +2,7 @@ use crate::{error::IntersticeError, runtime::Runtime};
 use interstice_abi::{CallReducerResponse, host::CallReducerRequest};
 
 impl Runtime {
-    pub fn handle_call_reducer(
+    pub(crate) fn handle_call_reducer(
         &mut self,
         call_reducer_request: CallReducerRequest,
     ) -> Result<CallReducerResponse, IntersticeError> {

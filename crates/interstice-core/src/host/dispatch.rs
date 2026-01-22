@@ -8,7 +8,7 @@ use serde::Serialize;
 use wasmtime::{Caller, Memory};
 
 impl Runtime {
-    pub fn dispatch_host_call(
+    pub(crate) fn dispatch_host_call(
         &mut self,
         memory: &wasmtime::Memory,
         caller: &mut Caller<'_, StoreState>,

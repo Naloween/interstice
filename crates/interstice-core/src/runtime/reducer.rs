@@ -35,7 +35,7 @@ impl ReducerFrame {
 }
 
 impl Runtime {
-    pub fn invoke_reducer(
+    pub(crate) fn invoke_reducer(
         &mut self,
         module_name: &str,
         reducer_name: &str,

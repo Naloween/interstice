@@ -1,5 +1,5 @@
 use interstice_abi::PrimitiveValue;
-use interstice_core::runtime::Runtime;
+use interstice_core::Runtime;
 
 fn main() -> anyhow::Result<()> {
     let mut runtime = Runtime::new();
@@ -15,6 +15,6 @@ fn main() -> anyhow::Result<()> {
         "hello",
         PrimitiveValue::String("Naloween !".to_string()),
     )?;
-    runtime.invoke_reducer("caller", "caller", PrimitiveValue::Option(None))?;
+    runtime.run("caller", "caller", PrimitiveValue::Option(None))?;
     Ok(())
 }

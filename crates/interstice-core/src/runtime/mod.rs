@@ -13,10 +13,10 @@ use std::{collections::HashMap, sync::Arc};
 use wasmtime::{Engine, Linker};
 
 pub struct Runtime {
-    pub modules: HashMap<String, Module>,
-    pub call_stack: Vec<ReducerFrame>,
-    pub engine: Arc<Engine>,
-    pub linker: Linker<StoreState>,
+    pub(crate) modules: HashMap<String, Module>,
+    pub(crate) call_stack: Vec<ReducerFrame>,
+    engine: Arc<Engine>,
+    linker: Linker<StoreState>,
 }
 
 impl Runtime {
