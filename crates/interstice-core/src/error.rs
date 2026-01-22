@@ -8,7 +8,7 @@ pub enum IntersticeError {
 
     TableNotFound { module: String, table: String },
     ReducerNotFound { module: String, reducer: String },
-
+    InvalidRow { module: String, table: String },
     ReducerCycle { module: String, reducer: String },
 
     // ─── WASM loading / linking ────────────────────────────────────────────
@@ -45,6 +45,13 @@ impl fmt::Display for IntersticeError {
             }
             ReducerNotFound { module, reducer } => {
                 write!(f, "reducer '{}' not found in module '{}'", reducer, module)
+            }
+            InvalidRow { module, table } => {
+                write!(
+                    f,
+                    "invalid row encountered on transaction in module {} for table '{}'",
+                    module, table
+                )
             }
             ReducerCycle { module, reducer } => {
                 write!(

@@ -9,6 +9,8 @@ pub struct Row {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum PrimitiveType {
     Void,
+    U32,
+    U64,
     I32,
     I64,
     F32,
@@ -22,6 +24,8 @@ pub enum PrimitiveType {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub enum PrimitiveValue {
     Void,
+    U32(u32),
+    U64(u64),
     I32(i32),
     I64(i64),
     F32(f32),
@@ -35,11 +39,13 @@ pub enum PrimitiveValue {
 pub fn validate_value(value: &PrimitiveValue, ty: &PrimitiveType) -> bool {
     match (value, ty) {
         (PrimitiveValue::Void, PrimitiveType::Void) => true,
-        (PrimitiveValue::I64(_), PrimitiveType::I64) => true,
-        (PrimitiveValue::F64(_), PrimitiveType::F64) => true,
-        (PrimitiveValue::F32(_), PrimitiveType::F32) => true,
         (PrimitiveValue::Bool(_), PrimitiveType::Bool) => true,
+        (PrimitiveValue::U32(_), PrimitiveType::U32) => true,
+        (PrimitiveValue::U64(_), PrimitiveType::U64) => true,
         (PrimitiveValue::I32(_), PrimitiveType::I32) => true,
+        (PrimitiveValue::I64(_), PrimitiveType::I64) => true,
+        (PrimitiveValue::F32(_), PrimitiveType::F32) => true,
+        (PrimitiveValue::F64(_), PrimitiveType::F64) => true,
         (PrimitiveValue::String(_), PrimitiveType::String) => true,
         (PrimitiveValue::Vec(v), PrimitiveType::Vec(inner)) => {
             v.iter().all(|x| validate_value(x, inner))

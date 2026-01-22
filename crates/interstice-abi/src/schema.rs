@@ -56,8 +56,8 @@ impl ReducerSchema {
 pub struct TableSchema {
     pub name: String,
     pub visibility: TableVisibility,
-    pub row_type: Entries,
-    pub primary_key: String,
+    pub entries: Entries,
+    pub primary_key: EntrySchema,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

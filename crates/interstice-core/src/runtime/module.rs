@@ -51,10 +51,6 @@ impl Module {
         &self.schema
     }
 
-    pub fn instance_mut(&mut self) -> &mut WasmInstance {
-        &mut self.instance
-    }
-
     pub fn call_reducer(
         &mut self,
         reducer: &str,

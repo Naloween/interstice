@@ -1,5 +1,5 @@
-use crate::error::IntersticeError;
 use crate::runtime::Runtime;
+use crate::{error::IntersticeError, runtime::table::validate_row};
 use interstice_abi::{DeleteRowRequest, InsertRowRequest, PrimitiveValue, UpdateRowRequest};
 
 #[derive(Debug)]
@@ -78,15 +78,19 @@ impl Runtime {
 
         // Apply transaction
         for insert in reducer_frame.transaction.inserts {
-            module
-                .tables
-                .get_mut(&insert.table)
-                .ok_or_else(|| IntersticeError::TableNotFound {
+            let table = module.tables.get_mut(&insert.table).ok_or_else(|| {
+                IntersticeError::TableNotFound {
                     module: module_name.into(),
                     table: insert.table.clone(),
-                })?
-                .rows
-                .push(insert.row);
+                }
+            })?;
+            if !validate_row(&insert.row, &table.schema) {
+                return Err(IntersticeError::InvalidRow {
+                    module: module_name.into(),
+                    table: insert.table.clone(),
+                });
+            }
+            table.rows.push(insert.row);
         }
         for update in reducer_frame.transaction.updates {
             let table = module.tables.get_mut(&update.table).ok_or_else(|| {
