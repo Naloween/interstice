@@ -1,5 +1,7 @@
 use crate::runtime::Runtime;
+use crate::runtime::table::TableEventInstance;
 use crate::{error::IntersticeError, runtime::table::validate_row};
+use interstice_abi::schema::TableEvent;
 use interstice_abi::{DeleteRowRequest, InsertRowRequest, PrimitiveValue, UpdateRowRequest};
 
 #[derive(Debug)]
@@ -14,6 +16,7 @@ pub struct ReducerFrame {
     pub module: String,
     pub reducer: String,
     pub transaction: Transaction,
+    pub emitted_events: Vec<TableEventInstance>,
 }
 
 impl ReducerFrame {
@@ -26,6 +29,7 @@ impl ReducerFrame {
                 updates: Vec::new(),
                 deletes: Vec::new(),
             },
+            emitted_events: Vec::new(),
         }
     }
 }
@@ -36,7 +40,7 @@ impl Runtime {
         module_name: &str,
         reducer_name: &str,
         args: PrimitiveValue,
-    ) -> Result<PrimitiveValue, IntersticeError> {
+    ) -> Result<(PrimitiveValue, Vec<TableEventInstance>), IntersticeError> {
         // Lookup module
         let module = self
             .modules
@@ -74,48 +78,68 @@ impl Runtime {
         let result = module.call_reducer(reducer_name, args)?;
 
         // Pop frame
-        let reducer_frame = self.call_stack.pop().unwrap();
+        let mut reducer_frame = self.call_stack.pop().unwrap();
 
         // Apply transaction
         for insert in reducer_frame.transaction.inserts {
-            let table = module.tables.get_mut(&insert.table).ok_or_else(|| {
+            let table = module.tables.get_mut(&insert.table_name).ok_or_else(|| {
                 IntersticeError::TableNotFound {
                     module: module_name.into(),
-                    table: insert.table.clone(),
+                    table: insert.table_name.clone(),
                 }
             })?;
             if !validate_row(&insert.row, &table.schema) {
                 return Err(IntersticeError::InvalidRow {
                     module: module_name.into(),
-                    table: insert.table.clone(),
+                    table: insert.table_name.clone(),
                 });
             }
-            table.rows.push(insert.row);
+            table.rows.push(insert.row.clone());
+            reducer_frame.emitted_events.push(TableEventInstance {
+                module_name: module_name.into(),
+                table_name: insert.table_name,
+                event: TableEvent::Insert,
+                row: insert.row,
+            });
         }
         for update in reducer_frame.transaction.updates {
-            let table = module.tables.get_mut(&update.table).ok_or_else(|| {
+            let table = module.tables.get_mut(&update.table_name).ok_or_else(|| {
                 IntersticeError::TableNotFound {
                     module: module_name.into(),
-                    table: update.table.clone(),
+                    table: update.table_name.clone(),
                 }
             })?;
             for row in table.rows.iter_mut() {
                 if row.primary_key == update.row.primary_key {
-                    *row = update.row;
+                    *row = update.row.clone();
                     break;
                 }
             }
+            reducer_frame.emitted_events.push(TableEventInstance {
+                module_name: module_name.into(),
+                table_name: update.table_name,
+                event: TableEvent::Update,
+                row: update.row,
+            });
         }
         for delete in reducer_frame.transaction.deletes {
-            let table = module.tables.get_mut(&delete.table).ok_or_else(|| {
+            let table = module.tables.get_mut(&delete.table_name).ok_or_else(|| {
                 IntersticeError::TableNotFound {
                     module: module_name.into(),
-                    table: delete.table.clone(),
+                    table: delete.table_name.clone(),
                 }
             })?;
+            if let Some(deleted_row) = table.rows.iter().find(|row| row.primary_key == delete.key) {
+                reducer_frame.emitted_events.push(TableEventInstance {
+                    module_name: module_name.into(),
+                    table_name: delete.table_name,
+                    event: TableEvent::Update,
+                    row: deleted_row.clone(),
+                });
+            }
             table.rows.retain(|row| row.primary_key != delete.key);
         }
 
-        Ok(result)
+        Ok((result, reducer_frame.emitted_events))
     }
 }

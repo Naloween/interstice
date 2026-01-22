@@ -6,10 +6,14 @@ impl Runtime {
         &mut self,
         call_reducer_request: CallReducerRequest,
     ) -> Result<CallReducerResponse, IntersticeError> {
-        return self.invoke_reducer(
+        let (result, events) = self.invoke_reducer(
             &call_reducer_request.target_module,
             &call_reducer_request.reducer,
             call_reducer_request.input,
-        );
+        )?;
+
+        let frame = self.call_stack.last_mut().unwrap();
+        frame.emitted_events.extend(events);
+        Ok(result)
     }
 }

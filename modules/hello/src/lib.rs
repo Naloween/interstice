@@ -1,5 +1,7 @@
 use interstice_abi::codec::unpack_ptr_len;
-use interstice_abi::schema::{EntrySchema, TableSchema, TableVisibility};
+use interstice_abi::schema::{
+    EntrySchema, SubscriptionSchema, TableEvent, TableSchema, TableVisibility,
+};
 use interstice_abi::{
     codec::pack_ptr_len, decode, encode, HostCall, LogRequest, ModuleSchema, PrimitiveType,
     PrimitiveValue, ReducerSchema,
@@ -30,14 +32,24 @@ pub extern "C" fn interstice_describe() -> i64 {
     let schema = ModuleSchema::new(
         "hello",
         1,
-        vec![ReducerSchema::new(
-            "hello",
-            vec![EntrySchema {
-                name: "name".to_string(),
-                value_type: PrimitiveType::String,
-            }],
-            PrimitiveType::String,
-        )],
+        vec![
+            ReducerSchema::new(
+                "hello",
+                vec![EntrySchema {
+                    name: "name".to_string(),
+                    value_type: PrimitiveType::String,
+                }],
+                PrimitiveType::String,
+            ),
+            ReducerSchema::new(
+                "on_greeting",
+                vec![EntrySchema {
+                    name: "greeting".to_string(),
+                    value_type: PrimitiveType::String,
+                }],
+                PrimitiveType::Void,
+            ),
+        ],
         vec![TableSchema {
             name: "greetings".to_string(),
             visibility: TableVisibility::Public,
@@ -49,6 +61,12 @@ pub extern "C" fn interstice_describe() -> i64 {
                 name: "id".to_string(),
                 value_type: PrimitiveType::I64,
             },
+        }],
+        vec![SubscriptionSchema {
+            module_name: "hello".to_string(),
+            table_name: "greetings".to_string(),
+            reducer_name: "on_greeting".to_string(),
+            event: TableEvent::Insert,
         }],
     );
 
@@ -82,7 +100,7 @@ fn host_log(message: &str) {
 
 fn host_insert_row(id: i64, greeting: String) {
     let call = HostCall::InsertRow(InsertRowRequest {
-        table: "greetings".to_string(),
+        table_name: "greetings".to_string(),
         row: Row {
             primary_key: PrimitiveValue::I64(id),
             entries: vec![PrimitiveValue::String(greeting)],
@@ -133,6 +151,22 @@ pub extern "C" fn hello(ptr: i32, len: i32) -> i64 {
     }
 
     let bytes = encode(&msg).unwrap();
+    let out_ptr = alloc(bytes.len() as i32);
+    unsafe {
+        slice::from_raw_parts_mut(out_ptr as *mut u8, bytes.len()).copy_from_slice(&bytes);
+    }
+    return pack_ptr_len(out_ptr, bytes.len() as i32);
+}
+
+#[no_mangle]
+pub extern "C" fn on_greeting(ptr: i32, len: i32) -> i64 {
+    let bytes = unsafe { slice::from_raw_parts(ptr as *const u8, len as usize) };
+    let input: PrimitiveValue = decode(bytes).unwrap();
+
+    host_log("On new greetings: ");
+
+    let mut res = PrimitiveValue::Void;
+    let bytes = encode(&res).unwrap();
     let out_ptr = alloc(bytes.len() as i32);
     unsafe {
         slice::from_raw_parts_mut(out_ptr as *mut u8, bytes.len()).copy_from_slice(&bytes);

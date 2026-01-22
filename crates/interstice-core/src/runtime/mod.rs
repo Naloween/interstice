@@ -1,11 +1,14 @@
-pub mod module;
-pub mod reducer;
-pub mod table;
+mod module;
+mod reducer;
+mod table;
 
 use crate::{
-    runtime::{module::Module, reducer::ReducerFrame},
+    error::IntersticeError,
+    runtime::{module::Module, reducer::ReducerFrame, table::TableEventInstance},
     wasm::{StoreState, linker::define_host_calls},
 };
+use interstice_abi::PrimitiveValue;
+use std::collections::VecDeque;
 use std::{collections::HashMap, sync::Arc};
 use wasmtime::{Engine, Linker};
 
@@ -28,4 +31,81 @@ impl Runtime {
             linker,
         }
     }
+
+    pub fn run(
+        &mut self,
+        module: &str,
+        reducer: &str,
+        args: PrimitiveValue,
+    ) -> Result<PrimitiveValue, IntersticeError> {
+        let mut event_queue = VecDeque::<TableEventInstance>::new();
+
+        // 1. Call root reducer
+        let (result, events) = self.invoke_reducer(module, reducer, args)?;
+        event_queue.extend(events);
+
+        // 2. Process subscriptions
+        self.process_event_queue(&mut event_queue)?;
+
+        // 3. Return root result
+        Ok(result)
+    }
+
+    fn process_event_queue(
+        &mut self,
+        event_queue: &mut VecDeque<TableEventInstance>,
+    ) -> Result<(), IntersticeError> {
+        while let Some(event) = event_queue.pop_front() {
+            let triggered = self.find_subscriptions(&event)?;
+
+            for sub in triggered {
+                let ((), new_events) = self.invoke_subscription(sub, &event)?;
+                event_queue.extend(new_events);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn find_subscriptions(
+        &self,
+        event: &TableEventInstance,
+    ) -> Result<Vec<SubscriptionTarget>, IntersticeError> {
+        let mut out = Vec::new();
+
+        for module in self.modules.values() {
+            for sub in &module.schema.subscriptions {
+                if sub.event == event.event
+                    && sub.table_name == event.table_name
+                    && sub.module_name == event.module_name
+                {
+                    out.push(SubscriptionTarget {
+                        module: module.schema.name.clone(),
+                        reducer: sub.reducer_name.clone(),
+                    });
+                }
+            }
+        }
+
+        Ok(out)
+    }
+
+    fn invoke_subscription(
+        &mut self,
+        target: SubscriptionTarget,
+        event: &TableEventInstance,
+    ) -> Result<((), Vec<TableEventInstance>), IntersticeError> {
+        let args = PrimitiveValue::from_row(&event.row);
+        let (_ret, events) = self.invoke_reducer(&target.module, &target.reducer, args)?;
+        println!(
+            "Subscription invoked: {}::{} for event on {}::{}",
+            target.module, target.reducer, event.module_name, event.table_name
+        );
+        Ok(((), events))
+    }
+}
+
+struct SubscriptionTarget {
+    module: String,
+    reducer: String,
 }

@@ -1,4 +1,4 @@
 pub mod error;
-pub mod host;
+mod host;
 pub mod runtime;
-pub mod wasm;
+mod wasm;

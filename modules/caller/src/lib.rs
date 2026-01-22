@@ -29,6 +29,7 @@ pub extern "C" fn interstice_describe() -> i64 {
         1,
         vec![ReducerSchema::new("caller", vec![], PrimitiveType::Void)],
         vec![],
+        vec![],
     );
 
     let bytes = encode(&schema).unwrap();

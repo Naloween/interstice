@@ -36,6 +36,15 @@ pub enum PrimitiveValue {
     Option(Option<Box<PrimitiveValue>>),
 }
 
+impl PrimitiveValue {
+    pub fn from_row(row: &Row) -> Self {
+        let mut values = Vec::with_capacity(1 + row.entries.len());
+        values.push(row.primary_key.clone());
+        values.extend_from_slice(&row.entries);
+        PrimitiveValue::Vec(values)
+    }
+}
+
 pub fn validate_value(value: &PrimitiveValue, ty: &PrimitiveType) -> bool {
     match (value, ty) {
         (PrimitiveValue::Void, PrimitiveType::Void) => true,

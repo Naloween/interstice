@@ -10,7 +10,7 @@ fn main() -> anyhow::Result<()> {
     runtime.load_module(hello_path)?;
     runtime.load_module(caller_path)?;
 
-    runtime.invoke_reducer(
+    runtime.run(
         "hello",
         "hello",
         PrimitiveValue::String("Naloween !".to_string()),

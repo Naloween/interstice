@@ -48,7 +48,7 @@ pub struct AbortRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct InsertRowRequest {
-    pub table: String,
+    pub table_name: String,
     pub row: Row,
 }
 
@@ -57,7 +57,7 @@ pub struct InsertRowResponse {}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct UpdateRowRequest {
-    pub table: String,
+    pub table_name: String,
     pub key: PrimitiveValue,
     pub row: Row,
 }
@@ -67,7 +67,7 @@ pub struct UpdateRowResponse {}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DeleteRowRequest {
-    pub table: String,
+    pub table_name: String,
     pub key: PrimitiveValue,
 }
 

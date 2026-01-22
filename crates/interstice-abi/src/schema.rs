@@ -16,6 +16,7 @@ pub struct ModuleSchema {
     pub version: u32,
     pub reducers: Vec<ReducerSchema>,
     pub tables: Vec<TableSchema>,
+    pub subscriptions: Vec<SubscriptionSchema>,
 }
 
 impl ModuleSchema {
@@ -24,6 +25,7 @@ impl ModuleSchema {
         version: u32,
         reducers: Vec<ReducerSchema>,
         tables: Vec<TableSchema>,
+        subscriptions: Vec<SubscriptionSchema>,
     ) -> Self {
         Self {
             abi_version: ABI_VERSION,
@@ -31,6 +33,7 @@ impl ModuleSchema {
             version,
             reducers,
             tables,
+            subscriptions,
         }
     }
 }
@@ -64,4 +67,19 @@ pub struct TableSchema {
 pub enum TableVisibility {
     Public,
     Private,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SubscriptionSchema {
+    pub module_name: String,
+    pub table_name: String,
+    pub reducer_name: String,
+    pub event: TableEvent,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub enum TableEvent {
+    Insert,
+    Update,
+    Delete,
 }

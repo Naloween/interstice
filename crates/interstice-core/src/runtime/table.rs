@@ -1,8 +1,20 @@
-use interstice_abi::{Row, schema::TableSchema, validate_value};
+use interstice_abi::{
+    Row,
+    schema::{TableEvent, TableSchema},
+    validate_value,
+};
 
 pub struct Table {
     pub schema: TableSchema,
     pub rows: Vec<Row>,
+}
+
+#[derive(Debug)]
+pub struct TableEventInstance {
+    pub module_name: String,
+    pub table_name: String,
+    pub event: TableEvent,
+    pub row: Row,
 }
 
 pub fn validate_row(row: &Row, schema: &TableSchema) -> bool {
