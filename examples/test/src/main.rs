@@ -10,11 +10,11 @@ fn main() -> anyhow::Result<()> {
     runtime.load_module(hello_path)?;
     // runtime.load_module(caller_path)?;
 
-    // runtime.run(
-    //     "hello",
-    //     "hello",
-    //     IntersticeValue::String("Naloween !".to_string()),
-    // )?;
+    runtime.run(
+        "hello",
+        "hello",
+        IntersticeValue::Vec(vec![IntersticeValue::String("Naloween !".to_string())]),
+    )?;
     // runtime.run("caller", "caller", IntersticeValue::Option(None))?;
     Ok(())
 }

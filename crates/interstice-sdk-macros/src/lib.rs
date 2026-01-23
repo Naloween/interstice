@@ -1,3 +1,4 @@
+use interstice_abi::get_reducer_wrapper_name;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{parse_macro_input, ItemFn, LitInt};
@@ -6,7 +7,10 @@ use syn::{parse_macro_input, ItemFn, LitInt};
 pub fn reducer(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input_fn = parse_macro_input!(item as ItemFn);
     let fn_name = &input_fn.sig.ident;
-    let wrapper_name = syn::Ident::new(&format!("interstice_{}_wrapper", fn_name), fn_name.span());
+    let wrapper_name = syn::Ident::new(
+        &get_reducer_wrapper_name(&fn_name.to_string()),
+        fn_name.span(),
+    );
     let schema_name = syn::Ident::new(&format!("interstice_{}_schema", fn_name), fn_name.span());
     let register_schema_name = syn::Ident::new(
         &format!("interstice_register_{}_schema", fn_name),
@@ -65,15 +69,24 @@ pub fn reducer(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let gen = quote! {
         #input_fn
 
-        fn #wrapper_name(interstice_args: interstice_abi::IntersticeValue) -> interstice_abi::IntersticeValue {
+        #[no_mangle]
+        pub extern "C" fn #wrapper_name(ptr: i32, len: i32) -> i64 {
+            let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
+            let interstice_args: interstice_abi::IntersticeValue = interstice_abi::decode(bytes).unwrap();
             let interstice_args_vec = match interstice_args {
                 interstice_abi::IntersticeValue::Vec(v) => v,
                 _ => panic!("Expected Vec<IntersticeValue>"),
             };
             if interstice_args_vec.len() != #arg_count { panic!("Expected #arg_count arguments") }
 
-            let res = #fn_name(#(#args),*);
-            res.into()
+            let res: interstice_abi::IntersticeValue = #fn_name(#(#args),*).into();
+
+            let bytes = interstice_abi::encode(&res).unwrap();
+            let out_ptr = alloc(bytes.len() as i32);
+            unsafe {
+                std::slice::from_raw_parts_mut(out_ptr as *mut u8, bytes.len()).copy_from_slice(&bytes);
+            }
+            return interstice_abi::pack_ptr_len(out_ptr, bytes.len() as i32);
         }
 
 
@@ -87,7 +100,7 @@ pub fn reducer(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
         #[ctor::ctor]
         fn #register_schema_name() {
-            interstice_sdk::interstice_sdk_core::register_reducer(#schema_name);
+            interstice_sdk::register_reducer(#schema_name);
         }
     };
     gen.into()

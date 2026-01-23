@@ -764,7 +764,6 @@ dependencies = [
  "interstice-abi",
  "interstice-sdk-core",
  "interstice-sdk-macros",
- "lazy_static",
 ]
 
 [[package]]

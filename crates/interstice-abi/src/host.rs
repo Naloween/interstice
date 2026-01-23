@@ -83,3 +83,7 @@ pub struct TableScanRequest {
 pub struct TableScanResponse {
     pub rows: Vec<Row>,
 }
+
+pub fn get_reducer_wrapper_name(reducer_name: &str) -> String {
+    format!("__interstice_reducer_wrapper_{}", reducer_name)
+}

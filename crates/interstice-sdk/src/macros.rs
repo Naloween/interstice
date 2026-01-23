@@ -1,6 +1,10 @@
+use interstice_abi::{ModuleSchema, encode, pack_ptr_len};
+
 #[macro_export]
 macro_rules! interstice_module {
     () => {
+        // Use wee_alloc as the global allocator.
+
         #[global_allocator]
         static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
@@ -16,15 +20,55 @@ macro_rules! interstice_module {
             unsafe { local_dealloc(ptr as *mut u8, layout) }
         }
 
+        // Panic hook to log panics to host
+
+        #[ctor::ctor]
+        fn interstice_init() {
+            std::panic::set_hook(Box::new(|info| {
+                let msg = if let Some(s) = info.payload().downcast_ref::<&str>() {
+                    *s
+                } else if let Some(s) = info.payload().downcast_ref::<String>() {
+                    s.as_str()
+                } else {
+                    "panic occurred"
+                };
+
+                // send to host
+                interstice_sdk::log(&format!("Panic Error: {}", msg));
+            }));
+        }
+
+        // Module Schema Description
+
         const __INTERSTICE_MODULE_NAME: &str = env!("CARGO_PKG_NAME");
         const __INTERSTICE_MODULE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
         #[unsafe(no_mangle)]
         pub extern "C" fn interstice_describe() -> i64 {
-            interstice_sdk::internal::describe_module(
+            interstice_sdk::macros::describe_module(
                 __INTERSTICE_MODULE_NAME,
                 __INTERSTICE_MODULE_VERSION,
             )
         }
     };
+}
+
+pub fn describe_module(name: &str, version: &str) -> i64 {
+    let reducers = interstice_sdk_core::collect_reducers();
+    let tables = interstice_sdk_core::collect_tables();
+    let subscriptions = interstice_sdk_core::collect_subscriptions();
+
+    let schema = ModuleSchema {
+        abi_version: interstice_abi::ABI_VERSION,
+        name: name.to_string(),
+        version: version.into(),
+        reducers,
+        tables,
+        subscriptions,
+    };
+
+    let bytes = encode(&schema).unwrap();
+    let len = bytes.len() as i32;
+    let ptr = Box::into_raw(bytes.into_boxed_slice()) as *mut u8 as i32;
+    return pack_ptr_len(ptr, len);
 }
