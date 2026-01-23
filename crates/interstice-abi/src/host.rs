@@ -29,8 +29,8 @@ pub enum HostCall {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CallReducerRequest {
-    pub target_module: String,
-    pub reducer: String,
+    pub module_name: String,
+    pub reducer_name: String,
     pub input: IntersticeValue,
 }
 

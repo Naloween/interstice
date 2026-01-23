@@ -1,5 +1,6 @@
 use interstice_abi::{
-    HostCall, InsertRowRequest, LogRequest, Row, TableScanRequest, decode, encode, unpack_ptr_len,
+    CallReducerRequest, HostCall, InsertRowRequest, IntersticeValue, LogRequest, Row,
+    TableScanRequest, decode, encode, unpack_ptr_len,
 };
 
 #[link(wasm_import_module = "interstice")]
@@ -18,6 +19,26 @@ pub fn log(message: &str) {
         interstice_host_call(bytes.as_ptr() as i32, bytes.len() as i32);
     }
 }
+pub fn call_reducer(
+    module_name: String,
+    reducer_name: String,
+    input: IntersticeValue,
+) -> IntersticeValue {
+    let call = HostCall::CallReducer(CallReducerRequest {
+        module_name,
+        reducer_name,
+        input,
+    });
+
+    let bytes = encode(&call).unwrap();
+
+    let pack = unsafe { interstice_host_call(bytes.as_ptr() as i32, bytes.len() as i32) };
+    let (ptr, len) = unpack_ptr_len(pack);
+    let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    let result: IntersticeValue = decode(bytes).unwrap();
+    return result;
+}
+
 pub fn insert_row(table_name: String, row: Row) {
     let call = HostCall::InsertRow(InsertRowRequest { table_name, row });
 

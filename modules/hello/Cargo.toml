@@ -7,7 +7,4 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-wee_alloc = "0.4"
-interstice-abi = { path = "../../crates/interstice-abi" }
 interstice-sdk = { path = "../../crates/interstice-sdk" }
-ctor = "*"

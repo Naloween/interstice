@@ -7,8 +7,8 @@ impl Runtime {
         call_reducer_request: CallReducerRequest,
     ) -> Result<CallReducerResponse, IntersticeError> {
         let (result, events) = self.invoke_reducer(
-            &call_reducer_request.target_module,
-            &call_reducer_request.reducer,
+            &call_reducer_request.module_name,
+            &call_reducer_request.reducer_name,
             call_reducer_request.input,
         )?;
 

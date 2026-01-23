@@ -5,6 +5,32 @@ pub struct Row {
     pub primary_key: IntersticeValue,
     pub entries: Vec<IntersticeValue>,
 }
+impl Into<IntersticeValue> for Row {
+    fn into(mut self) -> IntersticeValue {
+        let mut all_entries = vec![self.primary_key];
+        all_entries.append(&mut self.entries);
+        IntersticeValue::Vec(all_entries)
+    }
+}
+
+impl Into<Row> for IntersticeValue {
+    fn into(self) -> Row {
+        match self {
+            IntersticeValue::Vec(mut vec) => {
+                if vec.len() >= 1 {
+                    let pk = vec.remove(0);
+                    Row {
+                        primary_key: pk,
+                        entries: vec,
+                    }
+                } else {
+                    panic!("Couldn't convert interstice value to row (empty vec)");
+                }
+            }
+            _ => panic!("Couldn't convert interstice value to row (got {:?})", self),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum IntersticeType {
@@ -19,6 +45,7 @@ pub enum IntersticeType {
     String,
     Vec(Box<IntersticeType>),
     Option(Box<IntersticeType>),
+    Row,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -32,6 +59,7 @@ pub enum IntersticeValue {
     F64(f64),
     Bool(bool),
     String(String),
+    Row(Box<Row>),
     Vec(Vec<IntersticeValue>),
     Option(Option<Box<IntersticeValue>>),
 }
@@ -74,6 +102,7 @@ impl Into<IntersticeType> for String {
 }
 impl Into<IntersticeType> for &str {
     fn into(self) -> IntersticeType {
+        // TODO: Vec, Option
         match self {
             "()" => IntersticeType::Void,
             "Void" => IntersticeType::Void,
@@ -85,6 +114,7 @@ impl Into<IntersticeType> for &str {
             "f64" => IntersticeType::F64,
             "bool" => IntersticeType::Bool,
             "String" => IntersticeType::String,
+            "Row" => IntersticeType::Row,
             _ => panic!("Unknown IntersticeType string: {}", self),
         }
     }

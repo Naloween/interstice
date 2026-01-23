@@ -59,7 +59,7 @@ impl Runtime {
             let triggered = self.find_subscriptions(&event)?;
 
             for sub in triggered {
-                let ((), new_events) = self.invoke_subscription(sub, &event)?;
+                let ((), new_events) = self.invoke_subscription(sub, event.clone())?;
                 event_queue.extend(new_events);
             }
         }
@@ -75,9 +75,9 @@ impl Runtime {
 
         for module in self.modules.values() {
             for sub in &module.schema.subscriptions {
-                if sub.event == event.event
-                    && sub.table_name == event.table_name
-                    && sub.module_name == event.module_name
+                if sub.event == event.get_event()
+                    && &sub.table_name == event.get_table_name()
+                    && &sub.module_name == event.get_module_name()
                 {
                     out.push(SubscriptionTarget {
                         module: module.schema.name.clone(),
@@ -93,14 +93,28 @@ impl Runtime {
     fn invoke_subscription(
         &mut self,
         target: SubscriptionTarget,
-        event: &TableEventInstance,
+        event: TableEventInstance,
     ) -> Result<((), Vec<TableEventInstance>), IntersticeError> {
-        let args = IntersticeValue::from_row(&event.row);
+        let args = match event {
+            TableEventInstance::TableInsertEvent {
+                module_name: _,
+                table_name: _,
+                inserted_row,
+            } => IntersticeValue::Vec(vec![inserted_row.into()]),
+            TableEventInstance::TableUpdateEvent {
+                module_name: _,
+                table_name: _,
+                old_row,
+                new_row,
+            } => IntersticeValue::Vec(vec![old_row.into(), new_row.into()]),
+            TableEventInstance::TableDeleteEvent {
+                module_name: _,
+                table_name: _,
+                deleted_row,
+            } => IntersticeValue::Vec(vec![deleted_row.into()]),
+        };
+
         let (_ret, events) = self.invoke_reducer(&target.module, &target.reducer, args)?;
-        println!(
-            "Subscription invoked: {}::{} for event on {}::{}",
-            target.module, target.reducer, event.module_name, event.table_name
-        );
         Ok(((), events))
     }
 }

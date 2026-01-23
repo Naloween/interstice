@@ -1,7 +1,32 @@
 use interstice_abi::get_reducer_wrapper_name;
 use proc_macro::TokenStream;
-use quote::{quote, ToTokens};
+use quote::{format_ident, quote, ToTokens};
 use syn::{parse_macro_input, ItemFn, LitInt, Meta};
+
+#[proc_macro_attribute]
+pub fn init(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let mut input = parse_macro_input!(item as ItemFn);
+    let name = &input.sig.ident;
+
+    // 1. Correctly set the ABI to "C" inside the function signature
+    // This ensures 'pub extern "C" fn' order is correct automatically
+    input.sig.abi = Some(syn::Abi {
+        extern_token: syn::token::Extern::default(),
+        name: Some(syn::LitStr::new("C", proc_macro2::Span::call_site())),
+    });
+
+    let init_static_name = format_ident!("__INTERSTICE_INIT_{}", name.to_string().to_uppercase());
+
+    quote! {
+        #[unsafe(no_mangle)]
+        #input
+
+        #[used]
+        #[link_section = ".init_array"]
+        static #init_static_name: extern "C" fn() = #name;
+    }
+    .into()
+}
 
 #[proc_macro_attribute]
 pub fn table(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -19,15 +44,15 @@ pub fn table(attr: TokenStream, item: TokenStream) -> TokenStream {
         .find_map(|arg| {
             if let Meta::Path(nv) = arg {
                 if nv.is_ident("public") {
-                    return Some(quote! { interstice_abi::TableVisibility::Public });
+                    return Some(quote! { interstice_sdk::TableVisibility::Public });
                 } else if nv.is_ident("private") {
-                    return Some(quote! { interstice_abi::TableVisibility::Private });
+                    return Some(quote! { interstice_sdk::TableVisibility::Private });
                 }
             }
             None
         })
         .unwrap_or_else(|| {
-            quote! { interstice_abi::TableVisibility::Private }
+            quote! { interstice_sdk::TableVisibility::Private }
         });
 
     // Generate the entries and primary key
@@ -45,7 +70,7 @@ pub fn table(attr: TokenStream, item: TokenStream) -> TokenStream {
     for field in fields.iter() {
         let field_name = field.ident.as_ref().unwrap().to_string();
         let field_ty_str = field.ty.to_token_stream().to_string();
-        let field_ty = quote! { Into::<interstice_abi::IntersticeType>::into(#field_ty_str)};
+        let field_ty = quote! { Into::<interstice_sdk::IntersticeType>::into(#field_ty_str)};
 
         let is_pk = field
             .attrs
@@ -62,7 +87,7 @@ pub fn table(attr: TokenStream, item: TokenStream) -> TokenStream {
             primary_key = Some((field_name, field_ty));
         } else {
             entries.push(quote! {
-                interstice_abi::EntrySchema {
+                interstice_sdk::EntrySchema {
                     name: #field_name.to_string(),
                     value_type: #field_ty,
                 }
@@ -99,19 +124,18 @@ pub fn table(attr: TokenStream, item: TokenStream) -> TokenStream {
     quote! {
         #output_struct
 
-        fn #schema_fn() -> interstice_abi::TableSchema {
-            interstice_abi::TableSchema {
+        fn #schema_fn() -> interstice_sdk::TableSchema {
+            interstice_sdk::TableSchema {
                 name: #struct_name.to_string(),
                 visibility: #visibility,
                 entries: vec![#(#entries),*],
-                primary_key: interstice_abi::EntrySchema {
+                primary_key: interstice_sdk::EntrySchema {
                     name: #pk_name.to_string(),
                     value_type: #pk_type.into(),
                 },
             }
         }
-
-        #[ctor::ctor]
+        #[interstice_sdk::init]
         fn #register_fn() {
             interstice_sdk::register_table(#schema_fn);
         }
@@ -120,17 +144,28 @@ pub fn table(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn reducer(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn reducer(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input_fn = parse_macro_input!(item as ItemFn);
-    let fn_name = &input_fn.sig.ident;
+    let reducer_name = &input_fn.sig.ident;
     let wrapper_name = syn::Ident::new(
-        &get_reducer_wrapper_name(&fn_name.to_string()),
-        fn_name.span(),
+        &get_reducer_wrapper_name(&reducer_name.to_string()),
+        reducer_name.span(),
     );
-    let schema_name = syn::Ident::new(&format!("interstice_{}_schema", fn_name), fn_name.span());
-    let register_schema_name = syn::Ident::new(
-        &format!("interstice_register_{}_schema", fn_name),
-        fn_name.span(),
+    let reducer_schema_fn = syn::Ident::new(
+        &format!("interstice_{}_schema", reducer_name),
+        reducer_name.span(),
+    );
+    let register_reducer_schema_fn = syn::Ident::new(
+        &format!("interstice_register_{}_schema", reducer_name),
+        reducer_name.span(),
+    );
+    let subscription_schema_fn = syn::Ident::new(
+        &format!("interstice_{}_subscription_schema", reducer_name),
+        reducer_name.span(),
+    );
+    let register_subscription_schema_fn = syn::Ident::new(
+        &format!("interstice_register_{}_subscription_schema", reducer_name),
+        reducer_name.span(),
     );
 
     let arg_names: Vec<_> = input_fn
@@ -164,7 +199,7 @@ pub fn reducer(_attr: TokenStream, item: TokenStream) -> TokenStream {
         let arg_name_str = quote! { #arg_name }.to_string();
         let arg_type_str = quote! { #arg_type }.to_string();
         quote! {
-            interstice_abi::EntrySchema {
+            interstice_sdk::EntrySchema {
                 name: #arg_name_str.to_string(),
                 value_type: #arg_type_str.to_string().into(),
             }
@@ -172,13 +207,55 @@ pub fn reducer(_attr: TokenStream, item: TokenStream) -> TokenStream {
     });
 
     let return_type = match &input_fn.sig.output {
-        syn::ReturnType::Default => quote! { interstice_abi::IntersticeType::Void },
+        syn::ReturnType::Default => quote! { interstice_sdk::IntersticeType::Void },
         syn::ReturnType::Type(_, ty) => {
             let ty = ty.to_token_stream().to_string();
             quote! {
                #ty.to_string().into()
             }
         }
+    };
+
+    // Add potential subscription
+    let attributes = syn::parse_macro_input!(
+        attr with syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated
+    );
+    let subscription = attributes.iter().find_map(|arg| {
+        if let Meta::NameValue(nv) = arg {
+            if nv.path.is_ident("on") {
+                let sub_str = nv.value.to_token_stream().to_string();
+                let mut parsed_sub: Vec<&str> = sub_str.split(".").collect();
+                if parsed_sub.len() == 3 {
+                    let event_name = parsed_sub.pop().unwrap();
+                    let table_name = parsed_sub.pop().unwrap();
+                    let module_name = parsed_sub.pop().unwrap();
+                    return Some(quote! {
+                            interstice_sdk::SubscriptionSchema {
+                            module_name: #module_name.to_string(),
+                            table_name: #table_name.to_string(),
+                            reducer_name: stringify!(#reducer_name).to_string(),
+                            event: #event_name.into(),
+                        }
+                    });
+                }
+            }
+        }
+        None
+    });
+
+    let register_subscription = if let Some(subscription_schema) = subscription {
+        quote! {
+            fn #subscription_schema_fn() -> interstice_sdk::SubscriptionSchema {
+                #subscription_schema
+            }
+
+            #[interstice_sdk::init]
+            fn #register_subscription_schema_fn() {
+                interstice_sdk::register_subscription(#subscription_schema_fn);
+            }
+        }
+    } else {
+        quote! {}
     };
 
     // Generate wrapper and schema
@@ -188,35 +265,37 @@ pub fn reducer(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #[no_mangle]
         pub extern "C" fn #wrapper_name(ptr: i32, len: i32) -> i64 {
             let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
-            let interstice_args: interstice_abi::IntersticeValue = interstice_abi::decode(bytes).unwrap();
+            let interstice_args: interstice_sdk::IntersticeValue = interstice_sdk::decode(bytes).unwrap();
             let interstice_args_vec = match interstice_args {
-                interstice_abi::IntersticeValue::Vec(v) => v,
+                interstice_sdk::IntersticeValue::Vec(v) => v,
                 _ => panic!("Expected Vec<IntersticeValue>"),
             };
-            if interstice_args_vec.len() != #arg_count { panic!("Expected #arg_count arguments") }
+            if interstice_args_vec.len() != #arg_count { panic!("Expected {} arguments, got {}", #arg_count, interstice_args_vec.len()) }
 
-            let res: interstice_abi::IntersticeValue = #fn_name(#(#args),*).into();
+            let res: interstice_sdk::IntersticeValue = #reducer_name(#(#args),*).into();
 
-            let bytes = interstice_abi::encode(&res).unwrap();
+            let bytes = interstice_sdk::encode(&res).unwrap();
             let out_ptr = alloc(bytes.len() as i32);
             unsafe {
                 std::slice::from_raw_parts_mut(out_ptr as *mut u8, bytes.len()).copy_from_slice(&bytes);
             }
-            return interstice_abi::pack_ptr_len(out_ptr, bytes.len() as i32);
+            return interstice_sdk::pack_ptr_len(out_ptr, bytes.len() as i32);
         }
 
 
-        fn #schema_name() -> interstice_abi::ReducerSchema {
-            interstice_abi::ReducerSchema::new(
-                stringify!(#fn_name),
+        fn #reducer_schema_fn() -> interstice_sdk::ReducerSchema {
+            interstice_sdk::ReducerSchema::new(
+                stringify!(#reducer_name),
                 vec![#(#schema_entries),*],
                 #return_type,
             )
         }
 
-        #[ctor::ctor]
-        fn #register_schema_name() {
-            interstice_sdk::register_reducer(#schema_name);
+        #[interstice_sdk::init]
+        fn #register_reducer_schema_fn() {
+            interstice_sdk::register_reducer(#reducer_schema_fn);
         }
+
+        #register_subscription
     }.into()
 }

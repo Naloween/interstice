@@ -5,5 +5,6 @@ edition = "2024"
 
 [dependencies]
 interstice-abi = { path = "../interstice-abi" }
-interstice-sdk-macros = { path = "../interstice-sdk-macros" }
 interstice-sdk-core = { path = "../interstice-sdk-core" }
+interstice-sdk-macros = { path = "../interstice-sdk-macros" }
+wee_alloc = "0.4"

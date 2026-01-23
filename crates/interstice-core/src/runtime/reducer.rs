@@ -95,12 +95,13 @@ impl Runtime {
                 });
             }
             table.rows.push(insert.row.clone());
-            reducer_frame.emitted_events.push(TableEventInstance {
-                module_name: module_name.into(),
-                table_name: insert.table_name,
-                event: TableEvent::Insert,
-                row: insert.row,
-            });
+            reducer_frame
+                .emitted_events
+                .push(TableEventInstance::TableInsertEvent {
+                    module_name: module_name.into(),
+                    table_name: insert.table_name,
+                    inserted_row: insert.row,
+                });
         }
         for update in reducer_frame.transaction.updates {
             let table = module.tables.get_mut(&update.table_name).ok_or_else(|| {
@@ -109,18 +110,24 @@ impl Runtime {
                     table: update.table_name.clone(),
                 }
             })?;
+            let mut old_row = None;
             for row in table.rows.iter_mut() {
                 if row.primary_key == update.row.primary_key {
+                    old_row = Some(row.clone());
                     *row = update.row.clone();
                     break;
                 }
             }
-            reducer_frame.emitted_events.push(TableEventInstance {
-                module_name: module_name.into(),
-                table_name: update.table_name,
-                event: TableEvent::Update,
-                row: update.row,
-            });
+            if let Some(old_row) = old_row {
+                reducer_frame
+                    .emitted_events
+                    .push(TableEventInstance::TableUpdateEvent {
+                        module_name: module_name.into(),
+                        table_name: update.table_name,
+                        old_row,
+                        new_row: update.row,
+                    });
+            }
         }
         for delete in reducer_frame.transaction.deletes {
             let table = module.tables.get_mut(&delete.table_name).ok_or_else(|| {
@@ -129,15 +136,21 @@ impl Runtime {
                     table: delete.table_name.clone(),
                 }
             })?;
-            if let Some(deleted_row) = table.rows.iter().find(|row| row.primary_key == delete.key) {
-                reducer_frame.emitted_events.push(TableEventInstance {
-                    module_name: module_name.into(),
-                    table_name: delete.table_name,
-                    event: TableEvent::Update,
-                    row: deleted_row.clone(),
-                });
+            let deleted_row_idx = table
+                .rows
+                .iter()
+                .position(|row| row.primary_key == delete.key);
+
+            if let Some(deleted_row_idx) = deleted_row_idx {
+                let deleted_row = table.rows.swap_remove(deleted_row_idx);
+                reducer_frame
+                    .emitted_events
+                    .push(TableEventInstance::TableDeleteEvent {
+                        module_name: module_name.into(),
+                        table_name: delete.table_name,
+                        deleted_row,
+                    });
             }
-            table.rows.retain(|row| row.primary_key != delete.key);
         }
 
         Ok((result, reducer_frame.emitted_events))
