@@ -1,8 +1,3 @@
 [workspace]
 members = ["crates/*", "examples/*", "modules/*"]
 resolver = "3"
-
-# [package]
-# name = "interstice"
-# version = "0.0.1"
-# edition = "2024"

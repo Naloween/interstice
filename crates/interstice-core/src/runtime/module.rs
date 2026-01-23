@@ -3,7 +3,7 @@ use crate::{
     error::IntersticeError,
     wasm::{StoreState, instance::WasmInstance},
 };
-use interstice_abi::{ABI_VERSION, ModuleSchema, PrimitiveValue};
+use interstice_abi::{ABI_VERSION, IntersticeValue, ModuleSchema};
 use std::{collections::HashMap, path::Path};
 use wasmtime::{Module as wasmtimeModule, Store};
 
@@ -16,6 +16,7 @@ pub struct Module {
 impl Module {
     pub fn new(mut instance: WasmInstance) -> Result<Self, IntersticeError> {
         let schema = instance.load_schema()?;
+        println!("Loaded module schema: {:?}", schema);
         if schema.abi_version != ABI_VERSION {
             return Err(IntersticeError::AbiVersionMismatch {
                 expected: ABI_VERSION,
@@ -54,8 +55,8 @@ impl Module {
     pub fn call_reducer(
         &mut self,
         reducer: &str,
-        input: PrimitiveValue,
-    ) -> Result<PrimitiveValue, IntersticeError> {
+        input: IntersticeValue,
+    ) -> Result<IntersticeValue, IntersticeError> {
         return self.instance.call_reducer(reducer, input);
     }
 }

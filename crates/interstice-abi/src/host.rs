@@ -1,4 +1,4 @@
-use crate::{PrimitiveValue, types::Row};
+use crate::{IntersticeValue, types::Row};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -31,10 +31,10 @@ pub enum HostCall {
 pub struct CallReducerRequest {
     pub target_module: String,
     pub reducer: String,
-    pub input: PrimitiveValue,
+    pub input: IntersticeValue,
 }
 
-pub type CallReducerResponse = PrimitiveValue;
+pub type CallReducerResponse = IntersticeValue;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LogRequest {
@@ -58,7 +58,7 @@ pub struct InsertRowResponse {}
 #[derive(Debug, Deserialize, Serialize)]
 pub struct UpdateRowRequest {
     pub table_name: String,
-    pub key: PrimitiveValue,
+    pub key: IntersticeValue,
     pub row: Row,
 }
 
@@ -68,7 +68,7 @@ pub struct UpdateRowResponse {}
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DeleteRowRequest {
     pub table_name: String,
-    pub key: PrimitiveValue,
+    pub key: IntersticeValue,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -76,7 +76,7 @@ pub struct DeleteRowResponse {}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct TableScanRequest {
-    pub table: String,
+    pub table_name: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

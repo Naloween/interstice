@@ -1,0 +1,9 @@
+[package]
+name = "interstice-sdk"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+interstice-abi = { path = "../interstice-abi" }
+interstice-sdk-macros = { path = "../interstice-sdk-macros" }
+interstice-sdk-core = { path = "../interstice-sdk-core" }

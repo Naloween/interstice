@@ -1,5 +1,5 @@
 use crate::{error::IntersticeError, wasm::StoreState};
-use interstice_abi::{ModuleSchema, PrimitiveValue, decode, encode};
+use interstice_abi::{ModuleSchema, IntersticeValue, decode, encode};
 use wasmtime::{Func, Instance, Memory, Store};
 
 pub struct WasmInstance {
@@ -71,8 +71,8 @@ impl WasmInstance {
     pub fn call_reducer(
         &mut self,
         func_name: &str,
-        args: PrimitiveValue,
-    ) -> Result<PrimitiveValue, IntersticeError> {
+        args: IntersticeValue,
+    ) -> Result<IntersticeValue, IntersticeError> {
         let args_bytes = encode(&args)
             .map_err(|_| IntersticeError::Internal("failed to serialize reducer arguments"))?;
 

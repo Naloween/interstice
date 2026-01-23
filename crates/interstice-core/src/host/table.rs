@@ -36,7 +36,7 @@ impl Runtime {
     ) -> TableScanResponse {
         self.modules
             .get(&self.call_stack.last().unwrap().module)
-            .and_then(|module| module.tables.get(&table_scan_request.table))
+            .and_then(|module| module.tables.get(&table_scan_request.table_name))
             .map(|table| TableScanResponse {
                 rows: table.rows.clone(),
             })

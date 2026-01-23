@@ -1,6 +1,7 @@
+use interstice_abi::schema::Version;
 use interstice_abi::{
     codec::pack_ptr_len, encode, CallReducerRequest, HostCall, LogRequest, ModuleSchema,
-    PrimitiveType, PrimitiveValue, ReducerSchema,
+    IntersticeType, IntersticeValue, ReducerSchema,
 };
 use std::alloc::{alloc as local_alloc, dealloc as local_dealloc, Layout};
 use std::slice;
@@ -26,8 +27,12 @@ pub extern "C" fn dealloc(ptr: i32, size: i32) {
 pub extern "C" fn interstice_describe() -> i64 {
     let schema = ModuleSchema::new(
         "caller",
-        1,
-        vec![ReducerSchema::new("caller", vec![], PrimitiveType::Void)],
+        Version {
+            major: 0,
+            minor: 1,
+            patch: 0,
+        },
+        vec![ReducerSchema::new("caller", vec![], IntersticeType::Void)],
         vec![],
         vec![],
     );
@@ -60,7 +65,7 @@ fn host_log(message: &str) {
     }
 }
 
-fn host_call(target_module: String, reducer: String, input: PrimitiveValue) {
+fn host_call(target_module: String, reducer: String, input: IntersticeValue) {
     let call = HostCall::CallReducer(CallReducerRequest {
         target_module,
         reducer,
@@ -82,11 +87,11 @@ pub extern "C" fn caller(_ptr: i32, _len: i32) -> i64 {
     host_call(
         "hello".to_string(),
         "hello".to_string(),
-        PrimitiveValue::String("called from caller".to_string()),
+        IntersticeValue::String("called from caller".to_string()),
     );
     host_log("hello called !");
 
-    let bytes = encode(&PrimitiveValue::Void).unwrap();
+    let bytes = encode(&IntersticeValue::Void).unwrap();
     let out_ptr = alloc(bytes.len() as i32);
     unsafe {
         slice::from_raw_parts_mut(out_ptr as *mut u8, bytes.len()).copy_from_slice(&bytes);

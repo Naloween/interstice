@@ -1,10 +1,10 @@
-use crate::{ABI_VERSION, PrimitiveType};
+use crate::{ABI_VERSION, IntersticeType};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EntrySchema {
     pub name: String,
-    pub value_type: PrimitiveType,
+    pub value_type: IntersticeType,
 }
 
 pub type Entries = Vec<EntrySchema>;
@@ -13,7 +13,7 @@ pub type Entries = Vec<EntrySchema>;
 pub struct ModuleSchema {
     pub abi_version: u16,
     pub name: String,
-    pub version: u32,
+    pub version: Version,
     pub reducers: Vec<ReducerSchema>,
     pub tables: Vec<TableSchema>,
     pub subscriptions: Vec<SubscriptionSchema>,
@@ -22,7 +22,7 @@ pub struct ModuleSchema {
 impl ModuleSchema {
     pub fn new(
         name: impl Into<String>,
-        version: u32,
+        version: Version,
         reducers: Vec<ReducerSchema>,
         tables: Vec<TableSchema>,
         subscriptions: Vec<SubscriptionSchema>,
@@ -39,14 +39,21 @@ impl ModuleSchema {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Version {
+    pub major: u16,
+    pub minor: u16,
+    pub patch: u16,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ReducerSchema {
     pub name: String,
     pub arguments: Entries,
-    pub return_type: PrimitiveType,
+    pub return_type: IntersticeType,
 }
 
 impl ReducerSchema {
-    pub fn new(name: impl Into<String>, arguments: Entries, return_type: PrimitiveType) -> Self {
+    pub fn new(name: impl Into<String>, arguments: Entries, return_type: IntersticeType) -> Self {
         Self {
             name: name.into(),
             arguments,

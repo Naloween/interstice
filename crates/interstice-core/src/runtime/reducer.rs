@@ -2,7 +2,7 @@ use crate::runtime::Runtime;
 use crate::runtime::table::TableEventInstance;
 use crate::{error::IntersticeError, runtime::table::validate_row};
 use interstice_abi::schema::TableEvent;
-use interstice_abi::{DeleteRowRequest, InsertRowRequest, PrimitiveValue, UpdateRowRequest};
+use interstice_abi::{DeleteRowRequest, InsertRowRequest, IntersticeValue, UpdateRowRequest};
 
 #[derive(Debug)]
 pub struct Transaction {
@@ -39,8 +39,8 @@ impl Runtime {
         &mut self,
         module_name: &str,
         reducer_name: &str,
-        args: PrimitiveValue,
-    ) -> Result<(PrimitiveValue, Vec<TableEventInstance>), IntersticeError> {
+        args: IntersticeValue,
+    ) -> Result<(IntersticeValue, Vec<TableEventInstance>), IntersticeError> {
         // Lookup module
         let module = self
             .modules

@@ -373,6 +373,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctor"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "424e0138278faeb2b401f174ad17e715c829512d74f3d1e81eb43365c2e0590e"
+dependencies = [
+ "ctor-proc-macro",
+ "dtor",
+]
+
+[[package]]
+name = "ctor-proc-macro"
+version = "0.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52560adf09603e58c9a7ee1fe1dcb95a16927b17c127f0ac02d6e768a0e25bc1"
+
+[[package]]
 name = "debugid"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -411,6 +427,21 @@ dependencies = [
  "redox_users",
  "winapi",
 ]
+
+[[package]]
+name = "dtor"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "404d02eeb088a82cfd873006cb713fe411306c7d182c344905e101fb1167d301"
+dependencies = [
+ "dtor-proc-macro",
+]
+
+[[package]]
+name = "dtor-proc-macro"
+version = "0.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f678cf4a922c215c63e0de95eb1ff08a958a81d47e485cf9da1e27bf6305cfa5"
 
 [[package]]
 name = "either"
@@ -665,7 +696,9 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 name = "hello"
 version = "0.0.1"
 dependencies = [
+ "ctor",
  "interstice-abi",
+ "interstice-sdk",
  "wee_alloc",
 ]
 
@@ -725,8 +758,33 @@ dependencies = [
 ]
 
 [[package]]
-name = "interstice-host"
+name = "interstice-sdk"
 version = "0.0.1"
+dependencies = [
+ "interstice-abi",
+ "interstice-sdk-core",
+ "interstice-sdk-macros",
+ "lazy_static",
+]
+
+[[package]]
+name = "interstice-sdk-core"
+version = "0.0.1"
+dependencies = [
+ "interstice-abi",
+ "lazy_static",
+]
+
+[[package]]
+name = "interstice-sdk-macros"
+version = "0.0.1"
+dependencies = [
+ "interstice-abi",
+ "interstice-sdk-core",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "itertools"
@@ -782,6 +840,12 @@ dependencies = [
  "once_cell",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "lazy_static"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "leb128fmt"
@@ -1293,7 +1357,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "test-hello"
+name = "test"
 version = "0.0.1"
 dependencies = [
  "anyhow",

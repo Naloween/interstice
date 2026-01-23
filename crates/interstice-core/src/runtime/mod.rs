@@ -7,7 +7,7 @@ use crate::{
     runtime::{module::Module, reducer::ReducerFrame, table::TableEventInstance},
     wasm::{StoreState, linker::define_host_calls},
 };
-use interstice_abi::PrimitiveValue;
+use interstice_abi::IntersticeValue;
 use std::collections::VecDeque;
 use std::{collections::HashMap, sync::Arc};
 use wasmtime::{Engine, Linker};
@@ -36,8 +36,8 @@ impl Runtime {
         &mut self,
         module: &str,
         reducer: &str,
-        args: PrimitiveValue,
-    ) -> Result<PrimitiveValue, IntersticeError> {
+        args: IntersticeValue,
+    ) -> Result<IntersticeValue, IntersticeError> {
         let mut event_queue = VecDeque::<TableEventInstance>::new();
 
         // 1. Call root reducer
@@ -95,7 +95,7 @@ impl Runtime {
         target: SubscriptionTarget,
         event: &TableEventInstance,
     ) -> Result<((), Vec<TableEventInstance>), IntersticeError> {
-        let args = PrimitiveValue::from_row(&event.row);
+        let args = IntersticeValue::from_row(&event.row);
         let (_ret, events) = self.invoke_reducer(&target.module, &target.reducer, args)?;
         println!(
             "Subscription invoked: {}::{} for event on {}::{}",
