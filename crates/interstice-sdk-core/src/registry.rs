@@ -14,9 +14,16 @@ pub struct TableRegistration {}
 pub struct SubscriptionRegistration {}
 
 pub type ReducerSchemaFn = fn() -> ReducerSchema;
+pub type TableSchemaFn = fn() -> TableSchema;
 
 lazy_static::lazy_static! {
+    pub static ref TABLE_REGISTRY: Arc<Mutex<Vec<TableSchemaFn>>> = Arc::new(Mutex::new(Vec::new()));
     pub static ref REDUCER_REGISTRY: Arc<Mutex<Vec<ReducerSchemaFn>>> = Arc::new(Mutex::new(Vec::new()));
+}
+
+/// Called by each `#[table]` macro to register its schema function
+pub fn register_table(f: TableSchemaFn) {
+    TABLE_REGISTRY.lock().unwrap().push(f);
 }
 
 /// Called by each `#[reducer]` macro to register its schema function
@@ -25,7 +32,7 @@ pub fn register_reducer(f: ReducerSchemaFn) {
 }
 
 pub fn collect_tables() -> Vec<TableSchema> {
-    vec![]
+    TABLE_REGISTRY.lock().unwrap().iter().map(|f| f()).collect()
 }
 
 pub fn collect_reducers() -> Vec<ReducerSchema> {

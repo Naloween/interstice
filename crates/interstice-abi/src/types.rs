@@ -69,7 +69,12 @@ pub fn validate_value(value: &IntersticeValue, ty: &IntersticeType) -> bool {
 
 impl Into<IntersticeType> for String {
     fn into(self) -> IntersticeType {
-        match self.as_str() {
+        self.as_str().into()
+    }
+}
+impl Into<IntersticeType> for &str {
+    fn into(self) -> IntersticeType {
+        match self {
             "()" => IntersticeType::Void,
             "Void" => IntersticeType::Void,
             "u32" => IntersticeType::U32,
