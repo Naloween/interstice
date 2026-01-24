@@ -14,6 +14,7 @@
 //! - checksum: u32 (4 bytes, CRC32)
 
 use super::types::{Transaction, TransactionType, LOG_FORMAT_VERSION};
+use super::log_rotation::{LogRotator, RotationConfig};
 use interstice_abi::Row;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -26,11 +27,18 @@ pub struct TransactionLog {
     path: PathBuf,
     /// Number of transactions recorded (in-memory cache)
     tx_count: usize,
+    /// Log rotator for managing file size
+    rotator: LogRotator,
 }
 
 impl TransactionLog {
     /// Create or open a transaction log at the given path
     pub fn new<P: AsRef<Path>>(path: P) -> io::Result<Self> {
+        Self::with_rotation(path, RotationConfig::default())
+    }
+
+    /// Create or open a transaction log with custom rotation config
+    pub fn with_rotation<P: AsRef<Path>>(path: P, rotation_config: RotationConfig) -> io::Result<Self> {
         let path = path.as_ref().to_path_buf();
 
         // Open or create the file
@@ -43,14 +51,19 @@ impl TransactionLog {
         // Count existing transactions
         let tx_count = Self::count_transactions(&file)?;
 
+        let rotator = LogRotator::new(rotation_config);
+
         Ok(Self {
             file: Arc::new(Mutex::new(file)),
             path,
             tx_count,
+            rotator,
         })
     }
 
     /// Append a transaction to the log
+    ///
+    /// Automatically rotates the log if it exceeds the configured size.
     ///
     /// # Arguments
     /// * `tx` - The transaction to record
@@ -71,7 +84,22 @@ impl TransactionLog {
         // Ensure data is synced to disk
         file.sync_all()?;
 
+        drop(file); // Release lock before rotation
+
         self.tx_count += 1;
+
+        // Check if rotation is needed
+        if self.rotator.should_rotate(&self.path)? {
+            self.rotator.rotate(&self.path)?;
+            // Reopen the file after rotation
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open(&self.path)?;
+            self.file = Arc::new(Mutex::new(file));
+        }
+
         Ok(())
     }
 
@@ -279,6 +307,7 @@ impl TransactionLog {
                 file: Arc::new(Mutex::new(file.try_clone()?)),
                 path: PathBuf::new(),
                 tx_count: 0,
+                rotator: LogRotator::new(RotationConfig::default()),
             };
 
             match temp_log.decode_transaction(&buffer[offset..]) {

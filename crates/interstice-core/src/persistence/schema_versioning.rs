@@ -35,7 +35,11 @@ impl SchemaVersionRegistry {
         self.versions
             .entry(module.clone())
             .or_insert_with(Vec::new)
-            .push(SchemaVersion { module, version, timestamp });
+            .push(SchemaVersion {
+                module,
+                version,
+                timestamp,
+            });
     }
 
     /// Get all versions for a module

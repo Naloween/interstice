@@ -232,7 +232,8 @@ mod tests {
 
     #[test]
     fn test_composite_index_insert_query() {
-        let mut index = CompositeIndex::new(vec!["first_name".to_string(), "last_name".to_string()]);
+        let mut index =
+            CompositeIndex::new(vec!["first_name".to_string(), "last_name".to_string()]);
         let key = vec![b"John".to_vec(), b"Doe".to_vec()];
         index.insert(key.clone(), 0);
         assert_eq!(index.query(&key), vec![0]);

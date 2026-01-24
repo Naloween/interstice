@@ -7,11 +7,14 @@
 ## Major Accomplishments
 
 ### Phase 1: Persistence & Durability (55% → 55%)
+
 - ✅ Already had core transaction logging, replay, rotation complete
 - Maintained 34 passing tests for Phase 1 functionality
 
 ### Phase 2: Tables & Storage (0% → 54%)
+
 **New implementations:**
+
 - **2.1 Indexing System (8 tests added)**
   - `PrimaryKeyIndex`: O(log n) lookups by primary key using BTreeMap
   - `SecondaryIndex`: Multi-value index for non-unique columns
@@ -31,11 +34,14 @@
   - Supports multi-table, sequential migrations
 
 ### Phase 3: SDK Ergonomics (100% → 100%)
+
 - Already complete: 30 tests passing
 - Type-safe table, reducer, and event systems all working
 
 ### Phase 4: Tooling & Observability (0% → 17%)
+
 **New infrastructure:**
+
 - **CLI Commands (5 tests added)**
   - `OutputFormat`: JSON/YAML/Text output support
   - `SchemaInfo`: Module schema inspection
@@ -48,14 +54,15 @@
 
 ## Test Statistics
 
-| Component | Tests | Status |
-|-----------|-------|--------|
-| interstice-core (Phase 1-2) | 73 | ✅ All passing |
-| interstice-sdk-core (Phase 3) | 30 | ✅ All passing |
-| interstice-cli (Phase 4) | 5 | ✅ All passing |
-| **TOTAL** | **108** | **✅ All passing** |
+| Component                     | Tests   | Status             |
+| ----------------------------- | ------- | ------------------ |
+| interstice-core (Phase 1-2)   | 73      | ✅ All passing     |
+| interstice-sdk-core (Phase 3) | 30      | ✅ All passing     |
+| interstice-cli (Phase 4)      | 5       | ✅ All passing     |
+| **TOTAL**                     | **108** | **✅ All passing** |
 
 ### Key Test Coverage
+
 - Index operations: Creation, insertion, querying, deletion
 - Iterator patterns: Filtering, chaining, empty results
 - Migration tracking: Registration, application, idempotency
@@ -64,6 +71,7 @@
 ## Code Quality
 
 ### Lines of Code Added
+
 - `runtime/index.rs`: 282 lines (3 index types)
 - `runtime/scan.rs`: 228 lines (4 iterator types)
 - `persistence/migration.rs`: 317 lines (migration system)
@@ -71,6 +79,7 @@
 - **Total new code:** ~976 lines (well-tested)
 
 ### Code Organization
+
 - ✅ Modular structure maintained
 - ✅ Clear separation of concerns
 - ✅ Minimal dependencies added
@@ -79,6 +88,7 @@
 ## Remaining Critical Path to V1.0
 
 ### High Priority (Next Session)
+
 1. **Phase 1 Completion (5 remaining items)**
    - Auto-startup replay integration
    - WASM execution prevention enforcement
@@ -96,6 +106,7 @@
    - Visualization tools
 
 ### Medium Priority
+
 - Phase 5: Integration and stress testing
 - Example expansion
 - Performance benchmarking
@@ -103,21 +114,25 @@
 ## Design Decisions Made
 
 ### 1. Index Implementation
+
 - **Decision:** Use BTreeMap for ordered index storage
 - **Rationale:** O(log n) lookups, range queries, deterministic ordering
 - **Trade-off:** Slightly higher memory vs. HashMaps, but enables efficient scanning
 
 ### 2. Iterator Pattern
+
 - **Decision:** Generic, non-allocating iterators
 - **Rationale:** Memory efficiency, composability, Rust idiomatic
 - **Trade-off:** Can't use pre-filtering optimizations in iterator construction
 
 ### 3. Migration System
+
 - **Decision:** Record-based tracking with registry pattern
 - **Rationale:** Idempotency, explicit versioning, easy to query history
 - **Trade-off:** Requires mutation tracking in transaction log
 
 ### 4. CLI Infrastructure
+
 - **Decision:** Separate crate with modular command functions
 - **Rationale:** Scalability, clear boundaries, testability
 - **Trade-off:** Requires cross-crate dependencies
@@ -162,6 +177,7 @@
 ## Session Conclusion
 
 **Achieved 56% V1.0 completion with high quality:**
+
 - ✅ Core persistence (Phase 1) fully functional
 - ✅ Table storage with indexes (Phase 2) mostly complete
 - ✅ SDK ergonomics (Phase 3) fully working
@@ -169,6 +185,7 @@
 - ✅ All 108 tests passing
 
 **Realistic path to V1.0:**
+
 - 2-3 more focused sessions to complete Phases 1-4
 - Final session for Phase 5 integration testing
 - Estimated completion: within scope for stable release

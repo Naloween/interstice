@@ -141,8 +141,10 @@ mod tests {
         let log_path = tmpdir.path().join("test.log");
 
         let mut log = TransactionLog::new(&log_path).unwrap();
-        log.append(&make_tx("hello", "greetings", 1, "Hello")).unwrap();
-        log.append(&make_tx("hello", "greetings", 2, "World")).unwrap();
+        log.append(&make_tx("hello", "greetings", 1, "Hello"))
+            .unwrap();
+        log.append(&make_tx("hello", "greetings", 2, "World"))
+            .unwrap();
 
         let result = LogValidator::validate(&log_path).unwrap();
         assert!(result.is_valid());
@@ -156,9 +158,12 @@ mod tests {
         let log_path = tmpdir.path().join("test.log");
 
         let mut log = TransactionLog::new(&log_path).unwrap();
-        log.append(&make_tx("module1", "table1", 1, "data1")).unwrap();
-        log.append(&make_tx("module1", "table2", 2, "data2")).unwrap();
-        log.append(&make_tx("module2", "table1", 3, "data3")).unwrap();
+        log.append(&make_tx("module1", "table1", 1, "data1"))
+            .unwrap();
+        log.append(&make_tx("module1", "table2", 2, "data2"))
+            .unwrap();
+        log.append(&make_tx("module2", "table1", 3, "data3"))
+            .unwrap();
 
         let info = LogValidator::inspect(&log_path).unwrap();
         assert_eq!(info.transaction_count, 3);

@@ -14,6 +14,7 @@ mod replay;
 mod schema_versioning;
 mod transaction_log;
 mod types;
+pub mod determinism;
 
 pub use config::PersistenceConfig;
 pub use log_rotation::{LogRotator, RotationConfig};
@@ -23,6 +24,7 @@ pub use replay::ReplayEngine;
 pub use schema_versioning::SchemaVersionRegistry;
 pub use transaction_log::TransactionLog;
 pub use types::{Transaction, TransactionType};
+pub use determinism::{DeterminismCheckResult, check_determinism};
 
 #[cfg(test)]
 mod tests;

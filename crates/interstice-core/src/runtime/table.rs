@@ -1,9 +1,8 @@
-use interstice_abi::{
-    Row,
-    schema::{TableEvent, TableSchema},
-    validate_value,
-};
 use super::index::{PrimaryKeyIndex, SecondaryIndex};
+use interstice_abi::{
+    schema::{TableEvent, TableSchema},
+    validate_value, Row,
+};
 
 pub struct Table {
     pub schema: TableSchema,
@@ -130,14 +129,14 @@ impl Table {
         if !validate_row(&row, &self.schema) {
             return Err("Invalid row".to_string());
         }
-        
+
         // Use primary key value as bytes for simple indexing
         let pk_bytes = format!("{:?}", row.primary_key).into_bytes();
-        
+
         let row_index = self.rows.len();
         self.rows.push(row.clone());
         self.pk_index.insert(pk_bytes.clone(), row_index);
-        
+
         // Update secondary indexes
         for (col_name, idx) in self.secondary_indexes.iter_mut() {
             if let Some(col_idx) = self.schema.entries.iter().position(|e| &e.name == col_name) {
@@ -147,18 +146,24 @@ impl Table {
                 }
             }
         }
-        
+
         Ok(row_index)
     }
 
     /// Find row by primary key
     pub fn find_by_pk(&self, pk: &interstice_abi::IntersticeValue) -> Option<(usize, &Row)> {
         let pk_bytes = format!("{:?}", pk).into_bytes();
-        self.pk_index.get(&pk_bytes).map(|idx| (idx, &self.rows[idx]))
+        self.pk_index
+            .get(&pk_bytes)
+            .map(|idx| (idx, &self.rows[idx]))
     }
 
     /// Query rows by secondary index
-    pub fn query_by_index(&self, index_name: &str, value: &interstice_abi::IntersticeValue) -> Vec<&Row> {
+    pub fn query_by_index(
+        &self,
+        index_name: &str,
+        value: &interstice_abi::IntersticeValue,
+    ) -> Vec<&Row> {
         if let Some(idx) = self.secondary_indexes.get(index_name) {
             let val_bytes = format!("{:?}", value).into_bytes();
             idx.query(&val_bytes)
@@ -175,23 +180,28 @@ impl Table {
         if self.secondary_indexes.contains_key(column_name) {
             return Err(format!("Index on {} already exists", column_name));
         }
-        
+
         if !self.schema.entries.iter().any(|e| e.name == column_name) {
             return Err(format!("Column {} not found in schema", column_name));
         }
-        
+
         let mut idx = SecondaryIndex::new(column_name.to_string());
-        
+
         // Populate index with existing rows
         for (row_idx, row) in self.rows.iter().enumerate() {
-            if let Some(col_idx) = self.schema.entries.iter().position(|e| e.name == column_name) {
+            if let Some(col_idx) = self
+                .schema
+                .entries
+                .iter()
+                .position(|e| e.name == column_name)
+            {
                 if col_idx < row.entries.len() {
                     let val_bytes = format!("{:?}", row.entries[col_idx]).into_bytes();
                     idx.insert(val_bytes, row_idx);
                 }
             }
         }
-        
+
         self.secondary_indexes.insert(column_name.to_string(), idx);
         Ok(())
     }
@@ -220,4 +230,3 @@ impl Table {
         self.rows.get_mut(row_idx)
     }
 }
-

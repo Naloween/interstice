@@ -4,8 +4,8 @@
 //! a configurable size, keeping older logs for archival.
 
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::io;
+use std::path::{Path, PathBuf};
 
 /// Configuration for log rotation behavior
 #[derive(Debug, Clone)]

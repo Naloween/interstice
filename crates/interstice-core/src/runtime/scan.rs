@@ -131,7 +131,10 @@ impl Iterator for RangeScan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use interstice_abi::{Row, IntersticeValue, schema::{TableSchema, TableVisibility, EntrySchema}, IntersticeType};
+    use interstice_abi::{
+        schema::{EntrySchema, TableSchema, TableVisibility},
+        IntersticeType, IntersticeValue, Row,
+    };
 
     fn create_test_schema() -> TableSchema {
         TableSchema {
@@ -141,12 +144,10 @@ mod tests {
                 name: "id".to_string(),
                 value_type: IntersticeType::U64,
             },
-            entries: vec![
-                EntrySchema {
-                    name: "value".to_string(),
-                    value_type: IntersticeType::U32,
-                },
-            ],
+            entries: vec![EntrySchema {
+                name: "value".to_string(),
+                value_type: IntersticeType::U32,
+            }],
         }
     }
 
@@ -154,7 +155,7 @@ mod tests {
     fn test_table_iterator() {
         let schema = create_test_schema();
         let mut table = Table::new(schema);
-        
+
         for i in 1..=5 {
             let row = Row {
                 primary_key: IntersticeValue::U64(i),
@@ -171,7 +172,7 @@ mod tests {
     fn test_filtered_iterator() {
         let schema = create_test_schema();
         let mut table = Table::new(schema);
-        
+
         for i in 1..=10 {
             let row = Row {
                 primary_key: IntersticeValue::U64(i),
@@ -228,7 +229,7 @@ mod tests {
     fn test_filtered_iterator_empty_result() {
         let schema = create_test_schema();
         let mut table = Table::new(schema);
-        
+
         for i in 1..=5 {
             let row = Row {
                 primary_key: IntersticeValue::U64(i),
@@ -253,7 +254,7 @@ mod tests {
     fn test_multiple_filters() {
         let schema = create_test_schema();
         let mut table = Table::new(schema);
-        
+
         for i in 1..=20 {
             let row = Row {
                 primary_key: IntersticeValue::U64(i),
@@ -273,7 +274,7 @@ mod tests {
                 }
             })
             .count();
-        
+
         assert_eq!(count, 9); // Values 6-14
     }
 }

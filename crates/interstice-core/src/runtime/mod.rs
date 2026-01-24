@@ -76,6 +76,27 @@ impl Runtime {
         })
     }
 
+    /// Create runtime with persistence and auto-replay from existing log
+    ///
+    /// This is the recommended way to initialize a runtime for production use.
+    /// If a transaction log exists at the configured path, it will be automatically
+    /// replayed to restore state before the runtime becomes available.
+    pub fn with_persistence_and_auto_replay(
+        config: PersistenceConfig,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut runtime = Self::with_persistence(config)?;
+        let log_path = runtime.transaction_log.as_ref().map(|log| log.path().to_path_buf());
+
+        if let Some(path) = log_path {
+            if path.exists() {
+                // Log exists, auto-replay to restore state
+                runtime.replay_from_log()?;
+            }
+        }
+
+        Ok(runtime)
+    }
+
     pub fn run(
         &mut self,
         module: &str,

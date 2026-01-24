@@ -91,18 +91,25 @@ impl MigrationRegistry {
     ) -> Vec<&TableMigration> {
         self.migrations
             .values()
-            .filter(|m| m.table_name == table_name && m.from_version >= from_version && m.to_version <= to_version)
+            .filter(|m| {
+                m.table_name == table_name
+                    && m.from_version >= from_version
+                    && m.to_version <= to_version
+            })
             .collect()
     }
 
     /// Record a migration as applied
     pub fn record_applied(&mut self, migration_name: String, table_name: String, timestamp: u64) {
-        self.applied.push(MigrationRecord::new(migration_name, table_name, timestamp));
+        self.applied
+            .push(MigrationRecord::new(migration_name, table_name, timestamp));
     }
 
     /// Check if a migration has been applied
     pub fn is_applied(&self, migration_name: &str) -> bool {
-        self.applied.iter().any(|r| r.migration_name == migration_name)
+        self.applied
+            .iter()
+            .any(|r| r.migration_name == migration_name)
     }
 
     /// Get all applied migrations for a table
@@ -213,7 +220,7 @@ mod tests {
             "Test migration".to_string(),
         );
         registry.register(m).ok();
-        
+
         let found = registry.get("migration_1");
         assert!(found.is_some());
         assert_eq!(found.unwrap().name, "migration_1");
@@ -337,7 +344,7 @@ mod tests {
             .ok();
 
         assert_eq!(registry.migration_count(), 2);
-        
+
         let users_applied = registry.find_applicable("users", 1, 2);
         assert_eq!(users_applied.len(), 1);
         assert_eq!(users_applied[0].table_name, "users");

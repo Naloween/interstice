@@ -1,9 +1,9 @@
-use crate::runtime::{Runtime, table::Table};
+use crate::runtime::{table::Table, Runtime};
 use crate::{
     error::IntersticeError,
-    wasm::{StoreState, instance::WasmInstance},
+    wasm::{instance::WasmInstance, StoreState},
 };
-use interstice_abi::{ABI_VERSION, IntersticeValue, ModuleSchema};
+use interstice_abi::{IntersticeValue, ModuleSchema, ABI_VERSION};
 use std::{collections::HashMap, path::Path};
 use wasmtime::{Module as wasmtimeModule, Store};
 
@@ -27,12 +27,7 @@ impl Module {
         let tables = schema
             .tables
             .iter()
-            .map(|table_schema| {
-                (
-                    table_schema.name.clone(),
-                    Table::new(table_schema.clone()),
-                )
-            })
+            .map(|table_schema| (table_schema.name.clone(), Table::new(table_schema.clone())))
             .collect();
 
         // Set module name in the store state
