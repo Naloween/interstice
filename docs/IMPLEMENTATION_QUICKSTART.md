@@ -20,6 +20,7 @@
 ## Phase 1: Persistence & Durability (Start Here)
 
 ### Why Phase 1 First?
+
 - **Foundation:** Everything else depends on durable state
 - **Risk Mitigation:** Address the hardest problem early
 - **Measurable:** Easy to test (replay engine)
@@ -27,12 +28,14 @@
 ### Getting Started: Transaction Log (1.1)
 
 #### Step 1: Design Review
+
 - **File:** Decide on binary format vs. JSON
   - **Recommended:** Binary (smaller, faster, versioned header)
   - Structure: `[version: u8][type: u8][module_id: u64][table_id: u64][row_len: u32][row_data: bytes][checksum: u32]`
 - **Location:** Create `crates/interstice-core/src/persistence/` directory
 
 #### Step 2: Implement TransactionLog
+
 ```bash
 # Create new module
 touch crates/interstice-core/src/persistence/mod.rs
@@ -40,6 +43,7 @@ touch crates/interstice-core/src/persistence/transaction_log.rs
 ```
 
 **Basic structure to implement:**
+
 ```rust
 pub struct TransactionLog {
     file: File,
@@ -55,6 +59,7 @@ impl TransactionLog {
 ```
 
 **Tests to write:**
+
 - Create log file
 - Append transaction
 - Read back transaction
@@ -62,11 +67,13 @@ impl TransactionLog {
 - Handle concurrent appends (mutex)
 
 #### Step 3: Integrate with Runtime
+
 - Modify `interstice-core/src/lib.rs` to include persistence module
 - Add to `Runtime` struct: `transaction_log: Option<TransactionLog>`
 - Wrap mutations in a `fn commit_transaction(&mut self, tx: Transaction)`
 
 #### Step 4: Test It
+
 ```bash
 cargo test --package interstice-core persistence::tests
 ```
@@ -80,6 +87,7 @@ cargo test --package interstice-core persistence::tests
 Once TransactionLog is solid:
 
 1. **Create ReplayEngine struct**
+
    ```rust
    pub struct ReplayEngine {
        log: TransactionLog,
@@ -94,6 +102,7 @@ Once TransactionLog is solid:
    - Skip subscriptions
 
 3. **Integrate with startup**
+
    ```rust
    // In Runtime::new() or similar
    if log_exists {
@@ -114,26 +123,31 @@ Once TransactionLog is solid:
 ## Key Development Practices
 
 ### 1. Incremental Integration
+
 - Don't build everything then integrate
 - After each sub-feature, integrate and test
 - Use feature flags if needed: `--features persistence`
 
 ### 2. Example Modules as Tests
+
 - Create a test module in `modules/test_persistence/`
 - Use it to validate end-to-end behavior
 - Keep it simple: insert rows, mutate state, restart
 
 ### 3. Maintain Progress Tracker
+
 - Update [V1.0_PROGRESS.md](./V1.0_PROGRESS.md) as you complete tasks
 - Keeps momentum and clarity
 - Useful if someone else joins
 
 ### 4. Documentation During Development
+
 - Add doc comments as you code
 - Update architecture docs if design changes
 - Keep README in sync
 
 ### 5. Test-Driven Approach
+
 ```rust
 #[cfg(test)]
 mod tests {
@@ -163,19 +177,23 @@ mod tests {
 Before implementing each phase, verify dependencies:
 
 ### Phase 1 Dependencies
+
 - [x] Core Runtime exists
 - [ ] Module loading works
 - [ ] Reducers execute
 
 ### Phase 2 Dependencies
+
 - [ ] Phase 1 complete
 - [ ] Persistence stable
 
 ### Phase 3 Dependencies
+
 - [ ] Phase 2 complete
 - [ ] Storage layer stable
 
 ### Phase 4 Dependencies
+
 - [ ] Phases 1-3 complete
 - [ ] Codebase stabilized
 
@@ -184,6 +202,7 @@ Before implementing each phase, verify dependencies:
 ## Debugging Tips
 
 ### Log Replay Issues
+
 ```bash
 # Enable debug logs
 RUST_LOG=debug cargo run -- --replay-log test.log
@@ -193,6 +212,7 @@ cargo run -- log-dump test.log --format json > log.json
 ```
 
 ### Test Determinism
+
 ```bash
 # Record execution
 cargo test -- --nocapture 2> trace1.log

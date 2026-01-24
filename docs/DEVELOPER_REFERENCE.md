@@ -28,6 +28,7 @@ interstice/
 ## File Organization During Implementation
 
 ### Adding Features to Core Runtime
+
 ```
 crates/interstice-core/src/
 ├── lib.rs                  # Main entry point
@@ -49,6 +50,7 @@ crates/interstice-core/src/
 ```
 
 ### Adding SDK Improvements
+
 ```
 crates/interstice-sdk/src/
 ├── lib.rs                  # Main exports
@@ -59,6 +61,7 @@ crates/interstice-sdk/src/
 ```
 
 ### Adding CLI Tools
+
 ```
 crates/interstice-cli/     # ← NEW in Phase 4
 ├── src/
@@ -78,6 +81,7 @@ crates/interstice-cli/     # ← NEW in Phase 4
 ## Common Commands
 
 ### Build Everything
+
 ```bash
 cargo build
 # or with specific packages:
@@ -86,6 +90,7 @@ cargo build -p interstice-sdk
 ```
 
 ### Run Tests
+
 ```bash
 # All tests
 cargo test
@@ -101,12 +106,14 @@ cargo test -- --nocapture
 ```
 
 ### Build Examples
+
 ```bash
 cargo build --example hello
 # Then run the compiled binary
 ```
 
 ### Check Code
+
 ```bash
 # Type check without building (faster)
 cargo check
@@ -119,6 +126,7 @@ cargo clippy
 ```
 
 ### Clean Build
+
 ```bash
 cargo clean
 cargo build
@@ -129,6 +137,7 @@ cargo build
 ## Testing Patterns
 
 ### Unit Test Template
+
 ```rust
 #[cfg(test)]
 mod tests {
@@ -138,10 +147,10 @@ mod tests {
     fn test_feature_name() {
         // Arrange
         let mut log = TransactionLog::new(path).unwrap();
-        
+
         // Act
         log.append(transaction).unwrap();
-        
+
         // Assert
         assert_eq!(log.len(), 1);
     }
@@ -149,26 +158,27 @@ mod tests {
 ```
 
 ### Integration Test Template
+
 ```rust
 // tests/persistence_integration.rs
 #[test]
 fn test_persistence_roundtrip() {
     let tempdir = tempfile::tempdir().unwrap();
-    
+
     // Start runtime with log
     let mut rt = Runtime::new_with_log(tempdir.path()).unwrap();
-    
+
     // Load module and call reducer
     let module_id = rt.load_module("test_module.wasm").unwrap();
     rt.call_reducer(module_id, "test_reducer", args).unwrap();
-    
+
     // Verify state before shutdown
     let state_before = rt.query_table(table_id, filter).unwrap();
-    
+
     // Restart
     drop(rt);
     let mut rt = Runtime::new_with_log(tempdir.path()).unwrap();
-    
+
     // Verify state after restart
     let state_after = rt.query_table(table_id, filter).unwrap();
     assert_eq!(state_before, state_after);
@@ -176,6 +186,7 @@ fn test_persistence_roundtrip() {
 ```
 
 ### Property-Based Testing
+
 ```rust
 use proptest::prelude::*;
 
@@ -186,15 +197,15 @@ proptest! {
     ) {
         let mut log1 = TransactionLog::new(path1).unwrap();
         let mut log2 = TransactionLog::new(path2).unwrap();
-        
+
         for tx in &txs {
             log1.append(tx.clone()).unwrap();
             log2.append(tx.clone()).unwrap();
         }
-        
+
         let replay1 = ReplayEngine::new(log1).replay().unwrap();
         let replay2 = ReplayEngine::new(log2).replay().unwrap();
-        
+
         assert_eq!(replay1, replay2);
     }
 }
@@ -205,12 +216,14 @@ proptest! {
 ## Debugging
 
 ### Enable Debug Logging
+
 ```bash
 RUST_LOG=debug cargo run --example hello
 RUST_LOG=interstice_core=trace cargo test
 ```
 
 ### Add println Debugging
+
 ```rust
 // Temporary debugging
 eprintln!("DEBUG: transaction = {:?}", tx);
@@ -221,6 +234,7 @@ tracing::debug!(module_id = ?module_id, "Calling reducer");
 ```
 
 ### GDB Debugging
+
 ```bash
 # Compile with debug symbols
 RUST_BACKTRACE=full cargo test -- --nocapture --test-threads=1
@@ -230,6 +244,7 @@ rust-gdb --args ./target/debug/interstice
 ```
 
 ### Examine Generated Code
+
 ```bash
 # See what macros generate
 cargo expand --package interstice-sdk --lib
@@ -240,7 +255,8 @@ cargo expand --package interstice-sdk --lib
 ## Documentation Standards
 
 ### Code Comments
-```rust
+
+````rust
 /// Appends a transaction to the log.
 ///
 /// # Arguments
@@ -258,14 +274,16 @@ pub fn append(&mut self, tx: Transaction) -> io::Result<()> {
     // Implementation comment if non-obvious
     // Prefer clear code over comments
 }
-```
+````
 
 ### Architecture Docs
+
 - Update relevant section in ArchitectureOverview.md
 - Add diagrams for complex systems
 - Link from code to docs
 
 ### User Docs
+
 - Examples in docs/examples/
 - Copy-paste ready code snippets
 - Include expected output
@@ -275,6 +293,7 @@ pub fn append(&mut self, tx: Transaction) -> io::Result<()> {
 ## Performance Considerations
 
 ### Profiling
+
 ```bash
 # Flamegraph
 cargo install flamegraph
@@ -285,6 +304,7 @@ perf stat -r 5 cargo test persistence
 ```
 
 ### Optimization Checklist
+
 - [ ] Profile before optimizing
 - [ ] Identify bottlenecks (80/20 rule)
 - [ ] Benchmark before/after
@@ -292,6 +312,7 @@ perf stat -r 5 cargo test persistence
 - [ ] Document performance-critical code
 
 ### Common Optimizations
+
 ```rust
 // Prefer iterators over collecting
 // ❌ log.transactions().collect()
@@ -311,6 +332,7 @@ perf stat -r 5 cargo test persistence
 ## Cargo Workspace Commands
 
 ### Add a New Crate
+
 ```bash
 cargo new crates/my-crate --lib
 # Edit Cargo.toml to add dependencies
@@ -318,12 +340,14 @@ cargo new crates/my-crate --lib
 ```
 
 ### Add Dependencies
+
 ```bash
 cargo add -p interstice-core serde
 # or edit Cargo.toml directly
 ```
 
 ### Publish Version (after V1.0)
+
 ```bash
 # Update version in Cargo.toml files
 # Commit and tag
@@ -336,6 +360,7 @@ cargo publish
 ## Git Workflow
 
 ### Before Starting a Task
+
 ```bash
 git checkout main
 git pull origin main
@@ -343,6 +368,7 @@ git checkout -b feat/persistence-phase-1
 ```
 
 ### After Completing a Task
+
 ```bash
 git add docs/V1.0_PROGRESS.md crates/...
 git commit -m "feat: implement transaction log persistence
@@ -355,6 +381,7 @@ Closes #42"
 ```
 
 ### Keeping Track of Changes
+
 ```bash
 git diff                    # Unstaged changes
 git diff --cached           # Staged changes
@@ -373,6 +400,7 @@ git status                  # Overview
 - **tempfile** - Temporary files for testing
 
 ### Consider Adding
+
 - **bincode** - Binary serialization (for transaction log)
 - **crc** - Checksums
 - **nom** - Binary parsing
@@ -383,23 +411,27 @@ git status                  # Overview
 ## Troubleshooting
 
 ### "Cargo lock is outdated"
+
 ```bash
 cargo update
 ```
 
 ### Tests hang
+
 ```bash
 # Check for deadlocks
 RUST_BACKTRACE=1 timeout 30 cargo test -- --test-threads=1
 ```
 
 ### Compiler error in macros
+
 ```bash
 # Expand macros to see generated code
 cargo expand --package interstice-sdk-macros
 ```
 
 ### Module loading fails
+
 ```bash
 # Verify WASM binary
 cargo run --bin interstice -- validate module.wasm
@@ -410,22 +442,26 @@ cargo run --bin interstice -- validate module.wasm
 ## Phase-Specific Tips
 
 ### Phase 1: Persistence
+
 - Keep log format simple initially
 - Write extensive replay tests
 - Test corruption recovery early
 - Don't over-engineer snapshots
 
 ### Phase 2: Storage
+
 - Benchmark before/after adding indexes
 - Test with realistic data sizes (1M+ rows)
 - Document index overhead
 
 ### Phase 3: SDK
+
 - Run examples frequently—catch ergonomics issues early
 - Get feedback from potential module authors
 - Keep breaking changes to one release
 
 ### Phase 4: Tooling
+
 - CLI should be fast (< 100ms startup)
 - Visualizations should be production-grade
 - Consider web UI later (post-V1.0)

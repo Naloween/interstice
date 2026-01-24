@@ -4,6 +4,7 @@ mod table;
 
 use crate::{
     error::IntersticeError,
+    persistence::{PersistenceConfig, Transaction, TransactionLog, TransactionType},
     runtime::{module::Module, reducer::ReducerFrame, table::TableEventInstance},
     wasm::{StoreState, linker::define_host_calls},
 };
@@ -12,14 +13,23 @@ use std::collections::VecDeque;
 use std::{collections::HashMap, sync::Arc};
 use wasmtime::{Engine, Linker};
 
+/// Main Interstice runtime that executes modules and manages state.
+///
+/// The runtime can optionally log all table mutations for durability and replay.
+/// Mutations are logged atomically before being acknowledged to modules.
 pub struct Runtime {
     pub(crate) modules: HashMap<String, Module>,
     pub(crate) call_stack: Vec<ReducerFrame>,
     engine: Arc<Engine>,
     linker: Linker<StoreState>,
+    /// Optional transaction log for durable persistence
+    transaction_log: Option<TransactionLog>,
+    /// Logical clock for transaction timestamps
+    tx_clock: u64,
 }
 
 impl Runtime {
+    /// Create a runtime with in-memory state only (no persistence)
     pub fn new() -> Self {
         let engine = Arc::new(Engine::default());
         let mut linker = Linker::new(&engine);
@@ -29,7 +39,33 @@ impl Runtime {
             call_stack: Vec::new(),
             engine,
             linker,
+            transaction_log: None,
+            tx_clock: 0,
         }
+    }
+
+    /// Create a runtime with optional transaction logging
+    pub fn with_persistence(config: PersistenceConfig) -> std::io::Result<Self> {
+        let engine = Arc::new(Engine::default());
+        let mut linker = Linker::new(&engine);
+        define_host_calls(&mut linker).expect("Couldn't add host calls to the linker");
+
+        let transaction_log = if config.enabled {
+            // Create log directory if it doesn't exist
+            std::fs::create_dir_all(&config.log_dir)?;
+            Some(TransactionLog::new(config.log_file_path())?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            modules: HashMap::new(),
+            call_stack: Vec::new(),
+            engine,
+            linker,
+            transaction_log,
+            tx_clock: 0,
+        })
     }
 
     pub fn run(
@@ -116,6 +152,31 @@ impl Runtime {
 
         let (_ret, events) = self.invoke_reducer(&target.module, &target.reducer, args)?;
         Ok(((), events))
+    }
+
+    /// Log a table mutation to the transaction log (if enabled).
+    /// Increments the logical clock for ordering.
+    pub(crate) fn log_mutation(
+        &mut self,
+        module_name: String,
+        table_name: String,
+        tx_type: TransactionType,
+        row: interstice_abi::Row,
+        old_row: Option<interstice_abi::Row>,
+    ) -> Result<(), IntersticeError> {
+        if let Some(ref mut log) = self.transaction_log {
+            let tx = Transaction {
+                transaction_type: tx_type,
+                module_name,
+                table_name,
+                row,
+                old_row,
+                timestamp: self.tx_clock,
+            };
+            log.append(&tx).map_err(|_| IntersticeError::Internal("Failed to write transaction log"))?;
+            self.tx_clock += 1;
+        }
+        Ok(())
     }
 }
 

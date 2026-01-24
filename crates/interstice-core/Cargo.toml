@@ -13,8 +13,8 @@ serde_json = "*"
 slotmap = "*"
 parking_lot = "*"
 crossbeam = "*"                                              # later for scheduling
-bincode = "1.3"                                             # for serializing transactions
-crc32fast = "*"                                             # for log integrity checks
+bincode = "1.3"                                              # for serializing transactions
+crc32fast = "*"                                              # for log integrity checks
 
 [dev-dependencies]
-tempfile = "*"                                              # for testing
+tempfile = "*" # for testing

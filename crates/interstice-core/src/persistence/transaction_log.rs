@@ -3,7 +3,7 @@
 //! The log stores transactions in a binary format with checksums for integrity.
 //! Format per transaction:
 //! - version: u8 (1 byte)
-//! - type: u8 (1 byte) 
+//! - type: u8 (1 byte)
 //! - module_name_len: u32 (4 bytes)
 //! - module_name: bytes
 //! - table_name_len: u32 (4 bytes)
@@ -51,7 +51,7 @@ impl TransactionLog {
     }
 
     /// Append a transaction to the log
-    /// 
+    ///
     /// # Arguments
     /// * `tx` - The transaction to record
     ///
@@ -59,18 +59,18 @@ impl TransactionLog {
     /// Ok(()) if successfully written and synced to disk
     pub fn append(&mut self, tx: &Transaction) -> io::Result<()> {
         let encoded = self.encode_transaction(tx)?;
-        
+
         let mut file = self.file.lock().unwrap();
-        
+
         // Seek to end of file
         file.seek(SeekFrom::End(0))?;
-        
+
         // Write encoded transaction
         file.write_all(&encoded)?;
-        
+
         // Ensure data is synced to disk
         file.sync_all()?;
-        
+
         self.tx_count += 1;
         Ok(())
     }
@@ -82,11 +82,11 @@ impl TransactionLog {
     pub fn read_all(&self) -> io::Result<Vec<Transaction>> {
         let mut file = self.file.lock().unwrap();
         file.seek(SeekFrom::Start(0))?;
-        
+
         let mut transactions = Vec::new();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
-        
+
         let mut offset = 0;
         while offset < buffer.len() {
             match self.decode_transaction(&buffer[offset..]) {
@@ -102,7 +102,7 @@ impl TransactionLog {
                 }
             }
         }
-        
+
         Ok(transactions)
     }
 
@@ -180,8 +180,9 @@ impl TransactionLog {
         // Read transaction type
         let mut type_buf = [0u8; 1];
         cursor.read_exact(&mut type_buf)?;
-        let transaction_type = TransactionType::from_byte(type_buf[0])
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Invalid transaction type"))?;
+        let transaction_type = TransactionType::from_byte(type_buf[0]).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "Invalid transaction type")
+        })?;
 
         // Read module name
         let mut len_buf = [0u8; 4];
