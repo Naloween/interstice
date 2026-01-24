@@ -1,7 +1,21 @@
 pub mod host_calls;
 pub mod reducer_context;
 pub mod registry;
+pub mod types;
+pub mod typed_context;
+pub mod typed_helpers;
+pub mod typed_examples;
+pub mod table_handle;
+pub mod reducer_signature;
+pub mod subscription;
+pub mod advanced_examples;
 
 pub use host_calls::*;
 pub use reducer_context::*;
 pub use registry::*;
+pub use types::*;
+pub use typed_context::*;
+pub use typed_helpers::*;
+pub use table_handle::*;
+pub use reducer_signature::*;
+pub use subscription::*;

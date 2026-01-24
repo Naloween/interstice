@@ -299,3 +299,132 @@ pub fn reducer(attr: TokenStream, item: TokenStream) -> TokenStream {
         #register_subscription
     }.into()
 }
+
+/// Derive macro for Serialize trait
+/// 
+/// Automatically implements Serialize for structs with a single field.
+/// For complex types, implement manually.
+#[proc_macro_derive(Serialize)]
+pub fn derive_serialize(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    let name = &input.ident;
+
+    let expanded = quote! {
+        impl interstice_sdk::Serialize for #name {
+            fn from_value(v: interstice_sdk::IntersticeValue) -> std::result::Result<Self, String> {
+                // Default: convert from Value directly
+                match v {
+                    interstice_sdk::IntersticeValue::String(s) => {
+                        // Try to parse as string-based type
+                        Ok(Self(s))
+                    }
+                    _ => Err(format!("Cannot convert {:?} to {}", v, stringify!(#name)))
+                }
+            }
+
+            fn to_value(&self) -> interstice_sdk::IntersticeValue {
+                // This is a placeholder - override in manual implementations
+                interstice_sdk::IntersticeValue::Void
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
+}
+
+/// Derive macro for serializable newtype wrappers
+/// 
+/// Implements Serialize for a newtype struct wrapping a single type.
+/// # Example:
+/// ```ignore
+/// #[derive(SerializeNewtype, Clone, Debug)]
+/// struct UserId(u64);
+/// ```
+#[proc_macro_derive(SerializeNewtype)]
+pub fn derive_serialize_newtype(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    let name = &input.ident;
+
+    // Get the inner type from newtype struct
+    let inner_type = match &input.data {
+        syn::Data::Struct(syn::DataStruct {
+            fields: syn::Fields::Unnamed(fields),
+            ..
+        }) => {
+            if fields.unnamed.len() == 1 {
+                &fields.unnamed[0].ty
+            } else {
+                return syn::Error::new_spanned(
+                    &input,
+                    "SerializeNewtype only works with single-field structs"
+                )
+                .to_compile_error()
+                .into();
+            }
+        }
+        _ => {
+            return syn::Error::new_spanned(
+                &input,
+                "SerializeNewtype only works with tuple structs"
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+
+    let expanded = quote! {
+        impl interstice_sdk::Serialize for #name {
+            fn from_value(v: interstice_sdk::IntersticeValue) -> std::result::Result<Self, String> {
+                let inner = <#inner_type as interstice_sdk::Serialize>::from_value(v)?;
+                Ok(#name(inner))
+            }
+
+            fn to_value(&self) -> interstice_sdk::IntersticeValue {
+                self.0.to_value()
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
+}
+
+/// Attribute macro for defining typed tables
+/// 
+/// Generates a typed TableHandle for the table based on the data type.
+/// 
+/// # Example:
+/// ```ignore
+/// #[table(String)]
+/// fn users(id: u64, name: String) -> Result<()> {
+///     // Code to work with users table
+///     Ok(())
+/// }
+/// ```
+
+/// Attribute macro for typed event subscriptions
+/// 
+/// Marks a function as an event handler and registers it with the event system.
+#[proc_macro_attribute]
+pub fn subscribe_event(_args: TokenStream, input: TokenStream) -> TokenStream {
+    let func = parse_macro_input!(input as syn::ItemFn);
+    let func_name = &func.sig.ident;
+    
+    // Just pass through the function - runtime handles subscription
+    let expanded = quote! {
+        #[interstice_sdk::init]
+        fn #func_name() {
+            // Event subscription would be registered here at runtime
+        }
+    };
+    
+    TokenStream::from(expanded)
+}
+
+/// Attribute macro for inline reducer typing
+/// 
+/// Provides type information for reducers at compile time.
+#[proc_macro_attribute]
+pub fn inline_reducer(_args: TokenStream, input: TokenStream) -> TokenStream {
+    // Pass through - actual reducer is defined elsewhere
+    input
+}

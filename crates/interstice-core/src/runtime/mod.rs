@@ -6,7 +6,7 @@ use crate::{
     error::IntersticeError,
     persistence::{PersistenceConfig, Transaction, TransactionLog, TransactionType},
     runtime::{module::Module, reducer::ReducerFrame, table::TableEventInstance},
-    wasm::{StoreState, linker::define_host_calls},
+    wasm::{linker::define_host_calls, StoreState},
 };
 use interstice_abi::IntersticeValue;
 use std::collections::VecDeque;
@@ -173,7 +173,8 @@ impl Runtime {
                 old_row,
                 timestamp: self.tx_clock,
             };
-            log.append(&tx).map_err(|_| IntersticeError::Internal("Failed to write transaction log"))?;
+            log.append(&tx)
+                .map_err(|_| IntersticeError::Internal("Failed to write transaction log"))?;
             self.tx_clock += 1;
         }
         Ok(())

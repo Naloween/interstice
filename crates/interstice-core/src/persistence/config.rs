@@ -82,6 +82,9 @@ mod tests {
     #[test]
     fn test_log_file_path() {
         let cfg = PersistenceConfig::default().with_log_dir(PathBuf::from("./data"));
-        assert_eq!(cfg.log_file_path(), PathBuf::from("./data/transactions.log"));
+        assert_eq!(
+            cfg.log_file_path(),
+            PathBuf::from("./data/transactions.log")
+        );
     }
 }
