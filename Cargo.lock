@@ -718,6 +718,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "interstice-cli"
+version = "0.0.1"
+dependencies = [
+ "interstice-abi",
+ "interstice-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "interstice-core"
 version = "0.0.1"
 dependencies = [

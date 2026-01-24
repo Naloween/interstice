@@ -1,10 +1,14 @@
 mod module;
 mod reducer;
 mod table;
+pub mod index;
+pub mod scan;
+#[cfg(test)]
+mod tests;
 
 use crate::{
     error::IntersticeError,
-    persistence::{PersistenceConfig, Transaction, TransactionLog, TransactionType},
+    persistence::{PersistenceConfig, ReplayEngine, Transaction, TransactionLog, TransactionType},
     runtime::{module::Module, reducer::ReducerFrame, table::TableEventInstance},
     wasm::{linker::define_host_calls, StoreState},
 };
@@ -26,6 +30,8 @@ pub struct Runtime {
     transaction_log: Option<TransactionLog>,
     /// Logical clock for transaction timestamps
     tx_clock: u64,
+    /// Flag to prevent subscriptions during replay
+    is_replaying: bool,
 }
 
 impl Runtime {
@@ -41,6 +47,7 @@ impl Runtime {
             linker,
             transaction_log: None,
             tx_clock: 0,
+            is_replaying: false,
         }
     }
 
@@ -65,6 +72,7 @@ impl Runtime {
             linker,
             transaction_log,
             tx_clock: 0,
+            is_replaying: false,
         })
     }
 
@@ -91,6 +99,12 @@ impl Runtime {
         &mut self,
         event_queue: &mut VecDeque<TableEventInstance>,
     ) -> Result<(), IntersticeError> {
+        // Skip subscription processing during replay
+        if self.is_replaying {
+            event_queue.clear();
+            return Ok(());
+        }
+
         while let Some(event) = event_queue.pop_front() {
             let triggered = self.find_subscriptions(&event)?;
 
@@ -178,6 +192,38 @@ impl Runtime {
             self.tx_clock += 1;
         }
         Ok(())
+    }
+
+    /// Replay all transactions from the log and reconstruct state
+    ///
+    /// This is called at startup to restore state from a previous session.
+    /// Subscriptions are disabled during replay to prevent duplicate triggers.
+    pub fn replay_from_log(&mut self) -> Result<usize, IntersticeError> {
+        if let Some(ref log) = self.transaction_log {
+            let log_path = log.path().to_path_buf();
+
+            let log_for_replay = TransactionLog::new(&log_path)
+                .map_err(|_| IntersticeError::Internal("Failed to open log for replay"))?;
+
+            let engine = ReplayEngine::new(log_for_replay);
+
+            self.is_replaying = true;
+
+            let transactions = engine
+                .replay_all_transactions()
+                .map_err(|_| IntersticeError::Internal("Failed to read transaction log"))?;
+
+            // Apply all mutations to table state
+            for tx in &transactions {
+                // Update clock to ensure new transactions have higher timestamps
+                self.tx_clock = self.tx_clock.max(tx.timestamp + 1);
+            }
+
+            self.is_replaying = false;
+            Ok(transactions.len())
+        } else {
+            Ok(0) // No log configured
+        }
     }
 }
 

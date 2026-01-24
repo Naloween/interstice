@@ -25,6 +25,7 @@ pub trait Serialize: Sized + Debug + Clone {
 - `#[derive(SerializeNewtype)]` - For newtype wrappers
 
 **Example:**
+
 ```rust
 #[derive(Debug, Clone, SerializeNewtype)]
 struct UserId(u64);  // Automatically impl Serialize
@@ -79,6 +80,7 @@ impl<T: Serialize> TableHandle<T> {
 ```
 
 **Usage:**
+
 ```rust
 let users: TableHandle<String> = TableHandle::new("users");
 users.insert(1u64, "Alice".to_string())?;
@@ -86,6 +88,7 @@ let all: Vec<String> = users.scan();
 ```
 
 **Benefits:**
+
 - Compile-time type checking
 - Prevents wrong type usage
 - Clear API intent
@@ -118,8 +121,9 @@ pub trait TypedReducer<In: Serialize, Out: Serialize> {
 ```
 
 **Example:**
+
 ```rust
-let sig: ReducerSignature<String, u64> = 
+let sig: ReducerSignature<String, u64> =
     ReducerSignature::new("text", "count_words");
 
 struct CountWords;
@@ -185,8 +189,9 @@ impl EventRegistry {
 ```
 
 **Example:**
+
 ```rust
-let event: TypedEvent<String> = 
+let event: TypedEvent<String> =
     TypedEvent::new("user_created", "users");
 
 struct LogHandler;
@@ -255,6 +260,7 @@ Phase 3 includes 30 comprehensive tests:
 - **Example tests** - Real-world patterns
 
 Run tests:
+
 ```bash
 cargo test -p interstice-sdk-core --lib
 ```
@@ -276,7 +282,7 @@ fn create_user(name: String, age: u64) {
 ```rust
 #[reducer]
 fn get_user_count() -> u64 {
-    let sig: ReducerSignature<String, u64> = 
+    let sig: ReducerSignature<String, u64> =
         ReducerSignature::new("users", "count");
     sig.call("users".to_string()).unwrap_or(0)
 }
@@ -287,7 +293,7 @@ fn get_user_count() -> u64 {
 ```rust
 #[reducer]
 fn on_user_created(user: String) {
-    let event: TypedEvent<String> = 
+    let event: TypedEvent<String> =
         TypedEvent::new("user_created", "users");
     let sub = Subscription::new(event, "on_create");
     sub.subscribe().ok();
@@ -296,18 +302,19 @@ fn on_user_created(user: String) {
 
 ## Benefits Over Raw IntersticeValue
 
-| Aspect | Before | After |
-|--------|--------|-------|
-| Type Safety | Runtime checks only | Compile-time validation |
-| API Clarity | Raw enum handling | Type signatures |
-| Code Duplication | Repetitive conversions | Derive macros |
-| Error Handling | String errors | Proper Result types |
-| IDE Support | Limited type info | Full autocomplete |
-| Maintenance | Error-prone conversions | Type-driven design |
+| Aspect           | Before                  | After                   |
+| ---------------- | ----------------------- | ----------------------- |
+| Type Safety      | Runtime checks only     | Compile-time validation |
+| API Clarity      | Raw enum handling       | Type signatures         |
+| Code Duplication | Repetitive conversions  | Derive macros           |
+| Error Handling   | String errors           | Proper Result types     |
+| IDE Support      | Limited type info       | Full autocomplete       |
+| Maintenance      | Error-prone conversions | Type-driven design      |
 
 ## Files
 
 ### Core Components
+
 - `types.rs` - Serialize trait and implementations
 - `table_handle.rs` - TableHandle<T> generic type
 - `reducer_signature.rs` - ReducerSignature<In, Out>
@@ -316,11 +323,13 @@ fn on_user_created(user: String) {
 - `typed_helpers.rs` - Helper functions
 
 ### Documentation & Examples
+
 - `typed_examples.rs` - Basic usage examples
 - `advanced_examples.rs` - Complex patterns
 - `TYPED_SDK.md` - User guide
 
 ### Macros
+
 - `interstice-sdk-macros/src/lib.rs` - Derive and attribute macros
 
 ## Status

@@ -3,7 +3,7 @@
 //! Provides a context object that reducer functions can use to interact
 //! with tables and call other reducers in a type-safe way.
 
-use crate::types::{Serialize, Result};
+use crate::types::{Result, Serialize};
 
 /// Context for typed reducer operations
 ///
@@ -17,11 +17,7 @@ impl TypedReducerContext {
     /// ```ignore
     /// let result: u32 = ctx.call_reducer::<String, u32>("other_module", "add", "arg".to_string())?;
     /// ```
-    pub fn call_reducer<In, Out>(
-        module: &str,
-        reducer: &str,
-        arg: In,
-    ) -> Result<Out>
+    pub fn call_reducer<In, Out>(module: &str, reducer: &str, arg: In) -> Result<Out>
     where
         In: Serialize,
         Out: Serialize,
@@ -55,4 +51,3 @@ mod tests {
         // Context can be created
     }
 }
-

@@ -22,21 +22,21 @@ mod tests {
                     // Simple: assume "id:name" format
                     let parts: Vec<&str> = s.split(':').collect();
                     if parts.len() == 2 {
-                        let id = parts[0].parse::<u64>()
-                            .map_err(|e| e.to_string())?;
-                        Ok(User { id, name: parts[1].to_string() })
+                        let id = parts[0].parse::<u64>().map_err(|e| e.to_string())?;
+                        Ok(User {
+                            id,
+                            name: parts[1].to_string(),
+                        })
                     } else {
                         Err("Invalid user format".to_string())
                     }
                 }
-                _ => Err(format!("Cannot convert {:?} to User", v))
+                _ => Err(format!("Cannot convert {:?} to User", v)),
             }
         }
 
         fn to_value(&self) -> IntersticeValue {
-            IntersticeValue::String(
-                format!("{}:{}", self.id, self.name)
-            )
+            IntersticeValue::String(format!("{}:{}", self.id, self.name))
         }
     }
 
@@ -91,4 +91,3 @@ mod tests {
         assert!((v - v2).abs() < 0.00001);
     }
 }
-

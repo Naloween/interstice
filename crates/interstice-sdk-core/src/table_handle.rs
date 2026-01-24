@@ -64,7 +64,9 @@ impl<T: Serialize> TableHandle<T> {
             raw_rows
                 .into_iter()
                 .filter_map(|row| {
-                    row.entries.first().and_then(|v| T::from_value(v.clone()).ok())
+                    row.entries
+                        .first()
+                        .and_then(|v| T::from_value(v.clone()).ok())
                 })
                 .collect()
         }

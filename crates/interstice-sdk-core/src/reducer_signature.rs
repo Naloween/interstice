@@ -6,7 +6,7 @@ use crate::types::Serialize;
 use interstice_abi::IntersticeValue;
 
 /// Type signature for a reducer function
-/// 
+///
 /// Specifies the argument type and return type of a reducer in a type-safe way.
 #[derive(Debug, Clone)]
 pub struct ReducerSignature<In: Serialize, Out: Serialize> {
@@ -43,11 +43,8 @@ impl<In: Serialize, Out: Serialize> ReducerSignature<In, Out> {
         {
             use crate::host_calls;
             let arg_value = arg.to_value();
-            let result_value = host_calls::call_reducer(
-                self.module.clone(),
-                self.name.clone(),
-                arg_value,
-            );
+            let result_value =
+                host_calls::call_reducer(self.module.clone(), self.name.clone(), arg_value);
             Out::from_value(result_value)
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -58,7 +55,7 @@ impl<In: Serialize, Out: Serialize> ReducerSignature<In, Out> {
 }
 
 /// A reducer handler for incoming reducer calls
-/// 
+///
 /// Type-safe wrapper for reducer function signatures.
 pub trait TypedReducer<In: Serialize, Out: Serialize> {
     /// Handle a typed reducer invocation
@@ -71,24 +68,21 @@ mod tests {
 
     #[test]
     fn test_reducer_signature_creation() {
-        let sig: ReducerSignature<String, u64> = 
-            ReducerSignature::new("math", "count_chars");
+        let sig: ReducerSignature<String, u64> = ReducerSignature::new("math", "count_chars");
         assert_eq!(sig.module(), "math");
         assert_eq!(sig.name(), "count_chars");
     }
 
     #[test]
     fn test_reducer_signature_with_numbers() {
-        let sig: ReducerSignature<u64, u64> = 
-            ReducerSignature::new("calc", "double");
+        let sig: ReducerSignature<u64, u64> = ReducerSignature::new("calc", "double");
         assert_eq!(sig.module(), "calc");
         assert_eq!(sig.name(), "double");
     }
 
     #[test]
     fn test_reducer_signature_clone() {
-        let sig1: ReducerSignature<String, u32> = 
-            ReducerSignature::new("test", "func");
+        let sig1: ReducerSignature<String, u32> = ReducerSignature::new("test", "func");
         let sig2 = sig1.clone();
         assert_eq!(sig1.module(), sig2.module());
         assert_eq!(sig1.name(), sig2.name());

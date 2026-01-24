@@ -30,10 +30,7 @@ impl Module {
             .map(|table_schema| {
                 (
                     table_schema.name.clone(),
-                    Table {
-                        schema: table_schema.clone(),
-                        rows: Vec::new(),
-                    },
+                    Table::new(table_schema.clone()),
                 )
             })
             .collect();

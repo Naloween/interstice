@@ -33,7 +33,9 @@ pub fn scan_typed<T: Serialize>(table_name: &str) -> Vec<T> {
         .into_iter()
         .filter_map(|row| {
             // Extract first entry and convert
-            row.entries.first().and_then(|v| T::from_value(v.clone()).ok())
+            row.entries
+                .first()
+                .and_then(|v| T::from_value(v.clone()).ok())
         })
         .collect()
 }
@@ -60,6 +62,7 @@ mod tests {
     #[test]
     fn test_helper_compiles() {
         // Just verify the helpers compile and type-check
-        let _: std::result::Result<(), String> = insert_typed_row("test", 1u64, "hello".to_string());
+        let _: std::result::Result<(), String> =
+            insert_typed_row("test", 1u64, "hello".to_string());
     }
 }

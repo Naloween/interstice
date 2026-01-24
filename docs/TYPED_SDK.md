@@ -18,6 +18,7 @@ pub trait Serialize: Sized + Debug + Clone {
 ```
 
 **Built-in implementations:**
+
 - `String`, `u64`, `u32`, `i64`, `i32`, `bool`, `f32`, `f64`
 
 ### 2. Derive Macros
@@ -25,6 +26,7 @@ pub trait Serialize: Sized + Debug + Clone {
 Two derive macros make custom types easy:
 
 #### `#[derive(Serialize)]` - Basic implementation
+
 ```rust
 #[derive(Debug, Clone, Serialize)]
 struct MyType {
@@ -33,6 +35,7 @@ struct MyType {
 ```
 
 #### `#[derive(SerializeNewtype)]` - Newtype wrapper
+
 ```rust
 #[derive(Debug, Clone, SerializeNewtype)]
 struct UserId(u64);  // Automatically impl Serialize
@@ -65,6 +68,7 @@ let result: u32 = TypedReducerContext::call_reducer::<String, u32>(
 ## Usage Example
 
 ### Before (Raw Types)
+
 ```rust
 #[reducer]
 fn create_user(name: String) {
@@ -79,6 +83,7 @@ fn create_user(name: String) {
 ```
 
 ### After (Typed SDK)
+
 ```rust
 #[reducer]
 fn create_user(name: String) {
@@ -97,12 +102,14 @@ fn create_user(name: String) {
 ## Testing
 
 All components include comprehensive tests:
+
 - Type conversion roundtrips
 - Error handling
 - Custom type examples
 - Numeric type coverage
 
 Run tests:
+
 ```bash
 cargo test -p interstice-sdk-core types
 ```
