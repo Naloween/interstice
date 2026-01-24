@@ -85,7 +85,9 @@ impl LogEvent {
     pub fn new(level: LogLevel, message: impl Into<String>) -> Self {
         LogEvent {
             level,
-            timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+            timestamp: chrono::Local::now()
+                .format("%Y-%m-%d %H:%M:%S%.3f")
+                .to_string(),
             message: message.into(),
             context: LogContext::new(),
             fields: Vec::new(),
@@ -104,10 +106,7 @@ impl LogEvent {
 
     /// Format as human-readable text with context
     pub fn format_text(&self) -> String {
-        let mut output = format!(
-            "[{}] {} - {}",
-            self.level, self.timestamp, self.message
-        );
+        let mut output = format!("[{}] {} - {}", self.level, self.timestamp, self.message);
 
         if let Some(module) = &self.context.module_id {
             output.push_str(&format!(" [module: {}]", module));

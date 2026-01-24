@@ -5,6 +5,7 @@
 **Phase 1: Persistence & Durability** is now **100% complete**. All 20 planned features have been successfully implemented, tested, and documented. The persistence layer is production-ready and fully integrated with the Interstice runtime.
 
 **Key Metrics:**
+
 - ✅ 20/20 features complete
 - ✅ 75 tests passing (100%)
 - ✅ 0 ignored tests
@@ -19,6 +20,7 @@
 **Status:** Previously standalone, now fully integrated with TransactionLog
 
 **Implementation:**
+
 - Added `rotator` field to `TransactionLog` struct
 - Added `with_rotation()` constructor for custom rotation configs
 - Automatic rotation triggered in `append()` method
@@ -26,6 +28,7 @@
 - File handle properly refreshed
 
 **Code Changes:**
+
 - Modified `crates/interstice-core/src/persistence/transaction_log.rs`
 - Added rotation check and trigger on each append
 - Updated tests to validate integration
@@ -37,23 +40,27 @@
 **Status:** Runtime now auto-detects and replays existing logs on startup
 
 **Implementation:**
+
 - New `with_persistence_and_auto_replay()` method in Runtime
 - Checks for existing log file at configured path
 - Automatically calls `replay_from_log()` if log exists
 - Returns fully-recovered runtime, ready for business logic
 
 **Code Changes:**
+
 - Added method in `crates/interstice-core/src/runtime/mod.rs` (lines 79-97)
 - Returns `Result<Self, Box<dyn std::error::Error>>`
 - Properly handles no-log case (fresh start)
 
 **Usage:**
+
 ```rust
 let runtime = Runtime::with_persistence_and_auto_replay(config)?;
 // State fully recovered, ready to use
 ```
 
 **Benefits:**
+
 - Single-line startup for production deployments
 - No manual replay needed
 - Zero data loss on process crashes
@@ -64,12 +71,14 @@ let runtime = Runtime::with_persistence_and_auto_replay(config)?;
 **Status:** Tests validate no WASM execution occurs during replay
 
 **Implementation:**
+
 - Added `replay_wasm_prevention_tests` module
 - Test 1: Validates `is_replaying` flag behavior
 - Test 2: Validates event queue cleared during replay
 - Tests ensure subscriptions are skipped
 
 **Code Changes:**
+
 - Modified `crates/interstice-core/src/runtime/tests.rs` (lines 200-237)
 - Added `test_replay_flag_prevents_subscriptions()`
 - Added `test_event_queue_cleared_during_replay()`
@@ -77,6 +86,7 @@ let runtime = Runtime::with_persistence_and_auto_replay(config)?;
 **Test Results:** Both tests pass ✅
 
 **Coverage:**
+
 - Flag is set/cleared correctly
 - Event queue processing skipped during replay
 - Subscriptions cannot execute during replay (implicitly tested)
@@ -88,6 +98,7 @@ let runtime = Runtime::with_persistence_and_auto_replay(config)?;
 **File:** `docs/RECOVERY_MODE.md`
 
 **Contents:**
+
 1. **Automatic Recovery** (recommended path)
    - Setup with `with_persistence_and_auto_replay()`
    - Behavior on startup
@@ -139,6 +150,7 @@ let runtime = Runtime::with_persistence_and_auto_replay(config)?;
 **File:** `docs/MIGRATION_GUIDE.md`
 
 **Contents:**
+
 1. **Core Concepts**
    - Schema versions explained
    - Migration records
@@ -205,21 +217,22 @@ Application → Runtime → Transaction Log → Disk
 
 **Test Categories:**
 
-| Category | Count | Status |
-|----------|-------|--------|
-| Transaction Log | 5 | ✅ Pass |
-| Log Rotation | 4 | ✅ Pass |
-| Log Validation | 3 | ✅ Pass |
-| Replay Engine | 5 | ✅ Pass |
-| Persistence Config | 2 | ✅ Pass |
-| Schema Versioning | 6 | ✅ Pass |
-| Migration Registry | 3 | ✅ Pass |
-| Integration Tests | 6 | ✅ Pass |
-| Runtime (Replay Mode) | 2 | ✅ Pass |
-| Runtime (Tables) | 34 | ✅ Pass |
-| **Total** | **75** | **✅ Pass** |
+| Category              | Count  | Status      |
+| --------------------- | ------ | ----------- |
+| Transaction Log       | 5      | ✅ Pass     |
+| Log Rotation          | 4      | ✅ Pass     |
+| Log Validation        | 3      | ✅ Pass     |
+| Replay Engine         | 5      | ✅ Pass     |
+| Persistence Config    | 2      | ✅ Pass     |
+| Schema Versioning     | 6      | ✅ Pass     |
+| Migration Registry    | 3      | ✅ Pass     |
+| Integration Tests     | 6      | ✅ Pass     |
+| Runtime (Replay Mode) | 2      | ✅ Pass     |
+| Runtime (Tables)      | 34     | ✅ Pass     |
+| **Total**             | **75** | **✅ Pass** |
 
 **Test Performance:**
+
 - Build time: ~1.2 seconds
 - Test execution: < 50ms
 - Memory usage: < 10MB
@@ -241,30 +254,35 @@ Application → Runtime → Transaction Log → Disk
 ## Key Features Delivered
 
 ### 1. Durable Transaction Log
+
 - Binary format with checksums
 - Atomic writes
 - CRC32 validation
 - O(n) replay speed
 
 ### 2. Automatic Recovery
+
 - Single-method startup
 - No manual steps
 - Zero data loss
 - Deterministic restoration
 
 ### 3. Log Rotation
+
 - Size-based rotation
 - Configurable retention
 - Automatic cleanup
 - No unbounded growth
 
 ### 4. Schema Versioning
+
 - Version tracking
 - Compatibility checking
 - Migration support
 - Audit trails
 
 ### 5. Comprehensive Documentation
+
 - Recovery procedures (RECOVERY_MODE.md)
 - Migration patterns (MIGRATION_GUIDE.md)
 - API usage examples (code samples)
@@ -273,6 +291,7 @@ Application → Runtime → Transaction Log → Disk
 ## Files Modified/Created
 
 ### Modified Files
+
 1. `crates/interstice-core/src/persistence/transaction_log.rs`
    - Added rotation integration
    - New constructor with rotation config
@@ -294,6 +313,7 @@ Application → Runtime → Transaction Log → Disk
    - Updated status summary
 
 ### New Files
+
 1. `docs/RECOVERY_MODE.md` (9,061 bytes)
    - Comprehensive recovery guide
    - 8 major sections
@@ -309,18 +329,21 @@ Application → Runtime → Transaction Log → Disk
 ## Next Phase Planning
 
 ### Phase 2: Optimization (when ready)
+
 - Query indexing improvements
 - Log replay speed optimization
 - Memory usage reduction
 - Concurrent write performance
 
 ### Phase 3: SDK Type System (in progress)
+
 - Type-safe table definitions
 - Derive macros for types
 - Reducer signatures
 - Subscription handlers
 
 ### Phase 4: Testing & Tooling
+
 - CLI tools for operators
 - Debugging utilities
 - Performance profiling
@@ -329,17 +352,20 @@ Application → Runtime → Transaction Log → Disk
 ## Metrics & Stats
 
 **Code:**
+
 - Persistence layer: 1,200+ LOC
 - Documentation: 22,000+ words
 - Test coverage: 75 tests
 - Code examples: 35+
 
 **Documentation:**
+
 - Recovery guide: 9,061 bytes
 - Migration guide: 12,628 bytes
 - Phase 1 progress: Complete
 
 **Performance:**
+
 - Write latency: ~1ms (with fsync)
 - Read latency: < 100µs
 - Replay speed: O(log_size)

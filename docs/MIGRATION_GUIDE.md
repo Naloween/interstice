@@ -5,6 +5,7 @@ This guide covers how to safely evolve your table schemas while maintaining data
 ## Overview
 
 Schema migrations in Interstice allow you to:
+
 - Add new columns to tables
 - Change column types (with compatibility rules)
 - Rename tables and columns
@@ -89,12 +90,12 @@ pub fn migrate_add_email(table: &mut Table, version: u32) -> Result<(), String> 
                 entries
             },
         };
-        
+
         // Update all existing rows to include empty email
         for row in &mut table.data {
             row.entries.push(IntersticeValue::String(String::new()));
         }
-        
+
         // Update schema
         table.schema = new_schema;
     }
@@ -113,10 +114,10 @@ pub fn migrate_rename_column(table: &mut Table) -> Result<(), String> {
         .iter()
         .position(|e| e.name == "email")
         .ok_or("Column not found")?;
-    
+
     // Rename in schema
     table.schema.entries[email_idx].name = "user_email".to_string();
-    
+
     // Data automatically stays with renamed column
     Ok(())
 }
@@ -134,7 +135,7 @@ pub fn migrate_age_to_u32(table: &mut Table) -> Result<(), String> {
         .iter()
         .position(|e| e.name == "age")
         .ok_or("Column not found")?;
-    
+
     // Validate conversion is safe
     for row in &table.data {
         match &row.entries[age_idx] {
@@ -145,17 +146,17 @@ pub fn migrate_age_to_u32(table: &mut Table) -> Result<(), String> {
             _ => return Err("Cannot safely convert age column".to_string()),
         }
     }
-    
+
     // Update schema
     table.schema.entries[age_idx].value_type = IntersticeType::U32;
-    
+
     // Convert values
     for row in &mut table.data {
         if let IntersticeValue::U64(v) = row.entries[age_idx] {
             row.entries[age_idx] = IntersticeValue::U32(v as u32);
         }
     }
-    
+
     Ok(())
 }
 ```
@@ -172,14 +173,14 @@ pub fn migrate_normalize_emails(table: &mut Table) -> Result<(), String> {
         .iter()
         .position(|e| e.name == "email")
         .ok_or("Column not found")?;
-    
+
     for row in &mut table.data {
         if let IntersticeValue::String(email) = &mut row.entries[email_idx] {
             // Normalize: trim and lowercase
             *email = email.trim().to_lowercase();
         }
     }
-    
+
     Ok(())
 }
 ```
@@ -194,10 +195,10 @@ pub fn migrate_split_name(table: &mut Table) -> Result<(), String> {
         .iter()
         .position(|e| e.name == "full_name")
         .ok_or("Column not found")?;
-    
+
     // Remove full_name column
     table.schema.entries.remove(name_idx);
-    
+
     // Add first_name and last_name columns
     table.schema.entries.push(EntrySchema {
         name: "first_name".to_string(),
@@ -207,20 +208,20 @@ pub fn migrate_split_name(table: &mut Table) -> Result<(), String> {
         name: "last_name".to_string(),
         value_type: IntersticeType::String,
     });
-    
+
     // Transform each row
     for row in &mut table.data {
         if let IntersticeValue::String(full_name) = &row.entries[name_idx] {
             let parts: Vec<&str> = full_name.split_whitespace().collect();
             let first = parts.get(0).unwrap_or(&"").to_string();
             let last = parts.get(1).unwrap_or(&"").to_string();
-            
+
             row.entries.remove(name_idx);
             row.entries.push(IntersticeValue::String(first));
             row.entries.push(IntersticeValue::String(last));
         }
     }
-    
+
     Ok(())
 }
 ```
@@ -266,17 +267,17 @@ mod migration_tests {
     fn test_migrate_add_timestamps() {
         let mut schema = create_test_schema();
         let mut table = Table::new(schema);
-        
+
         // Add test data
         let row = Row {
             primary_key: IntersticeValue::U64(1),
             entries: vec![IntersticeValue::String("John".to_string())],
         };
         table.insert_row(row).unwrap();
-        
+
         // Apply migration
         migrate_add_timestamps(&mut table, 1).unwrap();
-        
+
         // Verify
         assert_eq!(table.schema.entries.len(), 3); // original + 2 timestamp cols
         assert_eq!(table.data[0].entries.len(), 3);
@@ -286,7 +287,7 @@ mod migration_tests {
     fn test_migrate_with_empty_table() {
         let schema = create_test_schema();
         let mut table = Table::new(schema);
-        
+
         // Should work even with no data
         migrate_add_timestamps(&mut table, 1).unwrap();
         assert_eq!(table.len(), 0);
@@ -343,13 +344,13 @@ pub fn validate_migration_safe(
                 old_entry.name, old_entry.value_type, new_entry.value_type
             ));
         }
-        
+
         // Validate all existing data
         for row in data {
             // ... conversion validation ...
         }
     }
-    
+
     Ok(())
 }
 ```
@@ -462,9 +463,9 @@ impl MigrationPlan {
 fn test_migration() {
     let mut table = create_test_table();
     let migration = MigrationPlan::add_user_emails();
-    
+
     migration.apply(&mut table).unwrap();
-    
+
     assert_eq!(table.schema_version(), 2);
     assert!(table.schema.entries.iter().any(|e| e.name == "email"));
 }
@@ -472,13 +473,13 @@ fn test_migration() {
 
 ## Summary
 
-| Pattern | Complexity | Risk | Rollback |
-|---------|-----------|------|----------|
-| Add column | Low | Low | Remove column |
-| Rename column | Low | Low | Rename back |
-| Split column | Medium | Medium | Merge back |
-| Type conversion | High | High | Convert back |
-| Data transformation | High | High | Run inverse |
+| Pattern             | Complexity | Risk   | Rollback      |
+| ------------------- | ---------- | ------ | ------------- |
+| Add column          | Low        | Low    | Remove column |
+| Rename column       | Low        | Low    | Rename back   |
+| Split column        | Medium     | Medium | Merge back    |
+| Type conversion     | High       | High   | Convert back  |
+| Data transformation | High       | High   | Run inverse   |
 
 **Key Rule:** Always make migrations reversible. Record version history for safe rollback.
 

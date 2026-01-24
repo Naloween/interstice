@@ -2,8 +2,8 @@
 // Enables detailed visibility into module execution flow and timing
 
 use serde::{Deserialize, Serialize};
-use std::time::SystemTime;
 use std::collections::HashMap;
+use std::time::SystemTime;
 
 /// A single span in an execution trace (e.g., a reducer call)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,8 +173,7 @@ mod tests {
 
     #[test]
     fn test_trace_span_with_reducer() {
-        let span = TraceSpan::new(1, "call", "module")
-            .with_reducer("my_reducer");
+        let span = TraceSpan::new(1, "call", "module").with_reducer("my_reducer");
         assert_eq!(span.reducer_name, Some("my_reducer".to_string()));
     }
 
@@ -182,7 +181,7 @@ mod tests {
     fn test_trace_span_completion() {
         let mut span = TraceSpan::new(1, "test", "module");
         assert!(matches!(span.status, SpanStatus::Running));
-        
+
         span.complete();
         assert!(matches!(span.status, SpanStatus::Completed));
         assert!(span.duration_us.is_some());
@@ -192,7 +191,7 @@ mod tests {
     fn test_trace_span_failure() {
         let mut span = TraceSpan::new(1, "test", "module");
         span.fail("Something went wrong");
-        
+
         assert!(matches!(span.status, SpanStatus::Failed(_)));
         assert!(span.duration_us.is_some());
     }
@@ -230,9 +229,8 @@ mod tests {
 
     #[test]
     fn test_trace_span_serialization() {
-        let span = TraceSpan::new(1, "test", "module")
-            .with_reducer("reducer");
-        
+        let span = TraceSpan::new(1, "test", "module").with_reducer("reducer");
+
         let json = serde_json::to_string(&span);
         assert!(json.is_ok());
     }

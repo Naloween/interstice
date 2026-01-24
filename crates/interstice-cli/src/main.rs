@@ -1,8 +1,8 @@
 // Interstice CLI - Command-line interface for schema inspection, validation, and debugging
 
 use interstice_cli::{
-    inspect_log, dry_run_module_load, diff_schemas, format_output, OutputFormat,
-    LogInspectionResult, ValidationResult, DryRunResult,
+    diff_schemas, dry_run_module_load, format_output, inspect_log, DryRunResult,
+    LogInspectionResult, OutputFormat, ValidationResult,
 };
 use std::path::Path;
 
@@ -30,15 +30,13 @@ fn main() {
             } else {
                 OutputFormat::Text
             };
-            
+
             // For now, just do a dry-run which validates the schema
             match dry_run_module_load(Path::new(path)) {
-                Ok(result) => {
-                    match format_output(&result, format) {
-                        Ok(output) => println!("{}", output),
-                        Err(e) => eprintln!("Error: {}", e),
-                    }
-                }
+                Ok(result) => match format_output(&result, format) {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                },
                 Err(e) => eprintln!("Error: {}", e),
             }
         }
@@ -58,12 +56,10 @@ fn main() {
             };
 
             match diff_schemas(Path::new(old_path), Path::new(new_path)) {
-                Ok(result) => {
-                    match format_output(&result, format) {
-                        Ok(output) => println!("{}", output),
-                        Err(e) => eprintln!("Error: {}", e),
-                    }
-                }
+                Ok(result) => match format_output(&result, format) {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                },
                 Err(e) => eprintln!("Error: {}", e),
             }
         }
@@ -88,7 +84,7 @@ fn main() {
                         issues: result.schema_errors.clone(),
                         warnings: result.warnings.clone(),
                     };
-                    
+
                     match format_output(&validation, format) {
                         Ok(output) => println!("{}", output),
                         Err(e) => eprintln!("Error: {}", e),
@@ -112,12 +108,10 @@ fn main() {
             };
 
             match inspect_log(Path::new(path)) {
-                Ok(result) => {
-                    match format_output(&result, format) {
-                        Ok(output) => println!("{}", output),
-                        Err(e) => eprintln!("Error: {}", e),
-                    }
-                }
+                Ok(result) => match format_output(&result, format) {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => eprintln!("Error: {}", e),
+                },
                 Err(e) => eprintln!("Error: {}", e),
             }
         }

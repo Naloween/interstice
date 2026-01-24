@@ -136,7 +136,12 @@ impl FilteredLogResult {
         for txn in &self.transactions {
             csv.push_str(&format!(
                 "{},{},{},{},{},{}\n",
-                txn.index, txn.module_id, txn.table_name, txn.operation, txn.timestamp, txn.data_hash
+                txn.index,
+                txn.module_id,
+                txn.table_name,
+                txn.operation,
+                txn.timestamp,
+                txn.data_hash
             ));
         }
 

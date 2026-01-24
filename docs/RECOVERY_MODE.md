@@ -28,6 +28,7 @@ let runtime = Runtime::with_persistence_and_auto_replay(config)?;
 ```
 
 **Behavior:**
+
 1. Runtime initializes with persistence enabled
 2. Checks for existing transaction log at `./interstice_logs/txn.log`
 3. If log exists, automatically replays all transactions
@@ -155,6 +156,7 @@ let log = TransactionLog::with_rotation("txn.log", rotation_config)?;
 ```
 
 **Rotation behavior:**
+
 - `txn.log` → `txn.log.0` (when size exceeded)
 - `txn.log.0` → `txn.log.1` (on next rotation)
 - Old logs beyond `max_rotated_logs` are automatically deleted
@@ -209,6 +211,7 @@ let runtime = Runtime::with_persistence_and_auto_replay(config)?;
 
 **Symptom:** Log validation reports checksum mismatches
 **Recovery:**
+
 1. Validate log to find where corruption starts
 2. Truncate to last valid record
 3. Replay truncated log
@@ -218,6 +221,7 @@ let runtime = Runtime::with_persistence_and_auto_replay(config)?;
 
 **Symptom:** Last few transactions missing
 **Recovery:**
+
 1. Use auto-replay on startup
 2. Log is append-only, so partial writes don't corrupt previous data
 3. Failed transaction is simply not present in log
@@ -227,6 +231,7 @@ let runtime = Runtime::with_persistence_and_auto_replay(config)?;
 
 **Symptom:** Write failures in transaction log
 **Recovery:**
+
 1. Free up disk space
 2. Existing log is untouched
 3. Restart application
@@ -237,6 +242,7 @@ let runtime = Runtime::with_persistence_and_auto_replay(config)?;
 
 **Symptom:** Log file exists but can't be opened/read
 **Recovery:**
+
 1. Make backup: `cp txn.log txn.log.backup`
 2. Clear/remove the corrupted file
 3. Restart application
@@ -322,14 +328,14 @@ let compatible = registry.is_compatible("users", 1, 2);
 
 ## Summary
 
-| Scenario | Automatic | Manual | Risk |
-|----------|-----------|--------|------|
-| Clean shutdown & restart | ✓ | - | None |
-| Process crash | ✓ | ✓ | None (append-only) |
-| Log corruption at end | ✗ | ✓ | Fix corruption |
-| Mid-transaction failure | ✓ | ✓ | Previous transaction safe |
-| Disk full | ✓ | ✓ | Free space required |
-| Disk failure | ✓* | ✓ | Backup required |
+| Scenario                 | Automatic | Manual | Risk                      |
+| ------------------------ | --------- | ------ | ------------------------- |
+| Clean shutdown & restart | ✓         | -      | None                      |
+| Process crash            | ✓         | ✓      | None (append-only)        |
+| Log corruption at end    | ✗         | ✓      | Fix corruption            |
+| Mid-transaction failure  | ✓         | ✓      | Previous transaction safe |
+| Disk full                | ✓         | ✓      | Free space required       |
+| Disk failure             | ✓\*       | ✓      | Backup required           |
 
 \* Requires replica or backup available
 

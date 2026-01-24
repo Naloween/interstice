@@ -1,9 +1,9 @@
 // Determinism verification tools for Interstice
 // Replays logs multiple times and compares results to detect non-deterministic behavior
 
-use crate::persistence::{TransactionLog, ReplayEngine};
-use std::path::Path;
+use crate::persistence::{ReplayEngine, TransactionLog};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 /// Result of a single replay run
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,10 +48,7 @@ impl DeterminismCheckResult {
 
 /// Verify determinism by replaying log multiple times
 /// Note: This is a stub implementation - full implementation requires state snapshot capability
-pub fn check_determinism(
-    log_path: &Path,
-    runs: usize,
-) -> Result<DeterminismCheckResult, String> {
+pub fn check_determinism(log_path: &Path, runs: usize) -> Result<DeterminismCheckResult, String> {
     if !log_path.exists() {
         return Err(format!("Log file not found: {}", log_path.display()));
     }
