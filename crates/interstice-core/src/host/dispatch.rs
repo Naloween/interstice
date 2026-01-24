@@ -34,17 +34,17 @@ impl Runtime {
                 Ok(None)
             }
             HostCall::InsertRow(insert_row_request) => {
-                let response = self.handle_insert_row(insert_row_request);
+                let response = self.handle_insert_row(caller_module_name, insert_row_request);
                 let result = self.send_data_to_module(response, memory, caller);
                 Ok(Some(result))
             }
             HostCall::UpdateRow(update_row_request) => {
-                let response = self.handle_update_row(update_row_request);
+                let response = self.handle_update_row(caller_module_name, update_row_request);
                 let result = self.send_data_to_module(response, memory, caller);
                 Ok(Some(result))
             }
             HostCall::DeleteRow(delete_row_request) => {
-                let response = self.handle_delete_row(delete_row_request);
+                let response = self.handle_delete_row(caller_module_name, delete_row_request);
                 let result = self.send_data_to_module(response, memory, caller);
                 Ok(Some(result))
             }

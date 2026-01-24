@@ -13,3 +13,4 @@ serde_json = "*"
 slotmap = "*"
 parking_lot = "*"
 crossbeam = "*"                                              # later for scheduling
+tempfile = "*"

@@ -58,7 +58,6 @@ pub struct InsertRowResponse {}
 #[derive(Debug, Deserialize, Serialize)]
 pub struct UpdateRowRequest {
     pub table_name: String,
-    pub key: IntersticeValue,
     pub row: Row,
 }
 

@@ -6,17 +6,32 @@ pub enum IntersticeError {
     ModuleAlreadyExists(String),
     ModuleNotFound(String),
 
-    TableNotFound { module: String, table: String },
-    ReducerNotFound { module: String, reducer: String },
-    InvalidRow { module: String, table: String },
-    ReducerCycle { module: String, reducer: String },
+    TableNotFound {
+        module_name: String,
+        table_name: String,
+    },
+    ReducerNotFound {
+        module: String,
+        reducer: String,
+    },
+    InvalidRow {
+        module: String,
+        table: String,
+    },
+    ReducerCycle {
+        module: String,
+        reducer: String,
+    },
 
     // ─── WASM loading / linking ────────────────────────────────────────────
     MissingExport(&'static str),
     WasmFuncNotFound(String),
     BadSignature(String),
     InvalidSchema,
-    AbiVersionMismatch { expected: u16, found: u16 },
+    AbiVersionMismatch {
+        expected: u16,
+        found: u16,
+    },
 
     // ─── WASM execution ────────────────────────────────────────────────────
     WasmTrap(String),
@@ -26,7 +41,7 @@ pub enum IntersticeError {
     MemoryWrite,
 
     // ─── Internal invariants ───────────────────────────────────────────────
-    Internal(&'static str),
+    Internal(String),
 }
 
 impl fmt::Display for IntersticeError {
@@ -40,7 +55,10 @@ impl fmt::Display for IntersticeError {
             ModuleNotFound(name) => {
                 write!(f, "module '{}' not found", name)
             }
-            TableNotFound { module, table } => {
+            TableNotFound {
+                module_name: module,
+                table_name: table,
+            } => {
                 write!(f, "table '{}' not found in module '{}'", table, module)
             }
             ReducerNotFound { module, reducer } => {

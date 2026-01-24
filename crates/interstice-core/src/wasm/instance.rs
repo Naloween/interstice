@@ -74,8 +74,9 @@ impl WasmInstance {
         args: IntersticeValue,
     ) -> Result<IntersticeValue, IntersticeError> {
         let func_name = &get_reducer_wrapper_name(reducer_name);
-        let args_bytes = encode(&args)
-            .map_err(|_| IntersticeError::Internal("failed to serialize reducer arguments"))?;
+        let args_bytes = encode(&args).map_err(|err| {
+            IntersticeError::Internal(format!("failed to serialize reducer arguments: {}", err))
+        })?;
 
         let alloc = self
             .alloc
@@ -128,8 +129,9 @@ impl WasmInstance {
         // free output
         dealloc.call(&mut self.store, (res_ptr, res_len)).ok();
 
-        let out = decode(&out)
-            .map_err(|_| IntersticeError::Internal("failed to deserialize reducer output"))?;
+        let out = decode(&out).map_err(|err| {
+            IntersticeError::Internal(format!("failed to deserialize reducer output: {}", err))
+        })?;
 
         Ok(out)
     }
