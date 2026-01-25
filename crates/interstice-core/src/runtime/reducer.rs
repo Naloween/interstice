@@ -2,10 +2,7 @@ use crate::runtime::Runtime;
 use crate::runtime::event::TableEventInstance;
 use crate::runtime::transaction::Transaction;
 use crate::{error::IntersticeError, runtime::table::validate_row};
-use interstice_abi::{
-    CurrentModuleContext, DeleteRowRequest, InsertRowRequest, IntersticeValue, ReducerContext,
-    UpdateRowRequest,
-};
+use interstice_abi::{IntersticeValue, ReducerContext};
 
 #[derive(Debug)]
 pub struct ReducerFrame {

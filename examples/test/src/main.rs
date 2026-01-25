@@ -1,9 +1,6 @@
-use std::path::Path;
+use std::{fs::File, io::Write, path::Path};
 
-use interstice_core::{
-    interstice_abi::{IntersticeValue, ModuleSchema},
-    *,
-};
+use interstice_core::{interstice_abi::IntersticeValue, *};
 
 fn main() -> anyhow::Result<()> {
     let mut runtime =
@@ -16,8 +13,14 @@ fn main() -> anyhow::Result<()> {
     let hello_schema = runtime.load_module(hello_path)?;
     let caller_schema = runtime.load_module(caller_path)?;
 
-    println!("{}", hello_schema.to_toml_string().unwrap());
-    println!("{}", caller_schema.to_toml_string().unwrap());
+    File::create("./hello_schema.toml")
+        .unwrap()
+        .write_all(&hello_schema.to_toml_string().unwrap().as_bytes())
+        .unwrap();
+    File::create("./caller_schema.toml")
+        .unwrap()
+        .write_all(&caller_schema.to_toml_string().unwrap().as_bytes())
+        .unwrap();
 
     runtime.run(
         "hello",

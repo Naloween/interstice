@@ -1,6 +1,6 @@
 use interstice_abi::{
     CallReducerRequest, HostCall, InsertRowRequest, IntersticeValue, LogRequest, ModuleSelection,
-    ReducerContext, Row, TableScanRequest, decode, encode, unpack_ptr_len,
+    Row, TableScanRequest, decode, encode, unpack_ptr_len,
 };
 
 #[link(wasm_import_module = "interstice")]

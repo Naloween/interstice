@@ -37,6 +37,10 @@ impl ModuleSchema {
         }
     }
 
+    pub fn from_toml_string(toml_string: &str) -> Result<Self, toml::de::Error> {
+        toml::from_str(toml_string)
+    }
+
     pub fn to_toml_string(&self) -> Result<String, toml::ser::Error> {
         toml::to_string(&self)
     }

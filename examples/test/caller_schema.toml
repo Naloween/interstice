@@ -1,0 +1,14 @@
+abi_version = 1
+name = "caller"
+tables = []
+subscriptions = []
+
+[version]
+major = 0
+minor = 0
+patch = 1
+
+[[reducers]]
+name = "caller"
+arguments = []
+return_type = "Void"

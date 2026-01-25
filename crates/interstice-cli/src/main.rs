@@ -92,28 +92,6 @@ fn main() {
                 Err(e) => eprintln!("Error: {}", e),
             }
         }
-        "log-inspect" if args.len() >= 3 => {
-            let path = &args[2];
-            let format = if args.len() >= 4 {
-                match OutputFormat::from_str(&args[3]) {
-                    Ok(fmt) => fmt,
-                    Err(e) => {
-                        eprintln!("Error: {}", e);
-                        return;
-                    }
-                }
-            } else {
-                OutputFormat::Text
-            };
-
-            // match inspect_log(Path::new(path)) {
-            //     Ok(result) => match format_output(&result, format) {
-            //         Ok(output) => println!("{}", output),
-            //         Err(e) => eprintln!("Error: {}", e),
-            //     },
-            //     Err(e) => eprintln!("Error: {}", e),
-            // }
-        }
         "help" | "-h" | "--help" => print_help(),
         _ => {
             eprintln!("Unknown command: {}", command);

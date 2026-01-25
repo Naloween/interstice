@@ -22,8 +22,6 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-pub const LOG_FORMAT_VERSION: u8 = 1;
-
 /// Append-only transaction log for durable storage
 pub struct TransactionLog {
     file: Arc<Mutex<File>>,
