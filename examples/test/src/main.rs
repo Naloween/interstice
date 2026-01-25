@@ -1,7 +1,9 @@
 use std::path::Path;
 
-use interstice_abi::IntersticeValue;
-use interstice_core::Runtime;
+use interstice_core::{
+    interstice_abi::{IntersticeValue, ModuleSchema},
+    *,
+};
 
 fn main() -> anyhow::Result<()> {
     let mut runtime =
@@ -11,8 +13,11 @@ fn main() -> anyhow::Result<()> {
     let hello_path = "../../target/wasm32-unknown-unknown/debug/hello.wasm";
     let caller_path = "../../target/wasm32-unknown-unknown/debug/caller.wasm";
 
-    runtime.load_module(hello_path)?;
-    runtime.load_module(caller_path)?;
+    let hello_schema = runtime.load_module(hello_path)?;
+    let caller_schema = runtime.load_module(caller_path)?;
+
+    println!("{}", hello_schema.to_toml_string().unwrap());
+    println!("{}", caller_schema.to_toml_string().unwrap());
 
     runtime.run(
         "hello",

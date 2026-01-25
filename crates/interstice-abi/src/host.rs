@@ -29,9 +29,15 @@ pub enum HostCall {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CallReducerRequest {
-    pub module_name: String,
+    pub module_selection: ModuleSelection,
     pub reducer_name: String,
     pub input: IntersticeValue,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ModuleSelection {
+    Current,
+    Other(String),
 }
 
 pub type CallReducerResponse = IntersticeValue;
@@ -48,6 +54,7 @@ pub struct AbortRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct InsertRowRequest {
+    pub module_selection: ModuleSelection,
     pub table_name: String,
     pub row: Row,
 }
@@ -57,6 +64,7 @@ pub struct InsertRowResponse {}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct UpdateRowRequest {
+    pub module_selection: ModuleSelection,
     pub table_name: String,
     pub row: Row,
 }
@@ -66,6 +74,7 @@ pub struct UpdateRowResponse {}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DeleteRowRequest {
+    pub module_selection: ModuleSelection,
     pub table_name: String,
     pub key: IntersticeValue,
 }
@@ -75,6 +84,7 @@ pub struct DeleteRowResponse {}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct TableScanRequest {
+    pub module_selection: ModuleSelection,
     pub table_name: String,
 }
 

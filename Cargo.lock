@@ -706,6 +706,7 @@ version = "0.0.1"
 dependencies = [
  "postcard",
  "serde",
+ "toml",
 ]
 
 [[package]]
@@ -1338,7 +1339,6 @@ name = "test"
 version = "0.0.1"
 dependencies = [
  "anyhow",
- "interstice-abi",
  "interstice-core",
  "wasmtime",
 ]

@@ -1,13 +1,18 @@
 use crate::{error::IntersticeError, runtime::Runtime};
-use interstice_abi::{CallReducerResponse, host::CallReducerRequest};
+use interstice_abi::{CallReducerResponse, ModuleSelection, host::CallReducerRequest};
 
 impl Runtime {
     pub(crate) fn handle_call_reducer(
         &mut self,
+        caller_module_name: &String,
         call_reducer_request: CallReducerRequest,
     ) -> Result<CallReducerResponse, IntersticeError> {
+        let module_name = match &call_reducer_request.module_selection {
+            ModuleSelection::Current => caller_module_name,
+            ModuleSelection::Other(name) => name,
+        };
         let (result, events) = self.invoke_reducer(
-            &call_reducer_request.module_name,
+            module_name,
             &call_reducer_request.reducer_name,
             call_reducer_request.input,
         )?;

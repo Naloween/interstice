@@ -1,10 +1,11 @@
-use interstice_sdk::{interstice_module, reducer, table, IntersticeValue, Row};
+use interstice_sdk::*;
 
 interstice_module!();
 
 // TABLES
 
 #[table]
+#[derive(Debug)]
 pub struct Greetings {
     #[primary_key]
     pub id: u64,
@@ -14,21 +15,18 @@ pub struct Greetings {
 // REDUCERS
 
 #[reducer]
-pub fn hello(name: String) {
-    interstice_sdk::log(&format!("Saying hello to {}", name));
-    interstice_sdk::insert_row(
-        "greetings".to_string(),
-        Row {
-            primary_key: IntersticeValue::U64(0), // Auto-incremented by the SDK
-            entries: vec![IntersticeValue::String(format!("Hello, {}!", name))],
-        },
-    );
+pub fn hello(ctx: ReducerContext, name: String) {
+    ctx.log(&format!("Saying hello to {}", name));
+    ctx.current.greetings().insert(Greetings {
+        id: 0,
+        greeting: format!("Hello, {}!", name),
+    });
 }
 
 #[reducer(on = hello.greetings.insert)]
-fn on_greeting_insert(inserted_row: Row) {
-    interstice_sdk::log(&format!("Inserted greeting: {:?}", inserted_row));
+fn on_greeting_insert(ctx: ReducerContext, inserted_row: Row) {
+    ctx.log(&format!("Inserted greeting: {:?}", inserted_row));
 
-    let greetings = interstice_sdk::scan("greetings".into());
-    interstice_sdk::log(&format!("All greetings: {:?}", greetings));
+    let greetings = ctx.current.greetings().scan();
+    ctx.log(&format!("All greetings: {:?}", greetings));
 }

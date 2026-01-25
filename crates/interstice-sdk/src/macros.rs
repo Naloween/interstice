@@ -34,7 +34,7 @@ macro_rules! interstice_module {
                 };
 
                 // send to host
-                interstice_sdk::log(&format!("Panic Error: {}", msg));
+                interstice_sdk::host_calls::log(&format!("Panic Error: {}", msg));
             }));
         }
 
@@ -54,9 +54,9 @@ macro_rules! interstice_module {
 }
 
 pub fn describe_module(name: &str, version: &str) -> i64 {
-    let reducers = interstice_sdk_core::collect_reducers();
-    let tables = interstice_sdk_core::collect_tables();
-    let subscriptions = interstice_sdk_core::collect_subscriptions();
+    let reducers = interstice_sdk_core::registry::collect_reducers();
+    let tables = interstice_sdk_core::registry::collect_tables();
+    let subscriptions = interstice_sdk_core::registry::collect_subscriptions();
 
     let schema = ModuleSchema {
         abi_version: interstice_abi::ABI_VERSION,

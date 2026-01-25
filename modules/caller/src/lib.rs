@@ -1,18 +1,18 @@
 // REDUCERS
 
-use interstice_sdk::{call_reducer, interstice_module, log, reducer, IntersticeValue};
+use interstice_sdk::{host_calls::call_reducer, *};
 
 interstice_module!();
 
 #[reducer]
-fn caller() {
-    log("Calling hello...");
+fn caller(ctx: ReducerContext) {
+    ctx.log("Calling hello...");
     call_reducer(
-        "hello".to_string(),
+        ModuleSelection::Other("hello".into()),
         "hello".to_string(),
         IntersticeValue::Vec(vec![IntersticeValue::String(
             "called from caller".to_string(),
         )]),
     );
-    log("hello called !");
+    ctx.log("hello called !");
 }

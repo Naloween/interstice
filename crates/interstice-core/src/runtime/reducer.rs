@@ -2,7 +2,10 @@ use crate::runtime::Runtime;
 use crate::runtime::event::TableEventInstance;
 use crate::runtime::transaction::Transaction;
 use crate::{error::IntersticeError, runtime::table::validate_row};
-use interstice_abi::{DeleteRowRequest, InsertRowRequest, IntersticeValue, UpdateRowRequest};
+use interstice_abi::{
+    CurrentModuleContext, DeleteRowRequest, InsertRowRequest, IntersticeValue, ReducerContext,
+    UpdateRowRequest,
+};
 
 #[derive(Debug)]
 pub struct ReducerFrame {
@@ -64,7 +67,8 @@ impl Runtime {
             .push(ReducerFrame::new(module_name.into(), reducer_name.into()));
 
         // Call WASM function
-        let result = module.call_reducer(reducer_name, args)?;
+        let reducer_context = ReducerContext::new();
+        let result = module.call_reducer(reducer_name, (reducer_context, args))?;
 
         // Pop frame
         let mut reducer_frame = self.call_stack.pop().unwrap();

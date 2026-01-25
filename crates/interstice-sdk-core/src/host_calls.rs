@@ -1,6 +1,6 @@
 use interstice_abi::{
-    CallReducerRequest, HostCall, InsertRowRequest, IntersticeValue, LogRequest, Row,
-    TableScanRequest, decode, encode, unpack_ptr_len,
+    CallReducerRequest, HostCall, InsertRowRequest, IntersticeValue, LogRequest, ModuleSelection,
+    ReducerContext, Row, TableScanRequest, decode, encode, unpack_ptr_len,
 };
 
 #[link(wasm_import_module = "interstice")]
@@ -19,13 +19,14 @@ pub fn log(message: &str) {
         interstice_host_call(bytes.as_ptr() as i32, bytes.len() as i32);
     }
 }
+
 pub fn call_reducer(
-    module_name: String,
+    module_selection: ModuleSelection,
     reducer_name: String,
     input: IntersticeValue,
 ) -> IntersticeValue {
     let call = HostCall::CallReducer(CallReducerRequest {
-        module_name,
+        module_selection,
         reducer_name,
         input,
     });
@@ -39,8 +40,12 @@ pub fn call_reducer(
     return result;
 }
 
-pub fn insert_row(table_name: String, row: Row) {
-    let call = HostCall::InsertRow(InsertRowRequest { table_name, row });
+pub fn insert_row(module_selection: ModuleSelection, table_name: String, row: Row) {
+    let call = HostCall::InsertRow(InsertRowRequest {
+        module_selection,
+        table_name,
+        row,
+    });
 
     let bytes = encode(&call).unwrap();
 
@@ -48,8 +53,11 @@ pub fn insert_row(table_name: String, row: Row) {
         interstice_host_call(bytes.as_ptr() as i32, bytes.len() as i32);
     }
 }
-pub fn scan(table_name: String) -> Vec<Row> {
-    let call = HostCall::TableScan(TableScanRequest { table_name });
+pub fn scan(module_selection: ModuleSelection, table_name: String) -> Vec<Row> {
+    let call = HostCall::TableScan(TableScanRequest {
+        module_selection,
+        table_name,
+    });
 
     let bytes = encode(&call).unwrap();
 

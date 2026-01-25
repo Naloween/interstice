@@ -21,7 +21,8 @@ impl Runtime {
 
         return match host_call {
             HostCall::CallReducer(call_reducer_request) => {
-                let response = self.handle_call_reducer(call_reducer_request)?;
+                let response =
+                    self.handle_call_reducer(&caller_module_name, call_reducer_request)?;
                 let result = self.send_data_to_module(response, memory, caller);
                 Ok(Some(result))
             }

@@ -36,6 +36,10 @@ impl ModuleSchema {
             subscriptions,
         }
     }
+
+    pub fn to_toml_string(&self) -> Result<String, toml::ser::Error> {
+        toml::to_string(&self)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

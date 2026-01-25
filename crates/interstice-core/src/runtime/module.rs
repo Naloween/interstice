@@ -3,7 +3,7 @@ use crate::{
     error::IntersticeError,
     wasm::{StoreState, instance::WasmInstance},
 };
-use interstice_abi::{ABI_VERSION, IntersticeValue, ModuleSchema};
+use interstice_abi::{ABI_VERSION, IntersticeValue, ModuleSchema, ReducerContext};
 use std::{collections::HashMap, path::Path};
 use wasmtime::{Module as wasmtimeModule, Store};
 
@@ -16,7 +16,6 @@ pub struct Module {
 impl Module {
     pub fn new(mut instance: WasmInstance) -> Result<Self, IntersticeError> {
         let schema = instance.load_schema()?;
-        println!("Loaded module schema: {:?}", schema);
         if schema.abi_version != ABI_VERSION {
             return Err(IntersticeError::AbiVersionMismatch {
                 expected: ABI_VERSION,
@@ -55,14 +54,17 @@ impl Module {
     pub fn call_reducer(
         &mut self,
         reducer: &str,
-        input: IntersticeValue,
+        args: (ReducerContext, IntersticeValue),
     ) -> Result<IntersticeValue, IntersticeError> {
-        return self.instance.call_reducer(reducer, input);
+        return self.instance.call_reducer(reducer, args);
     }
 }
 
 impl Runtime {
-    pub fn load_module<P: AsRef<Path>>(&mut self, path: P) -> Result<(), IntersticeError> {
+    pub fn load_module<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+    ) -> Result<ModuleSchema, IntersticeError> {
         // Create wasm instance from provided file
         let wasm_module = wasmtimeModule::from_file(&self.engine, path).unwrap();
         let runtime_ptr: *mut Runtime = self;
@@ -78,12 +80,13 @@ impl Runtime {
 
         // Create and register module
         let module = Module::new(instance)?;
+        let module_schema = module.schema.clone();
         // Add name to store
         if self.modules.contains_key(&module.schema.name) {
             return Err(IntersticeError::ModuleAlreadyExists(module.schema.name));
         }
         self.modules.insert(module.schema.name.clone(), module);
 
-        Ok(())
+        Ok(module_schema)
     }
 }
