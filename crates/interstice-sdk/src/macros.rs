@@ -52,7 +52,9 @@ macro_rules! interstice_module {
         }
 
         // BINDINGS
-        include!(concat!(env!("OUT_DIR"), "/interstice_bindings.rs"));
+        pub mod bindings {
+            include!(concat!(env!("OUT_DIR"), "/interstice_bindings.rs"));
+        }
     };
 }
 
