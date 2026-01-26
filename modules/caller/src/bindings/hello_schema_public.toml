@@ -1,0 +1,17 @@
+abi_version = 1
+name = "hello"
+tables = []
+subscriptions = []
+
+[version]
+major = 0
+minor = 0
+patch = 1
+
+[[reducers]]
+name = "hello"
+return_type = "Void"
+
+[[reducers.arguments]]
+name = "name"
+value_type = "String"

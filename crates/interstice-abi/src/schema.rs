@@ -37,6 +37,37 @@ impl ModuleSchema {
         }
     }
 
+    pub fn to_public(&self) -> Self {
+        let mut tables = Vec::new();
+        for table_schema in &self.tables {
+            if table_schema.visibility == TableVisibility::Public {
+                tables.push(table_schema.clone());
+            }
+        }
+        let mut reducers = Vec::new();
+        for reducer_schema in &self.reducers {
+            let mut add_reducer = true;
+            for subscription in &self.subscriptions {
+                if subscription.reducer_name == reducer_schema.name {
+                    add_reducer = false;
+                    break;
+                }
+            }
+            if add_reducer {
+                reducers.push(reducer_schema.clone());
+            }
+        }
+
+        Self {
+            abi_version: self.abi_version,
+            name: self.name.clone(),
+            version: self.version.clone(),
+            reducers,
+            tables,
+            subscriptions: Vec::new(),
+        }
+    }
+
     pub fn from_toml_string(toml_string: &str) -> Result<Self, toml::de::Error> {
         toml::from_str(toml_string)
     }
@@ -98,7 +129,7 @@ pub struct TableSchema {
     pub primary_key: EntrySchema,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub enum TableVisibility {
     Public,
     Private,

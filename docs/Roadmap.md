@@ -9,7 +9,6 @@ TODOS
 
 - Add persistent runtime across different reducer calls (maybe through network ?)
 - add authority host calls (input events, graphics, files, network ? (maybe through subscriptions and requests like spacetimeDB instead))
-- add macro sdk to import other module schema and add the corresponding reducer context types
 - Add async and parallelization
 - transaction logs snaptchots, separate logs before snapchot (archive) and afetr the current snaptchot
 - transaction logs add indexes to retreive efficiently per module, per table transactions

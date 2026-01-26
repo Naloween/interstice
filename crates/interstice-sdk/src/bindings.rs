@@ -45,6 +45,7 @@ fn generate_rust_for_schema(schema: ModuleSchema) -> String {
     let module_context_name = upped_module_name.clone() + "Context";
     let module_tables_name = upped_module_name.clone() + "Tables";
     let module_reducers_name = upped_module_name.clone() + "Reducers";
+    let has_module_handle_trait_name = "Has".to_string() + &module_context_name;
     let mut reducers_def_str = String::new();
     for reducer in schema.reducers {
         let mut arguments_str = String::new();
@@ -99,9 +100,31 @@ impl " + &module_reducers_name
 " + &reducers_def_str
             + "
 }
-");
-    let has_module_handle_trait_name = "Has".to_string() + &module_context_name;
+pub trait " + &has_module_handle_trait_name
+            + " {
+    fn " + &module_name
+            + "(&self) -> "
+            + &module_context_name
+            + ";
+}
 
+impl " + &has_module_handle_trait_name
+            + " for interstice_sdk::ReducerContext {
+    fn " + &module_name
+            + "(&self) -> "
+            + &module_context_name
+            + " {
+        return "
+            + &module_context_name
+            + " {
+                tables: "
+            + &module_tables_name
+            + "{},\n reducers: "
+            + &module_reducers_name
+            + "{},\n}
+    }
+}
+");
     for table in schema.tables {
         let table_name = table.name;
         let table_struct_name = table_name
@@ -214,31 +237,6 @@ impl " + &has_table_handle_trait_name
                 + " {
         return " + &table_handle_struct_name
                 + " {}
-    }
-}
-
-
-pub trait " + &has_module_handle_trait_name
-                + " {
-    fn " + &module_name
-                + "(&self) -> "
-                + &module_context_name
-                + ";
-}
-
-impl " + &has_module_handle_trait_name
-                + " for interstice_sdk::ReducerContext {
-    fn " + &module_name
-                + "(&self) -> "
-                + &module_context_name
-                + " {
-        return " + &module_context_name
-                + " {
-                tables: "
-                + &module_tables_name
-                + "{},\n reducers: "
-                + &module_reducers_name
-                + "{},\n}
     }
 }
 ");

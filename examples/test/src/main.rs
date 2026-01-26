@@ -11,7 +11,9 @@ fn main() -> anyhow::Result<()> {
     let caller_path = "../../target/wasm32-unknown-unknown/debug/caller.wasm";
 
     let hello_schema = runtime.load_module(hello_path)?;
+    let hello_schema_public = hello_schema.to_public();
     let caller_schema = runtime.load_module(caller_path)?;
+    let caller_schema_public = hello_schema.to_public();
 
     File::create("./hello_schema.toml")
         .unwrap()
@@ -20,6 +22,14 @@ fn main() -> anyhow::Result<()> {
     File::create("./caller_schema.toml")
         .unwrap()
         .write_all(&caller_schema.to_toml_string().unwrap().as_bytes())
+        .unwrap();
+    File::create("./hello_schema_public.toml")
+        .unwrap()
+        .write_all(&hello_schema_public.to_toml_string().unwrap().as_bytes())
+        .unwrap();
+    File::create("./caller_schema_public.toml")
+        .unwrap()
+        .write_all(&caller_schema_public.to_toml_string().unwrap().as_bytes())
         .unwrap();
 
     runtime.run(
