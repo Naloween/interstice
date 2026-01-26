@@ -1,7 +1,7 @@
-use crate::{error::IntersticeError, runtime::Runtime};
+use crate::{Node, error::IntersticeError};
 use interstice_abi::{CallReducerResponse, ModuleSelection, host::CallReducerRequest};
 
-impl Runtime {
+impl Node {
     pub(crate) fn handle_call_reducer(
         &mut self,
         caller_module_name: &String,

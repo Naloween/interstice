@@ -3,10 +3,10 @@ pub mod linker;
 
 use wasmtime::{Caller, Memory};
 
-use crate::{error::IntersticeError, runtime::Runtime};
+use crate::{Node, error::IntersticeError};
 
 pub struct StoreState {
-    pub runtime: *mut Runtime,
+    pub node: *mut Node,
     pub module_name: String,
 }
 

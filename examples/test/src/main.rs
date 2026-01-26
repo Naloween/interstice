@@ -3,8 +3,7 @@ use std::{fs::File, io::Write, path::Path};
 use interstice_core::{interstice_abi::IntersticeValue, *};
 
 fn main() -> anyhow::Result<()> {
-    let mut runtime =
-        Runtime::new(Path::new("./transactions.log")).expect("Couldn't create runtime");
+    let mut runtime = Node::new(Path::new("./transactions.log")).expect("Couldn't create runtime");
     runtime.clear_logs().expect("Couldn't clear logs");
 
     let hello_path = "../../target/wasm32-unknown-unknown/debug/hello.wasm";

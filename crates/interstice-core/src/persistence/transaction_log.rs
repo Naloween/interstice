@@ -1,21 +1,6 @@
-//! Append-only transaction log implementation
-//!
-//! The log stores transactions in a binary format with checksums for integrity.
-//! Format per transaction:
-//! - version: u8 (1 byte)
-//! - type: u8 (1 byte)
-//! - module_name_len: u32 (4 bytes)
-//! - module_name: bytes
-//! - table_name_len: u32 (4 bytes)
-//! - table_name: bytes
-//! - row_data: bincode-encoded Row
-//! - old_row_data: bincode-encoded Option<Row>
-//! - timestamp: u64 (8 bytes)
-//! - checksum: u32 (4 bytes, CRC32)
-
 use super::log_rotation::{LogRotator, RotationConfig};
 use crate::error::IntersticeError;
-use crate::runtime::transaction::Transaction;
+use crate::transaction::Transaction;
 use interstice_abi::decode;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -69,15 +54,6 @@ impl TransactionLog {
         Ok(transaction_log)
     }
 
-    /// Append a transaction to the log
-    ///
-    /// Automatically rotates the log if it exceeds the configured size.
-    ///
-    /// # Arguments
-    /// * `tx` - The transaction to record
-    ///
-    /// # Returns
-    /// Ok(()) if successfully written and synced to disk
     pub fn append(&mut self, tx: &Transaction) -> Result<(), IntersticeError> {
         let mut file = self.file.lock().unwrap();
 
@@ -129,10 +105,6 @@ impl TransactionLog {
         Ok(())
     }
 
-    /// Read all transactions from the log
-    ///
-    /// # Returns
-    /// A vector of all transactions in order, or an error if any are corrupted
     pub fn read_all(&self) -> Result<Vec<Transaction>, IntersticeError> {
         let mut file = self.file.lock().unwrap();
         file.seek(SeekFrom::Start(0)).map_err(|err| {

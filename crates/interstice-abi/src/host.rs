@@ -12,32 +12,23 @@ pub enum HostCall {
     TableScan(TableScanRequest),
 }
 
-/// Host call: CALL_REDUCER
-///
-/// Semantics:
-/// - Synchronous
-/// - Stack-based
-/// - Non-reentrant at reducer level
-/// - Traps on error
-///
-/// Request: CallReducerRequest (postcard)
-/// Response: PrimitiveValue (postcard)
-///
-/// Memory:
-/// - Request buffer owned by caller
-/// - Response buffer owned by host
-
 #[derive(Debug, Serialize, Deserialize)]
-pub struct CallReducerRequest {
-    pub module_selection: ModuleSelection,
-    pub reducer_name: String,
-    pub input: IntersticeValue,
+pub enum NodeSelection {
+    Current,
+    Other(String),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ModuleSelection {
     Current,
     Other(String),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CallReducerRequest {
+    pub module_selection: ModuleSelection,
+    pub reducer_name: String,
+    pub input: IntersticeValue,
 }
 
 pub type CallReducerResponse = IntersticeValue;

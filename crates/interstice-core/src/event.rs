@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use interstice_abi::{IntersticeValue, Row, TableEvent};
 
-use crate::{Runtime, error::IntersticeError, runtime::SubscriptionTarget};
+use crate::{Node, error::IntersticeError, subscription::SubscriptionTarget};
 
 #[derive(Debug, Clone)]
 pub enum TableEventInstance {
@@ -89,7 +89,7 @@ impl TableEventInstance {
     }
 }
 
-impl Runtime {
+impl Node {
     pub(crate) fn process_event_queue(
         &mut self,
         event_queue: &mut VecDeque<TableEventInstance>,

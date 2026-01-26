@@ -1,11 +1,10 @@
+use crate::{Node, transaction::Transaction};
 use interstice_abi::{
     DeleteRowRequest, DeleteRowResponse, InsertRowRequest, InsertRowResponse, TableScanRequest,
     TableScanResponse, UpdateRowRequest, UpdateRowResponse,
 };
 
-use crate::runtime::{Runtime, transaction::Transaction};
-
-impl Runtime {
+impl Node {
     pub(crate) fn handle_insert_row(
         &mut self,
         caller_module_name: String,

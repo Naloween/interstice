@@ -1,7 +1,7 @@
-use crate::runtime::Runtime;
-use crate::runtime::event::TableEventInstance;
-use crate::runtime::transaction::Transaction;
-use crate::{error::IntersticeError, runtime::table::validate_row};
+use crate::{
+    Node, error::IntersticeError, event::TableEventInstance, table::validate_row,
+    transaction::Transaction,
+};
 use interstice_abi::{IntersticeValue, ReducerContext};
 
 #[derive(Debug)]
@@ -23,7 +23,7 @@ impl ReducerFrame {
     }
 }
 
-impl Runtime {
+impl Node {
     pub(crate) fn invoke_reducer(
         &mut self,
         module_name: &str,

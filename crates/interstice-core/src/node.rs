@@ -1,13 +1,9 @@
-mod event;
-mod module;
-mod reducer;
-mod table;
-pub mod transaction;
-
 use crate::{
     error::IntersticeError,
+    event::TableEventInstance,
+    module::Module,
     persistence::TransactionLog,
-    runtime::{event::TableEventInstance, module::Module, reducer::ReducerFrame},
+    reducer::ReducerFrame,
     wasm::{StoreState, linker::define_host_calls},
 };
 use interstice_abi::IntersticeValue;
@@ -15,15 +11,15 @@ use std::{collections::HashMap, sync::Arc};
 use std::{collections::VecDeque, path::Path};
 use wasmtime::{Engine, Linker};
 
-pub struct Runtime {
+pub struct Node {
     pub(crate) modules: HashMap<String, Module>,
     pub(crate) call_stack: Vec<ReducerFrame>,
-    engine: Arc<Engine>,
-    linker: Linker<StoreState>,
-    transaction_logs: TransactionLog,
+    pub(crate) transaction_logs: TransactionLog,
+    pub(crate) engine: Arc<Engine>,
+    pub(crate) linker: Linker<StoreState>,
 }
 
-impl Runtime {
+impl Node {
     pub fn new(transaction_log_path: &Path) -> Result<Self, IntersticeError> {
         let engine = Arc::new(Engine::default());
         let mut linker = Linker::new(&engine);
@@ -76,9 +72,4 @@ impl Runtime {
 
         Ok(())
     }
-}
-
-struct SubscriptionTarget {
-    module: String,
-    reducer: String,
 }

@@ -1,13 +1,13 @@
 use crate::{
+    Node,
     error::IntersticeError,
-    runtime::Runtime,
     wasm::{StoreState, read_bytes},
 };
 use interstice_abi::{codec::pack_ptr_len, decode, encode, host::HostCall};
 use serde::Serialize;
 use wasmtime::{Caller, Memory};
 
-impl Runtime {
+impl Node {
     pub(crate) fn dispatch_host_call(
         &mut self,
         memory: &wasmtime::Memory,

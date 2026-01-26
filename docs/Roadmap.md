@@ -7,12 +7,12 @@ and long-lived, before moving to authority and advanced optimizations.
 
 TODOS
 
-- Add persistent runtime across different reducer calls (maybe through network ?)
+- Node runtime and Node schema (adress etc..) and subscription to another node.
 - add authority host calls (input events, graphics, files, network ? (maybe through subscriptions and requests like spacetimeDB instead))
 - Add async and parallelization
 - transaction logs snaptchots, separate logs before snapchot (archive) and afetr the current snaptchot
 - transaction logs add indexes to retreive efficiently per module, per table transactions
-- Add multiple instances (multi-node runtime)
+- Clean files and organization
 
 ## 1. Core Runtime (mostly done)
 

@@ -1,8 +1,14 @@
 mod error;
+mod event;
 mod host;
+mod module;
+mod node;
 pub mod persistence;
-mod runtime;
+mod reducer;
+mod subscription;
+mod table;
+mod transaction;
 mod wasm;
 
-pub use crate::runtime::Runtime;
+pub use crate::node::Node;
 pub use interstice_abi;

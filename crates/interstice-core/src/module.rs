@@ -1,6 +1,7 @@
-use crate::runtime::{Runtime, table::Table};
 use crate::{
+    Node,
     error::IntersticeError,
+    table::Table,
     wasm::{StoreState, instance::WasmInstance},
 };
 use interstice_abi::{ABI_VERSION, IntersticeValue, ModuleSchema, ReducerContext};
@@ -60,18 +61,18 @@ impl Module {
     }
 }
 
-impl Runtime {
+impl Node {
     pub fn load_module<P: AsRef<Path>>(
         &mut self,
         path: P,
     ) -> Result<ModuleSchema, IntersticeError> {
         // Create wasm instance from provided file
         let wasm_module = wasmtimeModule::from_file(&self.engine, path).unwrap();
-        let runtime_ptr: *mut Runtime = self;
+        let runtime_ptr: *mut Node = self;
         let mut store = Store::new(
             &self.engine,
             StoreState {
-                runtime: runtime_ptr,
+                node: runtime_ptr,
                 module_name: String::new(),
             },
         );
