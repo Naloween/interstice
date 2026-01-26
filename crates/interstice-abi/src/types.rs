@@ -120,6 +120,28 @@ impl Into<IntersticeType> for &str {
     }
 }
 
+impl Into<&str> for IntersticeType {
+    fn into(self) -> &'static str {
+        // TODO: Vec, Option
+        match self {
+            IntersticeType::Void => "()",
+            IntersticeType::U32 => "u32",
+            IntersticeType::U64 => "u64",
+            IntersticeType::I32 => "i32",
+            IntersticeType::I64 => "i64",
+            IntersticeType::F32 => "f32",
+            IntersticeType::F64 => "f64",
+            IntersticeType::Bool => "bool",
+            IntersticeType::String => "String",
+            IntersticeType::Row => "Row",
+            _ => panic!(
+                "Inerstice type '{:?}' is not yet convertible to string",
+                self
+            ),
+        }
+    }
+}
+
 impl Into<IntersticeValue> for () {
     fn into(self) -> IntersticeValue {
         IntersticeValue::Void

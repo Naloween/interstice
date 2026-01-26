@@ -50,6 +50,9 @@ macro_rules! interstice_module {
                 __INTERSTICE_MODULE_VERSION,
             )
         }
+
+        // BINDINGS
+        include!(concat!(env!("OUT_DIR"), "/interstice_bindings.rs"));
     };
 }
 

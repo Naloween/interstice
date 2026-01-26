@@ -1,3 +1,4 @@
+pub mod bindings;
 pub mod macros;
 
 pub use interstice_abi::*;

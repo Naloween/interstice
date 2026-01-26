@@ -8,3 +8,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 interstice-sdk = { path = "../../crates/interstice-sdk" }
+
+[build-dependencies]
+interstice-sdk = { path = "../../crates/interstice-sdk" }
