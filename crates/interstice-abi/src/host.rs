@@ -1,4 +1,4 @@
-use crate::{IntersticeValue, types::Row};
+use crate::{IntersticeValue, Row};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]

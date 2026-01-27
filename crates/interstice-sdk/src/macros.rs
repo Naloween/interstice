@@ -1,8 +1,10 @@
-use interstice_abi::{ModuleSchema, encode, pack_ptr_len};
+use interstice_abi::{encode, pack_ptr_len};
 
 #[macro_export]
 macro_rules! interstice_module {
     () => {
+        // Global imports (for traits used in macros)
+        use std::str::FromStr;
         // Use wee_alloc as the global allocator.
 
         #[global_allocator]
@@ -62,14 +64,16 @@ pub fn describe_module(name: &str, version: &str) -> i64 {
     let reducers = interstice_sdk_core::registry::collect_reducers();
     let tables = interstice_sdk_core::registry::collect_tables();
     let subscriptions = interstice_sdk_core::registry::collect_subscriptions();
+    let type_definitions = interstice_sdk_core::registry::collect_type_definitions();
 
-    let schema = ModuleSchema {
+    let schema = interstice_abi::ModuleSchema {
         abi_version: interstice_abi::ABI_VERSION,
         name: name.to_string(),
         version: version.into(),
         reducers,
         tables,
         subscriptions,
+        type_definitions,
     };
 
     let bytes = encode(&schema).unwrap();

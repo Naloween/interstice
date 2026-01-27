@@ -14,4 +14,6 @@ return_type = "Void"
 
 [[reducers.arguments]]
 name = "name"
-value_type = "String"
+field_type = "String"
+
+[type_definitions]

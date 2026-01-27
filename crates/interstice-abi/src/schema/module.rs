@@ -1,10 +1,12 @@
 use crate::{
-    ABI_VERSION,
+    ABI_VERSION, IntersticeType,
+    interstice_type_def::IntersticeTypeDef,
     reducer::{ReducerSchema, SubscriptionSchema},
     table::{TableSchema, TableVisibility},
     version::Version,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ModuleSchema {
@@ -14,6 +16,7 @@ pub struct ModuleSchema {
     pub reducers: Vec<ReducerSchema>,
     pub tables: Vec<TableSchema>,
     pub subscriptions: Vec<SubscriptionSchema>,
+    pub type_definitions: HashMap<String, IntersticeTypeDef>,
 }
 
 impl ModuleSchema {
@@ -23,6 +26,7 @@ impl ModuleSchema {
         reducers: Vec<ReducerSchema>,
         tables: Vec<TableSchema>,
         subscriptions: Vec<SubscriptionSchema>,
+        type_definitions: HashMap<String, IntersticeTypeDef>,
     ) -> Self {
         Self {
             abi_version: ABI_VERSION,
@@ -31,14 +35,26 @@ impl ModuleSchema {
             reducers,
             tables,
             subscriptions,
+            type_definitions,
         }
     }
 
     pub fn to_public(&self) -> Self {
+        let mut type_definitions = HashMap::new();
         let mut tables = Vec::new();
         for table_schema in &self.tables {
             if table_schema.visibility == TableVisibility::Public {
                 tables.push(table_schema.clone());
+                for field in &table_schema.fields {
+                    if let IntersticeType::Named(type_name) = field.field_type.clone() {
+                        if !type_definitions.contains_key(&type_name) {
+                            type_definitions.insert(
+                                type_name.clone(),
+                                self.type_definitions.get(&type_name).unwrap().clone(),
+                            );
+                        }
+                    }
+                }
             }
         }
         let mut reducers = Vec::new();
@@ -62,6 +78,7 @@ impl ModuleSchema {
             reducers,
             tables,
             subscriptions: Vec::new(),
+            type_definitions,
         }
     }
 

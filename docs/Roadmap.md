@@ -7,7 +7,9 @@ and long-lived, before moving to authority and advanced optimizations.
 
 TODOS
 
-- Node runtime and Node schema (adress etc..) and subscription to another node.
+- Validate row before the transaction phase instead
+- sdk change into to try into for better error management (instead of panic)
+- subscription to another node.
 - add authority host calls (input events, graphics, files, network ? (maybe through subscriptions and requests like spacetimeDB instead))
 - Add async and parallelization
 - transaction logs snaptchots, separate logs before snapchot (archive) and afetr the current snaptchot

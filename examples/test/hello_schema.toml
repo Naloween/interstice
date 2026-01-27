@@ -12,7 +12,7 @@ return_type = "Void"
 
 [[reducers.arguments]]
 name = "name"
-value_type = "String"
+field_type = "String"
 
 [[reducers]]
 name = "on_greeting_insert"
@@ -20,22 +20,37 @@ return_type = "Void"
 
 [[reducers.arguments]]
 name = "inserted_row"
-value_type = "Row"
+
+[reducers.arguments.field_type]
+Named = "Row"
 
 [[tables]]
 name = "greetings"
 visibility = "Private"
 
-[[tables.entries]]
+[[tables.fields]]
 name = "greeting"
-value_type = "String"
+field_type = "String"
+
+[[tables.fields]]
+name = "custom"
+
+[tables.fields.field_type]
+Named = "TestCustomType"
 
 [tables.primary_key]
 name = "id"
-value_type = "U64"
+field_type = "U64"
 
 [[subscriptions]]
 module_name = "hello"
 table_name = "greetings"
 reducer_name = "on_greeting_insert"
 event = "Insert"
+
+[type_definitions.TestCustomType.Struct]
+name = "TestCustomType"
+
+[[type_definitions.TestCustomType.Struct.fields]]
+name = "val"
+field_type = "U32"

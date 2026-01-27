@@ -78,12 +78,12 @@ pub fn table(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let mut primary_key: Option<(&syn::Ident, String, proc_macro2::TokenStream)> = None;
-    let mut schema_entries = Vec::new();
+    let mut schema_fields = Vec::new();
     let mut entry_fields = Vec::new();
     for field in fields.iter() {
         let field_name = field.ident.as_ref().unwrap().to_string();
         let field_ty_str = field.ty.to_token_stream().to_string();
-        let field_ty = quote! { Into::<interstice_sdk::IntersticeType>::into(#field_ty_str)};
+        let field_ty = quote! { interstice_sdk::IntersticeType::from_str(&#field_ty_str).unwrap()};
         let field_ident = field.ident.as_ref().unwrap();
 
         let is_pk = field
@@ -99,10 +99,10 @@ pub fn table(attr: TokenStream, item: TokenStream) -> TokenStream {
             primary_key = Some((field_ident, field_name, field_ty));
         } else {
             entry_fields.push(field_ident.clone());
-            schema_entries.push(quote! {
-                interstice_sdk::EntrySchema {
+            schema_fields.push(quote! {
+                interstice_sdk::FieldDef {
                     name: #field_name.to_string(),
-                    value_type: #field_ty,
+                    field_type: #field_ty,
                 }
             });
         }
@@ -150,10 +150,10 @@ pub fn table(attr: TokenStream, item: TokenStream) -> TokenStream {
             interstice_sdk::TableSchema {
                 name: #table_name.to_string(),
                 visibility: #visibility,
-                entries: vec![#(#schema_entries),*],
-                primary_key: interstice_sdk::EntrySchema {
+                fields: vec![#(#schema_fields),*],
+                primary_key: interstice_sdk::FieldDef {
                     name: #pk_name.to_string(),
-                    value_type: #pk_type.into(),
+                    field_type: #pk_type.into(),
                 },
             }
         }
@@ -251,28 +251,25 @@ pub fn reducer(attr: TokenStream, item: TokenStream) -> TokenStream {
         quote! { interstice_args_vec[#index].clone().into() }
     });
 
-    let schema_entries =
-        arg_names
-            .iter()
-            .skip(1)
-            .zip(arg_types.iter().skip(1))
-            .map(|(arg_name, arg_type)| {
-                let arg_name_str = quote! { #arg_name }.to_string();
-                let arg_type_str = quote! { #arg_type }.to_string();
-                quote! {
-                    interstice_sdk::EntrySchema {
-                        name: #arg_name_str.to_string(),
-                        value_type: #arg_type_str.to_string().into(),
-                    }
+    let schema_entries = arg_names.iter().skip(1).zip(arg_types.iter().skip(1)).map(
+        |(arg_name, arg_type)| {
+            let arg_name_str = quote! { #arg_name }.to_string();
+            let arg_type_str = quote! { #arg_type }.to_string();
+            quote! {
+                interstice_sdk::FieldDef {
+                    name: #arg_name_str.to_string(),
+                    field_type: interstice_sdk::IntersticeType::from_str(#arg_type_str).unwrap(),
                 }
-            });
+            }
+        },
+    );
 
     let return_type = match &input_fn.sig.output {
         syn::ReturnType::Default => quote! { interstice_sdk::IntersticeType::Void },
         syn::ReturnType::Type(_, ty) => {
             let ty = ty.to_token_stream().to_string();
             quote! {
-               #ty.to_string().into()
+               interstice_sdk::IntersticeType::from_str(#ty).unwrap()
             }
         }
     };
@@ -358,6 +355,117 @@ pub fn reducer(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
 
         #register_subscription
+    }
+    .into()
+}
+
+#[proc_macro_derive(IntersticeType)]
+pub fn derive_interstice_type(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+
+    let struct_name = input.ident;
+    let struct_name_str = struct_name.to_string();
+    let type_def_fn = syn::Ident::new(
+        &format!("get_type_def_{}", &struct_name_str.to_lowercase()),
+        struct_name.span(),
+    );
+    let register_type_def_fn = syn::Ident::new(
+        &format!("register_get_type_def_{}", &struct_name_str.to_lowercase()),
+        struct_name.span(),
+    );
+
+    let fields = match input.data {
+        syn::Data::Struct(s) => s.fields,
+        _ => panic!("IntersticeType can only be derived for structs"),
+    };
+
+    let named_fields = match fields {
+        syn::Fields::Named(f) => f.named,
+        _ => panic!("IntersticeType requires named fields"),
+    };
+
+    let mut field_names = Vec::new();
+    let mut field_types = Vec::new();
+
+    for field in named_fields {
+        let ident = field.ident.unwrap();
+        let name_str = ident.to_string();
+        let ty = field.ty;
+
+        field_names.push(ident);
+        field_types.push(ty);
+    }
+
+    // Convert Rust type → IntersticeType expression
+    let interstice_type_exprs: Vec<_> = field_types
+        .iter()
+        .map(|ty| ty.to_token_stream().to_string())
+        .collect();
+
+    let field_name_strings: Vec<String> = field_names.iter().map(|f| f.to_string()).collect();
+
+    quote! {
+        impl Into<interstice_sdk::IntersticeValue> for #struct_name {
+            fn into(self) -> interstice_sdk::IntersticeValue {
+                interstice_sdk::IntersticeValue::Struct {
+                    name: #struct_name_str.to_string(),
+                    fields: vec![
+                        #(
+                            interstice_sdk::Field {
+                                name: #field_name_strings.to_string(),
+                                value: self.#field_names.into(),
+                            }
+                        ),*
+                    ],
+                }
+            }
+        }
+
+        impl Into<#struct_name> for interstice_sdk::IntersticeValue {
+
+            fn into(self) -> #struct_name {
+                match self {
+                    interstice_sdk::IntersticeValue::Struct { name, fields } if name == #struct_name_str => {
+                        let mut map = std::collections::HashMap::new();
+                        for field in fields {
+                            map.insert(field.name, field.value);
+                        }
+
+                        #struct_name {
+                            #(
+                                #field_names: map.remove(#field_name_strings).unwrap().into(),
+                                    // .ok_or_else(|| interstice_sdk::IntersticeAbiError::ConversionError(
+                                    //     format!("Missing field {}", #field_name_strings)
+                                    // ))?
+                                    // .try_into().map_err(|err| interstice_sdk::IntersticeAbiError::ConversionError(
+                                    //     format!("Bad field {}", #field_name_strings)
+                                    // ))?,
+                            )*
+                        }
+                    }
+                    _ => panic!("Expected struct {}", #struct_name_str),
+                }
+            }
+        }
+
+        fn #type_def_fn() -> interstice_sdk::IntersticeTypeDef {
+            interstice_sdk::IntersticeTypeDef::Struct {
+                name: #struct_name_str.to_string(),
+                fields: vec![
+                    #(
+                        FieldDef {
+                            name: #field_name_strings.to_string(),
+                            field_type: interstice_sdk::IntersticeType::from_str(#interstice_type_exprs).expect("Couldn't convert field type string to IntersticeType"),
+                        }
+                    ),*
+                ],
+            }
+        }
+
+        #[interstice_sdk::init]
+        fn #register_type_def_fn() {
+            interstice_sdk::registry::register_type_def(#type_def_fn);
+        }
     }
     .into()
 }

@@ -1,16 +1,20 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{IntersticeType, entry::Entries, event::TableEvent};
+use crate::{IntersticeType, event::TableEvent, interstice_type_def::FieldDef};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ReducerSchema {
     pub name: String,
-    pub arguments: Entries,
+    pub arguments: Vec<FieldDef>,
     pub return_type: IntersticeType,
 }
 
 impl ReducerSchema {
-    pub fn new(name: impl Into<String>, arguments: Entries, return_type: IntersticeType) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        arguments: Vec<FieldDef>,
+        return_type: IntersticeType,
+    ) -> Self {
         Self {
             name: name.into(),
             arguments,

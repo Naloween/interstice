@@ -67,7 +67,7 @@ impl Node {
         println!("Replaying transactions: {:?}", transactions);
 
         for transaction in transactions {
-            let _events = self.apply_transaction(transaction)?;
+            let _events = self.apply_transaction(transaction, &HashMap::new())?;
         }
 
         Ok(())

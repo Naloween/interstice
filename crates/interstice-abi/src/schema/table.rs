@@ -1,13 +1,12 @@
+use crate::interstice_type_def::FieldDef;
 use serde::{Deserialize, Serialize};
-
-use crate::entry::{Entries, EntrySchema};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TableSchema {
     pub name: String,
     pub visibility: TableVisibility,
-    pub entries: Entries,
-    pub primary_key: EntrySchema,
+    pub fields: Vec<FieldDef>,
+    pub primary_key: FieldDef,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]

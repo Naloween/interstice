@@ -12,3 +12,5 @@ patch = 1
 name = "caller"
 arguments = []
 return_type = "Void"
+
+[type_definitions]
