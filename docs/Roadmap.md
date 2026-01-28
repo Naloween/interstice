@@ -7,14 +7,12 @@ and long-lived, before moving to authority and advanced optimizations.
 
 TODOS
 
-- Validate row before the transaction phase instead
-- sdk change into to try into for better error management (instead of panic)
-- subscription to another node.
 - add authority host calls (input events, graphics, files, network ? (maybe through subscriptions and requests like spacetimeDB instead))
+- sdk change into to try into for better error management (instead of panic)
+- subscription to another node (networking).
 - Add async and parallelization
 - transaction logs snaptchots, separate logs before snapchot (archive) and afetr the current snaptchot
 - transaction logs add indexes to retreive efficiently per module, per table transactions
-- Clean files and organization
 
 ## 1. Core Runtime (mostly done)
 
