@@ -1,7 +1,5 @@
-use std::collections::HashMap;
-
 use crate::{Node, error::IntersticeError, event::TableEventInstance, transaction::Transaction};
-use interstice_abi::{IntersticeValue, ReducerContext, interstice_type_def::IntersticeTypeDef};
+use interstice_abi::{IntersticeValue, ReducerContext};
 
 #[derive(Debug)]
 pub struct ReducerFrame {
@@ -70,11 +68,10 @@ impl Node {
         let mut reducer_frame = self.call_stack.pop().unwrap();
 
         // Apply transaction
-        let type_definitions = module.schema.type_definitions.clone();
         for transaction in reducer_frame.transactions {
             reducer_frame
                 .emitted_events
-                .append(&mut self.apply_transaction(transaction, &type_definitions)?);
+                .append(&mut self.apply_transaction(transaction)?);
         }
 
         Ok((result, reducer_frame.emitted_events))
@@ -83,7 +80,6 @@ impl Node {
     pub(crate) fn apply_transaction(
         &mut self,
         transaction: Transaction,
-        type_definitions: &HashMap<String, IntersticeTypeDef>,
     ) -> Result<Vec<TableEventInstance>, IntersticeError> {
         // Add transaction to the logs
         self.transaction_logs.append(&transaction)?;

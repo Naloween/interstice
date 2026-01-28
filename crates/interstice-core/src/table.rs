@@ -1,7 +1,5 @@
-use std::collections::HashMap;
-
 use interstice_abi::{
-    Row, interstice_type_def::IntersticeTypeDef, schema::TableSchema, validate_value,
+    Row, schema::TableSchema,
 };
 
 pub struct Table {
