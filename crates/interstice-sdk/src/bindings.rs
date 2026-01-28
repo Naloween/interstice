@@ -6,7 +6,6 @@ use std::{
 use interstice_abi::{ModuleSchema, ReducerSchema, TableSchema};
 
 pub fn generate_bindings() {
-    println!("cargo::warning={}", "Generating bindings...");
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let bindings_dir = Path::new(&manifest_dir).join("src/bindings");
 

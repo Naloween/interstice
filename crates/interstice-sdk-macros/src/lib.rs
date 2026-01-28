@@ -389,7 +389,6 @@ pub fn derive_interstice_type(input: TokenStream) -> TokenStream {
 
     for field in named_fields {
         let ident = field.ident.unwrap();
-        let name_str = ident.to_string();
         let ty = field.ty;
 
         field_names.push(ident);

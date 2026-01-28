@@ -51,7 +51,10 @@ pub struct InsertRowRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct InsertRowResponse {}
+pub enum InsertRowResponse {
+    Ok,
+    Err(String),
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct UpdateRowRequest {
@@ -61,7 +64,10 @@ pub struct UpdateRowRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct UpdateRowResponse {}
+pub enum UpdateRowResponse {
+    Ok,
+    Err(String),
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DeleteRowRequest {
@@ -71,7 +77,10 @@ pub struct DeleteRowRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct DeleteRowResponse {}
+pub enum DeleteRowResponse {
+    Ok,
+    Err(String),
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct TableScanRequest {

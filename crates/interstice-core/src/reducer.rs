@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{
-    Node, error::IntersticeError, event::TableEventInstance, table::validate_row,
-    transaction::Transaction,
-};
+use crate::{Node, error::IntersticeError, event::TableEventInstance, transaction::Transaction};
 use interstice_abi::{IntersticeValue, ReducerContext, interstice_type_def::IntersticeTypeDef};
 
 #[derive(Debug)]
@@ -109,12 +106,6 @@ impl Node {
                         table_name: table_name.clone(),
                     }
                 })?;
-                if !validate_row(&new_row, &table.schema, type_definitions) {
-                    return Err(IntersticeError::InvalidRow {
-                        module: module_name.clone(),
-                        table: table_name.clone(),
-                    });
-                }
                 table.rows.push(new_row.clone());
                 events.push(TableEventInstance::TableInsertEvent {
                     module_name,

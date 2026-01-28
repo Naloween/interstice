@@ -6,8 +6,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::host_calls::log;
-
 #[repr(C)]
 pub struct ReducerRegistration {
     pub reducer: unsafe extern "C" fn(i32, i32) -> i64,

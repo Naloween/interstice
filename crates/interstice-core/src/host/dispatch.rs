@@ -19,15 +19,19 @@ impl Node {
         let bytes = read_bytes(memory, caller, ptr, len)?;
         let host_call: HostCall = decode(&bytes).unwrap();
 
+        let caller_module = self.modules.get(&caller_module_name).unwrap();
+
         return match host_call {
             HostCall::CallReducer(call_reducer_request) => {
-                let response =
-                    self.handle_call_reducer(&caller_module_name, call_reducer_request)?;
+                let response = self.handle_call_reducer(
+                    &caller_module.schema.name.clone(),
+                    call_reducer_request,
+                )?;
                 let result = self.send_data_to_module(response, memory, caller);
                 Ok(Some(result))
             }
             HostCall::Log(log_request) => {
-                self.handle_log(caller_module_name, log_request);
+                self.handle_log(caller_module.schema.name.clone(), log_request);
                 Ok(None)
             }
             HostCall::Abort(abort_request) => {
@@ -35,17 +39,20 @@ impl Node {
                 Ok(None)
             }
             HostCall::InsertRow(insert_row_request) => {
-                let response = self.handle_insert_row(caller_module_name, insert_row_request);
+                let response =
+                    self.handle_insert_row(&caller_module.schema.clone(), insert_row_request);
                 let result = self.send_data_to_module(response, memory, caller);
                 Ok(Some(result))
             }
             HostCall::UpdateRow(update_row_request) => {
-                let response = self.handle_update_row(caller_module_name, update_row_request);
+                let response =
+                    self.handle_update_row(caller_module.schema.name.clone(), update_row_request);
                 let result = self.send_data_to_module(response, memory, caller);
                 Ok(Some(result))
             }
             HostCall::DeleteRow(delete_row_request) => {
-                let response = self.handle_delete_row(caller_module_name, delete_row_request);
+                let response =
+                    self.handle_delete_row(caller_module.schema.name.clone(), delete_row_request);
                 let result = self.send_data_to_module(response, memory, caller);
                 Ok(Some(result))
             }
