@@ -2,6 +2,7 @@ abi_version = 1
 name = "hello"
 tables = []
 subscriptions = []
+authority = "Render"
 
 [version]
 major = 0

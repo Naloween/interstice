@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{IntersticeType, event::TableEvent, interstice_type_def::FieldDef};
+use crate::{IntersticeType, event::SubscriptionEventSchema, interstice_type_def::FieldDef};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ReducerSchema {
@@ -25,8 +25,6 @@ impl ReducerSchema {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SubscriptionSchema {
-    pub module_name: String,
-    pub table_name: String,
     pub reducer_name: String,
-    pub event: TableEvent,
+    pub event: SubscriptionEventSchema,
 }

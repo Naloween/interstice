@@ -1,10 +1,16 @@
 abi_version = 1
 name = "hello"
+authority = "Render"
 
 [version]
 major = 0
 minor = 0
 patch = 1
+
+[[reducers]]
+name = "init"
+arguments = []
+return_type = "Void"
 
 [[reducers]]
 name = "hello"
@@ -43,10 +49,15 @@ name = "id"
 field_type = "U64"
 
 [[subscriptions]]
+reducer_name = "init"
+event = "Init"
+
+[[subscriptions]]
+reducer_name = "on_greeting_insert"
+
+[subscriptions.event.Insert]
 module_name = "hello"
 table_name = "greetings"
-reducer_name = "on_greeting_insert"
-event = "Insert"
 
 [type_definitions.TestCustomType.Struct]
 name = "TestCustomType"

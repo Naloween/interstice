@@ -1,6 +1,6 @@
 use interstice_sdk::*;
 
-interstice_module!();
+interstice_module!(Some(Authority::Render));
 
 // TABLES
 
@@ -19,6 +19,10 @@ pub struct TestCustomType {
 }
 
 // REDUCERS
+#[reducer(on = init)]
+pub fn init(ctx: ReducerContext) {
+    ctx.log("Hello world !");
+}
 
 #[reducer]
 pub fn hello(ctx: ReducerContext, name: String) {
@@ -28,23 +32,9 @@ pub fn hello(ctx: ReducerContext, name: String) {
         greeting: format!("Hello, {}!", name),
         custom: TestCustomType { val: 0 },
     });
-
-    let test = TestCustomType { val: 0 };
-    let test_interstice_val = Into::<IntersticeValue>::into(test.clone());
-    let test2: TestCustomType = test_interstice_val.clone().into();
-
-    ctx.log(&format!("Test custom type: {:?}", &test));
-    ctx.log(&format!(
-        "Test custom type interstice_value: {:?}",
-        &test_interstice_val
-    ));
-    ctx.log(&format!("Test custom type back: {:?}", &test2));
 }
 
 #[reducer(on = hello.greetings.insert)]
 fn on_greeting_insert(ctx: ReducerContext, inserted_row: Row) {
     ctx.log(&format!("Inserted greeting: {:?}", inserted_row));
-
-    let greetings = ctx.current.greetings().scan();
-    ctx.log(&format!("All greetings: {:?}", greetings));
 }

@@ -1,6 +1,4 @@
-use interstice_abi::{
-    Row, schema::TableSchema,
-};
+use interstice_abi::{Row, TableSchema};
 
 pub struct Table {
     pub schema: TableSchema,

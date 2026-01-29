@@ -1,10 +1,14 @@
 use crate::{
     Node,
     error::IntersticeError,
+    event::SubscriptionEventInstance,
     table::Table,
     wasm::{StoreState, instance::WasmInstance},
 };
-use interstice_abi::{ABI_VERSION, IntersticeValue, ModuleSchema, ReducerContext};
+use interstice_abi::{
+    ABI_VERSION, IntersticeValue, ModuleSchema, ReducerContext, get_reducer_wrapper_name,
+};
+use serde::Serialize;
 use std::{collections::HashMap, path::Path};
 use wasmtime::{Module as wasmtimeModule, Store};
 
@@ -55,9 +59,10 @@ impl Module {
     pub fn call_reducer(
         &mut self,
         reducer: &str,
-        args: (ReducerContext, IntersticeValue),
+        args: (ReducerContext, impl Serialize),
     ) -> Result<IntersticeValue, IntersticeError> {
-        return self.instance.call_reducer(reducer, args);
+        let func_name = &get_reducer_wrapper_name(reducer);
+        return self.instance.call_function(func_name, args);
     }
 }
 
@@ -79,14 +84,30 @@ impl Node {
         let instance = self.linker.instantiate(&mut store, &wasm_module).unwrap();
         let instance = WasmInstance::new(store, instance)?;
 
-        // Create and register module
+        // Create module
         let module = Module::new(instance)?;
         let module_schema = module.schema.clone();
+
+        if let Some(authority) = &module_schema.authority {
+            if let Some(other_module) = self.authority_modules.get(authority) {
+                return Err(IntersticeError::AuthorityAlreadyTaken(
+                    module_schema.name.clone(),
+                    authority.clone().into(),
+                    other_module.clone(),
+                ));
+            }
+        }
+
         // Add name to store
         if self.modules.contains_key(&module.schema.name) {
             return Err(IntersticeError::ModuleAlreadyExists(module.schema.name));
         }
         self.modules.insert(module.schema.name.clone(), module);
+
+        // Throw init event
+        self.event_queue.push_back(SubscriptionEventInstance::Init {
+            module_name: module_schema.name.clone(),
+        });
 
         Ok(module_schema)
     }

@@ -1,6 +1,5 @@
-use std::{fs::File, io::Write, path::Path};
-
 use interstice_core::{interstice_abi::IntersticeValue, *};
+use std::{fs::File, io::Write, path::Path};
 
 fn main() -> anyhow::Result<()> {
     let mut runtime = Node::new(Path::new("./transactions.log")).expect("Couldn't create runtime");
@@ -37,5 +36,6 @@ fn main() -> anyhow::Result<()> {
         IntersticeValue::Vec(vec![IntersticeValue::String("Naloween !".to_string())]),
     )?;
     runtime.run("caller", "caller", IntersticeValue::Vec(vec![]))?;
+    // runtime.start()?;
     Ok(())
 }

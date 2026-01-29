@@ -1,22 +1,40 @@
 use crate::{
     error::IntersticeError,
-    event::TableEventInstance,
+    event::SubscriptionEventInstance,
+    graphics::GraphicsState,
+    host_calls::input::from_winit::get_input_event_from_device_event,
     module::Module,
     persistence::TransactionLog,
     reducer::ReducerFrame,
     wasm::{StoreState, linker::define_host_calls},
 };
-use interstice_abi::IntersticeValue;
-use std::{collections::HashMap, sync::Arc};
+use interstice_abi::{Authority, IntersticeValue};
+use pollster::FutureExt;
+use serde::Serialize;
+use std::{
+    collections::HashMap,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 use std::{collections::VecDeque, path::Path};
+use uuid::Uuid;
 use wasmtime::{Engine, Linker};
+use winit::{
+    event::{Event, WindowEvent},
+    event_loop::{ControlFlow, EventLoop},
+    window::WindowBuilder,
+};
 
 pub struct Node {
+    pub id: Uuid,
+    pub adress: String,
     pub(crate) modules: HashMap<String, Module>,
+    pub(crate) authority_modules: HashMap<Authority, String>,
     pub(crate) call_stack: Vec<ReducerFrame>,
     pub(crate) transaction_logs: TransactionLog,
     pub(crate) engine: Arc<Engine>,
     pub(crate) linker: Linker<StoreState>,
+    pub(crate) event_queue: VecDeque<SubscriptionEventInstance>,
 }
 
 impl Node {
@@ -27,11 +45,15 @@ impl Node {
             IntersticeError::Internal(format!("Couldn't add host calls to the linker: {}", err))
         })?;
         Ok(Self {
+            id: Uuid::new_v4(),
+            adress: "".into(),
             modules: HashMap::new(),
+            authority_modules: HashMap::new(),
             call_stack: Vec::new(),
             engine,
             linker,
             transaction_logs: TransactionLog::new(transaction_log_path)?,
+            event_queue: VecDeque::<SubscriptionEventInstance>::new(),
         })
     }
 
@@ -40,29 +62,70 @@ impl Node {
         Ok(())
     }
 
+    pub fn start(&mut self) -> Result<(), IntersticeError> {
+        self.replay()?;
+
+        let event_loop = EventLoop::new().unwrap();
+        let window = WindowBuilder::new()
+            .with_title(format!("interstice - node({})", self.id))
+            .build(&event_loop)
+            .expect("Failed to create window");
+        let mut gfx = GraphicsState::new(&window).block_on();
+
+        event_loop.set_control_flow(ControlFlow::Wait);
+        event_loop
+            .run(|event, target| match event {
+                Event::NewEvents(_) => {}
+                Event::WindowEvent { event, .. } => match event {
+                    WindowEvent::CloseRequested => {
+                        target.exit();
+                    }
+                    WindowEvent::RedrawRequested => {
+                        gfx.graphics_begin_frame();
+                        gfx.graphics_end_frame();
+                        gfx.window.request_redraw();
+                    }
+                    _ => {}
+                },
+                Event::DeviceEvent { device_id, event } => {
+                    if let Some(module_name) = self.authority_modules.get(&Authority::Input) {
+                        let module_name = module_name.clone();
+                        let mut hasher = std::hash::DefaultHasher::new();
+                        device_id.hash(&mut hasher);
+                        let device_id = hasher.finish() as u32;
+                        let input_event = get_input_event_from_device_event(device_id, event);
+                        match self.run(&module_name, "interstice_on_input", input_event) {
+                            Ok(_) => (),
+                            Err(err) => println!("Error when running reducer: {}", err),
+                        }
+                    }
+                }
+                Event::UserEvent(_) => {}
+                Event::Suspended => {}
+                Event::Resumed => {}
+                Event::AboutToWait => {}
+                Event::LoopExiting => {}
+                Event::MemoryWarning => {}
+            })
+            .expect("Couldn't start event loop");
+        Ok(())
+    }
+
     pub fn run(
         &mut self,
         module: &str,
         reducer: &str,
-        args: IntersticeValue,
+        args: impl Serialize,
     ) -> Result<IntersticeValue, IntersticeError> {
-        // Replay previous logged transactions
-        self.replay()?;
-
-        let mut event_queue = VecDeque::<TableEventInstance>::new();
-
-        // 1. Call root reducer
         let (result, events) = self.invoke_reducer(module, reducer, args)?;
-        event_queue.extend(events);
+        self.event_queue.extend(events);
 
-        // 2. Process subscriptions
-        self.process_event_queue(&mut event_queue)?;
+        self.process_event_queue()?;
 
-        // 3. Return root result
         Ok(result)
     }
 
-    fn replay(&mut self) -> Result<(), IntersticeError> {
+    pub fn replay(&mut self) -> Result<(), IntersticeError> {
         let transactions = self.transaction_logs.read_all()?;
         println!("Replaying transactions: {:?}", transactions);
 

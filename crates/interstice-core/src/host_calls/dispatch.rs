@@ -3,7 +3,7 @@ use crate::{
     error::IntersticeError,
     wasm::{StoreState, read_bytes},
 };
-use interstice_abi::{codec::pack_ptr_len, decode, encode, host::HostCall};
+use interstice_abi::{HostCall, decode, encode, pack_ptr_len};
 use serde::Serialize;
 use wasmtime::{Caller, Memory};
 
@@ -34,10 +34,6 @@ impl Node {
                 self.handle_log(caller_module.schema.name.clone(), log_request);
                 Ok(None)
             }
-            HostCall::Abort(abort_request) => {
-                self.handle_abort(abort_request);
-                Ok(None)
-            }
             HostCall::InsertRow(insert_row_request) => {
                 let response =
                     self.handle_insert_row(&caller_module.schema.clone(), insert_row_request);
@@ -61,6 +57,10 @@ impl Node {
                 let result = self.send_data_to_module(response, memory, caller);
                 Ok(Some(result))
             }
+            HostCall::Render => todo!(),
+            HostCall::Audio => todo!(),
+            HostCall::Input => todo!(),
+            HostCall::File => todo!(),
         };
     }
 

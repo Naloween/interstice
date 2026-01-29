@@ -1,6 +1,4 @@
-use interstice_abi::{
-    ReducerSchema, SubscriptionSchema, TableSchema, interstice_type_def::IntersticeTypeDef,
-};
+use interstice_abi::{IntersticeTypeDef, ReducerSchema, SubscriptionSchema, TableSchema};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},

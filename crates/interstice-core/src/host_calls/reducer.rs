@@ -1,5 +1,5 @@
 use crate::{Node, error::IntersticeError};
-use interstice_abi::{CallReducerResponse, ModuleSelection, host::CallReducerRequest};
+use interstice_abi::{CallReducerRequest, CallReducerResponse, ModuleSelection};
 
 impl Node {
     pub(crate) fn handle_call_reducer(

@@ -1,6 +1,7 @@
 mod error;
 mod event;
-mod host;
+mod graphics;
+mod host_calls;
 mod module;
 mod node;
 pub mod persistence;

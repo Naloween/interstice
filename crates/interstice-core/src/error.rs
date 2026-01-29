@@ -4,6 +4,7 @@ use std::fmt;
 pub enum IntersticeError {
     // ─── Module / Reducer resolution ──────────────────────────────────────
     ModuleAlreadyExists(String),
+    AuthorityAlreadyTaken(String, String, String),
     ModuleNotFound(String),
 
     TableNotFound {
@@ -51,6 +52,13 @@ impl fmt::Display for IntersticeError {
         match self {
             ModuleAlreadyExists(name) => {
                 write!(f, "module '{}' already exists", name)
+            }
+            AuthorityAlreadyTaken(name, authority, in_place_module_name) => {
+                write!(
+                    f,
+                    "module '{}' require already taken authority {} by module {}",
+                    name, authority, in_place_module_name
+                )
             }
             ModuleNotFound(name) => {
                 write!(f, "module '{}' not found", name)

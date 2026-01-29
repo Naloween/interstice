@@ -1,12 +1,15 @@
-use crate::{Node, error::IntersticeError, event::TableEventInstance, transaction::Transaction};
+use crate::{
+    Node, error::IntersticeError, event::SubscriptionEventInstance, transaction::Transaction,
+};
 use interstice_abi::{IntersticeValue, ReducerContext};
+use serde::Serialize;
 
 #[derive(Debug)]
 pub struct ReducerFrame {
     pub module: String,
     pub reducer: String,
     pub transactions: Vec<Transaction>,
-    pub emitted_events: Vec<TableEventInstance>,
+    pub emitted_events: Vec<SubscriptionEventInstance>,
 }
 
 impl ReducerFrame {
@@ -25,8 +28,8 @@ impl Node {
         &mut self,
         module_name: &str,
         reducer_name: &str,
-        args: IntersticeValue,
-    ) -> Result<(IntersticeValue, Vec<TableEventInstance>), IntersticeError> {
+        args: impl Serialize,
+    ) -> Result<(IntersticeValue, Vec<SubscriptionEventInstance>), IntersticeError> {
         // Lookup module
         let module = self
             .modules
@@ -80,7 +83,7 @@ impl Node {
     pub(crate) fn apply_transaction(
         &mut self,
         transaction: Transaction,
-    ) -> Result<Vec<TableEventInstance>, IntersticeError> {
+    ) -> Result<Vec<SubscriptionEventInstance>, IntersticeError> {
         // Add transaction to the logs
         self.transaction_logs.append(&transaction)?;
 
@@ -103,7 +106,7 @@ impl Node {
                     }
                 })?;
                 table.rows.push(new_row.clone());
-                events.push(TableEventInstance::TableInsertEvent {
+                events.push(SubscriptionEventInstance::TableInsertEvent {
                     module_name,
                     table_name,
                     inserted_row: new_row,
@@ -134,7 +137,7 @@ impl Node {
                     }
                 }
                 if let Some(old_row) = old_row {
-                    events.push(TableEventInstance::TableUpdateEvent {
+                    events.push(SubscriptionEventInstance::TableUpdateEvent {
                         module_name,
                         table_name,
                         old_row,
@@ -164,7 +167,7 @@ impl Node {
 
                 if let Some(deleted_row_idx) = deleted_row_idx {
                     let deleted_row = table.rows.swap_remove(deleted_row_idx);
-                    events.push(TableEventInstance::TableDeleteEvent {
+                    events.push(SubscriptionEventInstance::TableDeleteEvent {
                         module_name,
                         table_name,
                         deleted_row,

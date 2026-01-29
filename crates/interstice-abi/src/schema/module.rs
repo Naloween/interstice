@@ -1,5 +1,5 @@
 use crate::{
-    ABI_VERSION, IntersticeType,
+    ABI_VERSION, Authority, IntersticeType,
     interstice_type_def::IntersticeTypeDef,
     reducer::{ReducerSchema, SubscriptionSchema},
     table::{TableSchema, TableVisibility},
@@ -17,6 +17,7 @@ pub struct ModuleSchema {
     pub tables: Vec<TableSchema>,
     pub subscriptions: Vec<SubscriptionSchema>,
     pub type_definitions: HashMap<String, IntersticeTypeDef>,
+    pub authority: Option<Authority>,
 }
 
 impl ModuleSchema {
@@ -27,6 +28,7 @@ impl ModuleSchema {
         tables: Vec<TableSchema>,
         subscriptions: Vec<SubscriptionSchema>,
         type_definitions: HashMap<String, IntersticeTypeDef>,
+        authority: Option<Authority>,
     ) -> Self {
         Self {
             abi_version: ABI_VERSION,
@@ -36,6 +38,7 @@ impl ModuleSchema {
             tables,
             subscriptions,
             type_definitions,
+            authority,
         }
     }
 
@@ -79,6 +82,7 @@ impl ModuleSchema {
             tables,
             subscriptions: Vec::new(),
             type_definitions,
+            authority: self.authority.clone(),
         }
     }
 

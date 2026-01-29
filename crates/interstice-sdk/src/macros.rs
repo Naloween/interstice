@@ -1,8 +1,11 @@
-use interstice_abi::{encode, pack_ptr_len};
+use interstice_abi::{Authority, encode, pack_ptr_len};
 
 #[macro_export]
 macro_rules! interstice_module {
     () => {
+        interstice_module!(None);
+    };
+    ($authority:expr) => {
         // Global imports (for traits used in macros)
         use std::str::FromStr;
         // Use wee_alloc as the global allocator.
@@ -50,6 +53,7 @@ macro_rules! interstice_module {
             interstice_sdk::macros::describe_module(
                 __INTERSTICE_MODULE_NAME,
                 __INTERSTICE_MODULE_VERSION,
+                $authority,
             )
         }
 
@@ -60,7 +64,7 @@ macro_rules! interstice_module {
     };
 }
 
-pub fn describe_module(name: &str, version: &str) -> i64 {
+pub fn describe_module(name: &str, version: &str, authority: Option<Authority>) -> i64 {
     let reducers = interstice_sdk_core::registry::collect_reducers();
     let tables = interstice_sdk_core::registry::collect_tables();
     let subscriptions = interstice_sdk_core::registry::collect_subscriptions();
@@ -74,6 +78,7 @@ pub fn describe_module(name: &str, version: &str) -> i64 {
         tables,
         subscriptions,
         type_definitions,
+        authority,
     };
 
     let bytes = encode(&schema).unwrap();

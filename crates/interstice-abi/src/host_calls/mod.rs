@@ -1,3 +1,10 @@
+mod audio;
+mod file;
+mod input;
+mod render;
+
+pub use input::*;
+
 use crate::{IntersticeValue, Row};
 use serde::{Deserialize, Serialize};
 
@@ -5,11 +12,14 @@ use serde::{Deserialize, Serialize};
 pub enum HostCall {
     CallReducer(CallReducerRequest),
     Log(LogRequest),
-    Abort(AbortRequest),
     InsertRow(InsertRowRequest),
     UpdateRow(UpdateRowRequest),
     DeleteRow(DeleteRowRequest),
     TableScan(TableScanRequest),
+    Render,
+    Audio,
+    Input,
+    File,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -35,11 +45,6 @@ pub type CallReducerResponse = IntersticeValue;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LogRequest {
-    pub message: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AbortRequest {
     pub message: String,
 }
 

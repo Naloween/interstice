@@ -7,10 +7,8 @@ edition = "2024"
 interstice-abi = { path = "../../crates/interstice-abi" }
 wasmtime = { version = "*", features = ["component-model"] }
 anyhow = "*"
-thiserror = "*"
 serde = { version = "*", features = ["derive"] }
-serde_json = "*"
-slotmap = "*"
-parking_lot = "*"
-crossbeam = "*"                                              # later for scheduling
-tempfile = "*"
+wgpu = "*"
+winit = "*"
+pollster = "*"
+uuid = { version = "*", features = ["v4"] }
