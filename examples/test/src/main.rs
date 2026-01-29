@@ -36,6 +36,6 @@ fn main() -> anyhow::Result<()> {
         IntersticeValue::Vec(vec![IntersticeValue::String("Naloween !".to_string())]),
     )?;
     runtime.run("caller", "caller", IntersticeValue::Vec(vec![]))?;
-    // runtime.start()?;
+    runtime.start()?;
     Ok(())
 }

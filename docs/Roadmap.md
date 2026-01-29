@@ -5,6 +5,7 @@ and long-lived, before moving to authority and advanced optimizations.
 
 ---
 
+- [x] Remove Row types from reducers and convert to the actual table struct
 - [ ] add authority host calls (input events, graphics, files, network ? (maybe through subscriptions and requests like spacetimeDB instead))
 - [ ] sdk change into to try into for better error management (instead of panic)
 - [ ] Add table feature to not be logged (saved)

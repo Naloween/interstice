@@ -71,6 +71,7 @@ impl Node {
             .build(&event_loop)
             .expect("Failed to create window");
         let mut gfx = GraphicsState::new(&window).block_on();
+        gfx.window.request_redraw();
 
         event_loop.set_control_flow(ControlFlow::Wait);
         event_loop
@@ -84,6 +85,12 @@ impl Node {
                         gfx.graphics_begin_frame();
                         gfx.graphics_end_frame();
                         gfx.window.request_redraw();
+
+                        // Temporary process event here at each frame
+                        match self.process_event_queue() {
+                            Ok(_) => (),
+                            Err(err) => println!("Error when processing events: {}", err),
+                        };
                     }
                     _ => {}
                 },

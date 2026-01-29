@@ -65,3 +65,20 @@ name = "TestCustomType"
 [[type_definitions.TestCustomType.Struct.fields]]
 name = "val"
 field_type = "U32"
+
+[type_definitions.Greetings.Struct]
+name = "Greetings"
+
+[[type_definitions.Greetings.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.Greetings.Struct.fields]]
+name = "greeting"
+field_type = "String"
+
+[[type_definitions.Greetings.Struct.fields]]
+name = "custom"
+
+[type_definitions.Greetings.Struct.fields.field_type]
+Named = "TestCustomType"

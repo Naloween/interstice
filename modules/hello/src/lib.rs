@@ -19,7 +19,7 @@ pub struct TestCustomType {
 }
 
 // REDUCERS
-#[reducer(on = init)]
+#[reducer(on = "init")]
 pub fn init(ctx: ReducerContext) {
     ctx.log("Hello world !");
 }
@@ -34,7 +34,7 @@ pub fn hello(ctx: ReducerContext, name: String) {
     });
 }
 
-#[reducer(on = hello.greetings.insert)]
-fn on_greeting_insert(ctx: ReducerContext, inserted_row: Row) {
+#[reducer(on = "hello.greetings.insert")]
+fn on_greeting_insert(ctx: ReducerContext, inserted_row: Greetings) {
     ctx.log(&format!("Inserted greeting: {:?}", inserted_row));
 }

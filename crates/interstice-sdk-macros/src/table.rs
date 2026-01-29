@@ -96,6 +96,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 
     quote! {
+        #[derive(IntersticeType)]
         #output_struct
 
         impl Into<interstice_sdk::Row> for #struct_ident {
