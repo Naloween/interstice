@@ -1,5 +1,5 @@
 use crate::{
-    Node, error::IntersticeError, event::SubscriptionEventInstance, transaction::Transaction,
+    Node, error::IntersticeError, subscription::SubscriptionEventInstance, transaction::Transaction,
 };
 use interstice_abi::{IntersticeValue, ReducerContext};
 use serde::Serialize;

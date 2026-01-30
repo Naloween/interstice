@@ -1,5 +1,4 @@
 mod error;
-mod event;
 mod graphics;
 mod host_calls;
 mod module;

@@ -1043,7 +1043,7 @@ dependencies = [
 name = "graphics"
 version = "0.0.1"
 dependencies = [
- "interstice-abi",
+ "interstice-sdk",
  "wee_alloc",
 ]
 
@@ -1175,9 +1175,20 @@ dependencies = [
 name = "interstice-abi"
 version = "0.0.1"
 dependencies = [
+ "interstice-abi-macros",
  "postcard",
  "serde",
  "toml",
+]
+
+[[package]]
+name = "interstice-abi-macros"
+version = "0.0.1"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

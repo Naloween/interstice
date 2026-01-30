@@ -7,20 +7,21 @@ and long-lived, before moving to authority and advanced optimizations.
 
 - [x] Remove Row types from reducers and convert to the actual table struct
 - [ ] add authority host calls (input events, graphics, files, network ? (maybe through subscriptions and requests like spacetimeDB instead))
+- [ ] macros more checks and better error handlings (subscription check args and types)
 - [ ] sdk change into to try into for better error management (instead of panic)
-- [ ] Add table feature to not be logged (saved)
-- [ ] subscription to another node (networking).
+- [ ] subscription to another node table (networking). So add Node sdk with nodes registry etc...
 - [ ] Add async and parallelization
+- [ ] Modules dependencies & Version compatibility checks
+- [ ] Indexed tables (add index flag macro on field struct)
 - [ ] transaction logs snaptchots, separate logs before snapchot (archive) and afetr the current snaptchot
 - [ ] transaction logs add indexes to retreive efficiently per module, per table transactions
-- [ ] Indexed tables
 - [ ] Efficient table scans (avoid full cloning)
 - [ ] Columnar / structured storage backend
 - [ ] Table migration support
 - [ ] Interstice Type Enum support
 - [ ] Table Views (allow row filtering based on current state and requesting node id)
 - [ ] Subscription execution ordering guarantees ?
-- [ ] Modules dependencies & Version compatibility checks
+- [ ] Add table feature to not be logged (saved)
 - [ ] Structured logging
 
 ## Debugging & Observability
@@ -31,9 +32,9 @@ and long-lived, before moving to authority and advanced optimizations.
 
 ## Tooling & CLI
 
-- [ ] Schema inspection CLI
-- [ ] Module validation CLI
+- [ ] Start node
+- [ ] Init module (build.rs, Cargo.toml, src/lib.rs with corresponding default amcros)
+- [ ] publish module (build to wasm and send the file to the node at the specified adress)
+- [ ] Update interstice
 - [ ] Transaction log inspection
 - [ ] Replay / determinism checker
-- [ ] Dev-mode tracing & logging
-- [ ] Hot-reload modules (optional)

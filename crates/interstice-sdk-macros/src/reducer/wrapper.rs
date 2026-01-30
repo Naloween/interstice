@@ -33,6 +33,7 @@ pub fn get_wrapper_function(
 
             let res: interstice_sdk::IntersticeValue = #reducer_ident(reducer_context, #(#args),*).into();
 
+
             let bytes = interstice_sdk::encode(&res).unwrap();
             let out_ptr = alloc(bytes.len() as i32);
             unsafe {

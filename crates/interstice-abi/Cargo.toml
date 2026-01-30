@@ -7,3 +7,4 @@ edition = "2024"
 serde = "*"
 postcard = { version = "*", features = ["alloc"] }
 toml = "*"
+interstice-abi-macros = { path = "../interstice-abi-macros" }

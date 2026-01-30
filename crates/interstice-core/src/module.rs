@@ -1,7 +1,7 @@
 use crate::{
     Node,
     error::IntersticeError,
-    event::SubscriptionEventInstance,
+    subscription::SubscriptionEventInstance,
     table::Table,
     wasm::{StoreState, instance::WasmInstance},
 };

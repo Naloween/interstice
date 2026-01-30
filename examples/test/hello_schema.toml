@@ -28,7 +28,7 @@ return_type = "Void"
 name = "inserted_row"
 
 [reducers.arguments.field_type]
-Named = "Row"
+Named = "Greetings"
 
 [[tables]]
 name = "greetings"

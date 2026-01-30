@@ -25,7 +25,7 @@ pub fn reducer(attr: TokenStream, item: TokenStream) -> TokenStream {
     reducer_macro(attr, item)
 }
 
-#[proc_macro_derive(IntersticeType)]
-pub fn derive_interstice_type(input: TokenStream) -> TokenStream {
+#[proc_macro_attribute]
+pub fn interstice_type(_attr: TokenStream, input: TokenStream) -> TokenStream {
     derive_interstice_type_macro(input)
 }

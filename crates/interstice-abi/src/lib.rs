@@ -12,7 +12,6 @@ mod schema;
 pub use authority::*;
 pub use codec::*;
 pub use error::*;
-pub use event::*;
 pub use host_calls::*;
 pub use interstice_type::*;
 pub use interstice_type_def::*;
@@ -20,5 +19,7 @@ pub use interstice_value::*;
 pub use reducer_context::*;
 pub use row::*;
 pub use schema::*;
+
+pub use interstice_abi_macros;
 
 pub const ABI_VERSION: u16 = 1;

@@ -1,6 +1,7 @@
+use crate::interstice_abi_macros::IntersticeType;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, IntersticeType)]
 pub enum KeyCode {
     /// <kbd>`</kbd> on a US keyboard. This is also called a backtick or grave.
     /// This is the <kbd>半角</kbd>/<kbd>全角</kbd>/<kbd>漢字</kbd>

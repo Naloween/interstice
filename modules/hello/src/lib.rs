@@ -1,6 +1,6 @@
 use interstice_sdk::*;
 
-interstice_module!(Some(Authority::Render));
+interstice_module!();
 
 // TABLES
 
@@ -13,7 +13,8 @@ pub struct Greetings {
     pub custom: TestCustomType,
 }
 
-#[derive(Debug, Clone, IntersticeType)]
+#[interstice_type]
+#[derive(Debug, Clone)]
 pub struct TestCustomType {
     pub val: u32,
 }

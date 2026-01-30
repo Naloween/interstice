@@ -1,0 +1,13 @@
+[package]
+name = "interstice-abi-macros"
+version = "0.0.1"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
+proc-macro-crate = "3"

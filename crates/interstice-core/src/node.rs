@@ -1,11 +1,11 @@
 use crate::{
     error::IntersticeError,
-    event::SubscriptionEventInstance,
     graphics::GraphicsState,
     host_calls::input::from_winit::get_input_event_from_device_event,
     module::Module,
     persistence::TransactionLog,
     reducer::ReducerFrame,
+    subscription::SubscriptionEventInstance,
     wasm::{StoreState, linker::define_host_calls},
 };
 use interstice_abi::{Authority, IntersticeValue};
@@ -101,7 +101,7 @@ impl Node {
                         device_id.hash(&mut hasher);
                         let device_id = hasher.finish() as u32;
                         let input_event = get_input_event_from_device_event(device_id, event);
-                        match self.run(&module_name, "interstice_on_input", input_event) {
+                        match self.run(&module_name, "on_input", input_event) {
                             Ok(_) => (),
                             Err(err) => println!("Error when running reducer: {}", err),
                         }
