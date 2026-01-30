@@ -75,7 +75,7 @@ fn derive_interstice_type_macro_struct(
 
                         #struct_name {
                             #(
-                                #field_names: map.remove(#field_name_strings).unwrap().into(),
+                                #field_names: map.remove(#field_name_strings).unwrap().try_into().unwrap(),
                             )*
                         }
                     }

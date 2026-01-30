@@ -14,9 +14,9 @@ pub fn get_wrapper_function(
     let args = (0..arg_count - 1).map(|i| {
         let index = LitInt::new(&i.to_string(), proc_macro2::Span::call_site());
         if table_subscription {
-            quote! { {let row: interstice_sdk::Row = interstice_args_vec[#index].clone().into(); row.into()} }
+            quote! { {let row: interstice_sdk::Row = interstice_args_vec[#index].clone().try_into().unwrap(); row.into()} }
         } else {
-            quote! { interstice_args_vec[#index].clone().into() }
+            quote! { interstice_args_vec[#index].clone().try_into().unwrap() }
         }
     });
 

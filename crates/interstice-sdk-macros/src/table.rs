@@ -108,13 +108,13 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
-        impl Into<#struct_ident> for interstice_sdk::Row {
-            fn into(self) -> #struct_ident{
-                let mut row_entries = self.entries.into_iter();
+        impl From<interstice_sdk::Row> for #struct_ident {
+            fn from(row: interstice_sdk::Row) -> #struct_ident{
+                let mut row_entries = row.entries.into_iter();
                 #struct_ident {
-                    #pk_ident: self.primary_key.into(), // convert IntersticeValue → PK type
+                    #pk_ident: row.primary_key.try_into().unwrap(),
                     #(
-                        #entry_fields: row_entries.next().unwrap().into(), // convert IntersticeValue → field type
+                        #entry_fields: row_entries.next().unwrap().try_into().unwrap(),
                     )*
                 }
             }
