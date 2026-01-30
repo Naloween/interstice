@@ -95,6 +95,9 @@ impl Node {
                     authority.clone().into(),
                     other_module.clone(),
                 ));
+            } else {
+                self.authority_modules
+                    .insert(authority.clone(), module_schema.name.clone());
             }
         }
 

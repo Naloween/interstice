@@ -7,6 +7,8 @@ and long-lived, before moving to authority and advanced optimizations.
 
 - [x] Remove Row types from reducers and convert to the actual table struct
 - [ ] add authority host calls (input events, graphics, files, network ? (maybe through subscriptions and requests like spacetimeDB instead))
+- [ ] Better type convertions designs (instead of always converting to IntersticeValue as an intermediate)
+- [ ] Optimize type convertions (no clones)
 - [ ] macros more checks and better error handlings (subscription check args and types)
 - [ ] sdk change into to try into for better error management (instead of panic)
 - [ ] subscription to another node table (networking). So add Node sdk with nodes registry etc...
@@ -24,17 +26,17 @@ and long-lived, before moving to authority and advanced optimizations.
 - [ ] Add table feature to not be logged (saved)
 - [ ] Structured logging
 
+## Tooling & CLI
+
+- [ ] Start node
+- [ ] Init module (build.rs, Cargo.toml, src/lib.rs, .cargo/config.toml for wasm32 build with corresponding default macros)
+- [ ] publish module (build to wasm and send the file to the node at the specified adress)
+- [ ] Update interstice
+- [ ] Transaction log inspection
+- [ ] Replay / determinism checker
+
 ## Debugging & Observability
 
 - [ ] Reducer execution tracing
 - [ ] Subscription trace graphs
 - [ ] Deterministic replay debugging
-
-## Tooling & CLI
-
-- [ ] Start node
-- [ ] Init module (build.rs, Cargo.toml, src/lib.rs with corresponding default amcros)
-- [ ] publish module (build to wasm and send the file to the node at the specified adress)
-- [ ] Update interstice
-- [ ] Transaction log inspection
-- [ ] Replay / determinism checker

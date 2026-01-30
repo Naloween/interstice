@@ -101,7 +101,11 @@ impl Node {
                         device_id.hash(&mut hasher);
                         let device_id = hasher.finish() as u32;
                         let input_event = get_input_event_from_device_event(device_id, event);
-                        match self.run(&module_name, "on_input", input_event) {
+                        match self.run(
+                            &module_name,
+                            "on_input",
+                            IntersticeValue::Vec(vec![input_event.into()]),
+                        ) {
                             Ok(_) => (),
                             Err(err) => println!("Error when running reducer: {}", err),
                         }
@@ -122,7 +126,7 @@ impl Node {
         &mut self,
         module: &str,
         reducer: &str,
-        args: impl Serialize,
+        args: IntersticeValue,
     ) -> Result<IntersticeValue, IntersticeError> {
         let (result, events) = self.invoke_reducer(module, reducer, args)?;
         self.event_queue.extend(events);
