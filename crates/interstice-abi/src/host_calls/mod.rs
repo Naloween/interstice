@@ -1,11 +1,11 @@
 mod audio;
 mod file;
+mod gpu;
 mod input;
-mod render;
 
 pub use input::*;
 
-use crate::{IntersticeValue, Row};
+use crate::{IntersticeValue, Row, host_calls::gpu::GpuCall};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -16,7 +16,7 @@ pub enum HostCall {
     UpdateRow(UpdateRowRequest),
     DeleteRow(DeleteRowRequest),
     TableScan(TableScanRequest),
-    Render,
+    Gpu(GpuCall),
     Audio,
     Input,
     File,

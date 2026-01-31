@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub enum Authority {
-    Render,
+    Gpu,
     Audio,
     Input,
     File,
@@ -12,7 +12,7 @@ pub enum Authority {
 impl Into<String> for Authority {
     fn into(self) -> String {
         match self {
-            Authority::Render => "Render".into(),
+            Authority::Gpu => "Gpu".into(),
             Authority::Audio => "Audio".into(),
             Authority::Input => "Input".into(),
             Authority::File => "File".into(),
@@ -25,7 +25,7 @@ impl TryInto<Authority> for String {
 
     fn try_into(self) -> Result<Authority, Self::Error> {
         match self.as_str() {
-            "Render" => Ok(Authority::Render),
+            "Gpu" => Ok(Authority::Gpu),
             "Audio" => Ok(Authority::Audio),
             "Input" => Ok(Authority::Input),
             "File" => Ok(Authority::File),

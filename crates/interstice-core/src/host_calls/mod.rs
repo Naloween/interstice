@@ -1,4 +1,5 @@
 mod dispatch;
+pub mod gpu;
 pub mod input;
 mod log;
 mod reducer;

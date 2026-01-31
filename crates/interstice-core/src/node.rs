@@ -1,7 +1,6 @@
 use crate::{
     error::IntersticeError,
-    graphics::GraphicsState,
-    host_calls::input::from_winit::get_input_event_from_device_event,
+    host_calls::{gpu::GraphicsState, input::from_winit::get_input_event_from_device_event},
     module::Module,
     persistence::TransactionLog,
     reducer::ReducerFrame,
@@ -10,7 +9,6 @@ use crate::{
 };
 use interstice_abi::{Authority, IntersticeValue};
 use pollster::FutureExt;
-use serde::Serialize;
 use std::{
     collections::HashMap,
     hash::{Hash, Hasher},

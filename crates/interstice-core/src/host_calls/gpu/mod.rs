@@ -1,3 +1,20 @@
+// pub struct GpuState {
+//     next_id: GpuId,
+
+//     buffers: HashMap<GpuId, wgpu::Buffer>,
+//     textures: HashMap<GpuId, wgpu::Texture>,
+//     texture_views: HashMap<GpuId, wgpu::TextureView>,
+//     shaders: HashMap<GpuId, wgpu::ShaderModule>,
+//     bind_group_layouts: HashMap<GpuId, wgpu::BindGroupLayout>,
+//     bind_groups: HashMap<GpuId, wgpu::BindGroup>,
+//     pipeline_layouts: HashMap<GpuId, wgpu::PipelineLayout>,
+//     render_pipelines: HashMap<GpuId, wgpu::RenderPipeline>,
+//     compute_pipelines: HashMap<GpuId, wgpu::ComputePipeline>,
+//     encoders: HashMap<GpuId, wgpu::CommandEncoder>,
+//     render_passes: HashMap<GpuId, wgpu::RenderPass<'static>>, // wrapped carefully
+//     compute_passes: HashMap<GpuId, wgpu::ComputePass<'static>>,
+// }
+
 use wgpu::{SurfaceTexture, TextureView};
 use winit::window::Window;
 
@@ -75,3 +92,16 @@ impl<'a> GraphicsState<'a> {
         }
     }
 }
+
+// pub fn handle_gpu_call(state: &mut GpuState, call: GpuCall) -> GpuReturn {
+//     match call {
+//         GpuCall::CreateBuffer(desc) => state.create_buffer(desc),
+//         GpuCall::WriteBuffer(w) => state.write_buffer(w),
+//         GpuCall::CreateRenderPipeline(p) => state.create_render_pipeline(p),
+//         GpuCall::BeginRenderPass(rp) => state.begin_render_pass(rp),
+//         GpuCall::Draw(d) => state.draw(d),
+//         GpuCall::Submit { encoder } => state.submit(encoder),
+//         GpuCall::Present => state.present(),
+//         _ => todo!(),
+//     }
+// }

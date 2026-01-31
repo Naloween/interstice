@@ -1,5 +1,4 @@
 mod error;
-mod graphics;
 mod host_calls;
 mod module;
 mod node;

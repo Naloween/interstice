@@ -57,7 +57,7 @@ impl Node {
                 let result = self.send_data_to_module(response, memory, caller);
                 Ok(Some(result))
             }
-            HostCall::Render => todo!(),
+            HostCall::Gpu(gpu_call) => todo!(),
             HostCall::Audio => todo!(),
             HostCall::Input => todo!(),
             HostCall::File => todo!(),
