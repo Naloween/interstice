@@ -67,14 +67,7 @@ impl Node {
                     return Err(IntersticeError::Unauthorized(Authority::Gpu));
                 }
 
-                let gpu = self
-                    .gpu
-                    .as_mut()
-                    .ok_or_else(|| IntersticeError::Internal("GPU not initialized".into()))?;
-
-                self.handle_gpu_call(gpu_call)?;
-
-                Ok(None)
+                self.handle_gpu_call(gpu_call)
             }
 
             HostCall::Audio => todo!(),
