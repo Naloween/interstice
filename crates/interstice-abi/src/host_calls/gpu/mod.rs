@@ -357,10 +357,28 @@ bitflags::bitflags! {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum BindingType {
     UniformBuffer,
-    StorageBuffer { read_only: bool },
-    Sampler,
-    Texture,
-    StorageTexture { format: TextureFormat },
+    StorageBuffer {
+        read_only: bool,
+    },
+    Sampler {
+        comparison: bool,
+    },
+    Texture {
+        sample_type: TextureSampleType,
+        view_dimension: TextureViewDimension,
+        multisampled: bool,
+    },
+    StorageTexture {
+        format: TextureFormat,
+    },
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum TextureSampleType {
+    Float { filterable: bool },
+    Depth,
+    Sint,
+    Uint,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -411,6 +429,64 @@ pub struct DepthStencilState {
     pub format: TextureFormat,
     pub depth_write_enabled: bool,
     pub depth_compare: CompareFunction,
+    pub stencil: StencilState,
+    pub bias: DepthBiasState,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct StencilState {
+    /// Front face mode.
+    pub front: StencilFaceState,
+    /// Back face mode.
+    pub back: StencilFaceState,
+    /// Stencil values are AND'd with this mask when reading and writing from the stencil buffer. Only low 8 bits are used.
+    pub read_mask: u32,
+    /// Stencil values are AND'd with this mask when writing to the stencil buffer. Only low 8 bits are used.
+    pub write_mask: u32,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct StencilFaceState {
+    /// Comparison function that determines if the fail_op or pass_op is used on the stencil buffer.
+    pub compare: CompareFunction,
+    /// Operation that is performed when stencil test fails.
+    pub fail_op: StencilOperation,
+    /// Operation that is performed when depth test fails but stencil test succeeds.
+    pub depth_fail_op: StencilOperation,
+    /// Operation that is performed when stencil test success.
+    pub pass_op: StencilOperation,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum StencilOperation {
+    /// Keep stencil value unchanged.
+    Keep = 0,
+    /// Set stencil value to zero.
+    Zero = 1,
+    /// Replace stencil value with value provided in most recent call to
+    /// [`RenderPass::set_stencil_reference`][RPssr].
+    ///
+    Replace = 2,
+    /// Bitwise inverts stencil value.
+    Invert = 3,
+    /// Increments stencil value by one, clamping on overflow.
+    IncrementClamp = 4,
+    /// Decrements stencil value by one, clamping on underflow.
+    DecrementClamp = 5,
+    /// Increments stencil value by one, wrapping on overflow.
+    IncrementWrap = 6,
+    /// Decrements stencil value by one, wrapping on underflow.
+    DecrementWrap = 7,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DepthBiasState {
+    /// Constant depth biasing factor, in basic units of the depth format.
+    pub constant: i32,
+    /// Slope depth biasing factor.
+    pub slope_scale: f32,
+    /// Depth bias clamp value (absolute).
+    pub clamp: f32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

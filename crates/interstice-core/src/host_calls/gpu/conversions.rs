@@ -87,10 +87,10 @@ impl ToWgpu<wgpu::VertexFormat> for interstice_abi::VertexFormat {
             Uint32x2 => wgpu::VertexFormat::Uint32x2,
             Uint32x3 => wgpu::VertexFormat::Uint32x3,
             Uint32x4 => wgpu::VertexFormat::Uint32x4,
-            Sint32 => wgpu::VertexFormat::Sint32,
-            Sint32x2 => wgpu::VertexFormat::Sint32x2,
-            Sint32x3 => wgpu::VertexFormat::Sint32x3,
-            Sint32x4 => wgpu::VertexFormat::Sint32x4,
+            // Sint32 => wgpu::VertexFormat::Sint32,
+            // Sint32x2 => wgpu::VertexFormat::Sint32x2,
+            // Sint32x3 => wgpu::VertexFormat::Sint32x3,
+            // Sint32x4 => wgpu::VertexFormat::Sint32x4,
         }
     }
 }
@@ -105,8 +105,8 @@ impl ToWgpu<wgpu::BlendFactor> for interstice_abi::BlendFactor {
             OneMinusSrc => wgpu::BlendFactor::OneMinusSrc,
             SrcAlpha => wgpu::BlendFactor::SrcAlpha,
             OneMinusSrcAlpha => wgpu::BlendFactor::OneMinusSrcAlpha,
-            Dst => wgpu::BlendFactor::Dst,
-            OneMinusDst => wgpu::BlendFactor::OneMinusDst,
+            // Dst => wgpu::BlendFactor::Dst,
+            // OneMinusDst => wgpu::BlendFactor::OneMinusDst,
             DstAlpha => wgpu::BlendFactor::DstAlpha,
             OneMinusDstAlpha => wgpu::BlendFactor::OneMinusDstAlpha,
         }
@@ -147,13 +147,13 @@ impl ToWgpu<wgpu::CompareFunction> for interstice_abi::CompareFunction {
     fn to_wgpu(&self) -> wgpu::CompareFunction {
         use interstice_abi::CompareFunction::*;
         match self {
-            Never => wgpu::CompareFunction::Never,
+            // Never => wgpu::CompareFunction::Never,
             Less => wgpu::CompareFunction::Less,
             LessEqual => wgpu::CompareFunction::LessEqual,
             Greater => wgpu::CompareFunction::Greater,
-            GreaterEqual => wgpu::CompareFunction::GreaterEqual,
-            Equal => wgpu::CompareFunction::Equal,
-            NotEqual => wgpu::CompareFunction::NotEqual,
+            // GreaterEqual => wgpu::CompareFunction::GreaterEqual,
+            // Equal => wgpu::CompareFunction::Equal,
+            // NotEqual => wgpu::CompareFunction::NotEqual,
             Always => wgpu::CompareFunction::Always,
         }
     }
@@ -162,21 +162,6 @@ impl ToWgpu<wgpu::CompareFunction> for interstice_abi::CompareFunction {
 impl ToWgpu<wgpu::BindingType> for interstice_abi::BindingType {
     fn to_wgpu(&self) -> wgpu::BindingType {
         match self {
-            // interstice_abi::BindingType::Buffer {
-            //     ty,
-            //     has_dynamic_offset,
-            // } => wgpu::BindingType::Buffer {
-            //     ty: match ty {
-            //         interstice_abi::BufferBindingType::Uniform => wgpu::BufferBindingType::Uniform,
-            //         interstice_abi::BufferBindingType::Storage { read_only } => {
-            //             wgpu::BufferBindingType::Storage {
-            //                 read_only: *read_only,
-            //             }
-            //         }
-            //     },
-            //     has_dynamic_offset: *has_dynamic_offset,
-            //     min_binding_size: None,
-            // },
             interstice_abi::BindingType::Texture {
                 sample_type,
                 view_dimension,
@@ -193,6 +178,24 @@ impl ToWgpu<wgpu::BindingType> for interstice_abi::BindingType {
                     wgpu::SamplerBindingType::Filtering
                 })
             }
+            interstice_abi::BindingType::UniformBuffer => todo!(),
+            interstice_abi::BindingType::StorageBuffer { read_only } => todo!(),
+            interstice_abi::BindingType::StorageTexture { format } => todo!(),
+        }
+    }
+}
+
+impl ToWgpu<wgpu::TextureSampleType> for interstice_abi::TextureSampleType {
+    fn to_wgpu(&self) -> wgpu::TextureSampleType {
+        match self {
+            interstice_abi::TextureSampleType::Float { filterable } => {
+                wgpu::TextureSampleType::Float {
+                    filterable: *filterable,
+                }
+            }
+            interstice_abi::TextureSampleType::Depth => wgpu::TextureSampleType::Depth,
+            interstice_abi::TextureSampleType::Sint => wgpu::TextureSampleType::Sint,
+            interstice_abi::TextureSampleType::Uint => wgpu::TextureSampleType::Uint,
         }
     }
 }
@@ -307,6 +310,29 @@ impl ToWgpu<wgpu::StencilFaceState> for interstice_abi::StencilFaceState {
             fail_op: self.fail_op.to_wgpu(),
             depth_fail_op: self.depth_fail_op.to_wgpu(),
             pass_op: self.pass_op.to_wgpu(),
+        }
+    }
+}
+
+impl ToWgpu<wgpu::StencilOperation> for interstice_abi::StencilOperation {
+    fn to_wgpu(&self) -> wgpu::StencilOperation {
+        match self {
+            interstice_abi::StencilOperation::Keep => wgpu::StencilOperation::Keep,
+            interstice_abi::StencilOperation::Zero => wgpu::StencilOperation::Zero,
+            interstice_abi::StencilOperation::Replace => wgpu::StencilOperation::Replace,
+            interstice_abi::StencilOperation::Invert => wgpu::StencilOperation::Invert,
+            interstice_abi::StencilOperation::IncrementClamp => {
+                wgpu::StencilOperation::IncrementClamp
+            }
+            interstice_abi::StencilOperation::DecrementClamp => {
+                wgpu::StencilOperation::DecrementClamp
+            }
+            interstice_abi::StencilOperation::IncrementWrap => {
+                wgpu::StencilOperation::IncrementWrap
+            }
+            interstice_abi::StencilOperation::DecrementWrap => {
+                wgpu::StencilOperation::DecrementWrap
+            }
         }
     }
 }
