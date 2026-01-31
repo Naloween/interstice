@@ -3,7 +3,7 @@ use crate::{
     error::IntersticeError,
     wasm::{StoreState, read_bytes},
 };
-use interstice_abi::{HostCall, decode, encode, pack_ptr_len};
+use interstice_abi::{Authority, HostCall, decode, encode, pack_ptr_len};
 use serde::Serialize;
 use wasmtime::{Caller, Memory};
 
@@ -57,7 +57,26 @@ impl Node {
                 let result = self.send_data_to_module(response, memory, caller);
                 Ok(Some(result))
             }
-            HostCall::Gpu(gpu_call) => todo!(),
+            HostCall::Gpu(gpu_call) => {
+                let gpu_module = self
+                    .authority_modules
+                    .get(&Authority::Gpu)
+                    .ok_or_else(|| IntersticeError::Internal("No GPU authority module".into()))?;
+
+                if gpu_module != &caller_module_name {
+                    return Err(IntersticeError::Unauthorized(Authority::Gpu));
+                }
+
+                let gpu = self
+                    .gpu
+                    .as_mut()
+                    .ok_or_else(|| IntersticeError::Internal("GPU not initialized".into()))?;
+
+                self.handle_gpu_call(gpu_call)?;
+
+                Ok(None)
+            }
+
             HostCall::Audio => todo!(),
             HostCall::Input => todo!(),
             HostCall::File => todo!(),

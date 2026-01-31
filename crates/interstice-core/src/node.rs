@@ -1,6 +1,6 @@
 use crate::{
     error::IntersticeError,
-    host_calls::{gpu::GraphicsState, input::from_winit::get_input_event_from_device_event},
+    host_calls::{gpu::GpuState, input::from_winit::get_input_event_from_device_event},
     module::Module,
     persistence::TransactionLog,
     reducer::ReducerFrame,
@@ -33,6 +33,7 @@ pub struct Node {
     pub(crate) engine: Arc<Engine>,
     pub(crate) linker: Linker<StoreState>,
     pub(crate) event_queue: VecDeque<SubscriptionEventInstance>,
+    pub(crate) gpu: Option<GpuState>,
 }
 
 impl Node {
@@ -52,6 +53,7 @@ impl Node {
             linker,
             transaction_logs: TransactionLog::new(transaction_log_path)?,
             event_queue: VecDeque::<SubscriptionEventInstance>::new(),
+            gpu: None,
         })
     }
 
@@ -68,8 +70,10 @@ impl Node {
             .with_title(format!("interstice - node({})", self.id))
             .build(&event_loop)
             .expect("Failed to create window");
-        let mut gfx = GraphicsState::new(&window).block_on();
-        gfx.window.request_redraw();
+        window.request_redraw();
+        let window = Arc::new(window);
+        let gpu = GpuState::new(window.clone()).block_on();
+        self.gpu = Some(gpu);
 
         event_loop.set_control_flow(ControlFlow::Wait);
         event_loop
@@ -80,9 +84,10 @@ impl Node {
                         target.exit();
                     }
                     WindowEvent::RedrawRequested => {
-                        gfx.graphics_begin_frame();
-                        gfx.graphics_end_frame();
-                        gfx.window.request_redraw();
+                        let gpu = self.gpu.as_mut().unwrap();
+                        gpu.graphics_begin_frame();
+                        gpu.graphics_end_frame();
+                        gpu.window.request_redraw();
 
                         // Temporary process event here at each frame
                         match self.process_event_queue() {

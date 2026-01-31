@@ -3,9 +3,10 @@ mod file;
 mod gpu;
 mod input;
 
+pub use gpu::*;
 pub use input::*;
 
-use crate::{IntersticeValue, Row, host_calls::gpu::GpuCall};
+use crate::{IntersticeValue, Row};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]

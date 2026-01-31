@@ -85,6 +85,7 @@ pub enum GpuCall {
     // Surface
     GetCurrentSurfaceTexture,
     Present,
+    BeginFrame,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -379,27 +380,27 @@ pub enum BindingResource {
     Sampler(GpuId),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PrimitiveState {
     pub topology: PrimitiveTopology,
     pub cull_mode: Option<CullMode>,
     pub front_face: FrontFace,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum PrimitiveTopology {
     TriangleList,
     TriangleStrip,
     LineList,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum CullMode {
     Front,
     Back,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum FrontFace {
     Ccw,
     Cw,
