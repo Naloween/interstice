@@ -151,24 +151,39 @@ impl GpuState {
             .get_current_texture()
             .expect("Failed to acquire frame");
 
-        let view = frame.texture.create_view(&Default::default());
+        let texture_id = self.alloc_id();
+        self.textures.insert(texture_id, frame.texture.clone());
+
+        let view = self
+            .textures
+            .get(&texture_id)
+            .unwrap()
+            .create_view(&Default::default());
         self.current_frame = Some((frame, view));
+        self.surface_texture_id = Some(texture_id);
     }
 
     pub fn graphics_end_frame(&mut self) {
         if let Some((frame, _)) = self.current_frame.take() {
             frame.present();
         }
-        self.surface_texture_id = None;
+        if let Some(id) = self.surface_texture_id.take() {
+            self.textures.remove(&id);
+        }
     }
 
-    fn get_current_surface_texture(&mut self) -> GpuId {
-        let id = self.alloc_id();
-        let (_, view) = self.current_frame.as_ref().expect("Frame not begun");
+    pub fn get_surface_format(&self) -> interstice_abi::TextureFormat {
+        conversions::texture_format_from_wgpu(self.config.format)
+    }
 
-        self.texture_views.insert(id, view.clone());
-        self.surface_texture_id = Some(id);
-        id
+    pub fn get_current_surface_texture(&self) -> GpuId {
+        self.surface_texture_id.expect("Frame not begun")
+    }
+
+    pub fn configure_surface(&mut self, width: u32, height: u32) {
+        self.config.width = width;
+        self.config.height = height;
+        self.surface.configure(&self.device, &self.config);
     }
 
     pub fn submit(&mut self, encoder_id: GpuId) {

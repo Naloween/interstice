@@ -1,5 +1,6 @@
 abi_version = 1
 name = "caller"
+authorities = []
 tables = []
 subscriptions = []
 

@@ -1,6 +1,6 @@
 abi_version = 1
 name = "hello"
-authority = "Render"
+authorities = []
 
 [version]
 major = 0

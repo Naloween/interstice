@@ -67,7 +67,7 @@ impl Node {
                     return Err(IntersticeError::Unauthorized(Authority::Gpu));
                 }
 
-                self.handle_gpu_call(gpu_call)
+                self.handle_gpu_call(gpu_call, memory, caller)
             }
 
             HostCall::Audio => todo!(),
@@ -97,7 +97,7 @@ impl Node {
         (ptr, bytes.len() as i32)
     }
 
-    fn send_data_to_module<T>(
+    pub fn send_data_to_module<T>(
         &self,
         result: T,
         memory: &wasmtime::Memory,

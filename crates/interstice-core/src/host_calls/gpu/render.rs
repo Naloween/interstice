@@ -8,7 +8,10 @@ impl GpuState {
     pub fn create_render_pipeline(&mut self, desc: interstice_abi::CreateRenderPipeline) -> GpuId {
         let layout = self.pipeline_layouts.get(&desc.layout).unwrap();
         let vertex_shader = self.shaders.get(&desc.vertex.module).unwrap();
-        let fragment_shader = self.shaders.get(&desc.fragment.module).unwrap();
+        let fragment_shader = self
+            .shaders
+            .get(&desc.fragment.as_ref().unwrap().module)
+            .unwrap();
 
         let vertex_buffers: Vec<wgpu::VertexBufferLayout> =
             desc.vertex.buffers.iter().map(|v| v.to_wgpu()).collect();
@@ -17,10 +20,17 @@ impl GpuState {
 
         let frag_targets_vec: Vec<Option<wgpu::ColorTargetState>> = desc
             .fragment
+            .as_ref()
+            .unwrap()
             .targets
             .iter()
             .map(|c| Some(c.to_wgpu()))
             .collect();
+
+        let frag_entry_point = desc
+            .fragment
+            .as_ref()
+            .map(|f| Box::leak(f.entry_point.clone().into_boxed_str()) as &str);
 
         let pipeline = self
             .device
@@ -35,7 +45,7 @@ impl GpuState {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: fragment_shader,
-                    entry_point: Some(&desc.fragment.entry_point),
+                    entry_point: frag_entry_point,
                     targets: &frag_targets_vec,
                     compilation_options: Default::default(),
                 }),
@@ -51,7 +61,8 @@ impl GpuState {
         return id;
     }
 
-    pub fn begin_render_pass(&mut self, desc: BeginRenderPass) {
+    pub fn begin_render_pass(&mut self, desc: BeginRenderPass) -> GpuId {
+        let pass_id = desc.encoder;
         let enc = self.encoders.get_mut(&desc.encoder).unwrap();
 
         assert!(enc.active_pass.is_none(), "Pass already active");
@@ -60,6 +71,8 @@ impl GpuState {
             desc,
             commands: Vec::new(),
         }));
+
+        pass_id as GpuId
     }
 
     pub fn set_render_pipeline(&mut self, pass_id: GpuId, pipeline: GpuId) {

@@ -1232,6 +1232,7 @@ version = "0.0.1"
 dependencies = [
  "interstice-abi",
  "lazy_static",
+ "serde",
 ]
 
 [[package]]

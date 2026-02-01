@@ -1,8 +1,18 @@
-use crate::host_calls::host_call;
+use crate::host_calls::{host_call, unpack};
 use interstice_abi::*;
 
 pub fn begin_frame() {
     host_call(HostCall::Gpu(GpuCall::BeginFrame));
+}
+
+pub fn get_surface_format() -> TextureFormat {
+    let pack = host_call(HostCall::Gpu(GpuCall::GetSurfaceFormat));
+    let result: TextureFormat = unpack(pack);
+    return result;
+}
+
+pub fn get_current_surface_texture() -> GpuId {
+    host_call(HostCall::Gpu(GpuCall::GetCurrentSurfaceTexture)) as GpuId
 }
 
 pub fn present() {
@@ -75,8 +85,8 @@ pub fn submit(encoder: GpuId) {
     host_call(HostCall::Gpu(GpuCall::Submit { encoder }));
 }
 
-pub fn begin_render_pass(desc: BeginRenderPass) {
-    host_call(HostCall::Gpu(GpuCall::BeginRenderPass(desc)));
+pub fn begin_render_pass(desc: BeginRenderPass) -> GpuId {
+    host_call(HostCall::Gpu(GpuCall::BeginRenderPass(desc))) as GpuId
 }
 
 pub fn end_render_pass(pass: GpuId) {
@@ -144,8 +154,8 @@ pub fn draw_indexed(pass: GpuId, indices: u32, instances: u32) {
 
 // compute pass
 
-pub fn begin_compute_pass(encoder: GpuId) {
-    host_call(HostCall::Gpu(GpuCall::BeginComputePass { encoder }));
+pub fn begin_compute_pass(encoder: GpuId) -> GpuId {
+    host_call(HostCall::Gpu(GpuCall::BeginComputePass { encoder })) as GpuId
 }
 
 pub fn end_compute_pass(pass: GpuId) {
@@ -187,6 +197,14 @@ pub struct Gpu;
 impl Gpu {
     pub fn begin_frame(&self) {
         begin_frame();
+    }
+
+    pub fn get_surface_format(&self) -> TextureFormat {
+        get_surface_format()
+    }
+
+    pub fn get_current_surface_texture(&self) -> GpuId {
+        get_current_surface_texture()
     }
 
     pub fn present(&self) {
@@ -249,7 +267,7 @@ impl Gpu {
         submit(encoder)
     }
 
-    pub fn begin_render_pass(&self, desc: BeginRenderPass) {
+    pub fn begin_render_pass(&self, desc: BeginRenderPass) -> GpuId {
         begin_render_pass(desc)
     }
 
@@ -297,7 +315,7 @@ impl Gpu {
 
     // compute pass
 
-    pub fn begin_compute_pass(&self, encoder: GpuId) {
+    pub fn begin_compute_pass(&self, encoder: GpuId) -> GpuId {
         begin_compute_pass(encoder)
     }
 

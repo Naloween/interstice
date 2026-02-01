@@ -84,16 +84,25 @@ impl Node {
                         target.exit();
                     }
                     WindowEvent::RedrawRequested => {
-                        let gpu = self.gpu.as_mut().unwrap();
-                        gpu.graphics_begin_frame();
-                        gpu.graphics_end_frame();
-                        gpu.window.request_redraw();
+                        if let Some(gpu_module) =
+                            self.authority_modules.get(&Authority::Gpu).cloned()
+                        {
+                            self.run(&gpu_module, "render", IntersticeValue::Vec(vec![]))
+                                .unwrap();
+                        }
+                        self.gpu.as_ref().unwrap().window.request_redraw();
 
                         // Temporary process event here at each frame
                         match self.process_event_queue() {
                             Ok(_) => (),
                             Err(err) => println!("Error when processing events: {}", err),
                         };
+                    }
+                    WindowEvent::Resized(size) => {
+                        self.gpu
+                            .as_mut()
+                            .unwrap()
+                            .configure_surface(size.width, size.height);
                     }
                     _ => {}
                 },

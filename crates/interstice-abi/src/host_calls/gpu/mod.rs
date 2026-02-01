@@ -132,6 +132,8 @@ pub struct CreateTextureView {
     pub dimension: Option<TextureViewDimension>,
     pub base_mip_level: u32,
     pub mip_level_count: Option<u32>,
+    pub base_array_layer: u32,
+    pub array_layer_count: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -159,10 +161,11 @@ pub struct CreatePipelineLayout {
 pub struct CreateRenderPipeline {
     pub layout: GpuId,
     pub vertex: VertexState,
-    pub fragment: FragmentState,
+    pub fragment: Option<FragmentState>,
     pub primitive: PrimitiveState,
     pub depth_stencil: Option<DepthStencilState>,
     pub multisample: MultisampleState,
+    pub multiview: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -501,7 +504,7 @@ pub enum CompareFunction {
 pub struct MultisampleState {
     pub count: u32,
     pub mask: u64,
-    pub alpha_to_coverage: bool,
+    pub alpha_to_coverage_enabled: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

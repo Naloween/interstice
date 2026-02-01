@@ -1,6 +1,6 @@
 use interstice_abi::{
     CallReducerRequest, HostCall, InsertRowRequest, IntersticeValue, LogRequest, ModuleSelection,
-    Row, TableScanRequest, decode, unpack_ptr_len,
+    Row, TableScanRequest,
 };
 
 pub fn log(message: &str) {
@@ -22,9 +22,7 @@ pub fn call_reducer(
     });
 
     let pack = host_call(call);
-    let (ptr, len) = unpack_ptr_len(pack);
-    let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
-    let result: IntersticeValue = decode(bytes).unwrap();
+    let result: IntersticeValue = unpack(pack);
     return result;
 }
 
@@ -44,15 +42,13 @@ pub fn scan(module_selection: ModuleSelection, table_name: String) -> Vec<Row> {
     });
 
     let pack = host_call(call);
-    let (ptr, len) = unpack_ptr_len(pack);
-    let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
-    let rows: Vec<Row> = decode(bytes).unwrap();
+    let rows: Vec<Row> = unpack(pack);
     return rows;
 }
 
 use interstice_abi::ReducerContext;
 
-use crate::host_calls::host_call;
+use crate::host_calls::{host_call, unpack};
 
 pub trait HostLog {
     fn log(&self, message: &str);

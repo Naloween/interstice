@@ -1,18 +1,21 @@
 use interstice_abi::GpuCall;
+use wasmtime::Caller;
 
-use crate::{Node, error::IntersticeError};
+use crate::{Node, error::IntersticeError, wasm::StoreState};
 
 impl Node {
     pub fn handle_gpu_call(
         &mut self,
         call: interstice_abi::GpuCall,
+        memory: &wasmtime::Memory,
+        caller: &mut Caller<'_, StoreState>,
     ) -> Result<Option<i64>, IntersticeError> {
         let gpu = self
             .gpu
             .as_mut()
             .ok_or_else(|| IntersticeError::Internal("GPU not initialized".into()))?;
 
-        let potential_id = match call {
+        let potential_result = match call {
             GpuCall::CreateBuffer(desc) => {
                 let id = gpu.create_buffer(desc);
                 Some(id as i64)
@@ -58,8 +61,8 @@ impl Node {
                 Some(id as i64)
             }
             GpuCall::BeginRenderPass(rp) => {
-                gpu.begin_render_pass(rp);
-                None
+                let id = gpu.begin_render_pass(rp);
+                Some(id as i64)
             }
             GpuCall::EndRenderPass { pass } => {
                 gpu.end_render_pass(pass);
@@ -135,8 +138,9 @@ impl Node {
                 None
             }
             GpuCall::GetSurfaceFormat => {
-                todo!();
-                None
+                let format = gpu.get_surface_format();
+                let result = self.send_data_to_module(format, memory, caller);
+                Some(result)
             }
             GpuCall::GetLimits => None,
             GpuCall::DestroyBuffer { id } => {
@@ -152,11 +156,11 @@ impl Node {
                 None
             }
             GpuCall::GetCurrentSurfaceTexture => {
-                todo!();
-                None
+                let id = gpu.get_current_surface_texture();
+                Some(id as i64)
             }
         };
 
-        Ok(potential_id)
+        Ok(potential_result)
     }
 }

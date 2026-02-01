@@ -50,7 +50,7 @@ impl ToWgpu<wgpu::MultisampleState> for interstice_abi::MultisampleState {
         wgpu::MultisampleState {
             count: self.count,
             mask: self.mask,
-            alpha_to_coverage_enabled: self.alpha_to_coverage,
+            alpha_to_coverage_enabled: self.alpha_to_coverage_enabled,
         }
     }
 }
@@ -357,5 +357,17 @@ impl ToWgpu<wgpu::VertexBufferLayout<'static>> for interstice_abi::VertexBufferL
             step_mode: self.step_mode.to_wgpu(),
             attributes,
         }
+    }
+}
+
+pub fn texture_format_from_wgpu(f: wgpu::TextureFormat) -> interstice_abi::TextureFormat {
+    match f {
+        wgpu::TextureFormat::Rgba8Unorm => interstice_abi::TextureFormat::Rgba8Unorm,
+        wgpu::TextureFormat::Rgba8UnormSrgb => interstice_abi::TextureFormat::Rgba8UnormSrgb,
+        wgpu::TextureFormat::Bgra8Unorm => interstice_abi::TextureFormat::Bgra8Unorm,
+        wgpu::TextureFormat::Bgra8UnormSrgb => interstice_abi::TextureFormat::Bgra8UnormSrgb,
+        wgpu::TextureFormat::Depth24Plus => interstice_abi::TextureFormat::Depth24Plus,
+        wgpu::TextureFormat::Depth32Float => interstice_abi::TextureFormat::Depth32Float,
+        _ => panic!("Unsupported texture format"),
     }
 }
