@@ -1,4 +1,5 @@
 use crate::{
+    authority::AuthorityEntry,
     error::IntersticeError,
     host_calls::{gpu::GpuState, input::from_winit::get_input_event_from_device_event},
     module::Module,
@@ -27,7 +28,7 @@ pub struct Node {
     pub id: Uuid,
     pub adress: String,
     pub(crate) modules: HashMap<String, Module>,
-    pub(crate) authority_modules: HashMap<Authority, String>,
+    pub(crate) authority_modules: HashMap<Authority, AuthorityEntry>,
     pub(crate) call_stack: Vec<ReducerFrame>,
     pub(crate) transaction_logs: TransactionLog,
     pub(crate) engine: Arc<Engine>,
@@ -84,11 +85,17 @@ impl Node {
                         target.exit();
                     }
                     WindowEvent::RedrawRequested => {
-                        if let Some(gpu_module) =
-                            self.authority_modules.get(&Authority::Gpu).cloned()
+                        if let Some(AuthorityEntry {
+                            module_name: gpu_module_name,
+                            on_event_reducer_name: Some(render_reducer_name),
+                        }) = self.authority_modules.get(&Authority::Gpu).cloned()
                         {
-                            self.run(&gpu_module, "render", IntersticeValue::Vec(vec![]))
-                                .unwrap();
+                            self.run(
+                                &gpu_module_name,
+                                &render_reducer_name,
+                                IntersticeValue::Vec(vec![]),
+                            )
+                            .unwrap();
                         }
                         self.gpu.as_ref().unwrap().window.request_redraw();
 
@@ -107,7 +114,11 @@ impl Node {
                     _ => {}
                 },
                 Event::DeviceEvent { device_id, event } => {
-                    if let Some(module_name) = self.authority_modules.get(&Authority::Input) {
+                    if let Some(AuthorityEntry {
+                        module_name,
+                        on_event_reducer_name: Some(on_input_reducer_name),
+                    }) = self.authority_modules.get(&Authority::Input).cloned()
+                    {
                         let module_name = module_name.clone();
                         let mut hasher = std::hash::DefaultHasher::new();
                         device_id.hash(&mut hasher);
@@ -115,7 +126,7 @@ impl Node {
                         let input_event = get_input_event_from_device_event(device_id, event);
                         match self.run(
                             &module_name,
-                            "on_input",
+                            &on_input_reducer_name,
                             IntersticeValue::Vec(vec![input_event.into()]),
                         ) {
                             Ok(_) => (),

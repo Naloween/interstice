@@ -1,3 +1,4 @@
+mod authority;
 mod error;
 mod host_calls;
 mod module;

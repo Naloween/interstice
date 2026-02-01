@@ -47,10 +47,8 @@ pub fn reducer_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attributes = syn::parse_macro_input!(
         attr with syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated
     );
-    let register_subscription =
+    let (register_subscription, use_table_subscription) =
         get_register_subscription_function(reducer_ident.clone(), attributes);
-
-    let use_table_subscription = !register_subscription.is_empty();
 
     // Wrapper function
     let wrapper_function =

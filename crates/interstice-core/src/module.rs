@@ -1,12 +1,14 @@
 use crate::{
     Node,
+    authority::AuthorityEntry,
     error::IntersticeError,
     subscription::SubscriptionEventInstance,
     table::Table,
     wasm::{StoreState, instance::WasmInstance},
 };
 use interstice_abi::{
-    ABI_VERSION, IntersticeValue, ModuleSchema, ReducerContext, get_reducer_wrapper_name,
+    ABI_VERSION, IntersticeValue, ModuleSchema, ReducerContext, SubscriptionEventSchema,
+    get_reducer_wrapper_name,
 };
 use serde::Serialize;
 use std::{collections::HashMap, path::Path};
@@ -89,15 +91,34 @@ impl Node {
         let module_schema = module.schema.clone();
 
         for authority in &module_schema.authorities {
-            if let Some(other_module) = self.authority_modules.get(authority) {
+            if let Some(other_entry) = self.authority_modules.get(authority) {
                 return Err(IntersticeError::AuthorityAlreadyTaken(
                     module_schema.name.clone(),
                     authority.clone().into(),
-                    other_module.clone(),
+                    other_entry.module_name.clone(),
                 ));
             } else {
-                self.authority_modules
-                    .insert(authority.clone(), module_schema.name.clone());
+                let on_event_reducer_name = match authority {
+                    interstice_abi::Authority::Gpu => module_schema
+                        .subscriptions
+                        .iter()
+                        .find(|sub| sub.event == SubscriptionEventSchema::Render)
+                        .map(|sub| sub.reducer_name.clone()),
+                    interstice_abi::Authority::Audio => None,
+                    interstice_abi::Authority::Input => module_schema
+                        .subscriptions
+                        .iter()
+                        .find(|sub| sub.event == SubscriptionEventSchema::Input)
+                        .map(|sub| sub.reducer_name.clone()),
+                    interstice_abi::Authority::File => None,
+                };
+                self.authority_modules.insert(
+                    authority.clone(),
+                    AuthorityEntry {
+                        module_name: module_schema.name.clone(),
+                        on_event_reducer_name,
+                    },
+                );
             }
         }
 

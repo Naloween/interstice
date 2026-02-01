@@ -58,12 +58,12 @@ impl Node {
                 Ok(Some(result))
             }
             HostCall::Gpu(gpu_call) => {
-                let gpu_module = self
+                let gpu_auth_entry = self
                     .authority_modules
                     .get(&Authority::Gpu)
                     .ok_or_else(|| IntersticeError::Internal("No GPU authority module".into()))?;
 
-                if gpu_module != &caller_module_name {
+                if gpu_auth_entry.module_name != caller_module_name {
                     return Err(IntersticeError::Unauthorized(Authority::Gpu));
                 }
 

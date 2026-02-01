@@ -58,6 +58,7 @@ pub fn init(ctx: ReducerContext) {
 
     // Create render pipeline
     let pipeline = gpu.create_render_pipeline(CreateRenderPipeline {
+        label: Some("main".into()),
         layout: pipeline_layout,
         vertex: VertexState {
             module: shader,
@@ -94,14 +95,12 @@ pub fn init(ctx: ReducerContext) {
     });
 }
 
-#[reducer]
+#[reducer(on = "render")]
 pub fn render(ctx: ReducerContext) {
     let gpu = ctx.gpu();
 
     // Get pipeline from table
-    let pipelines = ctx.current.pipelinetable().scan();
-    let pipeline_record = pipelines.get(0).unwrap();
-    let pipeline = pipeline_record.pipeline_id;
+    let pipeline = ctx.current.pipelinetable().scan()[0].pipeline_id;
 
     // Begin frame
     gpu.begin_frame();
@@ -147,14 +146,14 @@ pub fn render(ctx: ReducerContext) {
     gpu.present();
 }
 
-#[reducer]
+#[reducer(on = "input")]
 pub fn on_input(ctx: ReducerContext, event: InputEvent) {
     // Handle input events (unchanged)
     match event {
         InputEvent::Key {
-            device_id,
             physical_key,
             state,
+            ..
         } => {
             ctx.log(&format!("Key {:?} {:?}", physical_key, state));
         }

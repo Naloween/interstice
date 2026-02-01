@@ -159,6 +159,7 @@ pub struct CreatePipelineLayout {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CreateRenderPipeline {
+    pub label: Option<String>,
     pub layout: GpuId,
     pub vertex: VertexState,
     pub fragment: Option<FragmentState>,

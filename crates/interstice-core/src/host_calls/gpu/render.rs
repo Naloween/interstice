@@ -31,11 +31,12 @@ impl GpuState {
             .fragment
             .as_ref()
             .map(|f| Box::leak(f.entry_point.clone().into_boxed_str()) as &str);
+        let label = desc.label.map(|s| Box::leak(s.into_boxed_str()) as &str);
 
         let pipeline = self
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: None,
+                label,
                 layout: Some(layout),
                 vertex: wgpu::VertexState {
                     module: vertex_shader,

@@ -59,8 +59,8 @@ enum ActivePass {
 }
 
 pub struct RenderPassState {
-    desc: BeginRenderPass,        // Your ABI struct
-    commands: Vec<RenderCommand>, // Recorded draw commands
+    desc: BeginRenderPass,
+    commands: Vec<RenderCommand>,
 }
 
 enum RenderCommand {

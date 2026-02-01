@@ -4,7 +4,7 @@ use syn::{punctuated::Punctuated, token::Comma, Expr, Ident, Meta};
 pub fn get_register_subscription_function(
     reducer_ident: Ident,
     attributes: Punctuated<Meta, Comma>,
-) -> proc_macro2::TokenStream {
+) -> (proc_macro2::TokenStream, bool) {
     let subscription_schema_fn = syn::Ident::new(
         &format!("interstice_{}_subscription_schema", reducer_ident),
         reducer_ident.span(),
@@ -13,6 +13,8 @@ pub fn get_register_subscription_function(
         &format!("interstice_register_{}_subscription_schema", reducer_ident),
         reducer_ident.span(),
     );
+
+    let mut use_table_subscription = false;
 
     let subscription = attributes.iter().find_map(|arg| {
 
@@ -24,6 +26,7 @@ pub fn get_register_subscription_function(
                         let segments: Vec<_> = content.split('.').collect();
 
                         if segments.len() == 3 {
+                            use_table_subscription = true;
                             let module_name = &segments[0];
                             let table_name  = &segments[1];
                             let event_name  = &segments[2];
@@ -68,7 +71,8 @@ pub fn get_register_subscription_function(
                                 }
                             }
                         } else if segments.len() == 1 {
-                            if segments[0] == "init"{
+                            match segments[0]{
+                                "init" => {
                                     return Some(
                                             quote! {
                                                 interstice_sdk::SubscriptionSchema {
@@ -77,15 +81,37 @@ pub fn get_register_subscription_function(
                                                 }
                                             }
                                         );
-                            } else {
-                                return Some(
-                                    syn::Error::new_spanned(
-                                        litstr,
-                                        "Expected 'init' or format: '[module].[table].[event]'",
-                                    )
-                                    .to_compile_error()
-                                    .into(),
-                                );
+                                },
+                                "input" => {
+                                    return Some(
+                                            quote! {
+                                                interstice_sdk::SubscriptionSchema {
+                                                    reducer_name: stringify!(#reducer_ident).to_string(),
+                                                    event: interstice_sdk::SubscriptionEventSchema::Input
+                                                }
+                                            }
+                                        );
+                                },
+                                "render" => {
+                                    return Some(
+                                            quote! {
+                                                interstice_sdk::SubscriptionSchema {
+                                                    reducer_name: stringify!(#reducer_ident).to_string(),
+                                                    event: interstice_sdk::SubscriptionEventSchema::Render
+                                                }
+                                            }
+                                        );
+                                },
+                                _ => {
+                                    return Some(
+                                        syn::Error::new_spanned(
+                                            litstr,
+                                            "Expected 'init', 'input', 'render' or format: '[module].[table].[event]'",
+                                        )
+                                        .to_compile_error()
+                                        .into(),
+                                    );
+                                }
                             }
                         }
                     }
@@ -93,7 +119,7 @@ pub fn get_register_subscription_function(
                 return Some(
                     syn::Error::new_spanned(
                         &nv.value,
-                        "Expected 'init' or format: '[module].[table].[event]'",
+                        "Expected 'init', 'input', 'render' or format: '[module].[table].[event]'",
                     )
                     .to_compile_error()
                     .into(),
@@ -118,5 +144,5 @@ pub fn get_register_subscription_function(
         quote! {}
     };
 
-    return register_subscription;
+    return (register_subscription, use_table_subscription);
 }
