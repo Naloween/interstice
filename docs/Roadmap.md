@@ -6,25 +6,27 @@ and long-lived, before moving to authority and advanced optimizations.
 ---
 
 - [x] Remove Row types from reducers and convert to the actual table struct
+- [x] Interstice Type Enum support
 - [x] add authorities management
 - [x] add input authority
-- [~] add gpu authority
+- [x] add gpu authority
 - [ ] add file authority
 - [ ] add audio authority
+- [ ] subscription to another node table (networking). So add Node sdk with nodes registry etc...
+- [ ] Add async and parallelization
+- [ ] Auto_inc flag table column
+- [ ] Indexed tables (add index flag macro on field struct)
+- [ ] Get table row by index (primary key and indexed columns)
+- [ ] Efficient table scans through iter
 - [ ] Better type convertions designs (instead of always converting to IntersticeValue as an intermediate)
 - [ ] Optimize type convertions (no clones)
 - [ ] macros more checks and better error handlings (subscription check args and types)
-- [ ] sdk change into to try into for better error management (instead of panic)
-- [ ] subscription to another node table (networking). So add Node sdk with nodes registry etc...
-- [ ] Add async and parallelization
+- [ ] sdk change "into" to "try into" for better error management (instead of panic)
 - [ ] Modules dependencies & Version compatibility checks
-- [ ] Indexed tables (add index flag macro on field struct)
 - [ ] transaction logs snaptchots, separate logs before snapchot (archive) and afetr the current snaptchot
 - [ ] transaction logs add indexes to retreive efficiently per module, per table transactions
-- [ ] Efficient table scans (avoid full cloning)
 - [ ] Columnar / structured storage backend
 - [ ] Table migration support
-- [ ] Interstice Type Enum support
 - [ ] Table Views (allow row filtering based on current state and requesting node id)
 - [ ] Subscription execution ordering guarantees ?
 - [ ] Add table feature to not be logged (saved)
