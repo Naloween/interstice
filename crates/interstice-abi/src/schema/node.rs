@@ -1,4 +1,4 @@
-use crate::module::ModuleSchema;
+use crate::ModuleSchema;
 
 pub struct NodeSchema {
     pub name: String,

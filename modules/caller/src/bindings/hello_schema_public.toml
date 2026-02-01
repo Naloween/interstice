@@ -3,6 +3,7 @@ name = "hello"
 tables = []
 subscriptions = []
 authorities = []
+dependencies = []
 
 [version]
 major = 0

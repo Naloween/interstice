@@ -10,6 +10,7 @@ and long-lived, before moving to authority and advanced optimizations.
 - [x] add authorities management
 - [x] add input authority
 - [x] add gpu authority
+- [x] Modules dependencies & Version compatibility checks
 - [ ] add file authority
 - [ ] add audio authority
 - [ ] subscription to another node table (networking). So add Node sdk with nodes registry etc...
@@ -17,12 +18,11 @@ and long-lived, before moving to authority and advanced optimizations.
 - [ ] Auto_inc flag table column
 - [ ] Indexed tables (add index flag macro on field struct)
 - [ ] Get table row by index (primary key and indexed columns)
+- [ ] macros more checks and better error handlings (subscription check args and types)
 - [ ] Efficient table scans through iter
 - [ ] Better type convertions designs (instead of always converting to IntersticeValue as an intermediate)
 - [ ] Optimize type convertions (no clones)
-- [ ] macros more checks and better error handlings (subscription check args and types)
 - [ ] sdk change "into" to "try into" for better error management (instead of panic)
-- [ ] Modules dependencies & Version compatibility checks
 - [ ] transaction logs snaptchots, separate logs before snapchot (archive) and afetr the current snaptchot
 - [ ] transaction logs add indexes to retreive efficiently per module, per table transactions
 - [ ] Columnar / structured storage backend

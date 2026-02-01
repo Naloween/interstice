@@ -1,8 +1,8 @@
 abi_version = 1
-name = "hello"
+name = "caller"
 tables = []
 subscriptions = []
-authority = "Render"
+authorities = []
 
 [version]
 major = 0
@@ -10,11 +10,16 @@ minor = 0
 patch = 1
 
 [[reducers]]
-name = "hello"
+name = "caller"
+arguments = []
 return_type = "Void"
 
-[[reducers.arguments]]
-name = "name"
-field_type = "String"
-
 [type_definitions]
+
+[[dependencies]]
+module_name = "hello"
+
+[dependencies.version]
+major = 0
+minor = 0
+patch = 1

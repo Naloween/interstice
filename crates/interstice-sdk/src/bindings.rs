@@ -9,19 +9,33 @@ pub fn generate_bindings() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let bindings_dir = Path::new(&manifest_dir).join("src/bindings");
 
-    let mut generated = "// This is automatically generated interstice rust bindings".to_string();
-
+    let mut generated = "// This is automatically generated interstice rust bindings\n".to_string();
+    let mut dependencies_code_str =
+        "pub fn __GET_INTERSTICE_DEPENDENCIES() -> Vec<interstice_sdk::Dependency>{\n   vec![\n"
+            .to_string();
     if let Ok(read_binding_dir) = read_dir(bindings_dir) {
         for entry in read_binding_dir {
             let path = entry.unwrap().path();
             if path.extension().and_then(|s| s.to_str()) == Some("toml") {
                 let content = read_to_string(&path).unwrap();
                 let schema = ModuleSchema::from_toml_string(&content).unwrap();
-
+                dependencies_code_str.push_str(
+                    &("        interstice_sdk::Dependency{module_name: \"".to_string()
+                        + &schema.name
+                        + "\".to_string(), version: interstice_sdk::Version{major:"
+                        + &schema.version.major.to_string()
+                        + ", minor:"
+                        + &schema.version.minor.to_string()
+                        + ", patch:"
+                        + &schema.version.patch.to_string()
+                        + "}},\n"),
+                );
                 generated.push_str(&get_module_code(schema));
             }
         }
     }
+    dependencies_code_str.push_str("    ]\n}");
+    generated.push_str(&dependencies_code_str);
 
     let out_dir = std::env::var("OUT_DIR").unwrap();
     fs::write(format!("{out_dir}/interstice_bindings.rs"), generated)

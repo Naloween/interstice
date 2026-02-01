@@ -1,8 +1,8 @@
 abi_version = 1
 name = "caller"
-authorities = []
 tables = []
 subscriptions = []
+authorities = []
 
 [version]
 major = 0
@@ -15,3 +15,11 @@ arguments = []
 return_type = "Void"
 
 [type_definitions]
+
+[[dependencies]]
+module_name = "hello"
+
+[dependencies.version]
+major = 0
+minor = 0
+patch = 1

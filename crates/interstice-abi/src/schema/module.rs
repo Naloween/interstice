@@ -1,9 +1,6 @@
 use crate::{
-    ABI_VERSION, Authority, IntersticeType,
-    interstice_type_def::IntersticeTypeDef,
-    reducer::{ReducerSchema, SubscriptionSchema},
-    table::{TableSchema, TableVisibility},
-    version::Version,
+    ABI_VERSION, Authority, Dependency, IntersticeType, ReducerSchema, SubscriptionSchema,
+    TableSchema, TableVisibility, Version, interstice_type_def::IntersticeTypeDef,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -18,6 +15,7 @@ pub struct ModuleSchema {
     pub subscriptions: Vec<SubscriptionSchema>,
     pub type_definitions: HashMap<String, IntersticeTypeDef>,
     pub authorities: Vec<Authority>,
+    pub dependencies: Vec<Dependency>,
 }
 
 impl ModuleSchema {
@@ -29,6 +27,7 @@ impl ModuleSchema {
         subscriptions: Vec<SubscriptionSchema>,
         type_definitions: HashMap<String, IntersticeTypeDef>,
         authorities: Vec<Authority>,
+        dependencies: Vec<Dependency>,
     ) -> Self {
         Self {
             abi_version: ABI_VERSION,
@@ -39,10 +38,11 @@ impl ModuleSchema {
             subscriptions,
             type_definitions,
             authorities,
+            dependencies,
         }
     }
 
-    pub fn to_public(&self) -> Self {
+    pub fn to_public(self) -> Self {
         let mut type_definitions = HashMap::new();
         let mut tables = Vec::new();
         for table_schema in &self.tables {
@@ -51,10 +51,8 @@ impl ModuleSchema {
                 for field in &table_schema.fields {
                     if let IntersticeType::Named(type_name) = field.field_type.clone() {
                         if !type_definitions.contains_key(&type_name) {
-                            type_definitions.insert(
-                                type_name.clone(),
-                                self.type_definitions.get(&type_name).unwrap().clone(),
-                            );
+                            let type_def = self.type_definitions.get(&type_name).unwrap().clone();
+                            type_definitions.insert(type_name, type_def);
                         }
                     }
                 }
@@ -76,13 +74,14 @@ impl ModuleSchema {
 
         Self {
             abi_version: self.abi_version,
-            name: self.name.clone(),
-            version: self.version.clone(),
+            name: self.name,
+            version: self.version,
             reducers,
             tables,
             subscriptions: Vec::new(),
             type_definitions,
-            authorities: self.authorities.clone(),
+            authorities: self.authorities,
+            dependencies: self.dependencies,
         }
     }
 

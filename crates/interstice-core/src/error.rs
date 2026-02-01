@@ -1,6 +1,6 @@
 use std::fmt;
 
-use interstice_abi::Authority;
+use interstice_abi::{Authority, Version};
 
 #[derive(Debug)]
 pub enum IntersticeError {
@@ -9,7 +9,8 @@ pub enum IntersticeError {
     Unauthorized(Authority),
     // ─── Module / Reducer resolution ──────────────────────────────────────
     ModuleAlreadyExists(String),
-    ModuleNotFound(String),
+    ModuleNotFound(String, String),
+    ModuleVersionMismatch(String, String, Version, Version),
 
     TableNotFound {
         module_name: String,
@@ -54,6 +55,21 @@ impl fmt::Display for IntersticeError {
         use IntersticeError::*;
 
         match self {
+            ModuleVersionMismatch(
+                module_name,
+                dependency_module_name,
+                req_version,
+                actual_version,
+            ) => {
+                write!(
+                    f,
+                    "module '{}' requires module {} with version {} but is {}",
+                    module_name,
+                    dependency_module_name,
+                    Into::<String>::into(req_version.clone()),
+                    Into::<String>::into(actual_version.clone())
+                )
+            }
             ModuleAlreadyExists(name) => {
                 write!(f, "module '{}' already exists", name)
             }
@@ -67,8 +83,8 @@ impl fmt::Display for IntersticeError {
             Unauthorized(authority) => {
                 write!(f, "module does not have {:?} authority", authority)
             }
-            ModuleNotFound(name) => {
-                write!(f, "module '{}' not found", name)
+            ModuleNotFound(name, context) => {
+                write!(f, "module '{}' not found. {}", name, context)
             }
             TableNotFound {
                 module_name: module,

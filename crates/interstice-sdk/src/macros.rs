@@ -1,4 +1,4 @@
-use interstice_abi::{Authority, encode, pack_ptr_len};
+use interstice_abi::{Authority, Dependency, encode, pack_ptr_len};
 
 #[macro_export]
 macro_rules! interstice_module {
@@ -45,6 +45,11 @@ macro_rules! interstice_module {
             }));
         }
 
+        // BINDINGS
+        pub mod bindings {
+            include!(concat!(env!("OUT_DIR"), "/interstice_bindings.rs"));
+        }
+
         // Module Schema Description
 
         const __INTERSTICE_MODULE_NAME: &str = env!("CARGO_PKG_NAME");
@@ -59,12 +64,8 @@ macro_rules! interstice_module {
                 __INTERSTICE_MODULE_NAME,
                 __INTERSTICE_MODULE_VERSION,
                 __INTERSTICE_AUTHORITIES,
+                bindings::__GET_INTERSTICE_DEPENDENCIES()
             )
-        }
-
-        // BINDINGS
-        pub mod bindings {
-            include!(concat!(env!("OUT_DIR"), "/interstice_bindings.rs"));
         }
 
     };
@@ -86,7 +87,12 @@ macro_rules! interstice_module {
     };
 }
 
-pub fn describe_module(name: &str, version: &str, authorities: &'static [Authority]) -> i64 {
+pub fn describe_module(
+    name: &str,
+    version: &str,
+    authorities: &'static [Authority],
+    dependencies: Vec<Dependency>,
+) -> i64 {
     let reducers = interstice_sdk_core::registry::collect_reducers();
     let tables = interstice_sdk_core::registry::collect_tables();
     let subscriptions = interstice_sdk_core::registry::collect_subscriptions();
@@ -101,6 +107,7 @@ pub fn describe_module(name: &str, version: &str, authorities: &'static [Authori
         subscriptions,
         type_definitions,
         authorities: authorities.to_vec(),
+        dependencies,
     };
 
     let bytes = encode(&schema).unwrap();

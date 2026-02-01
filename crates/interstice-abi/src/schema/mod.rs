@@ -1,10 +1,12 @@
-pub mod event;
-pub mod module;
-pub mod node;
-pub mod reducer;
-pub mod table;
-pub mod version;
+mod dependency;
+mod event;
+mod module;
+mod node;
+mod reducer;
+mod table;
+mod version;
 
+pub use dependency::*;
 pub use event::*;
 pub use module::*;
 pub use node::*;

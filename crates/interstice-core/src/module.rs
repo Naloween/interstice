@@ -122,10 +122,33 @@ impl Node {
             }
         }
 
-        // Add name to store
+        // Check name
         if self.modules.contains_key(&module.schema.name) {
             return Err(IntersticeError::ModuleAlreadyExists(module.schema.name));
         }
+
+        // Check dependencies
+        for dependency in &module.schema.dependencies {
+            if let Some(dependency_module) = self.modules.get(&dependency.module_name) {
+                if dependency_module.schema.version != dependency.version {
+                    return Err(IntersticeError::ModuleVersionMismatch(
+                        module.schema.name.clone(),
+                        dependency_module.schema.name.clone(),
+                        module.schema.version.clone(),
+                        dependency_module.schema.version.clone(),
+                    ));
+                }
+            } else {
+                return Err(IntersticeError::ModuleNotFound(
+                    dependency.module_name.clone(),
+                    format!(
+                        "Required by '{}' which depends on it",
+                        module.schema.name.clone()
+                    ),
+                ));
+            }
+        }
+
         self.modules.insert(module.schema.name.clone(), module);
 
         // Throw init event

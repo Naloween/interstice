@@ -2,7 +2,8 @@ abi_version = 1
 name = "hello"
 tables = []
 subscriptions = []
-authority = "Render"
+authorities = []
+dependencies = []
 
 [version]
 major = 0

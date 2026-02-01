@@ -31,10 +31,16 @@ impl Node {
         args: impl Serialize,
     ) -> Result<(IntersticeValue, Vec<SubscriptionEventInstance>), IntersticeError> {
         // Lookup module
-        let module = self
-            .modules
-            .get_mut(module_name)
-            .ok_or_else(|| IntersticeError::ModuleNotFound(module_name.into()))?;
+        let module = self.modules.get_mut(module_name).ok_or_else(|| {
+            IntersticeError::ModuleNotFound(
+                module_name.into(),
+                format!(
+                    "When trying to invoke reducer '{}' from '{}'",
+                    reducer_name.clone(),
+                    module_name.clone()
+                ),
+            )
+        })?;
 
         // Check that reducer exist in schema
         module
@@ -95,10 +101,16 @@ impl Node {
                 table_name,
                 new_row,
             } => {
-                let module = self
-                    .modules
-                    .get_mut(&module_name)
-                    .ok_or_else(|| IntersticeError::ModuleNotFound(module_name.clone()))?;
+                let module = self.modules.get_mut(&module_name).ok_or_else(|| {
+                    IntersticeError::ModuleNotFound(
+                        module_name.clone(),
+                        format!(
+                            "When trying to insert into table '{}' from '{}'",
+                            table_name.clone(),
+                            module_name.clone()
+                        ),
+                    )
+                })?;
                 let table = module.tables.get_mut(&table_name).ok_or_else(|| {
                     IntersticeError::TableNotFound {
                         module_name: module_name.clone(),
@@ -118,10 +130,16 @@ impl Node {
                 table_name,
                 update_row,
             } => {
-                let module = self
-                    .modules
-                    .get_mut(&module_name)
-                    .ok_or_else(|| IntersticeError::ModuleNotFound(module_name.clone()))?;
+                let module = self.modules.get_mut(&module_name).ok_or_else(|| {
+                    IntersticeError::ModuleNotFound(
+                        module_name.clone(),
+                        format!(
+                            "When trying to update table '{}' from '{}'",
+                            table_name.clone(),
+                            module_name.clone()
+                        ),
+                    )
+                })?;
                 let table = module.tables.get_mut(&table_name).ok_or_else(|| {
                     IntersticeError::TableNotFound {
                         module_name: module_name.clone(),
@@ -150,10 +168,16 @@ impl Node {
                 table_name,
                 deleted_row_id,
             } => {
-                let module = self
-                    .modules
-                    .get_mut(&module_name)
-                    .ok_or_else(|| IntersticeError::ModuleNotFound(module_name.clone()))?;
+                let module = self.modules.get_mut(&module_name).ok_or_else(|| {
+                    IntersticeError::ModuleNotFound(
+                        module_name.clone(),
+                        format!(
+                            "When trying to delete a row of table '{}' from '{}'",
+                            table_name.clone(),
+                            module_name.clone()
+                        ),
+                    )
+                })?;
                 let table = module.tables.get_mut(&table_name).ok_or_else(|| {
                     IntersticeError::TableNotFound {
                         module_name: module_name.clone(),
