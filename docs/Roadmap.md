@@ -6,7 +6,11 @@ and long-lived, before moving to authority and advanced optimizations.
 ---
 
 - [x] Remove Row types from reducers and convert to the actual table struct
-- [ ] add authority host calls (input events, graphics, files, network ? (maybe through subscriptions and requests like spacetimeDB instead))
+- [x] add authorities management
+- [x] add input authority
+- [~] add gpu authority
+- [ ] add file authority
+- [ ] add audio authority
 - [ ] Better type convertions designs (instead of always converting to IntersticeValue as an intermediate)
 - [ ] Optimize type convertions (no clones)
 - [ ] macros more checks and better error handlings (subscription check args and types)

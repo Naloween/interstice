@@ -1,23 +1,13 @@
 use interstice_abi::{
     CallReducerRequest, HostCall, InsertRowRequest, IntersticeValue, LogRequest, ModuleSelection,
-    Row, TableScanRequest, decode, encode, unpack_ptr_len,
+    Row, TableScanRequest, decode, unpack_ptr_len,
 };
-
-#[link(wasm_import_module = "interstice")]
-unsafe extern "C" {
-    pub fn interstice_host_call(ptr: i32, len: i32) -> i64;
-}
 
 pub fn log(message: &str) {
     let call = HostCall::Log(LogRequest {
         message: message.to_string(),
     });
-
-    let bytes = encode(&call).unwrap();
-
-    unsafe {
-        interstice_host_call(bytes.as_ptr() as i32, bytes.len() as i32);
-    }
+    host_call(call);
 }
 
 pub fn call_reducer(
@@ -31,9 +21,7 @@ pub fn call_reducer(
         input,
     });
 
-    let bytes = encode(&call).unwrap();
-
-    let pack = unsafe { interstice_host_call(bytes.as_ptr() as i32, bytes.len() as i32) };
+    let pack = host_call(call);
     let (ptr, len) = unpack_ptr_len(pack);
     let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
     let result: IntersticeValue = decode(bytes).unwrap();
@@ -47,11 +35,7 @@ pub fn insert_row(module_selection: ModuleSelection, table_name: String, row: Ro
         row,
     });
 
-    let bytes = encode(&call).unwrap();
-
-    unsafe {
-        interstice_host_call(bytes.as_ptr() as i32, bytes.len() as i32);
-    }
+    host_call(call);
 }
 pub fn scan(module_selection: ModuleSelection, table_name: String) -> Vec<Row> {
     let call = HostCall::TableScan(TableScanRequest {
@@ -59,11 +43,23 @@ pub fn scan(module_selection: ModuleSelection, table_name: String) -> Vec<Row> {
         table_name,
     });
 
-    let bytes = encode(&call).unwrap();
-
-    let pack = unsafe { interstice_host_call(bytes.as_ptr() as i32, bytes.len() as i32) };
+    let pack = host_call(call);
     let (ptr, len) = unpack_ptr_len(pack);
     let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
     let rows: Vec<Row> = decode(bytes).unwrap();
     return rows;
+}
+
+use interstice_abi::ReducerContext;
+
+use crate::host_calls::host_call;
+
+pub trait HostLog {
+    fn log(&self, message: &str);
+}
+
+impl HostLog for ReducerContext {
+    fn log(&self, message: &str) {
+        log(message);
+    }
 }

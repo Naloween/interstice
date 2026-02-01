@@ -2,10 +2,12 @@ use interstice_abi::{Authority, encode, pack_ptr_len};
 
 #[macro_export]
 macro_rules! interstice_module {
-    () => {
-        interstice_module!(None);
-    };
-    ($authority:expr) => {
+    () => {interstice_module!(authorities: []);};
+    (authorities: [$($auth:ident),* $(,)?]) => {
+        $(
+            interstice_module!(@impl_authority $auth);
+        )*
+
         // Global imports (for traits used in macros)
         use std::str::FromStr;
         // Use wee_alloc as the global allocator.
@@ -47,13 +49,16 @@ macro_rules! interstice_module {
 
         const __INTERSTICE_MODULE_NAME: &str = env!("CARGO_PKG_NAME");
         const __INTERSTICE_MODULE_VERSION: &str = env!("CARGO_PKG_VERSION");
+        const __INTERSTICE_AUTHORITIES: &[interstice_abi::Authority] = &[
+            $(interstice_abi::Authority::$auth),*
+        ];
 
         #[unsafe(no_mangle)]
         pub extern "C" fn interstice_describe() -> i64 {
             interstice_sdk::macros::describe_module(
                 __INTERSTICE_MODULE_NAME,
                 __INTERSTICE_MODULE_VERSION,
-                $authority,
+                __INTERSTICE_AUTHORITIES,
             )
         }
 
@@ -61,10 +66,27 @@ macro_rules! interstice_module {
         pub mod bindings {
             include!(concat!(env!("OUT_DIR"), "/interstice_bindings.rs"));
         }
+
+    };
+    // Authorites calls
+
+    (@impl_authority Input) => {
+    };
+
+    (@impl_authority Gpu) => {
+        pub trait GpuExt {
+            fn gpu(&self) -> Gpu;
+        }
+
+        impl GpuExt for interstice_sdk::ReducerContext {
+            fn gpu(&self) -> interstice_sdk::Gpu {
+                interstice_sdk::Gpu
+            }
+        }
     };
 }
 
-pub fn describe_module(name: &str, version: &str, authority: Option<Authority>) -> i64 {
+pub fn describe_module(name: &str, version: &str, authorities: &'static [Authority]) -> i64 {
     let reducers = interstice_sdk_core::registry::collect_reducers();
     let tables = interstice_sdk_core::registry::collect_tables();
     let subscriptions = interstice_sdk_core::registry::collect_subscriptions();
@@ -78,7 +100,7 @@ pub fn describe_module(name: &str, version: &str, authority: Option<Authority>) 
         tables,
         subscriptions,
         type_definitions,
-        authority,
+        authorities: authorities.to_vec(),
     };
 
     let bytes = encode(&schema).unwrap();

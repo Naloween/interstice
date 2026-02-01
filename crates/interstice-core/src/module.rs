@@ -88,7 +88,7 @@ impl Node {
         let module = Module::new(instance)?;
         let module_schema = module.schema.clone();
 
-        if let Some(authority) = &module_schema.authority {
+        for authority in &module_schema.authorities {
             if let Some(other_module) = self.authority_modules.get(authority) {
                 return Err(IntersticeError::AuthorityAlreadyTaken(
                     module_schema.name.clone(),

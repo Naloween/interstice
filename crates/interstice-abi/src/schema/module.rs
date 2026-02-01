@@ -17,7 +17,7 @@ pub struct ModuleSchema {
     pub tables: Vec<TableSchema>,
     pub subscriptions: Vec<SubscriptionSchema>,
     pub type_definitions: HashMap<String, IntersticeTypeDef>,
-    pub authority: Option<Authority>,
+    pub authorities: Vec<Authority>,
 }
 
 impl ModuleSchema {
@@ -28,7 +28,7 @@ impl ModuleSchema {
         tables: Vec<TableSchema>,
         subscriptions: Vec<SubscriptionSchema>,
         type_definitions: HashMap<String, IntersticeTypeDef>,
-        authority: Option<Authority>,
+        authorities: Vec<Authority>,
     ) -> Self {
         Self {
             abi_version: ABI_VERSION,
@@ -38,7 +38,7 @@ impl ModuleSchema {
             tables,
             subscriptions,
             type_definitions,
-            authority,
+            authorities,
         }
     }
 
@@ -82,7 +82,7 @@ impl ModuleSchema {
             tables,
             subscriptions: Vec::new(),
             type_definitions,
-            authority: self.authority.clone(),
+            authorities: self.authorities.clone(),
         }
     }
 
