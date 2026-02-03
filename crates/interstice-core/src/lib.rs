@@ -2,6 +2,7 @@ mod authority;
 mod error;
 mod host_calls;
 mod module;
+mod network;
 mod node;
 pub mod persistence;
 mod reducer;

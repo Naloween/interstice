@@ -1,5 +1,8 @@
+#![allow(non_snake_case)]
+
 use crate::{IntersticeAbiError, IntersticeValue};
 
+#[allow(non_snake_case)]
 macro_rules! impl_tuple_into_interstice {
     ( $( $name:ident ),+ ) => {
         impl<$( $name ),+> From<( $( $name ),+ )> for IntersticeValue
@@ -57,7 +60,7 @@ macro_rules! impl_tuple_tryfrom_interstice {
                             $(
                                 {
                                     let v = iter.next().unwrap();
-                                    <$name  as TryFrom<IntersticeValue>>::try_from(v).map_err(|err| {IntersticeAbiError::ConversionError(format!("Couldn't convert inner tuple value"))})?
+                                    <$name  as TryFrom<IntersticeValue>>::try_from(v).map_err(|_err| {IntersticeAbiError::ConversionError(format!("Couldn't convert inner tuple value"))})?
                                 }
                             ),+
                         ))

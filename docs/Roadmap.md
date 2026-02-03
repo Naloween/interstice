@@ -11,9 +11,9 @@ and long-lived, before moving to authority and advanced optimizations.
 - [x] add input authority
 - [x] add gpu authority
 - [x] Modules dependencies & Version compatibility checks
+- [ ] subscription to another node table (networking). So add Node sdk with nodes registry etc...
 - [ ] add file authority
 - [ ] add audio authority
-- [ ] subscription to another node table (networking). So add Node sdk with nodes registry etc...
 - [ ] Add async and parallelization
 - [ ] Auto_inc flag table column
 - [ ] Indexed tables (add index flag macro on field struct)
@@ -34,7 +34,7 @@ and long-lived, before moving to authority and advanced optimizations.
 
 ## Tooling & CLI
 
-- [ ] Start node
+- [x] Start node
 - [ ] Init module (build.rs, Cargo.toml, src/lib.rs, .cargo/config.toml for wasm32 build with corresponding default macros)
 - [ ] publish module (build to wasm and send the file to the node at the specified adress)
 - [ ] Update interstice

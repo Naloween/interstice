@@ -1,9 +1,9 @@
 [package]
 name = "interstice-sdk-core"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 interstice-abi = { path = "../interstice-abi" }
-lazy_static = "*"
-serde = "*"
+lazy_static = "1.5"
+serde = "1.0"

@@ -1,14 +1,15 @@
 [package]
 name = "interstice-core"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 interstice-abi = { path = "../../crates/interstice-abi" }
-wasmtime = { version = "*", features = ["component-model"] }
-anyhow = "*"
-serde = { version = "*", features = ["derive"] }
-wgpu = "*"
-winit = "*"
-pollster = "*"
-uuid = { version = "*", features = ["v4"] }
+wasmtime = { version = "41.0.2", features = ["component-model"] }
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+wgpu = "28.0"
+winit = "0.30.12"
+pollster = "0.4.0"
+uuid = { version = "1.20", features = ["v4"] }
+tokio = "1.49"

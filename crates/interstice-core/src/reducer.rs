@@ -36,8 +36,7 @@ impl Node {
                 module_name.into(),
                 format!(
                     "When trying to invoke reducer '{}' from '{}'",
-                    reducer_name.clone(),
-                    module_name.clone()
+                    reducer_name, module_name
                 ),
             )
         })?;

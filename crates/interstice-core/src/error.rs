@@ -2,8 +2,12 @@ use std::fmt;
 
 use interstice_abi::{Authority, Version};
 
+use crate::node::NodeId;
+
 #[derive(Debug)]
 pub enum IntersticeError {
+    // Node
+    NodeNotFound(NodeId),
     // Authority
     AuthorityAlreadyTaken(String, String, String),
     Unauthorized(Authority),
@@ -55,6 +59,9 @@ impl fmt::Display for IntersticeError {
         use IntersticeError::*;
 
         match self {
+            NodeNotFound(node_id) => {
+                write!(f, "Node '{}' not found", node_id)
+            }
             ModuleVersionMismatch(
                 module_name,
                 dependency_module_name,

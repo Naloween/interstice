@@ -284,7 +284,7 @@ pub struct CopyTextureToBuffer {
 }
 
 bitflags::bitflags! {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Serialize, Deserialize, Debug)]
     pub struct BufferUsage: u32 {
         const MAP_READ      = 1 << 0;
         const MAP_WRITE     = 1 << 1;
@@ -299,7 +299,7 @@ bitflags::bitflags! {
 }
 
 bitflags::bitflags! {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Serialize, Deserialize, Debug)]
     pub struct TextureUsage: u32 {
         const COPY_SRC          = 1 << 0;
         const COPY_DST          = 1 << 1;
@@ -350,7 +350,7 @@ pub struct BindGroupLayoutEntry {
 }
 
 bitflags::bitflags! {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Serialize, Deserialize, Debug)]
     pub struct ShaderStage: u32 {
         const VERTEX   = 1 << 0;
         const FRAGMENT = 1 << 1;
@@ -600,12 +600,12 @@ pub enum BlendOperation {
 }
 
 bitflags::bitflags! {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Serialize, Deserialize, Debug)]
     pub struct ColorWrites: u32 {
         const RED   = 1 << 0;
         const GREEN = 1 << 1;
         const BLUE  = 1 << 2;
         const ALPHA = 1 << 3;
-        const ALL   = Self::RED.bits | Self::GREEN.bits | Self::BLUE.bits | Self::ALPHA.bits;
+        const ALL   = Self::RED.bits() | Self::GREEN.bits() | Self::BLUE.bits() | Self::ALPHA.bits();
     }
 }
