@@ -1,6 +1,7 @@
 use crate::{
-    ABI_VERSION, Authority, IntersticeType, ModuleDependency, ReducerSchema, SubscriptionSchema,
-    TableSchema, TableVisibility, Version, interstice_type_def::IntersticeTypeDef,
+    ABI_VERSION, Authority, IntersticeType, ModuleDependency, NodeDependency, ReducerSchema,
+    SubscriptionSchema, TableSchema, TableVisibility, Version,
+    interstice_type_def::IntersticeTypeDef,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -15,7 +16,8 @@ pub struct ModuleSchema {
     pub subscriptions: Vec<SubscriptionSchema>,
     pub type_definitions: HashMap<String, IntersticeTypeDef>,
     pub authorities: Vec<Authority>,
-    pub dependencies: Vec<ModuleDependency>,
+    pub module_dependencies: Vec<ModuleDependency>,
+    pub node_dependencies: Vec<NodeDependency>,
 }
 
 impl ModuleSchema {
@@ -27,7 +29,8 @@ impl ModuleSchema {
         subscriptions: Vec<SubscriptionSchema>,
         type_definitions: HashMap<String, IntersticeTypeDef>,
         authorities: Vec<Authority>,
-        dependencies: Vec<ModuleDependency>,
+        module_dependencies: Vec<ModuleDependency>,
+        node_dependencies: Vec<NodeDependency>,
     ) -> Self {
         Self {
             abi_version: ABI_VERSION,
@@ -38,7 +41,8 @@ impl ModuleSchema {
             subscriptions,
             type_definitions,
             authorities,
-            dependencies,
+            module_dependencies,
+            node_dependencies,
         }
     }
 
@@ -81,7 +85,8 @@ impl ModuleSchema {
             subscriptions: Vec::new(),
             type_definitions,
             authorities: self.authorities,
-            dependencies: self.dependencies,
+            module_dependencies: self.module_dependencies,
+            node_dependencies: self.node_dependencies,
         }
     }
 

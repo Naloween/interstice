@@ -1,8 +1,7 @@
 // Interstice CLI - Command-line interface
 
 use interstice_core::{interstice_abi::IntersticeValue, IntersticeError, Node};
-use std::path::Path;
-use tokio::task::LocalSet;
+use std::{fs::File, io::Write as _, path::Path};
 
 #[tokio::main]
 async fn main() -> Result<(), IntersticeError> {
@@ -27,6 +26,12 @@ async fn main() -> Result<(), IntersticeError> {
             let hello_schema = node.load_module(hello_path)?;
             let caller_schema = node.load_module(caller_path)?;
             let graphics_schema = node.load_module(graphics_path)?;
+
+            File::create("./hello_schema.toml")
+                .unwrap()
+                .write_all(&hello_schema.to_toml_string().unwrap().as_bytes())
+                .unwrap();
+
             node.start(port).await?;
             node.run(
                 "hello",

@@ -3,10 +3,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum NetworkPacket {
+    Handshake { node_id: String },
     RequestSubscription(RequestSubscription),
     SubscriptionEvent(SubscriptionEvent),
     Error(String),
-    Handshake { node_id: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]

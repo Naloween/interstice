@@ -9,5 +9,6 @@ pub struct ModuleDependency {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct NodeDependency {
+    pub name: String,
     pub address: String,
 }

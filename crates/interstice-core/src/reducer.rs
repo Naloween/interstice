@@ -43,7 +43,7 @@ impl Node {
 
         // Check that reducer exist in schema
         module
-            .schema()
+            .schema
             .reducers
             .iter()
             .find(|r| r.name == reducer_name)

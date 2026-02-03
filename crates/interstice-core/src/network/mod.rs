@@ -2,17 +2,15 @@ use crate::error::IntersticeError;
 use crate::network::peer::PeerHandle;
 use crate::network::protocol::{NetworkPacket, RequestSubscription, SubscriptionEvent};
 use crate::node::NodeId;
-use interstice_abi::NodeSchema;
 use packet::{read_packet, write_packet};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, mpsc};
-use uuid::Uuid;
 
 mod packet;
 mod peer;
-mod protocol;
+pub mod protocol;
 
 const CHANNEL_SIZE: usize = 1000;
 
@@ -26,6 +24,35 @@ pub struct Network {
     sender: mpsc::Sender<(NodeId, NetworkPacket)>,
 }
 
+pub struct NetworkHandle {
+    peers: Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
+    sender: mpsc::Sender<(NodeId, NetworkPacket)>,
+}
+
+impl NetworkHandle {
+    pub async fn send_event(
+        &self,
+        node_id: NodeId,
+        event: SubscriptionEvent,
+    ) -> Result<(), IntersticeError> {
+        let peers = self.peers.lock().await;
+        let peer = peers.get(&node_id).ok_or(IntersticeError::UnknownPeer)?;
+
+        peer.send(NetworkPacket::SubscriptionEvent(event)).await
+    }
+
+    pub async fn request_subscription(
+        &self,
+        node_id: NodeId,
+        req: RequestSubscription,
+    ) -> Result<(), IntersticeError> {
+        let peers = self.peers.lock().await;
+        let peer = peers.get(&node_id).ok_or(IntersticeError::UnknownPeer)?;
+
+        peer.send(NetworkPacket::RequestSubscription(req)).await
+    }
+}
+
 impl Network {
     pub fn new() -> Self {
         let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
@@ -34,6 +61,13 @@ impl Network {
             peers: Arc::new(Mutex::new(HashMap::new())),
             receiver,
             sender,
+        }
+    }
+
+    pub fn get_handle(&self) -> NetworkHandle {
+        NetworkHandle {
+            peers: self.peers.clone(),
+            sender: self.sender.clone(),
         }
     }
 

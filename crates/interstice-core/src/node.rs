@@ -1,30 +1,20 @@
 use crate::{
     authority::AuthorityEntry,
     error::IntersticeError,
-    host_calls::{gpu::GpuState, input::from_winit::get_input_event_from_device_event},
+    host_calls::gpu::GpuState,
     module::Module,
-    network::Network,
+    network::{Network, NetworkHandle},
     persistence::TransactionLog,
     reducer::ReducerFrame,
     subscription::SubscriptionEventInstance,
     wasm::{StoreState, linker::define_host_calls},
 };
-use interstice_abi::{Authority, IntersticeValue};
-use pollster::FutureExt;
-use std::{
-    collections::HashMap,
-    hash::{Hash, Hasher},
-    sync::Arc,
-};
+use interstice_abi::{Authority, IntersticeValue, NodeSchema};
+use std::{collections::HashMap, sync::Arc};
 use std::{collections::VecDeque, path::Path};
 use uuid::Uuid;
 use wasmtime::{Engine, Linker};
-use winit::{
-    application::ApplicationHandler,
-    event::{DeviceEvent, DeviceId, WindowEvent},
-    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
-    window::{Window, WindowId},
-};
+use winit::event_loop::{ControlFlow, EventLoop};
 
 pub type NodeId = Uuid;
 
@@ -39,6 +29,7 @@ pub struct Node {
     pub(crate) linker: Linker<StoreState>,
     pub(crate) event_queue: VecDeque<SubscriptionEventInstance>,
     pub(crate) gpu: Option<GpuState>,
+    pub(crate) network: Option<NetworkHandle>,
 }
 
 impl Node {
@@ -59,7 +50,16 @@ impl Node {
             transaction_logs: TransactionLog::new(transaction_log_path)?,
             event_queue: VecDeque::<SubscriptionEventInstance>::new(),
             gpu: None,
+            network: None,
         })
+    }
+
+    pub fn schema(&self, name: String) -> NodeSchema {
+        NodeSchema {
+            name,
+            adress: self.adress.clone(),
+            modules: self.modules.values().map(|m| m.schema.clone()).collect(),
+        }
     }
 
     pub fn clear_logs(&mut self) -> Result<(), IntersticeError> {
@@ -73,6 +73,7 @@ impl Node {
 
         // create network and listen to events
         let mut network = Network::new();
+        self.network = Some(network.get_handle());
         network
             .listen(&format!("0.0.0.0:{}", port), self.id)
             .await?;
@@ -81,7 +82,9 @@ impl Node {
                 .connect_to_peer("127.0.0.1:8080".into(), self.id)
                 .await?;
         }
-        network.run(|_, _| println!("Received packet !")).await;
+        network
+            .run(|node_id, packet| println!("Received packet !"))
+            .await;
 
         // Create local window and event loop
         let event_loop = EventLoop::new().unwrap();
@@ -115,82 +118,5 @@ impl Node {
         }
 
         Ok(())
-    }
-}
-
-impl ApplicationHandler for Node {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let window = event_loop
-            .create_window(
-                Window::default_attributes().with_title(format!("interstice - node({})", self.id)),
-            )
-            .expect("Failed to create window");
-        window.request_redraw();
-        let window = Arc::new(window);
-        let gpu = GpuState::new(window.clone()).block_on();
-        self.gpu = Some(gpu);
-    }
-
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-        match event {
-            WindowEvent::CloseRequested => {
-                event_loop.exit();
-            }
-            WindowEvent::RedrawRequested => {
-                if let Some(AuthorityEntry {
-                    module_name: gpu_module_name,
-                    on_event_reducer_name: Some(render_reducer_name),
-                }) = self.authority_modules.get(&Authority::Gpu).cloned()
-                {
-                    self.run(
-                        &gpu_module_name,
-                        &render_reducer_name,
-                        IntersticeValue::Vec(vec![]),
-                    )
-                    .unwrap();
-                }
-                self.gpu.as_ref().unwrap().window.request_redraw();
-
-                // Temporary process event here at each frame
-                match self.process_event_queue() {
-                    Ok(_) => (),
-                    Err(err) => println!("Error when processing events: {}", err),
-                };
-            }
-            WindowEvent::Resized(size) => {
-                self.gpu
-                    .as_mut()
-                    .unwrap()
-                    .configure_surface(size.width, size.height);
-            }
-            _ => (),
-        };
-    }
-
-    fn device_event(
-        &mut self,
-        _event_loop: &ActiveEventLoop,
-        device_id: DeviceId,
-        event: DeviceEvent,
-    ) {
-        if let Some(AuthorityEntry {
-            module_name,
-            on_event_reducer_name: Some(on_input_reducer_name),
-        }) = self.authority_modules.get(&Authority::Input).cloned()
-        {
-            let module_name = module_name.clone();
-            let mut hasher = std::hash::DefaultHasher::new();
-            device_id.hash(&mut hasher);
-            let device_id = hasher.finish() as u32;
-            let input_event = get_input_event_from_device_event(device_id, event);
-            match self.run(
-                &module_name,
-                &on_input_reducer_name,
-                IntersticeValue::Vec(vec![input_event.into()]),
-            ) {
-                Ok(_) => (),
-                Err(err) => println!("Error when running reducer: {}", err),
-            }
-        }
     }
 }

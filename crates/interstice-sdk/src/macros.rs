@@ -1,4 +1,4 @@
-use interstice_abi::{Authority, ModuleDependency, encode, pack_ptr_len};
+use interstice_abi::{Authority, ModuleDependency, NodeDependency, encode, pack_ptr_len};
 
 #[macro_export]
 macro_rules! interstice_module {
@@ -64,7 +64,8 @@ macro_rules! interstice_module {
                 __INTERSTICE_MODULE_NAME,
                 __INTERSTICE_MODULE_VERSION,
                 __INTERSTICE_AUTHORITIES,
-                bindings::__GET_INTERSTICE_DEPENDENCIES()
+                bindings::__GET_INTERSTICE_MODULE_DEPENDENCIES(),
+                bindings::__GET_INTERSTICE_NODE_DEPENDENCIES()
             )
         }
 
@@ -91,7 +92,8 @@ pub fn describe_module(
     name: &str,
     version: &str,
     authorities: &'static [Authority],
-    dependencies: Vec<ModuleDependency>,
+    module_dependencies: Vec<ModuleDependency>,
+    node_dependencies: Vec<NodeDependency>,
 ) -> i64 {
     let reducers = interstice_sdk_core::registry::collect_reducers();
     let tables = interstice_sdk_core::registry::collect_tables();
@@ -107,7 +109,8 @@ pub fn describe_module(
         subscriptions,
         type_definitions,
         authorities: authorities.to_vec(),
-        dependencies,
+        module_dependencies,
+        node_dependencies,
     };
 
     let bytes = encode(&schema).unwrap();

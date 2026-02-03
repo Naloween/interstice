@@ -54,10 +54,6 @@ impl Module {
         })
     }
 
-    pub fn schema(&self) -> &ModuleSchema {
-        &self.schema
-    }
-
     pub fn call_reducer(
         &mut self,
         reducer: &str,
@@ -128,7 +124,7 @@ impl Node {
         }
 
         // Check dependencies
-        for dependency in &module.schema.dependencies {
+        for dependency in &module.schema.module_dependencies {
             if let Some(dependency_module) = self.modules.get(&dependency.module_name) {
                 if dependency_module.schema.version != dependency.version {
                     return Err(IntersticeError::ModuleVersionMismatch(

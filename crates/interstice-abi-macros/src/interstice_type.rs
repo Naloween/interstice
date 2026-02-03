@@ -64,22 +64,24 @@ fn derive_interstice_type_macro_struct(
             }
         }
 
-        impl Into<#struct_name> for #abi::IntersticeValue {
-            fn into(self) -> #struct_name {
-                match self {
+        impl TryFrom<#abi::IntersticeValue> for #struct_name {
+            type Error = #abi::IntersticeAbiError;
+
+            fn try_from(value: #abi::IntersticeValue) -> Result<Self, Self::Error> {
+                match value {
                     #abi::IntersticeValue::Struct { name, fields } if name == #struct_name_str => {
                         let mut map = std::collections::HashMap::new();
                         for field in fields {
                             map.insert(field.name, field.value);
                         }
 
-                        #struct_name {
+                        Ok(Self {
                             #(
-                                #field_names: map.remove(#field_name_strings).unwrap().try_into().unwrap(),
+                                #field_names: map.remove(#field_name_strings).unwrap().try_into()?,
                             )*
-                        }
+                        })
                     }
-                    _ => panic!("Expected struct {}", #struct_name_str),
+                    _ => Err(Self::Error::ConversionError("Expected struct".to_string())),
                 }
             }
         }
