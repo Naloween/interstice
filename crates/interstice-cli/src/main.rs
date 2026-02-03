@@ -1,34 +1,49 @@
 // Interstice CLI - Command-line interface
 
-use interstice_core::Node;
+use interstice_core::{interstice_abi::IntersticeValue, IntersticeError, Node};
 use std::path::Path;
+use tokio::task::LocalSet;
 
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), IntersticeError> {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 2 {
         print_help();
-        return;
+        return Ok(());
     }
 
     let command = &args[1];
 
     match command.as_str() {
         "start" => {
-            let mut node = match Node::new(Path::new("./transactions_log")) {
-                Ok(node) => node,
-                Err(err) => panic!("Error when creating interstice node: {}", err),
-            };
+            let port = args[2].trim().parse().expect("Failed to parse port");
+            let mut node = Node::new(Path::new("./transactions_log"))?;
             node.clear_logs().expect("Couldn't clear logs");
-            match node.start() {
-                Ok(_) => {}
-                Err(err) => panic!("Error when starting interstice node: {}", err),
-            };
+            let hello_path = "../../target/wasm32-unknown-unknown/debug/hello.wasm";
+            let caller_path = "../../target/wasm32-unknown-unknown/debug/caller.wasm";
+            let graphics_path = "../../target/wasm32-unknown-unknown/debug/graphics.wasm";
+
+            let hello_schema = node.load_module(hello_path)?;
+            let caller_schema = node.load_module(caller_path)?;
+            let graphics_schema = node.load_module(graphics_path)?;
+            node.start(port).await?;
+            node.run(
+                "hello",
+                "hello",
+                IntersticeValue::Vec(vec![IntersticeValue::String("Naloween !".to_string())]),
+            )?;
+            node.run("caller", "caller", IntersticeValue::Vec(vec![]))?;
+            Ok(())
         }
-        "help" | "-h" | "--help" => print_help(),
+        "help" | "-h" | "--help" => {
+            print_help();
+            Ok(())
+        }
         _ => {
             eprintln!("Unknown command: {}", command);
             print_help();
+            Ok(())
         }
     }
 }

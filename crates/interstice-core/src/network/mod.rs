@@ -1,242 +1,255 @@
-// use crate::error::IntersticeError;
-// use crate::node::NodeId;
-// use interstice_abi::{NodeSchema, Row, encode};
-// use serde::{Deserialize, Serialize};
-// use std::collections::HashMap;
-// use std::io::{BufRead, BufReader, Write as _};
-// use std::net::{TcpListener, TcpStream};
-// use std::sync::{Arc, Mutex};
-// use std::thread;
-// use tokio::sync::mpsc;
+use crate::error::IntersticeError;
+use crate::network::peer::PeerHandle;
+use crate::network::protocol::{NetworkPacket, RequestSubscription, SubscriptionEvent};
+use crate::node::NodeId;
+use interstice_abi::NodeSchema;
+use packet::{read_packet, write_packet};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{Mutex, mpsc};
+use uuid::Uuid;
 
-// #[derive(Debug, Serialize, Deserialize)]
-// pub enum NetworkPacket {
-//     RequestSubscription(RequestSubscription),
-//     SubscriptionEvent(SubscriptionEvent),
-//     Error(String),
-// }
+mod packet;
+mod peer;
+mod protocol;
 
-// #[derive(Debug, Serialize, Deserialize)]
-// pub struct RequestSubscription {
-//     module_name: String,
-//     table_name: String,
-//     event: TableEvent,
-// }
+const CHANNEL_SIZE: usize = 1000;
 
-// #[derive(Debug, Serialize, Deserialize)]
-// pub enum TableEvent {
-//     Insert,
-//     Update,
-//     Delete,
-// }
+pub struct Network {
+    peers: Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
 
-// #[derive(Serialize, Deserialize)]
-// pub enum SubscriptionEvent {
-//     TableInsertEvent {
-//         module_name: String,
-//         table_name: String,
-//         inserted_row: Row,
-//     },
-//     TableUpdateEvent {
-//         module_name: String,
-//         table_name: String,
-//         old_row: Row,
-//         new_row: Row,
-//     },
-//     TableDeleteEvent {
-//         module_name: String,
-//         table_name: String,
-//         deleted_row: Row,
-//     },
-// }
+    /// Packets coming *from* connection tasks
+    receiver: mpsc::Receiver<(NodeId, NetworkPacket)>,
 
-// pub trait CustomClone {
-//     fn clone(&self) -> Self;
-// }
+    /// Cloned and given to connection tasks
+    sender: mpsc::Sender<(NodeId, NetworkPacket)>,
+}
 
-// impl CustomClone for Vec<TcpStream> {
-//     fn clone(&self) -> Self {
-//         let mut res = Vec::with_capacity(self.capacity());
-//         for stream in self.iter() {
-//             res.push(stream.try_clone().unwrap());
-//         }
-//         return res;
-//     }
-// }
+impl Network {
+    pub fn new() -> Self {
+        let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
 
-// pub struct PeerHandle {
-//     pub node_id: NodeId,
-//     sender: mpsc::UnboundedSender<NetworkPacket>,
-// }
+        Self {
+            peers: Arc::new(Mutex::new(HashMap::new())),
+            receiver,
+            sender,
+        }
+    }
 
-// pub struct Network {
-//     adress: String,
-//     peers: HashMap<NodeId, PeerHandle>,
-// }
+    //
+    // ─────────────── PUBLIC API USED BY YOUR NODE LAYER ───────────────
+    //
 
-// // impl Network {
-// //     pub fn send_event(
-// //         &mut self,
-// //         node_id: NodeId,
-// //         event: SubscriptionEvent,
-// //     ) -> Result<(), IntersticeError> {
-// //         if let Some(client) = self.client_nodes.get_mut(&node_id) {
-// //             let packet = NetworkPacket::SubscriptionEvent(match event {
-// //                 SubscriptionEvent::TableInsertEvent {
-// //                     module_name,
-// //                     table_name,
-// //                     inserted_row,
-// //                 } => SubscriptionEvent::TableInsertEvent {
-// //                     module_name,
-// //                     table_name,
-// //                     inserted_row,
-// //                 },
-// //                 SubscriptionEvent::TableUpdateEvent {
-// //                     module_name,
-// //                     table_name,
-// //                     old_row,
-// //                     new_row,
-// //                 } => SubscriptionEvent::TableUpdateEvent {
-// //                     module_name,
-// //                     table_name,
-// //                     old_row,
-// //                     new_row,
-// //                 },
-// //                 SubscriptionEvent::TableDeleteEvent {
-// //                     module_name,
-// //                     table_name,
-// //                     deleted_row,
-// //                 } => SubscriptionEvent::TableDeleteEvent {
-// //                     module_name,
-// //                     table_name,
-// //                     deleted_row,
-// //                 },
-// //             });
-// //             let bytes = encode(&packet).expect("Couldn't encode network packet");
-// //             client.stream.write_all(&bytes);
-// //         }
-// //         Ok(())
-// //     }
+    pub async fn send_event(
+        &self,
+        node_id: NodeId,
+        event: SubscriptionEvent,
+    ) -> Result<(), IntersticeError> {
+        let peers = self.peers.lock().await;
+        let peer = peers.get(&node_id).ok_or(IntersticeError::UnknownPeer)?;
 
-// //     pub fn add_server_node(&mut self, node: NodeSchema) {
-// //         if self.server_nodes.get(&node.id).is_some() {
-// //             return;
-// //         }
-// //         let mut stream = TcpStream::connect(&node.adress).unwrap();
-// //         println!("Connected to node {}", node.id);
-// //         self.server_nodes.insert(
-// //             node.id,
-// //             NodeHandle {
-// //                 schema: node,
-// //                 stream,
-// //             },
-// //         );
+        peer.send(NetworkPacket::SubscriptionEvent(event)).await
+    }
 
-// //         thread::spawn(move || {
-// //             Self::handle_server_messages(self.server_nodes.clone());
-// //         });
+    pub async fn request_subscription(
+        &self,
+        node_id: NodeId,
+        req: RequestSubscription,
+    ) -> Result<(), IntersticeError> {
+        let peers = self.peers.lock().await;
+        let peer = peers.get(&node_id).ok_or(IntersticeError::UnknownPeer)?;
 
-// //         let mut reader = BufReader::new(std::io::stdin());
+        peer.send(NetworkPacket::RequestSubscription(req)).await
+    }
 
-// //         loop {
-// //             let mut buffer = String::new();
-// //             reader.read_line(&mut buffer).unwrap();
+    //
+    // ─────────────── PEER CONNECTION MANAGEMENT ───────────────
+    //
 
-// //             if buffer.trim() == "/quit" {
-// //                 break;
-// //             }
+    pub async fn connect_to_peer(
+        &mut self,
+        node_address: String,
+        my_node_id: NodeId,
+    ) -> Result<(), IntersticeError> {
+        let mut stream = TcpStream::connect(&node_address)
+            .await
+            .map_err(|_| IntersticeError::Internal("Failed to connect to node".into()))?;
 
-// //             stream.write_all(buffer.as_bytes()).unwrap();
-// //         }
+        // Send our handshake
+        write_packet(
+            &mut stream,
+            &NetworkPacket::Handshake {
+                node_id: my_node_id.to_string(),
+            },
+        )
+        .await?;
 
-// //         println!("Disconnected from server");
-// //     }
+        let mut cloned_peers = self.peers.clone();
+        let cloned_sender = self.sender.clone();
+        tokio::spawn(async move {
+            if let Err(e) =
+                handshake_incoming(my_node_id, stream, &mut cloned_peers, cloned_sender).await
+            {
+                eprintln!("Handshake failed: {:?}", e);
+            }
+        });
 
-// //     pub fn start_server(&self) {
-// //         let listener = TcpListener::bind(&self.adress).unwrap();
-// //         println!("Server listening on {}", &self.adress);
+        Ok(())
+    }
 
-// //         let mut clients = Vec::new();
+    pub async fn listen(
+        &mut self,
+        bind_addr: &str,
+        my_node_id: NodeId,
+    ) -> Result<(), IntersticeError> {
+        let listener = TcpListener::bind(bind_addr)
+            .await
+            .map_err(|err| IntersticeError::Internal("Failed to listen adress".into()))?;
+        println!("Listening on {}", bind_addr);
 
-// //         for stream in listener.incoming() {
-// //             let stream = stream.unwrap();
-// //             println!("New client connected: {:?}", stream.peer_addr().unwrap());
+        let peers = self.peers.clone();
+        let sender = self.sender.clone();
+        tokio::spawn(async move {
+            loop {
+                match listener.accept().await {
+                    Ok((stream, _)) => {
+                        let mut cloned_peers = peers.clone();
+                        let cloned_sender = sender.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = handshake_incoming(
+                                my_node_id,
+                                stream,
+                                &mut cloned_peers,
+                                cloned_sender,
+                            )
+                            .await
+                            {
+                                eprintln!("Handshake failed: {:?}", e);
+                            }
+                        });
+                    }
+                    Err(e) => eprintln!("Accept error: {:?}", e),
+                }
+            }
+        });
 
-// //             clients.push(stream.try_clone().unwrap());
+        Ok(())
+    }
 
-// //             let mut clients_clone = clients.clone();
-// //             thread::spawn(move || {
-// //                 Self::handle_client(stream, &mut clients_clone);
-// //             });
-// //         }
-// //     }
+    //
+    // ─────────────── MAIN EVENT LOOP (CALL FROM NODE) ───────────────
+    //
 
-// //     fn start_client(&self) {
-// //         let mut servers = Vec::new();
-// //         for server in self.server_nodes.values() {
-// //             let stream = TcpStream::connect(&server.adress).unwrap();
-// //             servers.push(stream);
-// //         }
+    pub async fn run<F>(mut self, mut handler: F)
+    where
+        F: FnMut(NodeId, NetworkPacket) + Send + 'static,
+    {
+        tokio::spawn(async move {
+            while let Some((node_id, packet)) = self.receiver.recv().await {
+                handler(node_id, packet);
+            }
+        });
+    }
+}
 
-// //         let server_clone = servers.clone();
-// //         thread::spawn(move || {
-// //             Self::handle_server_messages(server_clone);
-// //         });
+//
+// ───────────────────────── CONNECTION TASK ───────────────────────────
+//
 
-// //         let mut reader = BufReader::new(std::io::stdin());
+async fn connection_task(
+    node_id: NodeId,
+    stream: TcpStream,
+    mut receiver: mpsc::Receiver<NetworkPacket>,
+    sender: mpsc::Sender<(NodeId, NetworkPacket)>,
+) {
+    let (mut reader, mut writer) = stream.into_split();
 
-// //         loop {
-// //             let mut buffer = String::new();
-// //             reader.read_line(&mut buffer).unwrap();
+    let write_loop = tokio::spawn(async move {
+        while let Some(packet) = receiver.recv().await {
+            if let Err(e) = write_packet(&mut writer, &packet).await {
+                eprintln!("Write error to {}: {:?}", node_id, e);
+                break;
+            }
+        }
+    });
 
-// //             if buffer.trim() == "/quit" {
-// //                 break;
-// //             }
+    let read_loop = tokio::spawn(async move {
+        loop {
+            match read_packet(&mut reader).await {
+                Ok(packet) => {
+                    if sender.send((node_id, packet)).await.is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Read error from {}: {:?}", node_id, e);
+                    break;
+                }
+            }
+        }
+    });
 
-// //             for server in &mut servers {
-// //                 server.write_all(buffer.as_bytes()).unwrap();
-// //             }
-// //         }
+    let _ = tokio::join!(write_loop, read_loop);
+}
 
-// //         println!("Disconnected from server");
-// //     }
+//
+// ───────────────────────── HANDSHAKE ──────────────
+//
+async fn handshake_incoming(
+    my_node_id: NodeId,
+    mut stream: TcpStream,
+    peers: &mut Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
+    global_sender: mpsc::Sender<(NodeId, NetworkPacket)>,
+) -> Result<(), IntersticeError> {
+    let packet = read_packet(&mut stream).await?;
 
-// //     fn handle_client(stream: TcpStream, clients: &mut Vec<TcpStream>) {
-// //         let mut reader = BufReader::new(&stream);
+    let peer_id_str = match packet {
+        NetworkPacket::Handshake { node_id } => node_id,
+        _ => {
+            return Err(IntersticeError::ProtocolError(
+                "Expected handshake packet".into(),
+            ));
+        }
+    };
+    let peer_id = NodeId::parse_str(&peer_id_str).expect("Couldn't parse node id");
 
-// //         loop {
-// //             let mut buffer = String::new();
-// //             let bytes_read = reader.read_line(&mut buffer).unwrap();
+    let mut peers = peers.lock().await;
 
-// //             if bytes_read == 0 {
-// //                 break;
-// //             }
+    // If already connected, drop duplicate
+    if peers.contains_key(&peer_id) {
+        println!("Duplicate incoming connection from {}, dropping", peer_id);
+        return Ok(());
+    }
 
-// //             println!("Received message: {:?}", buffer.trim());
+    // Reply with our handshake
+    write_packet(
+        &mut stream,
+        &NetworkPacket::Handshake {
+            node_id: my_node_id.to_string(),
+        },
+    )
+    .await?;
 
-// //             for client in clients.iter_mut() {
-// //                 if client.local_addr().unwrap() != stream.local_addr().unwrap() {
-// //                     client.write_all(buffer.as_bytes()).unwrap();
-// //                 }
-// //             }
-// //         }
+    // Create channel
+    let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
 
-// //         println!("Client disconnected: {:?}", stream.peer_addr().unwrap());
-// //     }
+    // Register peer
+    let handle = PeerHandle {
+        node_id: peer_id,
+        sender,
+    };
+    peers.insert(peer_id, handle);
 
-// //     fn handle_server_messages(servers: Arc<Mutex<HashMap<NodeId, NodeHandle>>>) {
-// //         loop {
-// //             for (id, handle) in servers.iter_mut() {
-// //                 let mut buffer = String::new();
-// //                 let bytes_read = reader.read_line(&mut buffer).unwrap();
+    // Spawn connection task
+    tokio::spawn(connection_task(
+        peer_id,
+        stream,
+        receiver,
+        global_sender.clone(),
+    ));
 
-// //                 if bytes_read == 0 {
-// //                     reader_to_remove = Some(idx);
-// //                     break; // Skip remaining listeners to remove the reader, handle messages in next loop
-// //                 }
+    println!("Accepted peer {}", peer_id);
 
-// //                 println!("{}", buffer.trim());
-// //             }
-// //         }
-// //     }
-// // }
+    Ok(())
+}

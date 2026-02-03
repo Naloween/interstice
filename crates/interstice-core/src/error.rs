@@ -50,6 +50,11 @@ pub enum IntersticeError {
     MemoryRead,
     MemoryWrite,
 
+    // Network
+    NetworkSendFailed,
+    UnknownPeer,
+    ProtocolError(String),
+
     // ─── Internal invariants ───────────────────────────────────────────────
     Internal(String),
 }
@@ -143,6 +148,15 @@ impl fmt::Display for IntersticeError {
             }
             MemoryWrite => {
                 write!(f, "failed to write to wasm memory")
+            }
+            NetworkSendFailed => {
+                write!(f, "failed to send packet")
+            }
+            UnknownPeer => {
+                write!(f, "failed to find peer")
+            }
+            ProtocolError(msg) => {
+                write!(f, "Network protocol error: {msg}")
             }
             Internal(msg) => {
                 write!(f, "internal error: {}", msg)

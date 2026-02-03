@@ -1,9 +1,0 @@
-[package]
-name = "test"
-version = "0.0.1"
-edition = "2021"
-
-[dependencies]
-interstice-core = { path = "../../crates/interstice-core" }
-wasmtime = "*"
-anyhow = "*"

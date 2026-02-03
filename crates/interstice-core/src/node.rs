@@ -3,6 +3,7 @@ use crate::{
     error::IntersticeError,
     host_calls::{gpu::GpuState, input::from_winit::get_input_event_from_device_event},
     module::Module,
+    network::Network,
     persistence::TransactionLog,
     reducer::ReducerFrame,
     subscription::SubscriptionEventInstance,
@@ -66,9 +67,23 @@ impl Node {
         Ok(())
     }
 
-    pub fn start(&mut self) -> Result<(), IntersticeError> {
+    pub async fn start(&mut self, port: u32) -> Result<(), IntersticeError> {
+        // Retreive the current state from logs
         self.replay()?;
 
+        // create network and listen to events
+        let mut network = Network::new();
+        network
+            .listen(&format!("0.0.0.0:{}", port), self.id)
+            .await?;
+        if port != 8080 {
+            network
+                .connect_to_peer("127.0.0.1:8080".into(), self.id)
+                .await?;
+        }
+        network.run(|_, _| println!("Received packet !")).await;
+
+        // Create local window and event loop
         let event_loop = EventLoop::new().unwrap();
         event_loop.set_control_flow(ControlFlow::Wait);
 

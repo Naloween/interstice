@@ -2,7 +2,12 @@ use crate::Version;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct Dependency {
+pub struct ModuleDependency {
     pub module_name: String,
     pub version: Version,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct NodeDependency {
+    pub address: String,
 }

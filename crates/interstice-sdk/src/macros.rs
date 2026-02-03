@@ -1,4 +1,4 @@
-use interstice_abi::{Authority, Dependency, encode, pack_ptr_len};
+use interstice_abi::{Authority, ModuleDependency, encode, pack_ptr_len};
 
 #[macro_export]
 macro_rules! interstice_module {
@@ -91,7 +91,7 @@ pub fn describe_module(
     name: &str,
     version: &str,
     authorities: &'static [Authority],
-    dependencies: Vec<Dependency>,
+    dependencies: Vec<ModuleDependency>,
 ) -> i64 {
     let reducers = interstice_sdk_core::registry::collect_reducers();
     let tables = interstice_sdk_core::registry::collect_tables();

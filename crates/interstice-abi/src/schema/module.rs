@@ -1,5 +1,5 @@
 use crate::{
-    ABI_VERSION, Authority, Dependency, IntersticeType, ReducerSchema, SubscriptionSchema,
+    ABI_VERSION, Authority, IntersticeType, ModuleDependency, ReducerSchema, SubscriptionSchema,
     TableSchema, TableVisibility, Version, interstice_type_def::IntersticeTypeDef,
 };
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,7 @@ pub struct ModuleSchema {
     pub subscriptions: Vec<SubscriptionSchema>,
     pub type_definitions: HashMap<String, IntersticeTypeDef>,
     pub authorities: Vec<Authority>,
-    pub dependencies: Vec<Dependency>,
+    pub dependencies: Vec<ModuleDependency>,
 }
 
 impl ModuleSchema {
@@ -27,7 +27,7 @@ impl ModuleSchema {
         subscriptions: Vec<SubscriptionSchema>,
         type_definitions: HashMap<String, IntersticeTypeDef>,
         authorities: Vec<Authority>,
-        dependencies: Vec<Dependency>,
+        dependencies: Vec<ModuleDependency>,
     ) -> Self {
         Self {
             abi_version: ABI_VERSION,

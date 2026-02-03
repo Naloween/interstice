@@ -12,4 +12,5 @@ mod transaction;
 mod wasm;
 
 pub use crate::node::Node;
+pub use error::*;
 pub use interstice_abi;

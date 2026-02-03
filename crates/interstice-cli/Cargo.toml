@@ -9,5 +9,5 @@ path = "src/main.rs"
 
 [dependencies]
 interstice-core = { path = "../interstice-core" }
-interstice-abi = { path = "../interstice-abi" }
 serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1.49", features = ["full"] }
