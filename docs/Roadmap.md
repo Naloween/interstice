@@ -22,7 +22,7 @@ and long-lived, before moving to authority and advanced optimizations.
 - [ ] Efficient table scans through iter
 - [ ] Better type convertions designs (instead of always converting to IntersticeValue as an intermediate)
 - [ ] Optimize type convertions (no clones)
-- [ ] sdk change "into" to "try into" for better error management (instead of panic)
+- [x] sdk change "into" to "try into" for better error management (instead of panic)
 - [ ] transaction logs snaptchots, separate logs before snapchot (archive) and afetr the current snaptchot
 - [ ] transaction logs add indexes to retreive efficiently per module, per table transactions
 - [ ] Columnar / structured storage backend
