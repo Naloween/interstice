@@ -6,11 +6,20 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub enum ModuleVisibility {
+    // Visible to all other nodes
+    Public,
+    // Only visible for local modules on the current node
+    Private,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ModuleSchema {
     pub abi_version: u16,
     pub name: String,
     pub version: Version,
+    pub visibility: ModuleVisibility,
     pub reducers: Vec<ReducerSchema>,
     pub tables: Vec<TableSchema>,
     pub subscriptions: Vec<SubscriptionSchema>,
@@ -24,6 +33,7 @@ impl ModuleSchema {
     pub fn new(
         name: impl Into<String>,
         version: Version,
+        visibility: ModuleVisibility,
         reducers: Vec<ReducerSchema>,
         tables: Vec<TableSchema>,
         subscriptions: Vec<SubscriptionSchema>,
@@ -35,6 +45,7 @@ impl ModuleSchema {
         Self {
             abi_version: ABI_VERSION,
             name: name.into(),
+            visibility,
             version,
             reducers,
             tables,
@@ -79,6 +90,7 @@ impl ModuleSchema {
         Self {
             abi_version: self.abi_version,
             name: self.name,
+            visibility: self.visibility,
             version: self.version,
             reducers,
             tables,

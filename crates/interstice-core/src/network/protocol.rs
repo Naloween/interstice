@@ -3,7 +3,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum NetworkPacket {
-    Handshake { node_id: String },
+    Handshake {
+        node_id: String,
+        address: String,
+    },
+    ReducerCall {
+        module_name: String,
+        reducer_name: String,
+    },
     RequestSubscription(RequestSubscription),
     SubscriptionEvent(SubscriptionEvent),
     Error(String),

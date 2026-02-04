@@ -100,7 +100,11 @@ pub fn render(ctx: ReducerContext) {
     let gpu = ctx.gpu();
 
     // Get pipeline from table
-    let pipeline = ctx.current.pipelinetable().scan()[0].pipeline_id;
+    let pipeline = if let Some(p) = ctx.current.pipelinetable().scan().get(0) {
+        p.pipeline_id
+    } else {
+        return;
+    };
 
     // Begin frame
     gpu.begin_frame();

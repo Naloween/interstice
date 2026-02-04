@@ -37,6 +37,7 @@ pub enum ModuleSelection {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CallReducerRequest {
+    pub node_selection: NodeSelection,
     pub module_selection: ModuleSelection,
     pub reducer_name: String,
     pub input: IntersticeValue,

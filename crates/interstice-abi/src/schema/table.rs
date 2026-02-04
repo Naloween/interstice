@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TableSchema {
     pub name: String,
+    pub type_name: String,
     pub visibility: TableVisibility,
     pub fields: Vec<FieldDef>,
     pub primary_key: FieldDef,

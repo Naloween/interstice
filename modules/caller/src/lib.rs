@@ -1,11 +1,16 @@
 interstice_module!();
 
-use crate::bindings::*;
+use crate::bindings::{HasHelloContext, HasMyNodeHandle, *};
 use interstice_sdk::*;
 
 #[reducer]
 fn caller(ctx: ReducerContext) {
-    ctx.log("Calling hello...");
-    ctx.hello().reducers.hello("called from caller".to_string());
-    ctx.log("hello called !");
+    ctx.log("Calling remote hello...");
+    // ctx.hello().reducers.hello("called from caller".to_string());
+    ctx.mynode().hello().reducers.hello("Client !".to_string());
+    ctx.log("hello remote called !");
+
+    // ctx.log("Calling local hello...");
+    // ctx.hello().reducers.hello("called from caller".to_string());
+    // ctx.log("hello local called !");
 }

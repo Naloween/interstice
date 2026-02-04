@@ -1,6 +1,6 @@
 use interstice_sdk::*;
 
-interstice_module!();
+interstice_module!(visibility: Public);
 
 // TABLES
 

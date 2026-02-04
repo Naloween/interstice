@@ -42,23 +42,25 @@ pub fn generate_bindings() {
                         );
                         modules_schema.push(module_schema);
                     }
-                    Err(err) => {
-                        if let Ok(node_schema) = NodeSchema::from_toml_string(&content) {
+                    Err(mod_err) => match NodeSchema::from_toml_string(&content) {
+                        Ok(node_schema) => {
                             node_dependencies_code_str.push_str(
                                 &("        interstice_sdk::NodeDependency{name: \"".to_string()
                                     + &node_schema.name
-                                    + "\".to_string(), adress: \""
-                                    + &node_schema.adress
+                                    + "\".to_string(), address: \""
+                                    + &node_schema.address
                                     + "\".to_string()},\n"),
                             );
                             generated.push_str(&get_node_code(node_schema));
-                        } else {
+                        }
+                        Err(node_err) => {
                             println!(
-                                "cargo:warning=Skipped toml file because of error: {}",
-                                err.message()
+                                "cargo:warning=Skipped toml file because of module schema error: {} and node schema error: {}",
+                                mod_err.message(),
+                                node_err.message()
                             );
                         }
-                    }
+                    },
                 };
             }
         }
@@ -80,8 +82,33 @@ pub fn generate_bindings() {
 fn get_node_code(node_schema: NodeSchema) -> String {
     let mut result = String::new();
     let node_name = node_schema.name;
+    let node_handle_name = node_name.trim().to_lowercase();
 
-    result += "pub struct NodeName{}\n";
+    result += &("pub struct ".to_string() + &node_name + "{}\n\n");
+
+    let trait_handle_name = "Has".to_string() + &node_name + "Handle";
+
+    result += &("pub trait ".to_string()
+        + &trait_handle_name
+        + " {
+    fn " + &node_handle_name
+        + "(&self) -> "
+        + &node_name
+        + ";
+}
+
+impl " + &trait_handle_name
+        + " for interstice_sdk::ReducerContext{
+    fn " + &node_handle_name
+        + "(&self) -> "
+        + &node_name
+        + "{
+        return "
+        + &node_name
+        + "{};
+    }
+}
+");
 
     for module_schema in node_schema.modules {
         result += &get_module_code(module_schema, NodeSelection::Other(node_name.clone()));
@@ -114,7 +141,7 @@ fn get_module_code(module_schema: ModuleSchema, node_selection: NodeSelection) -
 
     let mut reducers_def_str = String::new();
     for reducer_schema in module_schema.reducers {
-        reducers_def_str += &get_reducer_code(&module_name, reducer_schema);
+        reducers_def_str += &get_reducer_code(&module_name, reducer_schema, &node_selection);
     }
 
     let mut type_definitions = String::new();
@@ -129,13 +156,9 @@ fn get_module_code(module_schema: ModuleSchema, node_selection: NodeSelection) -
         type_definitions += &get_type_definition_code(type_def);
     }
 
-    let struct_handle_module_name = match node_selection {
+    let struct_handle_module_name = match &node_selection {
         NodeSelection::Current => "interstice_sdk::ReducerContext".to_string(),
-        NodeSelection::Other(node_name) => {
-            let upped_node_name = node_name.chars().nth(0).unwrap().to_uppercase().to_string()
-                + &node_name[1..node_name.len()];
-            upped_node_name
-        }
+        NodeSelection::Other(node_name) => node_name.clone(),
     };
 
     let mut result = String::new();
@@ -202,13 +225,7 @@ impl " + &has_module_handle_trait_name
 
 fn get_table_code(table_schema: TableSchema, module_tables_name: &str) -> String {
     let table_name = table_schema.name;
-    let table_struct_name = table_name
-        .chars()
-        .nth(0)
-        .unwrap()
-        .to_uppercase()
-        .to_string()
-        + &table_name[1..table_name.len()];
+    let table_struct_name = table_schema.type_name;
     let table_handle_struct_name = table_struct_name.clone() + "Handle";
     let has_table_handle_trait_name = "Has".to_string() + &table_struct_name + "Handle";
 
@@ -309,13 +326,24 @@ impl " + &has_table_handle_trait_name
 "
 }
 
-fn get_reducer_code(module_name: &String, reducer_schema: ReducerSchema) -> String {
+fn get_reducer_code(
+    module_name: &String,
+    reducer_schema: ReducerSchema,
+    node_selection: &NodeSelection,
+) -> String {
     let mut arguments_str = String::new();
     let mut arguments_values_str = String::new();
     for arg in reducer_schema.arguments {
         arguments_str += &(arg.name.clone() + ": " + &arg.field_type.to_string());
         arguments_values_str += &(arg.name.clone() + ".into()");
     }
+    let node_selection = match node_selection {
+        NodeSelection::Current => "interstice_sdk::NodeSelection::Current".to_string(),
+        NodeSelection::Other(node_name) => {
+            "interstice_sdk::NodeSelection::Other(\"".to_string() + &node_name + "\".to_string())"
+        }
+    };
+
     "
     pub fn "
         .to_string()
@@ -324,6 +352,9 @@ fn get_reducer_code(module_name: &String, reducer_schema: ReducerSchema) -> Stri
         + &arguments_str
         + "){
         interstice_sdk::host_calls::call_reducer(
+            "
+        + &node_selection
+        + ",
             interstice_sdk::ModuleSelection::Other(\""
         + module_name
         + "\".into()),

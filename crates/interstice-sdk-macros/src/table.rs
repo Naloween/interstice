@@ -123,6 +123,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         fn #schema_fn() -> interstice_sdk::TableSchema {
             interstice_sdk::TableSchema {
                 name: #table_name.to_string(),
+                type_name: #struct_name.to_string(),
                 visibility: #visibility,
                 fields: vec![#(#schema_fields),*],
                 primary_key: interstice_sdk::FieldDef {

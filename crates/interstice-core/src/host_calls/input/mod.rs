@@ -47,7 +47,7 @@ impl ApplicationHandler for Node {
                         &render_reducer_name,
                         IntersticeValue::Vec(vec![]),
                     )
-                    .unwrap();
+                    .expect("Running the render reducer failed");
                 }
                 self.gpu.as_ref().unwrap().window.request_redraw();
 

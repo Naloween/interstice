@@ -4,6 +4,7 @@ use tokio::sync::mpsc;
 #[derive(Clone)]
 pub struct PeerHandle {
     pub node_id: NodeId,
+    pub address: String,
     pub sender: mpsc::Sender<NetworkPacket>,
 }
 

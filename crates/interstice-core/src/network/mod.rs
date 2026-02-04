@@ -1,12 +1,13 @@
 use crate::error::IntersticeError;
 use crate::network::peer::PeerHandle;
-use crate::network::protocol::{NetworkPacket, RequestSubscription, SubscriptionEvent};
+use crate::network::protocol::NetworkPacket;
 use crate::node::NodeId;
 use packet::{read_packet, write_packet};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, mpsc};
+use uuid::Uuid;
 
 mod packet;
 mod peer;
@@ -15,6 +16,8 @@ pub mod protocol;
 const CHANNEL_SIZE: usize = 1000;
 
 pub struct Network {
+    node_id: Uuid,
+    address: String,
     peers: Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
 
     /// Packets coming *from* connection tasks
@@ -25,39 +28,88 @@ pub struct Network {
 }
 
 pub struct NetworkHandle {
+    pub node_id: Uuid,
+    pub address: String,
     peers: Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
     sender: mpsc::Sender<(NodeId, NetworkPacket)>,
 }
 
 impl NetworkHandle {
-    pub async fn send_event(
-        &self,
-        node_id: NodeId,
-        event: SubscriptionEvent,
-    ) -> Result<(), IntersticeError> {
-        let peers = self.peers.lock().await;
-        let peer = peers.get(&node_id).ok_or(IntersticeError::UnknownPeer)?;
+    pub fn connect_to_peer(&mut self, node_address: String) {
+        let mut cloned_peers = self.peers.clone();
+        let cloned_sender = self.sender.clone();
+        let address = self.address.clone();
+        let my_node_id = self.node_id.clone();
+        tokio::spawn(async move {
+            let mut stream = TcpStream::connect(&node_address)
+                .await
+                .map_err(|_| IntersticeError::Internal("Failed to connect to node".into()))
+                .unwrap();
 
-        peer.send(NetworkPacket::SubscriptionEvent(event)).await
+            // Send our handshake
+            write_packet(
+                &mut stream,
+                &NetworkPacket::Handshake {
+                    address: address.clone(),
+                    node_id: my_node_id.to_string(),
+                },
+            )
+            .await
+            .unwrap();
+
+            if let Err(e) = handshake_incoming(
+                my_node_id,
+                address,
+                stream,
+                &mut cloned_peers,
+                cloned_sender,
+            )
+            .await
+            {
+                eprintln!("Handshake failed: {:?}", e);
+            }
+        });
     }
 
-    pub async fn request_subscription(
-        &self,
-        node_id: NodeId,
-        req: RequestSubscription,
-    ) -> Result<(), IntersticeError> {
-        let peers = self.peers.lock().await;
-        let peer = peers.get(&node_id).ok_or(IntersticeError::UnknownPeer)?;
-
-        peer.send(NetworkPacket::RequestSubscription(req)).await
+    pub fn send_packet(&self, node_id: NodeId, packet: NetworkPacket) {
+        let peers = self.peers.clone();
+        tokio::spawn(async move {
+            let peers = peers.lock().await;
+            let peer = peers.get(&node_id).ok_or(IntersticeError::UnknownPeer)?;
+            peer.send(packet).await
+        });
     }
+
+    pub fn get_node_id_from_adress(&self, address: &String) -> Result<NodeId, IntersticeError> {
+        for node in self.peers.blocking_lock().values() {
+            if &node.address == address {
+                return Ok(node.node_id);
+            }
+        }
+        return Err(IntersticeError::Internal(format!(
+            "Couldn't find node id with address {address}"
+        )));
+    }
+
+    // pub async fn request_subscription(
+    //     &self,
+    //     node_id: NodeId,
+    //     req: RequestSubscription,
+    // ) -> Result<(), IntersticeError> {
+    //     let peers = self.peers.lock().await;
+    //     let peer = peers.get(&node_id).ok_or(IntersticeError::UnknownPeer)?;
+
+    //     peer.send(NetworkPacket::RequestSubscription(req)).await
+    // }
 }
 
 impl Network {
-    pub fn new() -> Self {
+    pub fn new(node_id: Uuid, address: String) -> Self {
         let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
 
         Self {
+            node_id,
+            address,
             peers: Arc::new(Mutex::new(HashMap::new())),
             receiver,
             sender,
@@ -66,93 +118,34 @@ impl Network {
 
     pub fn get_handle(&self) -> NetworkHandle {
         NetworkHandle {
+            node_id: self.node_id.clone(),
+            address: self.address.clone(),
             peers: self.peers.clone(),
             sender: self.sender.clone(),
         }
     }
 
-    //
-    // ─────────────── PUBLIC API USED BY YOUR NODE LAYER ───────────────
-    //
-
-    pub async fn send_event(
-        &self,
-        node_id: NodeId,
-        event: SubscriptionEvent,
-    ) -> Result<(), IntersticeError> {
-        let peers = self.peers.lock().await;
-        let peer = peers.get(&node_id).ok_or(IntersticeError::UnknownPeer)?;
-
-        peer.send(NetworkPacket::SubscriptionEvent(event)).await
-    }
-
-    pub async fn request_subscription(
-        &self,
-        node_id: NodeId,
-        req: RequestSubscription,
-    ) -> Result<(), IntersticeError> {
-        let peers = self.peers.lock().await;
-        let peer = peers.get(&node_id).ok_or(IntersticeError::UnknownPeer)?;
-
-        peer.send(NetworkPacket::RequestSubscription(req)).await
-    }
-
-    //
-    // ─────────────── PEER CONNECTION MANAGEMENT ───────────────
-    //
-
-    pub async fn connect_to_peer(
-        &mut self,
-        node_address: String,
-        my_node_id: NodeId,
-    ) -> Result<(), IntersticeError> {
-        let mut stream = TcpStream::connect(&node_address)
-            .await
-            .map_err(|_| IntersticeError::Internal("Failed to connect to node".into()))?;
-
-        // Send our handshake
-        write_packet(
-            &mut stream,
-            &NetworkPacket::Handshake {
-                node_id: my_node_id.to_string(),
-            },
-        )
-        .await?;
-
-        let mut cloned_peers = self.peers.clone();
-        let cloned_sender = self.sender.clone();
-        tokio::spawn(async move {
-            if let Err(e) =
-                handshake_incoming(my_node_id, stream, &mut cloned_peers, cloned_sender).await
-            {
-                eprintln!("Handshake failed: {:?}", e);
-            }
-        });
-
-        Ok(())
-    }
-
-    pub async fn listen(
-        &mut self,
-        bind_addr: &str,
-        my_node_id: NodeId,
-    ) -> Result<(), IntersticeError> {
-        let listener = TcpListener::bind(bind_addr)
-            .await
-            .map_err(|err| IntersticeError::Internal("Failed to listen adress".into()))?;
-        println!("Listening on {}", bind_addr);
-
+    pub fn listen(&mut self) -> Result<(), IntersticeError> {
         let peers = self.peers.clone();
         let sender = self.sender.clone();
+        let my_address = self.address.clone();
+        let my_node_id = self.node_id.clone();
         tokio::spawn(async move {
+            let listener = TcpListener::bind(&my_address)
+                .await
+                .map_err(|err| IntersticeError::Internal("Failed to listen adress".into()))
+                .unwrap();
+            println!("Listening on {}", my_address);
             loop {
                 match listener.accept().await {
                     Ok((stream, _)) => {
                         let mut cloned_peers = peers.clone();
                         let cloned_sender = sender.clone();
+                        let my_address = my_address.clone();
                         tokio::spawn(async move {
                             if let Err(e) = handshake_incoming(
                                 my_node_id,
+                                my_address,
                                 stream,
                                 &mut cloned_peers,
                                 cloned_sender,
@@ -175,7 +168,7 @@ impl Network {
     // ─────────────── MAIN EVENT LOOP (CALL FROM NODE) ───────────────
     //
 
-    pub async fn run<F>(mut self, mut handler: F)
+    pub fn run<F>(mut self, mut handler: F)
     where
         F: FnMut(NodeId, NetworkPacket) + Send + 'static,
     {
@@ -232,14 +225,15 @@ async fn connection_task(
 //
 async fn handshake_incoming(
     my_node_id: NodeId,
+    my_address: String,
     mut stream: TcpStream,
     peers: &mut Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
     global_sender: mpsc::Sender<(NodeId, NetworkPacket)>,
 ) -> Result<(), IntersticeError> {
     let packet = read_packet(&mut stream).await?;
 
-    let peer_id_str = match packet {
-        NetworkPacket::Handshake { node_id } => node_id,
+    let (peer_id_str, peer_address) = match packet {
+        NetworkPacket::Handshake { node_id, address } => (node_id, address),
         _ => {
             return Err(IntersticeError::ProtocolError(
                 "Expected handshake packet".into(),
@@ -261,6 +255,7 @@ async fn handshake_incoming(
         &mut stream,
         &NetworkPacket::Handshake {
             node_id: my_node_id.to_string(),
+            address: my_address,
         },
     )
     .await?;
@@ -271,6 +266,7 @@ async fn handshake_incoming(
     // Register peer
     let handle = PeerHandle {
         node_id: peer_id,
+        address: peer_address,
         sender,
     };
     peers.insert(peer_id, handle);

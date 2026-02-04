@@ -1,9 +1,22 @@
-use interstice_abi::{Authority, ModuleDependency, NodeDependency, encode, pack_ptr_len};
+use interstice_abi::{
+    Authority, ModuleDependency, ModuleVisibility, NodeDependency, encode, pack_ptr_len,
+};
 
 #[macro_export]
 macro_rules! interstice_module {
-    () => {interstice_module!(authorities: []);};
+    () => {
+        interstice_module!(visibility: Private, authorities: []);
+    };
+
+    (visibility: $vis:ident) => {
+        interstice_module!(visibility: $vis, authorities: []);
+    };
+
     (authorities: [$($auth:ident),* $(,)?]) => {
+        interstice_module!(visibility: Private, authorities: [$($auth),*]);
+    };
+
+    (visibility: $vis:ident, authorities: [$($auth:ident),* $(,)?]) => {
         $(
             interstice_module!(@impl_authority $auth);
         )*
@@ -54,6 +67,7 @@ macro_rules! interstice_module {
 
         const __INTERSTICE_MODULE_NAME: &str = env!("CARGO_PKG_NAME");
         const __INTERSTICE_MODULE_VERSION: &str = env!("CARGO_PKG_VERSION");
+        const __INTERSTICE_VISIBILITY: ModuleVisibility = ModuleVisibility::$vis;
         const __INTERSTICE_AUTHORITIES: &[interstice_abi::Authority] = &[
             $(interstice_abi::Authority::$auth),*
         ];
@@ -63,6 +77,7 @@ macro_rules! interstice_module {
             interstice_sdk::macros::describe_module(
                 __INTERSTICE_MODULE_NAME,
                 __INTERSTICE_MODULE_VERSION,
+                __INTERSTICE_VISIBILITY,
                 __INTERSTICE_AUTHORITIES,
                 bindings::__GET_INTERSTICE_MODULE_DEPENDENCIES(),
                 bindings::__GET_INTERSTICE_NODE_DEPENDENCIES()
@@ -91,6 +106,7 @@ macro_rules! interstice_module {
 pub fn describe_module(
     name: &str,
     version: &str,
+    visibility: ModuleVisibility,
     authorities: &'static [Authority],
     module_dependencies: Vec<ModuleDependency>,
     node_dependencies: Vec<NodeDependency>,
@@ -104,6 +120,7 @@ pub fn describe_module(
         abi_version: interstice_abi::ABI_VERSION,
         name: name.to_string(),
         version: version.into(),
+        visibility,
         reducers,
         tables,
         subscriptions,

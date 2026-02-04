@@ -2,6 +2,7 @@ use crate::{
     Node,
     authority::AuthorityEntry,
     error::IntersticeError,
+    network,
     subscription::SubscriptionEventInstance,
     table::Table,
     wasm::{StoreState, instance::WasmInstance},
@@ -143,6 +144,12 @@ impl Node {
                     ),
                 ));
             }
+        }
+
+        // Connect to node dependencies
+        for node_dependency in &module_schema.node_dependencies {
+            let network = &mut self.network_handle;
+            network.connect_to_peer(node_dependency.address.clone());
         }
 
         self.modules.insert(module.schema.name.clone(), module);

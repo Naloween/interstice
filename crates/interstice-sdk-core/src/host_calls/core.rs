@@ -1,6 +1,6 @@
 use interstice_abi::{
     CallReducerRequest, HostCall, InsertRowRequest, IntersticeValue, LogRequest, ModuleSelection,
-    Row, TableScanRequest,
+    NodeSelection, Row, TableScanRequest,
 };
 
 pub fn log(message: &str) {
@@ -11,11 +11,13 @@ pub fn log(message: &str) {
 }
 
 pub fn call_reducer(
+    node_selection: NodeSelection,
     module_selection: ModuleSelection,
     reducer_name: String,
     input: IntersticeValue,
 ) -> IntersticeValue {
     let call = HostCall::CallReducer(CallReducerRequest {
+        node_selection,
         module_selection,
         reducer_name,
         input,
