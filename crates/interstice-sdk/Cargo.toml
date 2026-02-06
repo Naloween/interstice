@@ -4,9 +4,15 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 license-file = "LICENSE"
+description = "Rust SDK and helpers for writing Interstice WASM modules"
+readme = "../../README.md"
+repository = "https://github.com/naloween/interstice"
+keywords = ["interstice", "wasm", "sdk"]
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
-interstice-abi = { path = "../interstice-abi" }
-interstice-sdk-core = { path = "../interstice-sdk-core" }
-interstice-sdk-macros = { path = "../interstice-sdk-macros" }
+interstice-abi = { path = "../interstice-abi", version = "0.1.0" }
+interstice-sdk-core = { path = "../interstice-sdk-core", version = "0.1.0" }
+interstice-sdk-macros = { path = "../interstice-sdk-macros", version = "0.1.0" }
 wee_alloc = "0.4"

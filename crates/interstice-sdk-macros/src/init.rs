@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, ItemFn};
+use syn::{ItemFn, parse_macro_input};
 
 pub fn init_macro(item: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(item as ItemFn);
@@ -20,7 +20,7 @@ pub fn init_macro(item: TokenStream) -> TokenStream {
         #input
 
         #[used]
-        #[link_section = ".init_array"]
+        #[unsafe(link_section = ".init_array")]
         static #init_static_name: extern "C" fn() = #name;
     }
     .into()
