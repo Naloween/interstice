@@ -12,11 +12,11 @@ pub enum NetworkPacket {
         reducer_name: String,
     },
     RequestSubscription(RequestSubscription),
-    SubscriptionEvent(SubscriptionEvent),
+    TableEvent(TableEventInstance),
     Error(String),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RequestSubscription {
     pub module_name: String,
     pub table_name: String,
@@ -31,7 +31,7 @@ pub enum TableEvent {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum SubscriptionEvent {
+pub enum TableEventInstance {
     TableInsertEvent {
         module_name: String,
         table_name: String,

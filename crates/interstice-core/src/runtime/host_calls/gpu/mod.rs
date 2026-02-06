@@ -193,6 +193,10 @@ impl GpuState {
             ..
         } = self.encoders.remove(&encoder_id).unwrap();
 
+        if self.current_frame.is_none() {
+            return;
+        }
+
         for cmd in commands {
             match cmd {
                 EncoderCommand::RenderPass(rp) => {

@@ -7,7 +7,7 @@ use crate::{
     runtime::wasm::{StoreState, instance::WasmInstance},
 };
 use interstice_abi::{
-    ABI_VERSION, IntersticeValue, ModuleSchema, ReducerContext, SubscriptionEventSchema,
+    ABI_VERSION, Authority, IntersticeValue, ModuleSchema, ReducerContext, SubscriptionEventSchema,
     get_reducer_wrapper_name,
 };
 use serde::Serialize;
@@ -93,12 +93,20 @@ impl Runtime {
         // Create module
         let module = Module::new(instance)?;
         let module_schema = module.schema.clone();
-        if !*runtime.app_initialized.lock().unwrap() {
-            runtime.loading_modules.lock().unwrap().push(module);
+
+        // If the module requires GPU authority and the app is not initialized yet, queue it for loading after app initialization
+        if module_schema
+            .authorities
+            .iter()
+            .find(|a| *a == &Authority::Gpu)
+            .is_some()
+            && !*runtime.app_initialized.lock().unwrap()
+        {
+            runtime.pending_app_modules.lock().unwrap().push(module);
             println!(
                 "Module '{}' is queued for loading after app initialization",
                 runtime
-                    .loading_modules
+                    .pending_app_modules
                     .lock()
                     .unwrap()
                     .last()
@@ -106,6 +114,7 @@ impl Runtime {
                     .schema
                     .name
             );
+            runtime.run_app_notify.notify_one();
             return Ok(module_schema.as_ref().clone());
         } else {
             Runtime::publish_module(runtime, module)?;

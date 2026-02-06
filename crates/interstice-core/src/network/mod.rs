@@ -2,6 +2,7 @@ use crate::error::IntersticeError;
 use crate::network::peer::PeerHandle;
 use crate::network::protocol::NetworkPacket;
 use crate::node::NodeId;
+use crate::runtime::event::EventInstance;
 use packet::{read_packet, write_packet};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -20,6 +21,7 @@ pub struct Network {
     node_id: Uuid,
     address: String,
     peers: Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
+    event_sender: mpsc::UnboundedSender<EventInstance>,
 
     /// Packets coming *from* connection tasks
     receiver: mpsc::Receiver<(NodeId, NetworkPacket)>,
@@ -38,6 +40,10 @@ pub struct NetworkHandle {
 
 impl NetworkHandle {
     pub fn connect_to_peer(&mut self, node_address: String) {
+        if self.address == node_address {
+            eprintln!("Cannot connect to self, skipping");
+            return;
+        }
         let mut cloned_peers = self.peers.clone();
         let cloned_sender = self.sender.clone();
         let address = self.address.clone();
@@ -106,7 +112,11 @@ impl NetworkHandle {
 }
 
 impl Network {
-    pub fn new(node_id: Uuid, address: String) -> Self {
+    pub fn new(
+        node_id: Uuid,
+        address: String,
+        event_sender: mpsc::UnboundedSender<EventInstance>,
+    ) -> Self {
         let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
 
         Self {
@@ -115,6 +125,7 @@ impl Network {
             peers: Arc::new(Mutex::new(HashMap::new())),
             receiver,
             sender,
+            event_sender,
         }
     }
 
@@ -170,13 +181,57 @@ impl Network {
     // ─────────────── MAIN EVENT LOOP (CALL FROM NODE) ───────────────
     //
 
-    pub fn run<F>(mut self, mut handler: F) -> JoinHandle<()>
-    where
-        F: FnMut(NodeId, NetworkPacket) + Send + 'static,
-    {
+    pub fn run(mut self) -> JoinHandle<()> {
         return tokio::spawn(async move {
             while let Some((node_id, packet)) = self.receiver.recv().await {
-                handler(node_id, packet);
+                match packet {
+                    NetworkPacket::Handshake { .. } => {
+                        eprintln!("Received unexpected handshake from {}", node_id);
+                    }
+                    NetworkPacket::ReducerCall {
+                        module_name,
+                        reducer_name,
+                    } => todo!(),
+                    NetworkPacket::RequestSubscription(request_subscription) => todo!(),
+                    NetworkPacket::TableEvent(subscription_event) => {
+                        self.event_sender
+                            .send(match subscription_event {
+                                protocol::TableEventInstance::TableInsertEvent {
+                                    module_name,
+                                    table_name,
+                                    inserted_row,
+                                } => EventInstance::TableInsertEvent {
+                                    module_name,
+                                    table_name,
+                                    inserted_row,
+                                },
+                                protocol::TableEventInstance::TableUpdateEvent {
+                                    module_name,
+                                    table_name,
+                                    old_row,
+                                    new_row,
+                                } => EventInstance::TableUpdateEvent {
+                                    module_name,
+                                    table_name,
+                                    old_row,
+                                    new_row,
+                                },
+                                protocol::TableEventInstance::TableDeleteEvent {
+                                    module_name,
+                                    table_name,
+                                    deleted_row,
+                                } => EventInstance::TableDeleteEvent {
+                                    module_name,
+                                    table_name,
+                                    deleted_row,
+                                },
+                            })
+                            .unwrap();
+                    }
+                    NetworkPacket::Error(err) => {
+                        println!("Received error from {}: {}", node_id, err)
+                    }
+                }
             }
         });
     }

@@ -26,7 +26,10 @@ use crate::{
 };
 use interstice_abi::Authority;
 use tokio::{
-    sync::mpsc::{UnboundedReceiver, UnboundedSender},
+    sync::{
+        Notify,
+        mpsc::{UnboundedReceiver, UnboundedSender},
+    },
     task::JoinHandle,
 };
 use wasmtime::{Engine, Linker};
@@ -42,7 +45,8 @@ pub struct Runtime {
     pub(crate) network_handle: NetworkHandle,
     pub(crate) transaction_logs: Arc<Mutex<TransactionLog>>,
     pub(crate) app_initialized: Arc<Mutex<bool>>,
-    pub(crate) loading_modules: Arc<Mutex<Vec<Module>>>,
+    pub(crate) pending_app_modules: Arc<Mutex<Vec<Module>>>,
+    run_app_notify: Arc<Notify>,
 }
 
 impl Runtime {
@@ -51,6 +55,7 @@ impl Runtime {
         event_sender: UnboundedSender<EventInstance>,
         network_handle: NetworkHandle,
         gpu: Arc<Mutex<Option<GpuState>>>,
+        run_app_notify: Arc<Notify>,
     ) -> Result<Self, IntersticeError> {
         let engine = Arc::new(Engine::default());
         let mut linker = Linker::new(&engine);
@@ -68,7 +73,8 @@ impl Runtime {
             modules: Arc::new(Mutex::new(HashMap::new())),
             authority_modules: Arc::new(Mutex::new(HashMap::new())),
             app_initialized: Arc::new(Mutex::new(false)),
-            loading_modules: Arc::new(Mutex::new(Vec::new())),
+            pending_app_modules: Arc::new(Mutex::new(Vec::new())),
+            run_app_notify,
         })
     }
 
@@ -80,7 +86,7 @@ impl Runtime {
             while let Some(event) = event_receiver.recv().await {
                 match event {
                     EventInstance::AppInitialized => {
-                        for module in runtime.loading_modules.lock().unwrap().drain(..) {
+                        for module in runtime.pending_app_modules.lock().unwrap().drain(..) {
                             let module_name = module.schema.name.clone();
                             if let Err(err) = Runtime::publish_module(runtime.clone(), module) {
                                 eprintln!("Failed to load module '{}': {}", module_name, err);

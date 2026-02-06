@@ -23,9 +23,14 @@ async fn main() -> Result<(), IntersticeError> {
             let caller_path = "../../target/wasm32-unknown-unknown/debug/caller.wasm";
             let graphics_path = "../../target/wasm32-unknown-unknown/debug/graphics.wasm";
 
-            // let hello_schema = node.load_module(hello_path)?.to_public();
-            // let caller_schema = node.load_module(caller_path)?.to_public();
-            let graphics_schema = node.load_module(graphics_path)?.to_public();
+            if port != 8080 {
+                // Client
+                let caller_schema = node.load_module(caller_path)?.to_public();
+                let graphics_schema = node.load_module(graphics_path)?.to_public();
+            } else {
+                // Server
+                let hello_schema = node.load_module(hello_path)?.to_public();
+            }
 
             // File::create("./hello_schema.toml")
             //     .unwrap()

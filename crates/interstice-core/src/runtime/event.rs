@@ -1,4 +1,8 @@
-use crate::{error::IntersticeError, runtime::Runtime, runtime::authority::AuthorityEntry};
+use crate::{
+    error::IntersticeError,
+    network::protocol::RequestSubscription,
+    runtime::{Runtime, authority::AuthorityEntry},
+};
 use interstice_abi::{Authority, InputEvent, IntersticeValue, Row, SubscriptionEventSchema};
 
 #[derive(Debug, Clone)]
@@ -25,6 +29,7 @@ pub enum EventInstance {
     Render,
     Input(InputEvent),
     AppInitialized,
+    RequestSubscription(RequestSubscription),
 }
 
 impl EventInstance {

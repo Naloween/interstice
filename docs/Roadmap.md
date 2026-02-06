@@ -11,7 +11,8 @@ and long-lived, before moving to authority and advanced optimizations.
 - [x] add input authority
 - [x] add gpu authority
 - [x] Modules dependencies & Version compatibility checks
-- [ ] Load modules after app is initialized
+- [x] Load modules after app is initialized
+- [ ] Gpu error handling instead of panic (frame not begun etc.. Especially on resize where it interrupts the current render)
 - [ ] subscription to another node table (networking). So add Node sdk with nodes registry etc...
 - [ ] save modules loaded, node id etc.. Along with the table datas.
 - [ ] add file authority
