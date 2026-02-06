@@ -1,4 +1,4 @@
-use crate::{Node, error::IntersticeError, network::protocol::NetworkPacket, runtime::Runtime};
+use crate::{error::IntersticeError, network::protocol::NetworkPacket, runtime::Runtime};
 use interstice_abi::{
     CallReducerRequest, CallReducerResponse, IntersticeValue, ModuleSelection, NodeSelection,
 };
@@ -20,13 +20,11 @@ impl Runtime {
                     &call_reducer_request.reducer_name,
                     call_reducer_request.input,
                 )?;
-
-                let frame = self.call_stack.lock().unwrap().last_mut().unwrap();
                 Ok(result)
             }
             NodeSelection::Other(node_name) => {
                 let modules = self.modules.lock().unwrap();
-                let module = modules.get(module_name).unwrap();
+                let module = modules.get(caller_module_name).unwrap();
                 let node_dependency = module
                     .schema
                     .node_dependencies
@@ -42,6 +40,7 @@ impl Runtime {
                     NetworkPacket::ReducerCall {
                         module_name: module_name.clone(),
                         reducer_name: call_reducer_request.reducer_name.clone(),
+                        input: call_reducer_request.input.clone(),
                     },
                 );
                 Ok(IntersticeValue::Void)

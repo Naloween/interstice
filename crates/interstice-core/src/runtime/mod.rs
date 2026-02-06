@@ -94,6 +94,15 @@ impl Runtime {
                         }
                         *runtime.app_initialized.lock().unwrap() = true;
                     }
+                    EventInstance::RemoteReducerCall {
+                        module_name,
+                        reducer_name,
+                        input,
+                    } => {
+                        // Invoke the requested reducer with no args (network
+                        // reducer packet currently does not carry args).
+                        let _ = runtime.call_reducer(&module_name, &reducer_name, input);
+                    }
                     event => {
                         let triggered = runtime.find_subscriptions(&event).unwrap();
 

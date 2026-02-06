@@ -1,4 +1,4 @@
-use interstice_abi::Row;
+use interstice_abi::{IntersticeValue, Row};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -10,6 +10,7 @@ pub enum NetworkPacket {
     ReducerCall {
         module_name: String,
         reducer_name: String,
+        input: IntersticeValue,
     },
     RequestSubscription(RequestSubscription),
     TableEvent(TableEventInstance),

@@ -30,6 +30,11 @@ pub enum EventInstance {
     Input(InputEvent),
     AppInitialized,
     RequestSubscription(RequestSubscription),
+    RemoteReducerCall {
+        module_name: String,
+        reducer_name: String,
+        input: IntersticeValue,
+    },
 }
 
 impl EventInstance {

@@ -5,9 +5,9 @@ use crate::node::NodeId;
 use crate::runtime::event::EventInstance;
 use packet::{read_packet, write_packet};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -82,14 +82,19 @@ impl NetworkHandle {
     pub fn send_packet(&self, node_id: NodeId, packet: NetworkPacket) {
         let peers = self.peers.clone();
         tokio::spawn(async move {
-            let peers = peers.lock().await;
-            let peer = peers.get(&node_id).ok_or(IntersticeError::UnknownPeer)?;
+            let peer = {
+                let peers = peers.lock().unwrap();
+                peers
+                    .get(&node_id)
+                    .ok_or(IntersticeError::UnknownPeer)?
+                    .clone()
+            };
             peer.send(packet).await
         });
     }
 
     pub fn get_node_id_from_adress(&self, address: &String) -> Result<NodeId, IntersticeError> {
-        for node in self.peers.blocking_lock().values() {
+        for node in self.peers.lock().unwrap().values() {
             if &node.address == address {
                 return Ok(node.node_id);
             }
@@ -191,7 +196,15 @@ impl Network {
                     NetworkPacket::ReducerCall {
                         module_name,
                         reducer_name,
-                    } => todo!(),
+                        input,
+                    } => self
+                        .event_sender
+                        .send(EventInstance::RemoteReducerCall {
+                            module_name,
+                            reducer_name,
+                            input,
+                        })
+                        .unwrap(),
                     NetworkPacket::RequestSubscription(request_subscription) => todo!(),
                     NetworkPacket::TableEvent(subscription_event) => {
                         self.event_sender
@@ -299,15 +312,9 @@ async fn handshake_incoming(
     };
     let peer_id = NodeId::parse_str(&peer_id_str).expect("Couldn't parse node id");
 
-    let mut peers = peers.lock().await;
-
-    // If already connected, drop duplicate
-    if peers.contains_key(&peer_id) {
-        println!("Duplicate incoming connection from {}, dropping", peer_id);
-        return Ok(());
-    }
-
-    // Reply with our handshake
+    // Reply with our handshake immediately so the remote side won't block
+    // waiting for it (prevents their read from hitting EOF if we drop
+    // the connection due to a duplicate).
     write_packet(
         &mut stream,
         &NetworkPacket::Handshake {
@@ -316,6 +323,14 @@ async fn handshake_incoming(
         },
     )
     .await?;
+
+    let mut peers = peers.lock().unwrap();
+
+    // If already connected, drop duplicate
+    if peers.contains_key(&peer_id) {
+        println!("Duplicate incoming connection from {}, dropping", peer_id);
+        return Ok(());
+    }
 
     // Create channel
     let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
