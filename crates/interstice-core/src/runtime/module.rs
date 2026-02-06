@@ -1,24 +1,27 @@
 use crate::{
-    Node,
-    authority::AuthorityEntry,
     error::IntersticeError,
-    network,
-    subscription::SubscriptionEventInstance,
-    table::Table,
-    wasm::{StoreState, instance::WasmInstance},
+    runtime::Runtime,
+    runtime::authority::AuthorityEntry,
+    runtime::event::EventInstance,
+    runtime::table::Table,
+    runtime::wasm::{StoreState, instance::WasmInstance},
 };
 use interstice_abi::{
     ABI_VERSION, IntersticeValue, ModuleSchema, ReducerContext, SubscriptionEventSchema,
     get_reducer_wrapper_name,
 };
 use serde::Serialize;
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{Arc, Mutex},
+};
 use wasmtime::{Module as wasmtimeModule, Store};
 
 pub struct Module {
-    instance: WasmInstance,
-    pub schema: ModuleSchema,
-    pub tables: HashMap<String, Table>,
+    instance: Arc<Mutex<WasmInstance>>,
+    pub schema: Arc<ModuleSchema>,
+    pub tables: Arc<Mutex<HashMap<String, Table>>>,
 }
 
 impl Module {
@@ -46,49 +49,74 @@ impl Module {
             .collect();
 
         // Set module name in the store state
-        instance.store.data_mut().module_name = schema.name.clone();
+        instance.store.data_mut().module_schema = schema.clone();
 
         Ok(Self {
-            instance,
-            schema,
-            tables,
+            instance: Arc::new(Mutex::new(instance)),
+            schema: Arc::new(schema),
+            tables: Arc::new(Mutex::new(tables)),
         })
     }
 
     pub fn call_reducer(
-        &mut self,
+        &self,
         reducer: &str,
         args: (ReducerContext, impl Serialize),
     ) -> Result<IntersticeValue, IntersticeError> {
         let func_name = &get_reducer_wrapper_name(reducer);
-        return self.instance.call_function(func_name, args);
+        return self.instance.lock().unwrap().call_function(func_name, args);
     }
 }
 
-impl Node {
+impl Runtime {
     pub fn load_module<P: AsRef<Path>>(
-        &mut self,
+        runtime: Arc<Self>,
         path: P,
     ) -> Result<ModuleSchema, IntersticeError> {
         // Create wasm instance from provided file
-        let wasm_module = wasmtimeModule::from_file(&self.engine, path).unwrap();
-        let runtime_ptr: *mut Node = self;
+        let wasm_module = wasmtimeModule::from_file(&runtime.engine, path).unwrap();
         let mut store = Store::new(
-            &self.engine,
+            &runtime.engine,
             StoreState {
-                node: runtime_ptr,
-                module_name: String::new(),
+                runtime: runtime.clone(),
+                module_schema: ModuleSchema::empty(),
             },
         );
-        let instance = self.linker.instantiate(&mut store, &wasm_module).unwrap();
+        let instance = runtime
+            .linker
+            .lock()
+            .unwrap()
+            .instantiate(&mut store, &wasm_module)
+            .unwrap();
         let instance = WasmInstance::new(store, instance)?;
 
         // Create module
         let module = Module::new(instance)?;
         let module_schema = module.schema.clone();
+        if !*runtime.app_initialized.lock().unwrap() {
+            runtime.loading_modules.lock().unwrap().push(module);
+            println!(
+                "Module '{}' is queued for loading after app initialization",
+                runtime
+                    .loading_modules
+                    .lock()
+                    .unwrap()
+                    .last()
+                    .unwrap()
+                    .schema
+                    .name
+            );
+            return Ok(module_schema.as_ref().clone());
+        } else {
+            Runtime::publish_module(runtime, module)?;
+            return Ok(module_schema.as_ref().clone());
+        }
+    }
 
+    pub fn publish_module(runtime: Arc<Self>, module: Module) -> Result<(), IntersticeError> {
+        let module_schema = module.schema.clone();
         for authority in &module_schema.authorities {
-            if let Some(other_entry) = self.authority_modules.get(authority) {
+            if let Some(other_entry) = runtime.authority_modules.lock().unwrap().get(authority) {
                 return Err(IntersticeError::AuthorityAlreadyTaken(
                     module_schema.name.clone(),
                     authority.clone().into(),
@@ -109,7 +137,7 @@ impl Node {
                         .map(|sub| sub.reducer_name.clone()),
                     interstice_abi::Authority::File => None,
                 };
-                self.authority_modules.insert(
+                runtime.authority_modules.lock().unwrap().insert(
                     authority.clone(),
                     AuthorityEntry {
                         module_name: module_schema.name.clone(),
@@ -120,13 +148,22 @@ impl Node {
         }
 
         // Check name
-        if self.modules.contains_key(&module.schema.name) {
-            return Err(IntersticeError::ModuleAlreadyExists(module.schema.name));
+        if runtime
+            .modules
+            .lock()
+            .unwrap()
+            .contains_key(&module.schema.name)
+        {
+            return Err(IntersticeError::ModuleAlreadyExists(
+                module.schema.name.clone(),
+            ));
         }
 
         // Check dependencies
         for dependency in &module.schema.module_dependencies {
-            if let Some(dependency_module) = self.modules.get(&dependency.module_name) {
+            if let Some(dependency_module) =
+                runtime.modules.lock().unwrap().get(&dependency.module_name)
+            {
                 if dependency_module.schema.version != dependency.version {
                     return Err(IntersticeError::ModuleVersionMismatch(
                         module.schema.name.clone(),
@@ -148,17 +185,25 @@ impl Node {
 
         // Connect to node dependencies
         for node_dependency in &module_schema.node_dependencies {
-            let network = &mut self.network_handle;
+            let network = &mut runtime.network_handle.clone();
             network.connect_to_peer(node_dependency.address.clone());
         }
 
-        self.modules.insert(module.schema.name.clone(), module);
+        runtime
+            .modules
+            .lock()
+            .unwrap()
+            .insert(module.schema.name.clone(), Arc::new(module));
 
         // Throw init event
-        self.event_queue.push_back(SubscriptionEventInstance::Init {
-            module_name: module_schema.name.clone(),
-        });
+        runtime
+            .event_sender
+            .send(EventInstance::Init {
+                module_name: module_schema.name.clone(),
+            })
+            .unwrap();
+        println!("Loaded module '{}'", module_schema.name);
 
-        Ok(module_schema)
+        Ok(())
     }
 }

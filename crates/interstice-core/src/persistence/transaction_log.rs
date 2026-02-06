@@ -1,6 +1,6 @@
 use super::log_rotation::{LogRotator, RotationConfig};
 use crate::error::IntersticeError;
-use crate::transaction::Transaction;
+use crate::runtime::transaction::Transaction;
 use interstice_abi::decode;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};

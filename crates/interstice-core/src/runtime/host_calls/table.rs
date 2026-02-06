@@ -1,12 +1,12 @@
-use crate::{Node, transaction::Transaction};
+use crate::{runtime::Runtime, runtime::transaction::Transaction};
 use interstice_abi::{
     DeleteRowRequest, DeleteRowResponse, InsertRowRequest, InsertRowResponse, ModuleSchema,
     TableScanRequest, TableScanResponse, UpdateRowRequest, UpdateRowResponse,
 };
 
-impl Node {
+impl Runtime {
     pub(crate) fn handle_insert_row(
-        &mut self,
+        &self,
         caller_module_schema: &ModuleSchema,
         insert_row_request: InsertRowRequest,
     ) -> InsertRowResponse {
@@ -26,7 +26,8 @@ impl Node {
                 ));
             }
         }
-        let reducer_frame = self.call_stack.last_mut().unwrap();
+        let mut reducer_frame = self.call_stack.lock().unwrap();
+        let reducer_frame = reducer_frame.last_mut().unwrap();
         reducer_frame.transactions.push(Transaction::Insert {
             module_name: caller_module_schema.name.clone(),
             table_name: insert_row_request.table_name,
@@ -34,12 +35,14 @@ impl Node {
         });
         InsertRowResponse::Ok
     }
+
     pub(crate) fn handle_update_row(
-        &mut self,
+        &self,
         caller_module_name: String,
         update_row_request: UpdateRowRequest,
     ) -> UpdateRowResponse {
-        let reducer_frame = self.call_stack.last_mut().unwrap();
+        let mut reducer_frame = self.call_stack.lock().unwrap();
+        let reducer_frame = reducer_frame.last_mut().unwrap();
         reducer_frame.transactions.push(Transaction::Update {
             module_name: caller_module_name,
             table_name: update_row_request.table_name,
@@ -48,11 +51,12 @@ impl Node {
         UpdateRowResponse::Ok
     }
     pub(crate) fn handle_delete_row(
-        &mut self,
+        &self,
         caller_module_name: String,
         delete_row_request: DeleteRowRequest,
     ) -> DeleteRowResponse {
-        let reducer_frame = self.call_stack.last_mut().unwrap();
+        let mut reducer_frame = self.call_stack.lock().unwrap();
+        let reducer_frame = reducer_frame.last_mut().unwrap();
         reducer_frame.transactions.push(Transaction::Delete {
             module_name: caller_module_name,
             table_name: delete_row_request.table_name,
@@ -61,15 +65,22 @@ impl Node {
         DeleteRowResponse::Ok
     }
     pub(crate) fn handle_table_scan(
-        &mut self,
+        &self,
         table_scan_request: TableScanRequest,
     ) -> TableScanResponse {
         self.modules
-            .get(&self.call_stack.last().unwrap().module)
-            .and_then(|module| module.tables.get(&table_scan_request.table_name))
-            .map(|table| TableScanResponse {
-                rows: table.rows.clone(),
+            .lock()
+            .unwrap()
+            .get(&self.call_stack.lock().unwrap().last().unwrap().module)
+            .and_then(|module| {
+                module
+                    .tables
+                    .lock()
+                    .unwrap()
+                    .get(&table_scan_request.table_name)
+                    .map(|t| t.rows.clone())
             })
+            .map(|rows| TableScanResponse { rows })
             .unwrap_or(TableScanResponse { rows: vec![] })
     }
 }

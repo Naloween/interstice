@@ -4,7 +4,7 @@ use crate::interstice_abi_macros::IntersticeType;
 use key_code::KeyCode;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Serialize, IntersticeType)]
+#[derive(Debug, Deserialize, Serialize, IntersticeType, Clone)]
 pub enum InputEvent {
     Added {
         device_id: u32,
@@ -38,13 +38,13 @@ pub enum InputEvent {
     },
 }
 
-#[derive(Debug, Deserialize, Serialize, IntersticeType)]
+#[derive(Debug, Deserialize, Serialize, IntersticeType, Clone)]
 pub enum ElementState {
     Pressed,
     Released,
 }
 
-#[derive(Debug, Deserialize, Serialize, IntersticeType)]
+#[derive(Debug, Deserialize, Serialize, IntersticeType, Clone)]
 pub enum PhysicalKey {
     /// A known key code
     Code(KeyCode),

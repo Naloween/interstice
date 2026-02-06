@@ -1,0 +1,112 @@
+mod authority;
+pub mod event;
+pub mod host_calls;
+mod module;
+mod reducer;
+mod table;
+pub mod transaction;
+mod wasm;
+
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{Arc, Mutex},
+};
+
+use crate::{
+    IntersticeError,
+    network::NetworkHandle,
+    persistence::TransactionLog,
+    runtime::authority::AuthorityEntry,
+    runtime::event::EventInstance,
+    runtime::host_calls::gpu::GpuState,
+    runtime::module::Module,
+    runtime::reducer::ReducerFrame,
+    runtime::wasm::{StoreState, linker::define_host_calls},
+};
+use interstice_abi::Authority;
+use tokio::{
+    sync::mpsc::{UnboundedReceiver, UnboundedSender},
+    task::JoinHandle,
+};
+use wasmtime::{Engine, Linker};
+
+pub struct Runtime {
+    pub(crate) gpu: Arc<Mutex<Option<GpuState>>>,
+    pub(crate) modules: Arc<Mutex<HashMap<String, Arc<Module>>>>,
+    pub(crate) authority_modules: Arc<Mutex<HashMap<Authority, AuthorityEntry>>>,
+    pub(crate) call_stack: Arc<Mutex<Vec<ReducerFrame>>>,
+    pub(crate) engine: Arc<Engine>,
+    pub(crate) linker: Arc<Mutex<Linker<StoreState>>>,
+    pub(crate) event_sender: UnboundedSender<EventInstance>,
+    pub(crate) network_handle: NetworkHandle,
+    pub(crate) transaction_logs: Arc<Mutex<TransactionLog>>,
+    pub(crate) app_initialized: Arc<Mutex<bool>>,
+    pub(crate) loading_modules: Arc<Mutex<Vec<Module>>>,
+}
+
+impl Runtime {
+    pub fn new(
+        transaction_log_path: &Path,
+        event_sender: UnboundedSender<EventInstance>,
+        network_handle: NetworkHandle,
+        gpu: Arc<Mutex<Option<GpuState>>>,
+    ) -> Result<Self, IntersticeError> {
+        let engine = Arc::new(Engine::default());
+        let mut linker = Linker::new(&engine);
+        define_host_calls(&mut linker).map_err(|err| {
+            IntersticeError::Internal(format!("Couldn't add host calls to the linker: {}", err))
+        })?;
+        Ok(Self {
+            gpu,
+            call_stack: Arc::new(Mutex::new(Vec::new())),
+            engine,
+            linker: Arc::new(Mutex::new(linker)),
+            event_sender,
+            network_handle,
+            transaction_logs: Arc::new(Mutex::new(TransactionLog::new(transaction_log_path)?)),
+            modules: Arc::new(Mutex::new(HashMap::new())),
+            authority_modules: Arc::new(Mutex::new(HashMap::new())),
+            app_initialized: Arc::new(Mutex::new(false)),
+            loading_modules: Arc::new(Mutex::new(Vec::new())),
+        })
+    }
+
+    pub fn run(
+        runtime: Arc<Runtime>,
+        mut event_receiver: UnboundedReceiver<EventInstance>,
+    ) -> JoinHandle<()> {
+        return tokio::spawn(async move {
+            while let Some(event) = event_receiver.recv().await {
+                match event {
+                    EventInstance::AppInitialized => {
+                        for module in runtime.loading_modules.lock().unwrap().drain(..) {
+                            let module_name = module.schema.name.clone();
+                            if let Err(err) = Runtime::publish_module(runtime.clone(), module) {
+                                eprintln!("Failed to load module '{}': {}", module_name, err);
+                            }
+                        }
+                        *runtime.app_initialized.lock().unwrap() = true;
+                    }
+                    event => {
+                        let triggered = runtime.find_subscriptions(&event).unwrap();
+
+                        for sub in triggered {
+                            runtime.invoke_subscription(sub, event.clone()).unwrap();
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    pub fn replay(&self) -> Result<(), IntersticeError> {
+        let transactions = self.transaction_logs.lock().unwrap().read_all()?;
+
+        for transaction in transactions {
+            let _events = self.apply_transaction(transaction)?;
+        }
+
+        Ok(())
+    }
+}

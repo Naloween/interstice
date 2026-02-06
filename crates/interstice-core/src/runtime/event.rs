@@ -1,8 +1,8 @@
-use crate::{Node, error::IntersticeError};
-use interstice_abi::{IntersticeValue, Row, SubscriptionEventSchema};
+use crate::{error::IntersticeError, runtime::Runtime, runtime::authority::AuthorityEntry};
+use interstice_abi::{Authority, InputEvent, IntersticeValue, Row, SubscriptionEventSchema};
 
 #[derive(Debug, Clone)]
-pub enum SubscriptionEventInstance {
+pub enum EventInstance {
     TableInsertEvent {
         module_name: String,
         table_name: String,
@@ -22,12 +22,15 @@ pub enum SubscriptionEventInstance {
     Init {
         module_name: String,
     },
+    Render,
+    Input(InputEvent),
+    AppInitialized,
 }
 
-impl SubscriptionEventInstance {
+impl EventInstance {
     pub fn has_schema(&self, event_schema: &SubscriptionEventSchema) -> bool {
         match &self {
-            SubscriptionEventInstance::TableInsertEvent {
+            EventInstance::TableInsertEvent {
                 module_name,
                 table_name,
                 ..
@@ -42,7 +45,7 @@ impl SubscriptionEventInstance {
                     return false;
                 }
             }
-            SubscriptionEventInstance::TableUpdateEvent {
+            EventInstance::TableUpdateEvent {
                 module_name,
                 table_name,
                 ..
@@ -57,7 +60,7 @@ impl SubscriptionEventInstance {
                     return false;
                 }
             }
-            SubscriptionEventInstance::TableDeleteEvent {
+            EventInstance::TableDeleteEvent {
                 module_name,
                 table_name,
                 ..
@@ -72,44 +75,48 @@ impl SubscriptionEventInstance {
                     return false;
                 }
             }
-            SubscriptionEventInstance::Init { .. } => {
+            EventInstance::Init { module_name } => {
                 if let SubscriptionEventSchema::Init = event_schema {
                     return true;
                 } else {
                     return false;
                 }
             }
+            EventInstance::Render => {
+                if let SubscriptionEventSchema::Render = event_schema {
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+            EventInstance::Input(input_event) => {
+                if let SubscriptionEventSchema::Input = event_schema {
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+            _ => false,
         }
     }
 }
 
+#[derive(Debug)]
 pub struct SubscriptionTarget {
     pub module: String,
     pub reducer: String,
 }
 
-impl Node {
-    pub(crate) fn process_event_queue(&mut self) -> Result<(), IntersticeError> {
-        while let Some(event) = self.event_queue.pop_front() {
-            let triggered = self.find_subscriptions(&event)?;
-
-            for sub in triggered {
-                let ((), new_events) = self.invoke_subscription(sub, event.clone())?;
-                self.event_queue.extend(new_events);
-            }
-        }
-
-        Ok(())
-    }
-
-    fn find_subscriptions(
+impl Runtime {
+    pub(crate) fn find_subscriptions(
         &self,
-        event: &SubscriptionEventInstance,
+        event: &EventInstance,
     ) -> Result<Vec<SubscriptionTarget>, IntersticeError> {
         let mut out = Vec::new();
 
-        if let SubscriptionEventInstance::Init { module_name } = event {
-            let module = self.modules.get(module_name).unwrap();
+        if let EventInstance::Init { module_name } = event {
+            let module = self.modules.lock().unwrap();
+            let module = module.get(module_name).unwrap();
             for sub in &module.schema.subscriptions {
                 if event.has_schema(&sub.event) {
                     out.push(SubscriptionTarget {
@@ -118,8 +125,40 @@ impl Node {
                     });
                 }
             }
+        } else if let EventInstance::Render = event {
+            if let Some(AuthorityEntry {
+                module_name: gpu_module_name,
+                on_event_reducer_name: Some(render_reducer_name),
+            }) = self
+                .authority_modules
+                .lock()
+                .unwrap()
+                .get(&Authority::Gpu)
+                .cloned()
+            {
+                out.push(SubscriptionTarget {
+                    module: gpu_module_name,
+                    reducer: render_reducer_name,
+                });
+            }
+        } else if let EventInstance::Input(_) = event {
+            if let Some(AuthorityEntry {
+                module_name,
+                on_event_reducer_name: Some(on_input_reducer_name),
+            }) = self
+                .authority_modules
+                .lock()
+                .unwrap()
+                .get(&Authority::Input)
+                .cloned()
+            {
+                out.push(SubscriptionTarget {
+                    module: module_name,
+                    reducer: on_input_reducer_name,
+                });
+            }
         } else {
-            for module in self.modules.values() {
+            for module in self.modules.lock().unwrap().values() {
                 for sub in &module.schema.subscriptions {
                     if event.has_schema(&sub.event) {
                         out.push(SubscriptionTarget {
@@ -134,32 +173,32 @@ impl Node {
         Ok(out)
     }
 
-    fn invoke_subscription(
-        &mut self,
+    pub(crate) fn invoke_subscription(
+        &self,
         target: SubscriptionTarget,
-        event: SubscriptionEventInstance,
-    ) -> Result<((), Vec<SubscriptionEventInstance>), IntersticeError> {
+        event: EventInstance,
+    ) -> Result<(), IntersticeError> {
         let args = match event {
-            SubscriptionEventInstance::TableInsertEvent {
+            EventInstance::TableInsertEvent {
                 module_name: _,
                 table_name: _,
                 inserted_row,
             } => IntersticeValue::Vec(vec![inserted_row.into()]),
-            SubscriptionEventInstance::TableUpdateEvent {
+            EventInstance::TableUpdateEvent {
                 module_name: _,
                 table_name: _,
                 old_row,
                 new_row,
             } => IntersticeValue::Vec(vec![old_row.into(), new_row.into()]),
-            SubscriptionEventInstance::TableDeleteEvent {
+            EventInstance::TableDeleteEvent {
                 module_name: _,
                 table_name: _,
                 deleted_row,
             } => IntersticeValue::Vec(vec![deleted_row.into()]),
-            SubscriptionEventInstance::Init { .. } => IntersticeValue::Vec(vec![]),
+            EventInstance::Input(input_event) => IntersticeValue::Vec(vec![input_event.into()]),
+            _ => IntersticeValue::Vec(vec![]),
         };
-
-        let (_ret, events) = self.invoke_reducer(&target.module, &target.reducer, args)?;
-        Ok(((), events))
+        let _ret = self.call_reducer(&target.module, &target.reducer, args)?;
+        Ok(())
     }
 }

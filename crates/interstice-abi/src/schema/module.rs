@@ -30,6 +30,26 @@ pub struct ModuleSchema {
 }
 
 impl ModuleSchema {
+    pub fn empty() -> Self {
+        Self {
+            abi_version: 0,
+            name: "".into(),
+            version: Version {
+                major: 0,
+                minor: 0,
+                patch: 0,
+            },
+            visibility: ModuleVisibility::Private,
+            reducers: Vec::new(),
+            tables: Vec::new(),
+            subscriptions: Vec::new(),
+            type_definitions: HashMap::new(),
+            authorities: Vec::new(),
+            module_dependencies: Vec::new(),
+            node_dependencies: Vec::new(),
+        }
+    }
+
     pub fn new(
         name: impl Into<String>,
         version: Version,

@@ -1,6 +1,6 @@
 use interstice_abi::GpuId;
 
-use crate::host_calls::gpu::{ActivePass, ComputePassState, EncoderCommand, GpuState};
+use super::{ActivePass, ComputePassState, EncoderCommand, GpuState};
 
 impl GpuState {
     pub fn create_compute_pipeline(

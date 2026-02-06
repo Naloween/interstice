@@ -1,7 +1,7 @@
-use crate::Node;
+use crate::{Node, runtime::Runtime};
 use interstice_abi::LogRequest;
 
-impl Node {
+impl Runtime {
     pub(crate) fn handle_log(&self, caller_module_name: String, log_request: LogRequest) {
         println!("[{}] {}", caller_module_name, log_request.message);
     }

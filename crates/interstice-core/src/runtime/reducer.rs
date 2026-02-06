@@ -1,5 +1,6 @@
 use crate::{
-    Node, error::IntersticeError, subscription::SubscriptionEventInstance, transaction::Transaction,
+    error::IntersticeError, runtime::Runtime, runtime::event::EventInstance,
+    runtime::transaction::Transaction,
 };
 use interstice_abi::{IntersticeValue, ReducerContext};
 use serde::Serialize;
@@ -9,7 +10,6 @@ pub struct ReducerFrame {
     pub module: String,
     pub reducer: String,
     pub transactions: Vec<Transaction>,
-    pub emitted_events: Vec<SubscriptionEventInstance>,
 }
 
 impl ReducerFrame {
@@ -18,28 +18,32 @@ impl ReducerFrame {
             module,
             reducer,
             transactions: Vec::new(),
-            emitted_events: Vec::new(),
         }
     }
 }
 
-impl Node {
-    pub(crate) fn invoke_reducer(
-        &mut self,
+impl Runtime {
+    pub(crate) fn call_reducer(
+        &self,
         module_name: &str,
         reducer_name: &str,
         args: impl Serialize,
-    ) -> Result<(IntersticeValue, Vec<SubscriptionEventInstance>), IntersticeError> {
+    ) -> Result<IntersticeValue, IntersticeError> {
         // Lookup module
-        let module = self.modules.get_mut(module_name).ok_or_else(|| {
-            IntersticeError::ModuleNotFound(
-                module_name.into(),
-                format!(
-                    "When trying to invoke reducer '{}' from '{}'",
-                    reducer_name, module_name
-                ),
-            )
-        })?;
+        let mut modules = self.modules.lock().unwrap();
+        let module = modules
+            .get_mut(module_name)
+            .ok_or_else(|| {
+                IntersticeError::ModuleNotFound(
+                    module_name.into(),
+                    format!(
+                        "When trying to invoke reducer '{}' from '{}'",
+                        reducer_name, module_name
+                    ),
+                )
+            })?
+            .clone();
+        drop(modules); // Very important to release lock so that we can access to other modules during host calls
 
         // Check that reducer exist in schema
         module
@@ -52,11 +56,13 @@ impl Node {
                 reducer: reducer_name.into(),
             })?;
 
-        // Detect cycles
+        // Detect cycles (no module already called before)
         if self
             .call_stack
+            .lock()
+            .unwrap()
             .iter()
-            .any(|f| f.module == module_name && f.reducer == reducer_name)
+            .any(|f| f.module == module_name)
         {
             return Err(IntersticeError::ReducerCycle {
                 module: module_name.into(),
@@ -66,6 +72,8 @@ impl Node {
 
         // Push frame
         self.call_stack
+            .lock()
+            .unwrap()
             .push(ReducerFrame::new(module_name.into(), reducer_name.into()));
 
         // Call WASM function
@@ -73,24 +81,28 @@ impl Node {
         let result = module.call_reducer(reducer_name, (reducer_context, args))?;
 
         // Pop frame
-        let mut reducer_frame = self.call_stack.pop().unwrap();
+        let reducer_frame = self.call_stack.lock().unwrap().pop().unwrap();
 
         // Apply transaction
+        let mut emitted_events = Vec::new();
         for transaction in reducer_frame.transactions {
-            reducer_frame
-                .emitted_events
-                .append(&mut self.apply_transaction(transaction)?);
+            emitted_events.append(&mut self.apply_transaction(transaction)?);
         }
 
-        Ok((result, reducer_frame.emitted_events))
+        // send events
+        for ev in emitted_events {
+            self.event_sender.send(ev).unwrap();
+        }
+
+        Ok(result)
     }
 
     pub(crate) fn apply_transaction(
-        &mut self,
+        &self,
         transaction: Transaction,
-    ) -> Result<Vec<SubscriptionEventInstance>, IntersticeError> {
+    ) -> Result<Vec<EventInstance>, IntersticeError> {
         // Add transaction to the logs
-        self.transaction_logs.append(&transaction)?;
+        self.transaction_logs.lock().unwrap().append(&transaction)?;
 
         // Apply transactions locally and collect events
         let mut events = Vec::new();
@@ -100,7 +112,8 @@ impl Node {
                 table_name,
                 new_row,
             } => {
-                let module = self.modules.get_mut(&module_name).ok_or_else(|| {
+                let mut modules = self.modules.lock().unwrap();
+                let mut module = modules.get_mut(&module_name).ok_or_else(|| {
                     IntersticeError::ModuleNotFound(
                         module_name.clone(),
                         format!(
@@ -110,14 +123,16 @@ impl Node {
                         ),
                     )
                 })?;
-                let table = module.tables.get_mut(&table_name).ok_or_else(|| {
-                    IntersticeError::TableNotFound {
-                        module_name: module_name.clone(),
-                        table_name: table_name.clone(),
-                    }
-                })?;
+                let mut tables = module.tables.lock().unwrap();
+                let table =
+                    tables
+                        .get_mut(&table_name)
+                        .ok_or_else(|| IntersticeError::TableNotFound {
+                            module_name: module_name.clone(),
+                            table_name: table_name.clone(),
+                        })?;
                 table.rows.push(new_row.clone());
-                events.push(SubscriptionEventInstance::TableInsertEvent {
+                events.push(EventInstance::TableInsertEvent {
                     module_name,
                     table_name,
                     inserted_row: new_row,
@@ -129,7 +144,8 @@ impl Node {
                 table_name,
                 update_row,
             } => {
-                let module = self.modules.get_mut(&module_name).ok_or_else(|| {
+                let mut modules = self.modules.lock().unwrap();
+                let mut module = modules.get_mut(&module_name).ok_or_else(|| {
                     IntersticeError::ModuleNotFound(
                         module_name.clone(),
                         format!(
@@ -139,12 +155,14 @@ impl Node {
                         ),
                     )
                 })?;
-                let table = module.tables.get_mut(&table_name).ok_or_else(|| {
-                    IntersticeError::TableNotFound {
-                        module_name: module_name.clone(),
-                        table_name: table_name.clone(),
-                    }
-                })?;
+                let mut tables = module.tables.lock().unwrap();
+                let table =
+                    tables
+                        .get_mut(&table_name)
+                        .ok_or_else(|| IntersticeError::TableNotFound {
+                            module_name: module_name.clone(),
+                            table_name: table_name.clone(),
+                        })?;
                 let mut old_row = None;
                 for row in table.rows.iter_mut() {
                     if row.primary_key == update_row.primary_key {
@@ -154,7 +172,7 @@ impl Node {
                     }
                 }
                 if let Some(old_row) = old_row {
-                    events.push(SubscriptionEventInstance::TableUpdateEvent {
+                    events.push(EventInstance::TableUpdateEvent {
                         module_name,
                         table_name,
                         old_row,
@@ -167,7 +185,8 @@ impl Node {
                 table_name,
                 deleted_row_id,
             } => {
-                let module = self.modules.get_mut(&module_name).ok_or_else(|| {
+                let mut modules = self.modules.lock().unwrap();
+                let mut module = modules.get_mut(&module_name).ok_or_else(|| {
                     IntersticeError::ModuleNotFound(
                         module_name.clone(),
                         format!(
@@ -177,12 +196,14 @@ impl Node {
                         ),
                     )
                 })?;
-                let table = module.tables.get_mut(&table_name).ok_or_else(|| {
-                    IntersticeError::TableNotFound {
-                        module_name: module_name.clone(),
-                        table_name: table_name.clone(),
-                    }
-                })?;
+                let mut tables = module.tables.lock().unwrap();
+                let table =
+                    tables
+                        .get_mut(&table_name)
+                        .ok_or_else(|| IntersticeError::TableNotFound {
+                            module_name: module_name.clone(),
+                            table_name: table_name.clone(),
+                        })?;
                 let deleted_row_idx = table
                     .rows
                     .iter()
@@ -190,7 +211,7 @@ impl Node {
 
                 if let Some(deleted_row_idx) = deleted_row_idx {
                     let deleted_row = table.rows.swap_remove(deleted_row_idx);
-                    events.push(SubscriptionEventInstance::TableDeleteEvent {
+                    events.push(EventInstance::TableDeleteEvent {
                         module_name,
                         table_name,
                         deleted_row,

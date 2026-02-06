@@ -3,7 +3,7 @@ use interstice_abi::{
     SetVertexBuffer,
 };
 
-use crate::host_calls::gpu::{ActivePass, EncoderCommand, GpuState, RenderCommand};
+use super::{ActivePass, EncoderCommand, GpuState, RenderCommand};
 
 impl GpuState {
     pub fn set_bind_group(&mut self, pass_id: GpuId, index: u32, bind_group: GpuId) {

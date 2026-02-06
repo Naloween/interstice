@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, mpsc};
+use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 mod packet;
@@ -27,6 +28,7 @@ pub struct Network {
     sender: mpsc::Sender<(NodeId, NetworkPacket)>,
 }
 
+#[derive(Clone)]
 pub struct NetworkHandle {
     pub node_id: Uuid,
     pub address: String,
@@ -168,11 +170,11 @@ impl Network {
     // ─────────────── MAIN EVENT LOOP (CALL FROM NODE) ───────────────
     //
 
-    pub fn run<F>(mut self, mut handler: F)
+    pub fn run<F>(mut self, mut handler: F) -> JoinHandle<()>
     where
         F: FnMut(NodeId, NetworkPacket) + Send + 'static,
     {
-        tokio::spawn(async move {
+        return tokio::spawn(async move {
             while let Some((node_id, packet)) = self.receiver.recv().await {
                 handler(node_id, packet);
             }

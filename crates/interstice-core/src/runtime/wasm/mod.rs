@@ -1,13 +1,15 @@
 pub mod instance;
 pub mod linker;
 
+use interstice_abi::ModuleSchema;
+use std::sync::Arc;
 use wasmtime::{Caller, Memory};
 
-use crate::{Node, error::IntersticeError};
+use crate::{error::IntersticeError, runtime::Runtime};
 
 pub struct StoreState {
-    pub node: *mut Node,
-    pub module_name: String,
+    pub runtime: Arc<Runtime>,
+    pub module_schema: ModuleSchema,
 }
 
 pub fn read_bytes(

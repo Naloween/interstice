@@ -1,6 +1,6 @@
 use interstice_abi::{BeginRenderPass, Draw, DrawIndexed, GpuId, IndexFormat, LoadOp, StoreOp};
 
-use crate::host_calls::gpu::{
+use super::{
     ActivePass, EncoderCommand, GpuState, RenderCommand, RenderPassState, conversions::ToWgpu,
 };
 

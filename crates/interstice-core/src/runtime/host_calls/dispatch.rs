@@ -1,54 +1,49 @@
-use crate::{
-    Node,
-    error::IntersticeError,
-    wasm::{StoreState, read_bytes},
-};
-use interstice_abi::{Authority, HostCall, decode, encode, pack_ptr_len};
+use crate::runtime::wasm::{StoreState, read_bytes};
+use crate::{error::IntersticeError, runtime::Runtime};
+use interstice_abi::{Authority, HostCall, ModuleSchema, decode, encode, pack_ptr_len};
 use serde::Serialize;
 use wasmtime::{Caller, Memory};
 
-impl Node {
+impl Runtime {
     pub(crate) fn dispatch_host_call(
-        &mut self,
+        &self,
         memory: &wasmtime::Memory,
         caller: &mut Caller<'_, StoreState>,
-        caller_module_name: String,
+        caller_module_schema: ModuleSchema,
         ptr: i32,
         len: i32,
     ) -> Result<Option<i64>, IntersticeError> {
         let bytes = read_bytes(memory, caller, ptr, len)?;
         let host_call: HostCall = decode(&bytes).unwrap();
 
-        let caller_module = self.modules.get(&caller_module_name).unwrap();
-
         return match host_call {
             HostCall::CallReducer(call_reducer_request) => {
                 let response = self.handle_call_reducer(
-                    &caller_module.schema.name.clone(),
+                    &caller_module_schema.name.clone(),
                     call_reducer_request,
                 )?;
                 let result = self.send_data_to_module(response, memory, caller);
                 Ok(Some(result))
             }
             HostCall::Log(log_request) => {
-                self.handle_log(caller_module.schema.name.clone(), log_request);
+                self.handle_log(caller_module_schema.name.clone(), log_request);
                 Ok(None)
             }
             HostCall::InsertRow(insert_row_request) => {
                 let response =
-                    self.handle_insert_row(&caller_module.schema.clone(), insert_row_request);
+                    self.handle_insert_row(&caller_module_schema.clone(), insert_row_request);
                 let result = self.send_data_to_module(response, memory, caller);
                 Ok(Some(result))
             }
             HostCall::UpdateRow(update_row_request) => {
                 let response =
-                    self.handle_update_row(caller_module.schema.name.clone(), update_row_request);
+                    self.handle_update_row(caller_module_schema.name.clone(), update_row_request);
                 let result = self.send_data_to_module(response, memory, caller);
                 Ok(Some(result))
             }
             HostCall::DeleteRow(delete_row_request) => {
                 let response =
-                    self.handle_delete_row(caller_module.schema.name.clone(), delete_row_request);
+                    self.handle_delete_row(caller_module_schema.name.clone(), delete_row_request);
                 let result = self.send_data_to_module(response, memory, caller);
                 Ok(Some(result))
             }
@@ -58,14 +53,16 @@ impl Node {
                 Ok(Some(result))
             }
             HostCall::Gpu(gpu_call) => {
-                let gpu_auth_entry = self
-                    .authority_modules
+                let auth_modules = self.authority_modules.lock().unwrap();
+                let gpu_auth_entry = auth_modules
                     .get(&Authority::Gpu)
                     .ok_or_else(|| IntersticeError::Internal("No GPU authority module".into()))?;
 
-                if gpu_auth_entry.module_name != caller_module_name {
+                if gpu_auth_entry.module_name != caller_module_schema.name {
                     return Err(IntersticeError::Unauthorized(Authority::Gpu));
                 }
+
+                drop(auth_modules);
 
                 self.handle_gpu_call(gpu_call, memory, caller)
             }

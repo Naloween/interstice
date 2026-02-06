@@ -1,17 +1,17 @@
 use interstice_abi::GpuCall;
 use wasmtime::Caller;
 
-use crate::{Node, error::IntersticeError, wasm::StoreState};
+use crate::{error::IntersticeError, runtime::Runtime, runtime::wasm::StoreState};
 
-impl Node {
+impl Runtime {
     pub fn handle_gpu_call(
-        &mut self,
+        &self,
         call: interstice_abi::GpuCall,
         memory: &wasmtime::Memory,
         caller: &mut Caller<'_, StoreState>,
     ) -> Result<Option<i64>, IntersticeError> {
-        let gpu = self
-            .gpu
+        let mut gpu = self.gpu.lock().unwrap();
+        let gpu = gpu
             .as_mut()
             .ok_or_else(|| IntersticeError::Internal("GPU not initialized".into()))?;
 

@@ -1,4 +1,7 @@
-use crate::host_calls::{host_call, unpack};
+use crate::{
+    host_calls::{host_call, unpack},
+    log,
+};
 use interstice_abi::*;
 
 pub fn begin_frame() {

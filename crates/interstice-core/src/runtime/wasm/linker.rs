@@ -1,4 +1,4 @@
-use crate::wasm::StoreState;
+use super::StoreState;
 use wasmtime::{Caller, Linker};
 
 pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> {
@@ -12,10 +12,10 @@ pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> 
             };
 
             let data = caller.data();
-            let module_name = data.module_name.clone();
-            let node = unsafe { &mut *data.node };
+            let module_schema = data.module_schema.clone();
+            let runtime = data.runtime.clone();
 
-            match node.dispatch_host_call(&memory, &mut caller, module_name, ptr, len) {
+            match runtime.dispatch_host_call(&memory, &mut caller, module_schema, ptr, len) {
                 Ok(Some(result)) => result,
                 Ok(None) => 0,
                 Err(err) => {

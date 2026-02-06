@@ -1,4 +1,5 @@
-use crate::{error::IntersticeError, wasm::StoreState};
+use super::StoreState;
+use crate::error::IntersticeError;
 use interstice_abi::{IntersticeValue, ModuleSchema, decode, encode};
 use serde::Serialize;
 use wasmtime::{Func, Instance, Memory, Store};

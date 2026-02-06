@@ -2,7 +2,7 @@ use std::num::NonZero;
 
 use interstice_abi::{CreateBuffer, GpuId};
 
-use crate::host_calls::gpu::conversions::ToWgpu;
+use super::conversions::ToWgpu;
 
 use super::{EncoderState, GpuState, map_buffer_usage};
 

@@ -1,15 +1,9 @@
-mod authority;
+mod app;
 mod error;
-mod host_calls;
-mod module;
 mod network;
 mod node;
 pub mod persistence;
-mod reducer;
-mod subscription;
-mod table;
-mod transaction;
-mod wasm;
+mod runtime;
 
 pub use crate::node::Node;
 pub use error::*;

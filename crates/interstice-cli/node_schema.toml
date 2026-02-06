@@ -1,27 +1,3 @@
 name = "MyNode"
 address = "127.0.0.1:8080"
-
-[[modules]]
-abi_version = 1
-name = "hello"
-visibility = "Public"
-tables = []
-subscriptions = []
-authorities = []
-module_dependencies = []
-node_dependencies = []
-
-[modules.version]
-major = 0
-minor = 0
-patch = 1
-
-[[modules.reducers]]
-name = "hello"
-return_type = "Void"
-
-[[modules.reducers.arguments]]
-name = "name"
-field_type = "String"
-
-[modules.type_definitions]
+modules = []
