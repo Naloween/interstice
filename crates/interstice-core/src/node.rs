@@ -66,8 +66,8 @@ impl Node {
 
         // Run network events
         self.network.listen()?;
-        let net_handle = self.network.run();
-        let runtime_handle = Runtime::run(self.runtime, self.event_receiver);
+        let _net_handle = self.network.run();
+        let _runtime_handle = Runtime::run(self.runtime, self.event_receiver);
 
         self.run_app_notify.notified().await;
         self.app.run();

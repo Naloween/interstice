@@ -140,7 +140,7 @@ impl Network {
         tokio::spawn(async move {
             let listener = TcpListener::bind(&my_address)
                 .await
-                .map_err(|err| IntersticeError::Internal("Failed to listen adress".into()))
+                .map_err(|_err| IntersticeError::Internal("Failed to listen adress".into()))
                 .unwrap();
             println!("Listening on {}", my_address);
             loop {

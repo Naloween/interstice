@@ -2,6 +2,8 @@
 name = "interstice-core"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+license-file = "LICENSE"
 
 [dependencies]
 interstice-abi = { path = "../../crates/interstice-abi" }

@@ -1,6 +1,6 @@
 use crate::{
     error::IntersticeError,
-    network::protocol::{NetworkPacket, RequestSubscription, TableEvent, TableEventInstance},
+    network::protocol::{NetworkPacket, RequestSubscription, TableEvent},
     runtime::{
         Runtime,
         authority::AuthorityEntry,

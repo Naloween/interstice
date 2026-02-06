@@ -1,256 +1,213 @@
 # Interstice
 
-**Interstice** is a modular execution substrate for running sandboxed WASM modules that cooperate through shared, versioned data rather than ad‑hoc APIs.
+Interstice is a minimal, modular substrate for running sandboxed WebAssembly modules that cooperate through typed, versioned data and deterministic reducers.
 
-Interstice sits *between* a database, a runtime, and an operating‑system‑like substrate — without fully being any of them. Its core goal is to provide a **minimal, well‑defined foundation** on top of which higher‑level systems (graphics, input, games, tools, services) can be built *as modules*, not as privileged hard‑coded features.
+Contents
 
----
+- Architecture Overview
+- Quickstart
+- Module authoring
+- Examples
+- Publishing (draft)
+- Roadmap & TODOs
+- Contribution & License
 
-## Motivation
+Repository layout
 
-Most systems that aim for extensibility eventually collapse under one of two failures:
-
-1. **Unstructured APIs** — implicit contracts, global state, callbacks everywhere
-2. **Over‑centralization** — the core grows endlessly as features demand special cases
-
-Interstice takes a different approach:
-
-* All module interfaces are **data‑defined**
-* All authority is **explicit and capability‑based**
-* The core remains **small and boring**
-
-The ambition is not to replace an OS or a game engine, but to define a substrate that *could* grow toward those roles without architectural rewrites.
-
----
-
-## Core Concepts
-
-### Modules
-
-A **module** is a sandboxed WebAssembly component executed by the Interstice core.
-
-Each module:
-
-* owns its own state
-* exposes a public interface
-* may call into other modules (if authorized)
-* may subscribe to state changes
-
-Modules are isolated by default. Interaction is explicit.
+- The core runtime: [crates/interstice-core](crates/interstice-core)
+- The WASM ABI and types: [crates/interstice-abi](crates/interstice-abi)
+- The Rust SDK and macros: [crates/interstice-sdk\*](crates/interstice-sdk)
+- The CLI: [crates/interstice-cli](crates/interstice-cli)
+- Example modules: [modules/hello], [modules/caller], [modules/graphics]
 
 ---
 
-### Tables
+# Quickstart
 
-**Tables** are the primary state abstraction.
+Prerequisites
 
-* Structured, typed collections of rows
-* Owned by a single module
-* Optionally marked as public
+- Rust toolchain (stable) and `cargo`
+- Add the WASM target:
 
-Tables are not just storage — they are *reactive state*. Changes to tables drive execution.
+```bash
+rustup target add wasm32-unknown-unknown
+```
 
-Supported operations (via host calls):
+Start a node (port 8080):
 
-* insert row
-* update row
-* delete row
-* query by key or filter
+```bash
+cargo run -p interstice-cli -- start 8080
+```
 
----
+Start a second node (port 8081) to simulate remote interactions:
 
-### Reducers
+```bash
+cargo run -p interstice-cli -- start 8081
+```
 
-A **reducer** is a pure, deterministic function that:
+Build example modules (from workspace root):
 
-* is defined by a module
-* receives structured input
-* performs controlled mutations on tables
+```bash
+cargo build -p hello --target wasm32-unknown-unknown --release
+cargo build -p caller --target wasm32-unknown-unknown --release
+cargo build -p graphics --target wasm32-unknown-unknown --release
+```
 
-Reducers form the **API surface** of a module.
+Loading / publishing modules (current)
 
-Other modules may call a reducer *only if*:
-
-* the reducer is public
-* the versioned interface matches
-* the caller has the required capability
-
-Reducers are intentionally constrained:
-
-* no direct OS access
-* no hidden side effects
-* bounded execution
-
-This keeps execution analyzable and replayable.
+Currently the node loads modules from the modules directory or via manual install. A `publish` CLI command is planned (see Publishing section below) to upload and validate module WASM artifacts on a running node.
 
 ---
 
-### Versioned Interfaces
+# Module authoring
 
-Each module exposes a versioned interface consisting of:
+Minimal layout
 
-* table schemas
-* reducer signatures
+- `Cargo.toml` — set `crate-type = ["cdylib"]` and depend on `interstice-sdk`.
+- `build.rs` — optional helper to produce the WASM artifact.
+- `src/lib.rs` — module implementation.
 
-Callers must explicitly target a compatible version.
+SDK macros & patterns
 
-This allows:
+- `interstice_module!(...)` — register the module (visibility, authorities).
+- `#[table]` — mark table row structs; use `#[primary_key]` on the key field.
+- `#[interstice_type]` — custom serializable types.
+- `#[reducer]` — declare reducers; `on = "event"` subscribes to events.
 
-* safe evolution of modules
-* coexistence of multiple versions
-* reproducible execution
+Reducer & table usage
 
----
+Reducers receive `ReducerContext` and typed args. Use `ctx.current.<table>().insert(...)` and `ctx.current.<table>().scan()` for table operations. Keep reducers deterministic and avoid blocking operations; model async work via events.
 
-## Reactivity and Subscriptions
+Capabilities
 
-Polling is avoided by design.
+Declare requested authorities with `interstice_module!(authorities: [Input, Gpu]);` for privileged modules.
 
-Modules may **subscribe** to:
+Build for WASM
 
-* table changes (insert/update/delete)
-* reducer invocations
-
-When a subscribed event occurs, the core schedules the appropriate reducer.
-
-This yields:
-
-* event‑driven execution
-* zero idle CPU usage
-* deterministic ordering
+```bash
+rustup target add wasm32-unknown-unknown
+cargo build -p <module> --target wasm32-unknown-unknown --release
+```
 
 ---
 
-## Capabilities and Authority
+# Examples
 
-Interstice uses an explicit **capability model**.
+- `modules/hello`
+  - `Greetings` table, `hello` reducer, and an `init` hook.
+- `modules/caller`
+  - Uses generated bindings to call `hello` remotely and subscribes to `hello.greetings.insert`.
+- `modules/graphics`
+  - Requests `Input` and `Gpu` authorities and renders a triangle; implements `init`, `render`, and `input` hooks.
 
-A module has no authority unless granted.
+Reproduce
 
-Capabilities include (non‑exhaustive):
-
-* table read / write
-* reducer invocation
-* subscriptions
-* time access
-* logging
-* graphics / input / hardware access
-
-Capabilities are:
-
-* granted at load time or dynamically
-* scoped
-* revocable
-
-This allows fine‑grained control without a bloated core API.
+1. Start two nodes (ports 8080 and 8081).
+2. Build and install `hello` on one node and `caller` on the other (manual copy/publish step today).
+3. Run `graphics` on a node with display privileges to see the triangle.
 
 ---
 
-## The Core
+# Publishing (draft)
 
-The **Interstice core** is intentionally minimal. It is responsible for:
+Manual workflow
 
-* loading and sandboxing WASM modules
-* scheduling reducer execution
-* managing tables and subscriptions
-* enforcing capabilities
-* mediating module‑to‑module calls
+1. Build module WASM:
 
-The core does *not*:
+```bash
+cargo build -p hello --target wasm32-unknown-unknown --release
+```
 
-* define graphics APIs
-* define file systems
-* define networking
-* define game logic
+2. Locate the WASM in `target/wasm32-unknown-unknown/release/`.
+3. Copy the artifact into the node's modules directory or use the planned CLI `publish` command.
 
-Those are implemented as modules.
+Planned CLI flow
 
----
+- `interstice-cli publish --addr <host:port> <module.wasm>` — upload, validate, and install a module on a running node. The node verifies schema compatibility and requested capabilities.
 
-## Privileged Modules
+Security
 
-Some modules may be granted elevated capabilities.
+- Publishing requires operator privileges and authenticated endpoints. The node must validate requested capabilities and allow grant/revoke.
 
-Examples:
-
-### Graphics Module
-
-A privileged graphics module may:
-
-* create windows
-* receive input events
-* submit GPU command buffers
-
-Other modules interact with graphics **only through its tables and reducers**.
-
-The core never exposes the GPU directly.
+For details see `docs/Publishing.md`.
 
 ---
 
-### IO / Platform Modules
+# Architecture Overview
 
-Similarly, IO, audio, networking, or asset streaming are:
+Interstice is organized around a small trusted core that loads, sandboxes, and executes WASM modules. Modules express functionality entirely through typed, versioned interfaces composed of tables and reducers. The core is responsible for state, scheduling, capability enforcement, and deterministic ordering; modules own logic and optional privileged abilities when granted.
 
-* implemented as modules
-* capability‑gated
-* replaceable
+Key concepts
 
-This keeps the core stable while allowing experimentation.
+- Node: a runtime process hosting modules and exposing endpoints for inter-node calls.
+- Module: a WASM component with a serialized interface (tables, reducers, requested authorities, version).
+- Table: typed, versioned records owned by a module; mutations happen inside reducers.
+- Reducer: deterministic state-transition functions that run inside the module with a `ReducerContext`.
+- Subscription: declarative binding that schedule reducers when events occur (table changes, initialization, input event...).
 
----
+Authorities
 
-## Execution Model
+Authorities are typed tokens granting modules access to privileged host functionality (gpu access, input event...). Only one module can hold an authority at a time.
 
-1. A module updates a table or calls a reducer
-2. The core records the change
-3. Subscriptions are resolved
-4. Dependent reducers are scheduled
-5. Execution proceeds deterministically
+Execution model
 
-Parallelism and optimization are **implementation details**, not part of the semantic model.
+1. Reducer invocation (external call or subscription)
+2. Reducer performs host calls to mutate tables
+3. Core records changes and resolves subscriptions
+4. Dependent reducers are scheduled deterministically
 
----
+Determinism and concurrency
 
-## Non‑Goals (for now)
-
-Interstice deliberately does *not* attempt to:
-
-* be a full operating system
-* replace existing databases
-* provide high‑level graphics APIs
-* solve distributed consensus
-
-These may be layered on top later — or not.
+- Deterministic replay is a design goal: given the same inputs, module versions, and initial state, execution is reproducible.
+- The core may parallelize execution when it can prove no conflicting writes will occur.
 
 ---
 
-## Philosophy
+# Roadmap & TODOs
 
-Interstice is designed around a few guiding principles:
-
-* **Structure over convenience**
-* **Explicit authority**
-* **Data before control flow**
-* **Minimal core, powerful composition**
-
-The name *Interstice* reflects this intent: it is the space *between* systems, where coordination happens.
+This document lists the core features required to make Interstice stable, ergonomic,
+and long-lived, before moving to authority and advanced optimizations.
 
 ---
 
-## Status
+- Network handle disconnection (remove subscriptions)
+- Gpu error handling instead of panic (frame not begun etc.. Especially on resize where it interrupts the current render)
+- save modules loaded, node id etc.. Along with the table datas.
+- add file authority
+- add audio authority
+- parallelize runtime
+- Auto_inc flag table column
+- Indexed tables (add index flag macro on field struct)
+- Get table row by index (primary key and indexed columns)
+- macros more checks and better error handlings (subscription check args and types)
+- Efficient table scans through iter
+- Better type convertions designs (instead of always converting to IntersticeValue as an intermediate)
+- Optimize type convertions (no clones)
+- transaction logs snaptchots, separate logs before snapchot (archive) and afetr the current snaptchot
+- transaction logs add indexes to retreive efficiently per module, per table transactions
+- Columnar / structured storage backend
+- Table migration support
+- Table Views (allow row filtering based on current state and requesting node id)
+- Subscription execution ordering guarantees ?
+- Add table feature to not be logged (saved)
+- Structured logging
 
-Early design / foundation phase.
+## Tooling & CLI
 
-Expect:
+- Init module (build.rs, Cargo.toml, src/lib.rs, .cargo/config.toml for wasm32 build with corresponding default macros)
+- publish module (build to wasm and send the file to the node at the specified adress)
+- Update interstice
+- Transaction log inspection
+- Replay / determinism checker
 
-* breaking changes
-* incomplete features
-* experimentation
+## Debugging & Observability
 
-The architecture is the product.
+- Reducer execution tracing
+- Subscription trace graphs
+- Deterministic replay debugging
 
 ---
 
-## License
+# License
 
-TBD
+This repository is licensed under the MIT License. See `LICENSE` for details.

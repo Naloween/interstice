@@ -1,4 +1,4 @@
-use crate::{Node, runtime::Runtime};
+use crate::runtime::Runtime;
 use interstice_abi::LogRequest;
 
 impl Runtime {

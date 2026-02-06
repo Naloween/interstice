@@ -32,5 +32,5 @@ pub async fn read_packet<R: AsyncReadExt + Unpin>(
         .read_exact(&mut buf)
         .await
         .map_err(|err| IntersticeError::Internal(format!("Failed to read packet: {err}")))?;
-    Ok(decode(&buf).map_err(|err| IntersticeError::Internal("Failed to decode packet".into()))?)
+    Ok(decode(&buf).map_err(|_err| IntersticeError::Internal("Failed to decode packet".into()))?)
 }

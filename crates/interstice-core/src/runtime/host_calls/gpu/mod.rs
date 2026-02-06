@@ -14,10 +14,8 @@ mod render;
 mod ressource;
 
 pub struct GpuState {
-    pub window: Arc<Window>,
     next_id: GpuId,
 
-    instance: wgpu::Instance,
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -117,13 +115,11 @@ impl GpuState {
         surface.configure(&device, &config);
 
         Self {
-            instance,
             surface,
             device,
             queue,
             config,
             current_frame: None,
-            window,
             next_id: 0,
             buffers: HashMap::new(),
             textures: HashMap::new(),

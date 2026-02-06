@@ -4,8 +4,7 @@ use std::{
 };
 
 use interstice_abi::{
-    IntersticeTypeDef, IntersticeValue, ModuleSchema, NodeSchema, NodeSelection, ReducerSchema,
-    TableSchema,
+    IntersticeTypeDef, ModuleSchema, NodeSchema, NodeSelection, ReducerSchema, TableSchema,
 };
 
 pub fn generate_bindings() {

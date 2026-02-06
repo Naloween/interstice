@@ -2,6 +2,8 @@
 name = "interstice-abi-macros"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+license-file = "LICENSE"
 
 [lib]
 proc-macro = true

@@ -8,15 +8,13 @@ use serde::Serialize;
 #[derive(Debug)]
 pub struct ReducerFrame {
     pub module: String,
-    pub reducer: String,
     pub transactions: Vec<Transaction>,
 }
 
 impl ReducerFrame {
-    pub fn new(module: String, reducer: String) -> Self {
+    pub fn new(module: String) -> Self {
         Self {
             module,
-            reducer,
             transactions: Vec::new(),
         }
     }
@@ -74,7 +72,7 @@ impl Runtime {
         self.call_stack
             .lock()
             .unwrap()
-            .push(ReducerFrame::new(module_name.into(), reducer_name.into()));
+            .push(ReducerFrame::new(module_name.into()));
 
         // Call WASM function
         let reducer_context = ReducerContext::new();
@@ -113,7 +111,7 @@ impl Runtime {
                 new_row,
             } => {
                 let mut modules = self.modules.lock().unwrap();
-                let mut module = modules.get_mut(&module_name).ok_or_else(|| {
+                let module = modules.get_mut(&module_name).ok_or_else(|| {
                     IntersticeError::ModuleNotFound(
                         module_name.clone(),
                         format!(
@@ -145,7 +143,7 @@ impl Runtime {
                 update_row,
             } => {
                 let mut modules = self.modules.lock().unwrap();
-                let mut module = modules.get_mut(&module_name).ok_or_else(|| {
+                let module = modules.get_mut(&module_name).ok_or_else(|| {
                     IntersticeError::ModuleNotFound(
                         module_name.clone(),
                         format!(
@@ -186,7 +184,7 @@ impl Runtime {
                 deleted_row_id,
             } => {
                 let mut modules = self.modules.lock().unwrap();
-                let mut module = modules.get_mut(&module_name).ok_or_else(|| {
+                let module = modules.get_mut(&module_name).ok_or_else(|| {
                     IntersticeError::ModuleNotFound(
                         module_name.clone(),
                         format!(

@@ -2,7 +2,7 @@ use crate::{
     error::IntersticeError,
     network::protocol::{NetworkPacket, TableEventInstance},
     node::NodeId,
-    runtime::{self, Runtime, authority::AuthorityEntry},
+    runtime::{Runtime, authority::AuthorityEntry},
 };
 use interstice_abi::{Authority, InputEvent, IntersticeValue, Row, SubscriptionEventSchema};
 
@@ -50,9 +50,9 @@ impl EventInstance {
                 ..
             } => {
                 if let SubscriptionEventSchema::Insert {
-                    node_selection: node,
                     module_name: module_name_schema,
                     table_name: table_name_schema,
+                    ..
                 } = event_schema
                 {
                     return module_name == module_name_schema && table_name == table_name_schema;
@@ -66,9 +66,9 @@ impl EventInstance {
                 ..
             } => {
                 if let SubscriptionEventSchema::Update {
-                    node_selection: node,
                     module_name: module_name_schema,
                     table_name: table_name_schema,
+                    ..
                 } = event_schema
                 {
                     return module_name == module_name_schema && table_name == table_name_schema;
@@ -82,9 +82,9 @@ impl EventInstance {
                 ..
             } => {
                 if let SubscriptionEventSchema::Delete {
-                    node_selection: node,
                     module_name: module_name_schema,
                     table_name: table_name_schema,
+                    ..
                 } = event_schema
                 {
                     return module_name == module_name_schema && table_name == table_name_schema;
@@ -92,7 +92,7 @@ impl EventInstance {
                     return false;
                 }
             }
-            EventInstance::Init { module_name } => {
+            EventInstance::Init { .. } => {
                 if let SubscriptionEventSchema::Init = event_schema {
                     return true;
                 } else {
@@ -106,7 +106,7 @@ impl EventInstance {
                     return false;
                 }
             }
-            EventInstance::Input(input_event) => {
+            EventInstance::Input(_input_event) => {
                 if let SubscriptionEventSchema::Input = event_schema {
                     return true;
                 } else {
