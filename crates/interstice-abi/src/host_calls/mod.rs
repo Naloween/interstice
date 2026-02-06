@@ -23,7 +23,7 @@ pub enum HostCall {
     File,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum NodeSelection {
     Current,
     Other(String),

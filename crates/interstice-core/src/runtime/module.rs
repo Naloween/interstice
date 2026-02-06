@@ -1,14 +1,17 @@
 use crate::{
     error::IntersticeError,
-    runtime::Runtime,
-    runtime::authority::AuthorityEntry,
-    runtime::event::EventInstance,
-    runtime::table::Table,
-    runtime::wasm::{StoreState, instance::WasmInstance},
+    network::protocol::{NetworkPacket, RequestSubscription, TableEvent, TableEventInstance},
+    runtime::{
+        Runtime,
+        authority::AuthorityEntry,
+        event::EventInstance,
+        table::Table,
+        wasm::{StoreState, instance::WasmInstance},
+    },
 };
 use interstice_abi::{
-    ABI_VERSION, Authority, IntersticeValue, ModuleSchema, ReducerContext, SubscriptionEventSchema,
-    get_reducer_wrapper_name,
+    ABI_VERSION, Authority, IntersticeValue, ModuleSchema, NodeSelection, ReducerContext,
+    SubscriptionEventSchema, get_reducer_wrapper_name,
 };
 use serde::Serialize;
 use std::{
@@ -69,7 +72,7 @@ impl Module {
 }
 
 impl Runtime {
-    pub fn load_module<P: AsRef<Path>>(
+    pub async fn load_module<P: AsRef<Path>>(
         runtime: Arc<Self>,
         path: P,
     ) -> Result<ModuleSchema, IntersticeError> {
@@ -117,12 +120,12 @@ impl Runtime {
             runtime.run_app_notify.notify_one();
             return Ok(module_schema.as_ref().clone());
         } else {
-            Runtime::publish_module(runtime, module)?;
+            Runtime::publish_module(runtime, module).await?;
             return Ok(module_schema.as_ref().clone());
         }
     }
 
-    pub fn publish_module(runtime: Arc<Self>, module: Module) -> Result<(), IntersticeError> {
+    pub async fn publish_module(runtime: Arc<Self>, module: Module) -> Result<(), IntersticeError> {
         let module_schema = module.schema.clone();
         for authority in &module_schema.authorities {
             if let Some(other_entry) = runtime.authority_modules.lock().unwrap().get(authority) {
@@ -195,7 +198,56 @@ impl Runtime {
         // Connect to node dependencies
         for node_dependency in &module_schema.node_dependencies {
             let network = &mut runtime.network_handle.clone();
-            network.connect_to_peer(node_dependency.address.clone());
+            network
+                .connect_to_peer(node_dependency.address.clone())
+                .await;
+        }
+
+        // Send subscription requests to remote subscriptions
+        let network = &mut runtime.network_handle.clone();
+        for sub in &module_schema.subscriptions {
+            match sub.event.clone() {
+                SubscriptionEventSchema::Insert {
+                    node_selection: NodeSelection::Other(node_name),
+                    module_name,
+                    table_name,
+                }
+                | SubscriptionEventSchema::Update {
+                    node_selection: NodeSelection::Other(node_name),
+                    module_name,
+                    table_name,
+                }
+                | SubscriptionEventSchema::Delete {
+                    node_selection: NodeSelection::Other(node_name),
+                    module_name,
+                    table_name,
+                } => {
+                    let node_adress = module_schema
+                        .node_dependencies
+                        .iter()
+                        .find(|n| n.name == node_name)
+                        .ok_or(IntersticeError::Internal(format!(
+                            "Couldn't find node {node_name} in the node dependencies"
+                        )))?
+                        .address
+                        .clone();
+                    let node_id = network.get_node_id_from_adress(&node_adress).unwrap();
+                    network.send_packet(
+                        node_id,
+                        NetworkPacket::RequestSubscription(RequestSubscription {
+                            module_name,
+                            table_name,
+                            event: match sub.event {
+                                SubscriptionEventSchema::Insert { .. } => TableEvent::Insert,
+                                SubscriptionEventSchema::Update { .. } => TableEvent::Update,
+                                SubscriptionEventSchema::Delete { .. } => TableEvent::Delete,
+                                _ => unreachable!(),
+                            },
+                        }),
+                    );
+                }
+                _ => {}
+            }
         }
 
         runtime

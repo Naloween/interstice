@@ -14,3 +14,11 @@ fn caller(ctx: ReducerContext) {
     // ctx.hello().reducers.hello("called from caller".to_string());
     // ctx.log("hello local called !");
 }
+
+#[reducer(on = "MyNode.hello.greetings.insert")]
+fn on_insert_greetings(ctx: ReducerContext, inserted_row: Greetings) {
+    ctx.log(&format!(
+        "Caller received new greeting: {:?}",
+        inserted_row.greeting
+    ));
+}

@@ -1,8 +1,6 @@
 abi_version = 1
 name = "hello"
 visibility = "Public"
-tables = []
-subscriptions = []
 authorities = []
 module_dependencies = []
 node_dependencies = []
@@ -13,6 +11,11 @@ minor = 0
 patch = 1
 
 [[reducers]]
+name = "init"
+arguments = []
+return_type = "Void"
+
+[[reducers]]
 name = "hello"
 return_type = "Void"
 
@@ -20,4 +23,67 @@ return_type = "Void"
 name = "name"
 field_type = "String"
 
-[type_definitions]
+[[reducers]]
+name = "on_greeting_insert"
+return_type = "Void"
+
+[[reducers.arguments]]
+name = "inserted_row"
+
+[reducers.arguments.field_type]
+Named = "Greetings"
+
+[[tables]]
+name = "greetings"
+type_name = "Greetings"
+visibility = "Public"
+
+[[tables.fields]]
+name = "greeting"
+field_type = "String"
+
+[[tables.fields]]
+name = "custom"
+
+[tables.fields.field_type]
+Named = "TestCustomType"
+
+[tables.primary_key]
+name = "id"
+field_type = "U64"
+
+[[subscriptions]]
+reducer_name = "init"
+event = "Init"
+
+[[subscriptions]]
+reducer_name = "on_greeting_insert"
+
+[subscriptions.event.Insert]
+node_selection = "Current"
+module_name = "hello"
+table_name = "greetings"
+
+[type_definitions.Greetings.Struct]
+name = "Greetings"
+
+[[type_definitions.Greetings.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.Greetings.Struct.fields]]
+name = "greeting"
+field_type = "String"
+
+[[type_definitions.Greetings.Struct.fields]]
+name = "custom"
+
+[type_definitions.Greetings.Struct.fields.field_type]
+Named = "TestCustomType"
+
+[type_definitions.TestCustomType.Struct]
+name = "TestCustomType"
+
+[[type_definitions.TestCustomType.Struct.fields]]
+name = "val"
+field_type = "U32"

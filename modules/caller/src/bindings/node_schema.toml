@@ -5,7 +5,6 @@ address = "127.0.0.1:8080"
 abi_version = 1
 name = "hello"
 visibility = "Public"
-tables = []
 subscriptions = []
 authorities = []
 module_dependencies = []
@@ -24,4 +23,45 @@ return_type = "Void"
 name = "name"
 field_type = "String"
 
-[modules.type_definitions]
+[[modules.tables]]
+name = "greetings"
+type_name = "Greetings"
+visibility = "Public"
+
+[[modules.tables.fields]]
+name = "greeting"
+field_type = "String"
+
+[[modules.tables.fields]]
+name = "custom"
+
+[modules.tables.fields.field_type]
+Named = "TestCustomType"
+
+[modules.tables.primary_key]
+name = "id"
+field_type = "U64"
+
+[modules.type_definitions.Greetings.Struct]
+name = "Greetings"
+
+[[modules.type_definitions.Greetings.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[modules.type_definitions.Greetings.Struct.fields]]
+name = "greeting"
+field_type = "String"
+
+[[modules.type_definitions.Greetings.Struct.fields]]
+name = "custom"
+
+[modules.type_definitions.Greetings.Struct.fields.field_type]
+Named = "TestCustomType"
+
+[modules.type_definitions.TestCustomType.Struct]
+name = "TestCustomType"
+
+[[modules.type_definitions.TestCustomType.Struct.fields]]
+name = "val"
+field_type = "U32"

@@ -25,11 +25,23 @@ pub fn get_register_subscription_function(
                         let content = litstr.value();
                         let segments: Vec<_> = content.split('.').collect();
 
-                        if segments.len() == 3 {
+                        if segments.len() == 3 || segments.len() == 4 {
                             use_table_subscription = true;
-                            let module_name = &segments[0];
-                            let table_name  = &segments[1];
-                            let event_name  = &segments[2];
+
+                            let (node_selection, module_name, table_name, event_name) = if segments.len() == 3 {
+                                let node_selection = quote! {interstice_sdk::NodeSelection::Current};
+                                let module_name = segments[0];
+                                let table_name  = segments[1];
+                                let event_name  = segments[2];
+                                (node_selection, module_name, table_name, event_name)
+                            } else {
+                                let node_name = segments[0];
+                                let node_selection = quote! {interstice_sdk::NodeSelection::Other(#node_name.to_string())};
+                                let module_name = segments[1];
+                                let table_name  = segments[2];
+                                let event_name  = segments[3];
+                                (node_selection, module_name, table_name, event_name)
+                            };
 
                             match event_name.to_string().as_str() {
                                 "insert" => { return Some(
@@ -37,6 +49,7 @@ pub fn get_register_subscription_function(
                                                 interstice_sdk::SubscriptionSchema {
                                                     reducer_name: stringify!(#reducer_ident).to_string(),
                                                     event: interstice_sdk::SubscriptionEventSchema::Insert {
+                                                        node_selection: #node_selection,
                                                         module_name: #module_name.to_string(),
                                                         table_name: #table_name.to_string(),
                                                     }
@@ -47,6 +60,7 @@ pub fn get_register_subscription_function(
                                                 interstice_sdk::SubscriptionSchema {
                                                     reducer_name: stringify!(#reducer_ident).to_string(),
                                                     event: interstice_sdk::SubscriptionEventSchema::Update {
+                                                        node_selection: #node_selection,
                                                         module_name: #module_name.to_string(),
                                                         table_name: #table_name.to_string(),
                                                     }
@@ -57,6 +71,7 @@ pub fn get_register_subscription_function(
                                                 interstice_sdk::SubscriptionSchema {
                                                     reducer_name: stringify!(#reducer_ident).to_string(),
                                                     event: interstice_sdk::SubscriptionEventSchema::Delete {
+                                                        node_selection: #node_selection,
                                                         module_name: #module_name.to_string(),
                                                         table_name: #table_name.to_string(),
                                                     }
@@ -106,7 +121,7 @@ pub fn get_register_subscription_function(
                                     return Some(
                                         syn::Error::new_spanned(
                                             litstr,
-                                            "Expected 'init', 'input', 'render' or format: '[module].[table].[event]'",
+                                            "Expected 'init', 'input', 'render' or formats: '[module].[table].[event]' or '[node].[module].[table].[event]'",
                                         )
                                         .to_compile_error()
                                         .into(),
@@ -119,7 +134,7 @@ pub fn get_register_subscription_function(
                 return Some(
                     syn::Error::new_spanned(
                         &nv.value,
-                        "Expected 'init', 'input', 'render' or format: '[module].[table].[event]'",
+                        "Expected 'init', 'input', 'render' or formats: '[module].[table].[event]' or '[node].[module].[table].[event]'",
                     )
                     .to_compile_error()
                     .into(),

@@ -34,6 +34,8 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                     return Some(quote! { interstice_sdk::TableVisibility::Public });
                 } else if nv.is_ident("private") {
                     return Some(quote! { interstice_sdk::TableVisibility::Private });
+                } else {
+                    return Some(quote! { compile_error!("Invalid visibility, expected 'public' or 'private'") });
                 }
             }
             None

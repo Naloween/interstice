@@ -25,17 +25,16 @@ async fn main() -> Result<(), IntersticeError> {
 
             if port != 8080 {
                 // Client
-                let caller_schema = node.load_module(caller_path)?.to_public();
-                let graphics_schema = node.load_module(graphics_path)?.to_public();
+                let caller_schema = node.load_module(caller_path).await?.to_public();
+                let graphics_schema = node.load_module(graphics_path).await?.to_public();
             } else {
                 // Server
-                let hello_schema = node.load_module(hello_path)?.to_public();
+                let hello_schema = node.load_module(hello_path).await?; //.to_public();
+                File::create("./hello_schema.toml")
+                    .unwrap()
+                    .write_all(&hello_schema.to_toml_string().unwrap().as_bytes())
+                    .unwrap();
             }
-
-            // File::create("./hello_schema.toml")
-            //     .unwrap()
-            //     .write_all(&hello_schema.to_toml_string().unwrap().as_bytes())
-            //     .unwrap();
 
             let node_schema = node.schema("MyNode".into()).await.to_public();
             File::create("./node_schema.toml")

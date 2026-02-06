@@ -101,7 +101,7 @@ impl Node {
         Ok(())
     }
 
-    pub fn load_module(&self, path: &str) -> Result<ModuleSchema, IntersticeError> {
-        Runtime::load_module(self.runtime.clone(), path)
+    pub async fn load_module(&self, path: &str) -> Result<ModuleSchema, IntersticeError> {
+        Runtime::load_module(self.runtime.clone(), path).await
     }
 }

@@ -91,6 +91,13 @@ impl ModuleSchema {
                         }
                     }
                 }
+                type_definitions.insert(
+                    table_schema.type_name.clone(),
+                    self.type_definitions
+                        .get(&table_schema.type_name)
+                        .unwrap()
+                        .clone(),
+                );
             }
         }
         let mut reducers = Vec::new();

@@ -3,6 +3,7 @@ use crate::network::peer::PeerHandle;
 use crate::network::protocol::NetworkPacket;
 use crate::node::NodeId;
 use crate::runtime::event::EventInstance;
+use interstice_abi::{NodeSelection, SubscriptionEventSchema};
 use packet::{read_packet, write_packet};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -39,7 +40,7 @@ pub struct NetworkHandle {
 }
 
 impl NetworkHandle {
-    pub fn connect_to_peer(&mut self, node_address: String) {
+    pub async fn connect_to_peer(&mut self, node_address: String) {
         if self.address == node_address {
             eprintln!("Cannot connect to self, skipping");
             return;
@@ -48,35 +49,33 @@ impl NetworkHandle {
         let cloned_sender = self.sender.clone();
         let address = self.address.clone();
         let my_node_id = self.node_id.clone();
-        tokio::spawn(async move {
-            let mut stream = TcpStream::connect(&node_address)
-                .await
-                .map_err(|_| IntersticeError::Internal("Failed to connect to node".into()))
-                .unwrap();
-
-            // Send our handshake
-            write_packet(
-                &mut stream,
-                &NetworkPacket::Handshake {
-                    address: address.clone(),
-                    node_id: my_node_id.to_string(),
-                },
-            )
+        let mut stream = TcpStream::connect(&node_address)
             .await
+            .map_err(|_| IntersticeError::Internal("Failed to connect to node".into()))
             .unwrap();
 
-            if let Err(e) = handshake_incoming(
-                my_node_id,
-                address,
-                stream,
-                &mut cloned_peers,
-                cloned_sender,
-            )
-            .await
-            {
-                eprintln!("Handshake failed: {:?}", e);
-            }
-        });
+        // Send our handshake
+        write_packet(
+            &mut stream,
+            &NetworkPacket::Handshake {
+                address: address.clone(),
+                node_id: my_node_id.to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+        if let Err(e) = handshake_incoming(
+            my_node_id,
+            address,
+            stream,
+            &mut cloned_peers,
+            cloned_sender,
+        )
+        .await
+        {
+            eprintln!("Handshake failed: {:?}", e);
+        }
     }
 
     pub fn send_packet(&self, node_id: NodeId, packet: NetworkPacket) {
@@ -100,20 +99,10 @@ impl NetworkHandle {
             }
         }
         return Err(IntersticeError::Internal(format!(
-            "Couldn't find node id with address {address}"
+            "Couldn't find node id with address {address}. Disponible peers: \n {:?}",
+            self.peers.lock().unwrap().values()
         )));
     }
-
-    // pub async fn request_subscription(
-    //     &self,
-    //     node_id: NodeId,
-    //     req: RequestSubscription,
-    // ) -> Result<(), IntersticeError> {
-    //     let peers = self.peers.lock().await;
-    //     let peer = peers.get(&node_id).ok_or(IntersticeError::UnknownPeer)?;
-
-    //     peer.send(NetworkPacket::RequestSubscription(req)).await
-    // }
 }
 
 impl Network {
@@ -205,7 +194,29 @@ impl Network {
                             input,
                         })
                         .unwrap(),
-                    NetworkPacket::RequestSubscription(request_subscription) => todo!(),
+                    NetworkPacket::RequestSubscription(request_subscription) => self
+                        .event_sender
+                        .send(EventInstance::RequestSubscription {
+                            requesting_node_id: node_id,
+                            event: match request_subscription.event {
+                                protocol::TableEvent::Insert => SubscriptionEventSchema::Insert {
+                                    node_selection: NodeSelection::Current,
+                                    module_name: request_subscription.module_name,
+                                    table_name: request_subscription.table_name,
+                                },
+                                protocol::TableEvent::Update => SubscriptionEventSchema::Update {
+                                    node_selection: NodeSelection::Current,
+                                    module_name: request_subscription.module_name,
+                                    table_name: request_subscription.table_name,
+                                },
+                                protocol::TableEvent::Delete => SubscriptionEventSchema::Delete {
+                                    node_selection: NodeSelection::Current,
+                                    module_name: request_subscription.module_name,
+                                    table_name: request_subscription.table_name,
+                                },
+                            },
+                        })
+                        .unwrap(),
                     NetworkPacket::TableEvent(subscription_event) => {
                         self.event_sender
                             .send(match subscription_event {

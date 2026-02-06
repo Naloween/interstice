@@ -16,15 +16,18 @@ use std::{
 use crate::{
     IntersticeError,
     network::NetworkHandle,
+    node::NodeId,
     persistence::TransactionLog,
-    runtime::authority::AuthorityEntry,
-    runtime::event::EventInstance,
-    runtime::host_calls::gpu::GpuState,
-    runtime::module::Module,
-    runtime::reducer::ReducerFrame,
-    runtime::wasm::{StoreState, linker::define_host_calls},
+    runtime::{
+        authority::AuthorityEntry,
+        event::EventInstance,
+        host_calls::gpu::GpuState,
+        module::Module,
+        reducer::ReducerFrame,
+        wasm::{StoreState, linker::define_host_calls},
+    },
 };
-use interstice_abi::Authority;
+use interstice_abi::{Authority, SubscriptionEventSchema};
 use tokio::{
     sync::{
         Notify,
@@ -47,6 +50,7 @@ pub struct Runtime {
     pub(crate) app_initialized: Arc<Mutex<bool>>,
     pub(crate) pending_app_modules: Arc<Mutex<Vec<Module>>>,
     run_app_notify: Arc<Notify>,
+    node_subscriptions: Arc<Mutex<HashMap<NodeId, Vec<SubscriptionEventSchema>>>>,
 }
 
 impl Runtime {
@@ -75,6 +79,7 @@ impl Runtime {
             app_initialized: Arc::new(Mutex::new(false)),
             pending_app_modules: Arc::new(Mutex::new(Vec::new())),
             run_app_notify,
+            node_subscriptions: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -86,9 +91,16 @@ impl Runtime {
             while let Some(event) = event_receiver.recv().await {
                 match event {
                     EventInstance::AppInitialized => {
-                        for module in runtime.pending_app_modules.lock().unwrap().drain(..) {
+                        let modules = runtime
+                            .pending_app_modules
+                            .lock()
+                            .unwrap()
+                            .drain(..)
+                            .collect::<Vec<_>>();
+                        for module in modules {
                             let module_name = module.schema.name.clone();
-                            if let Err(err) = Runtime::publish_module(runtime.clone(), module) {
+                            if let Err(err) = Runtime::publish_module(runtime.clone(), module).await
+                            {
                                 eprintln!("Failed to load module '{}': {}", module_name, err);
                             }
                         }
@@ -102,6 +114,18 @@ impl Runtime {
                         // Invoke the requested reducer with no args (network
                         // reducer packet currently does not carry args).
                         let _ = runtime.call_reducer(&module_name, &reducer_name, input);
+                    }
+                    EventInstance::RequestSubscription {
+                        requesting_node_id,
+                        event,
+                    } => {
+                        runtime
+                            .node_subscriptions
+                            .lock()
+                            .unwrap()
+                            .entry(requesting_node_id)
+                            .or_insert(Vec::new())
+                            .push(event);
                     }
                     event => {
                         let triggered = runtime.find_subscriptions(&event).unwrap();

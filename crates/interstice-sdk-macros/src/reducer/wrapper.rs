@@ -14,7 +14,7 @@ pub fn get_wrapper_function(
     let args = (0..arg_count - 1).map(|i| {
         let index = LitInt::new(&i.to_string(), proc_macro2::Span::call_site());
         if table_subscription {
-            quote! { {let row: interstice_sdk::Row = interstice_args_vec[#index].clone().try_into().unwrap(); row.into()} }
+            quote! { {let row: interstice_sdk::Row = interstice_args_vec[#index].clone().try_into().unwrap(); row.try_into().unwrap()} }
         } else {
             quote! { interstice_args_vec[#index].clone().try_into().unwrap() }
         }
@@ -32,7 +32,6 @@ pub fn get_wrapper_function(
             if interstice_args_vec.len() != #arg_count - 1 { panic!("Expected {} reducer arguments, got {}", #arg_count-1, interstice_args_vec.len()) }
 
             let res: interstice_sdk::IntersticeValue = #reducer_ident(reducer_context, #(#args),*).into();
-
 
             let bytes = interstice_sdk::encode(&res).unwrap();
             let out_ptr = alloc(bytes.len() as i32);

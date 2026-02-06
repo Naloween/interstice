@@ -4,7 +4,7 @@ interstice_module!(visibility: Public);
 
 // TABLES
 
-#[table]
+#[table(public)]
 #[derive(Debug)]
 pub struct Greetings {
     #[primary_key]

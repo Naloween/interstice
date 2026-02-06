@@ -1,7 +1,8 @@
 use crate::{
     error::IntersticeError,
-    network::protocol::RequestSubscription,
-    runtime::{Runtime, authority::AuthorityEntry},
+    network::protocol::{NetworkPacket, TableEventInstance},
+    node::NodeId,
+    runtime::{self, Runtime, authority::AuthorityEntry},
 };
 use interstice_abi::{Authority, InputEvent, IntersticeValue, Row, SubscriptionEventSchema};
 
@@ -29,7 +30,10 @@ pub enum EventInstance {
     Render,
     Input(InputEvent),
     AppInitialized,
-    RequestSubscription(RequestSubscription),
+    RequestSubscription {
+        requesting_node_id: NodeId,
+        event: SubscriptionEventSchema,
+    },
     RemoteReducerCall {
         module_name: String,
         reducer_name: String,
@@ -46,6 +50,7 @@ impl EventInstance {
                 ..
             } => {
                 if let SubscriptionEventSchema::Insert {
+                    node_selection: node,
                     module_name: module_name_schema,
                     table_name: table_name_schema,
                 } = event_schema
@@ -61,6 +66,7 @@ impl EventInstance {
                 ..
             } => {
                 if let SubscriptionEventSchema::Update {
+                    node_selection: node,
                     module_name: module_name_schema,
                     table_name: table_name_schema,
                 } = event_schema
@@ -76,6 +82,7 @@ impl EventInstance {
                 ..
             } => {
                 if let SubscriptionEventSchema::Delete {
+                    node_selection: node,
                     module_name: module_name_schema,
                     table_name: table_name_schema,
                 } = event_schema
@@ -112,9 +119,9 @@ impl EventInstance {
 }
 
 #[derive(Debug)]
-pub struct SubscriptionTarget {
-    pub module: String,
-    pub reducer: String,
+pub enum SubscriptionTarget {
+    Local { module: String, reducer: String },
+    Remote(NodeId),
 }
 
 impl Runtime {
@@ -129,7 +136,7 @@ impl Runtime {
             let module = module.get(module_name).unwrap();
             for sub in &module.schema.subscriptions {
                 if event.has_schema(&sub.event) {
-                    out.push(SubscriptionTarget {
+                    out.push(SubscriptionTarget::Local {
                         module: module.schema.name.clone(),
                         reducer: sub.reducer_name.clone(),
                     });
@@ -146,7 +153,7 @@ impl Runtime {
                 .get(&Authority::Gpu)
                 .cloned()
             {
-                out.push(SubscriptionTarget {
+                out.push(SubscriptionTarget::Local {
                     module: gpu_module_name,
                     reducer: render_reducer_name,
                 });
@@ -162,7 +169,7 @@ impl Runtime {
                 .get(&Authority::Input)
                 .cloned()
             {
-                out.push(SubscriptionTarget {
+                out.push(SubscriptionTarget::Local {
                     module: module_name,
                     reducer: on_input_reducer_name,
                 });
@@ -171,10 +178,18 @@ impl Runtime {
             for module in self.modules.lock().unwrap().values() {
                 for sub in &module.schema.subscriptions {
                     if event.has_schema(&sub.event) {
-                        out.push(SubscriptionTarget {
+                        out.push(SubscriptionTarget::Local {
                             module: module.schema.name.clone(),
                             reducer: sub.reducer_name.clone(),
                         });
+                    }
+                }
+            }
+
+            for (node_id, subscriptions) in self.node_subscriptions.lock().unwrap().iter() {
+                for sub in subscriptions {
+                    if event.has_schema(&sub) {
+                        out.push(SubscriptionTarget::Remote(*node_id));
                     }
                 }
             }
@@ -188,27 +203,74 @@ impl Runtime {
         target: SubscriptionTarget,
         event: EventInstance,
     ) -> Result<(), IntersticeError> {
-        let args = match event {
-            EventInstance::TableInsertEvent {
-                module_name: _,
-                table_name: _,
-                inserted_row,
-            } => IntersticeValue::Vec(vec![inserted_row.into()]),
-            EventInstance::TableUpdateEvent {
-                module_name: _,
-                table_name: _,
-                old_row,
-                new_row,
-            } => IntersticeValue::Vec(vec![old_row.into(), new_row.into()]),
-            EventInstance::TableDeleteEvent {
-                module_name: _,
-                table_name: _,
-                deleted_row,
-            } => IntersticeValue::Vec(vec![deleted_row.into()]),
-            EventInstance::Input(input_event) => IntersticeValue::Vec(vec![input_event.into()]),
-            _ => IntersticeValue::Vec(vec![]),
-        };
-        let _ret = self.call_reducer(&target.module, &target.reducer, args)?;
+        match target {
+            SubscriptionTarget::Local { module, reducer } => {
+                let args = match event {
+                    EventInstance::TableInsertEvent {
+                        module_name: _,
+                        table_name: _,
+                        inserted_row,
+                    } => IntersticeValue::Vec(vec![inserted_row.into()]),
+                    EventInstance::TableUpdateEvent {
+                        module_name: _,
+                        table_name: _,
+                        old_row,
+                        new_row,
+                    } => IntersticeValue::Vec(vec![old_row.into(), new_row.into()]),
+                    EventInstance::TableDeleteEvent {
+                        module_name: _,
+                        table_name: _,
+                        deleted_row,
+                    } => IntersticeValue::Vec(vec![deleted_row.into()]),
+                    EventInstance::Input(input_event) => {
+                        IntersticeValue::Vec(vec![input_event.into()])
+                    }
+                    _ => IntersticeValue::Vec(vec![]),
+                };
+                let _ret = self.call_reducer(&module, &reducer, args)?;
+            }
+            SubscriptionTarget::Remote(uuid) => {
+                let packet = match event {
+                    EventInstance::TableInsertEvent {
+                        module_name,
+                        table_name,
+                        inserted_row,
+                    } => NetworkPacket::TableEvent(TableEventInstance::TableInsertEvent {
+                        module_name,
+                        table_name,
+                        inserted_row,
+                    }),
+                    EventInstance::TableUpdateEvent {
+                        module_name,
+                        table_name,
+                        old_row,
+                        new_row,
+                    } => NetworkPacket::TableEvent(TableEventInstance::TableUpdateEvent {
+                        module_name,
+                        table_name,
+                        old_row,
+                        new_row,
+                    }),
+                    EventInstance::TableDeleteEvent {
+                        module_name,
+                        table_name,
+                        deleted_row,
+                    } => NetworkPacket::TableEvent(TableEventInstance::TableDeleteEvent {
+                        module_name,
+                        table_name,
+                        deleted_row,
+                    }),
+                    event => {
+                        return Err(IntersticeError::Internal(format!(
+                            "Tried to send an event {:?} to remote node {}, which is not supported",
+                            event, uuid
+                        )));
+                    }
+                };
+                self.network_handle.send_packet(uuid, packet);
+            }
+        }
+
         Ok(())
     }
 }
