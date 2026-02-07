@@ -180,6 +180,7 @@ and long-lived, before moving to authority and advanced optimizations.
 - Table migration support
 - Subscription execution ordering guarantees ?
 - Add elusive table feature (to not be logged (saved)). Usefull for non persistent states like the mouse position.
+- Add token to confirm node identities on connection (generate one token per node connecting to one one)
 
 ## Robustness, error handling and fixes
 
