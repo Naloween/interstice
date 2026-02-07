@@ -1208,7 +1208,9 @@ dependencies = [
  "directories",
  "interstice-core",
  "serde",
+ "serde_json",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

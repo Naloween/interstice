@@ -6,9 +6,15 @@ pub use gpu::*;
 use interstice_abi::{HostCall, decode, encode, unpack_ptr_len};
 use serde::Deserialize;
 
+#[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "interstice")]
 unsafe extern "C" {
     fn interstice_host_call(ptr: i32, len: i32) -> i64;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn interstice_host_call(_ptr: i32, _len: i32) -> i64 {
+    panic!("interstice_host_call is only available in wasm32 targets");
 }
 
 pub fn host_call(call: HostCall) -> i64 {

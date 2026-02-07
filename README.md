@@ -170,15 +170,16 @@ and long-lived, before moving to authority and advanced optimizations.
 
 ---
 
+- add file authority
+- add module authority (ability to load, delete update modules on the current node)
+- Make the CLI instantiate a node with default modules to manage all the commands, connect to other modules and so on (this also shows that we can have whole programs embeded in a module seemlessly)
 - Auto_inc flag table column
 - Indexed tables (add index flag macro on field struct)
 - Get table row by index (primary key and indexed columns)
 - Table Views (allow row filtering based on current state and requesting node id)
 - Network handle reconnections and be more robust
 - Gpu error handling instead of panic (frame not begun etc.. Especially on resize where it interrupts the current render)
-- add file authority
 - add audio authority
-- add module authority (ability to load, delete update modules on the current node)
 - parallelize runtime
 - macros more checks and better error handlings (subscription check args and types)
 - Efficient table scans through iter

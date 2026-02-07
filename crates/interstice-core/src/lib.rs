@@ -9,3 +9,5 @@ mod runtime;
 pub use crate::node::{Node, NodeId};
 pub use error::*;
 pub use interstice_abi;
+pub use network::packet;
+pub use network::protocol::*;

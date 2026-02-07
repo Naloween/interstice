@@ -13,7 +13,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-mod packet;
+pub mod packet;
 mod peer;
 pub mod protocol;
 
@@ -428,11 +428,19 @@ async fn connection_task(
                             }
                         }
                         Err(e) => {
-                            read_logger.log(
-                                &format!("Read error from {}: {:?}", node_id, e),
-                                LogSource::Network,
-                                LogLevel::Error,
-                            );
+                            if is_disconnect_error(&e) {
+                                read_logger.log(
+                                    &format!("Connection closed by {}: {:?}", node_id, e),
+                                    LogSource::Network,
+                                    LogLevel::Info,
+                                );
+                            } else {
+                                read_logger.log(
+                                    &format!("Read error from {}: {:?}", node_id, e),
+                                    LogSource::Network,
+                                    LogLevel::Error,
+                                );
+                            }
                             let _ = read_sender
                                 .send((node_id, NetworkPacket::Close))
                                 .await;
@@ -445,6 +453,21 @@ async fn connection_task(
     });
 
     let _ = tokio::join!(write_loop, read_loop);
+}
+
+fn is_disconnect_error(err: &IntersticeError) -> bool {
+    match err {
+        IntersticeError::Internal(message) => {
+            let msg = message.to_lowercase();
+            msg.contains("os error 10054")
+                || msg.contains("connection reset")
+                || msg.contains("connection aborted")
+                || msg.contains("broken pipe")
+                || msg.contains("unexpected eof")
+                || msg.contains("eof")
+        }
+        _ => false,
+    }
 }
 
 //

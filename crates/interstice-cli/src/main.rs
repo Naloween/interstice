@@ -3,6 +3,7 @@
 use interstice_cli::{
     example::example,
     init::init,
+    module::{publish, remove},
     start::{start, start_new},
 };
 use interstice_core::IntersticeError;
@@ -44,6 +45,24 @@ async fn main() -> Result<(), IntersticeError> {
             example(port).await
         }
         "init" => init(),
+        "publish" => {
+            if args.len() < 4 {
+                print_help();
+                return Ok(());
+            }
+            let node_address = args[2].clone();
+            let module_project_path = std::path::Path::new(&args[3]);
+            publish(node_address, module_project_path).await
+        }
+        "remove" => {
+            if args.len() < 4 {
+                print_help();
+                return Ok(());
+            }
+            let node_address = args[2].clone();
+            let module_name = &args[3];
+            remove(node_address, module_name).await
+        }
         "help" | "-h" | "--help" => {
             print_help();
             Ok(())
@@ -68,6 +87,11 @@ fn print_help() {
     println!(
         "  example [port]                        Start an interstice node example, when on port 8080 it loads the hello module, otherwise it loads the caller and graphics modules"
     );
+    println!(
+        "  init                                   Initialize a new interstice module project in the current directory"
+    );
+    println!("  publish <node_address> <module_path>   Publish a module to a node");
+    println!("  remove <node_address> <module_name>    Remove a module from a node");
     println!("  help                             Show this help message");
     println!();
     println!("OPTIONS:");
