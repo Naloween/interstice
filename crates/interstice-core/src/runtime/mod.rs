@@ -1,20 +1,15 @@
 mod authority;
 pub mod event;
 pub mod host_calls;
-mod module;
+pub mod module;
 mod reducer;
 mod table;
 pub mod transaction;
 mod wasm;
 
-use std::{
-    collections::HashMap,
-    path::Path,
-    sync::{Arc, Mutex},
-};
-
 use crate::{
     IntersticeError,
+    logger::{LogLevel, LogSource, Logger},
     network::NetworkHandle,
     node::NodeId,
     persistence::TransactionLog,
@@ -28,6 +23,11 @@ use crate::{
     },
 };
 use interstice_abi::{Authority, SubscriptionEventSchema};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
 use tokio::{
     sync::{
         Notify,
@@ -49,17 +49,21 @@ pub struct Runtime {
     pub(crate) transaction_logs: Arc<Mutex<TransactionLog>>,
     pub(crate) app_initialized: Arc<Mutex<bool>>,
     pub(crate) pending_app_modules: Arc<Mutex<Vec<Module>>>,
+    pub(crate) modules_path: PathBuf,
     run_app_notify: Arc<Notify>,
     node_subscriptions: Arc<Mutex<HashMap<NodeId, Vec<SubscriptionEventSchema>>>>,
+    pub(crate) logger: Logger,
 }
 
 impl Runtime {
     pub fn new(
+        modules_path: PathBuf,
         transaction_log_path: &Path,
         event_sender: UnboundedSender<EventInstance>,
         network_handle: NetworkHandle,
         gpu: Arc<Mutex<Option<GpuState>>>,
         run_app_notify: Arc<Notify>,
+        logger: Logger,
     ) -> Result<Self, IntersticeError> {
         let engine = Arc::new(Engine::default());
         let mut linker = Linker::new(&engine);
@@ -74,12 +78,14 @@ impl Runtime {
             event_sender,
             network_handle,
             transaction_logs: Arc::new(Mutex::new(TransactionLog::new(transaction_log_path)?)),
+            modules_path,
             modules: Arc::new(Mutex::new(HashMap::new())),
             authority_modules: Arc::new(Mutex::new(HashMap::new())),
             app_initialized: Arc::new(Mutex::new(false)),
             pending_app_modules: Arc::new(Mutex::new(Vec::new())),
             run_app_notify,
             node_subscriptions: Arc::new(Mutex::new(HashMap::new())),
+            logger,
         })
     }
 
@@ -101,7 +107,11 @@ impl Runtime {
                             let module_name = module.schema.name.clone();
                             if let Err(err) = Runtime::publish_module(runtime.clone(), module).await
                             {
-                                eprintln!("Failed to load module '{}': {}", module_name, err);
+                                runtime.logger.log(
+                                    &format!("Failed to load module '{}': {}", module_name, err),
+                                    LogSource::Runtime,
+                                    LogLevel::Error,
+                                );
                             }
                         }
                         *runtime.app_initialized.lock().unwrap() = true;
@@ -126,6 +136,17 @@ impl Runtime {
                             .entry(requesting_node_id)
                             .or_insert(Vec::new())
                             .push(event);
+                    }
+                    EventInstance::PublishModule { wasm_binary } => {
+                        Runtime::load_module(
+                            runtime.clone(),
+                            Module::from_bytes(runtime.clone(), &wasm_binary).unwrap(),
+                        )
+                        .await
+                        .unwrap();
+                    }
+                    EventInstance::RemoveModule { module_name } => {
+                        Runtime::remove_module(runtime.clone(), &module_name);
                     }
                     event => {
                         let triggered = runtime.find_subscriptions(&event).unwrap();

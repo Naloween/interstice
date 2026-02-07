@@ -1,4 +1,5 @@
 use crate::error::IntersticeError;
+use crate::logger::{LogLevel, LogSource, Logger};
 use crate::network::peer::PeerHandle;
 use crate::network::protocol::NetworkPacket;
 use crate::node::NodeId;
@@ -22,13 +23,14 @@ pub struct Network {
     node_id: Uuid,
     address: String,
     peers: Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
-    event_sender: mpsc::UnboundedSender<EventInstance>,
+    runtime_event_sender: mpsc::UnboundedSender<EventInstance>,
+    logger: Logger,
 
     /// Packets coming *from* connection tasks
-    receiver: mpsc::Receiver<(NodeId, NetworkPacket)>,
+    packet_receiver: mpsc::Receiver<(NodeId, NetworkPacket)>,
 
     /// Cloned and given to connection tasks
-    sender: mpsc::Sender<(NodeId, NetworkPacket)>,
+    packet_sender: mpsc::Sender<(NodeId, NetworkPacket)>,
 }
 
 #[derive(Clone)]
@@ -36,17 +38,22 @@ pub struct NetworkHandle {
     pub node_id: Uuid,
     pub address: String,
     peers: Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
-    sender: mpsc::Sender<(NodeId, NetworkPacket)>,
+    packet_sender: mpsc::Sender<(NodeId, NetworkPacket)>,
+    logger: Logger,
 }
 
 impl NetworkHandle {
     pub async fn connect_to_peer(&mut self, node_address: String) {
         if self.address == node_address {
-            eprintln!("Cannot connect to self, skipping");
+            self.logger.log(
+                "Cannot connect to self, skipping",
+                LogSource::Network,
+                LogLevel::Warning,
+            );
             return;
         }
         let mut cloned_peers = self.peers.clone();
-        let cloned_sender = self.sender.clone();
+        let packet_sender = self.packet_sender.clone();
         let address = self.address.clone();
         let my_node_id = self.node_id.clone();
         let mut stream = TcpStream::connect(&node_address)
@@ -70,11 +77,16 @@ impl NetworkHandle {
             address,
             stream,
             &mut cloned_peers,
-            cloned_sender,
+            packet_sender,
+            self.logger.clone(),
         )
         .await
         {
-            eprintln!("Handshake failed: {:?}", e);
+            self.logger.log(
+                &format!("Handshake failed: {:?}", e),
+                LogSource::Network,
+                LogLevel::Error,
+            );
         }
     }
 
@@ -110,6 +122,7 @@ impl Network {
         node_id: Uuid,
         address: String,
         event_sender: mpsc::UnboundedSender<EventInstance>,
+        logger: Logger,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
 
@@ -117,9 +130,10 @@ impl Network {
             node_id,
             address,
             peers: Arc::new(Mutex::new(HashMap::new())),
-            receiver,
-            sender,
-            event_sender,
+            packet_receiver: receiver,
+            packet_sender: sender,
+            runtime_event_sender: event_sender,
+            logger,
         }
     }
 
@@ -128,27 +142,34 @@ impl Network {
             node_id: self.node_id.clone(),
             address: self.address.clone(),
             peers: self.peers.clone(),
-            sender: self.sender.clone(),
+            packet_sender: self.packet_sender.clone(),
+            logger: self.logger.clone(),
         }
     }
 
     pub fn listen(&mut self) -> Result<(), IntersticeError> {
         let peers = self.peers.clone();
-        let sender = self.sender.clone();
+        let sender = self.packet_sender.clone();
         let my_address = self.address.clone();
         let my_node_id = self.node_id.clone();
+        let logger = self.logger.clone();
         tokio::spawn(async move {
             let listener = TcpListener::bind(&my_address)
                 .await
                 .map_err(|_err| IntersticeError::Internal("Failed to listen adress".into()))
                 .unwrap();
-            println!("Listening on {}", my_address);
+            logger.log(
+                &format!("Listening on {}", my_address),
+                LogSource::Network,
+                LogLevel::Info,
+            );
             loop {
                 match listener.accept().await {
                     Ok((stream, _)) => {
                         let mut cloned_peers = peers.clone();
                         let cloned_sender = sender.clone();
                         let my_address = my_address.clone();
+                        let logger = logger.clone();
                         tokio::spawn(async move {
                             if let Err(e) = handshake_incoming(
                                 my_node_id,
@@ -156,14 +177,23 @@ impl Network {
                                 stream,
                                 &mut cloned_peers,
                                 cloned_sender,
+                                logger.clone(),
                             )
                             .await
                             {
-                                eprintln!("Handshake failed: {:?}", e);
+                                logger.log(
+                                    &format!("Handshake failed: {:?}", e),
+                                    LogSource::Network,
+                                    LogLevel::Error,
+                                );
                             }
                         });
                     }
-                    Err(e) => eprintln!("Accept error: {:?}", e),
+                    Err(e) => logger.log(
+                        &format!("Accept error: {:?}", e),
+                        LogSource::Network,
+                        LogLevel::Error,
+                    ),
                 }
             }
         });
@@ -177,17 +207,21 @@ impl Network {
 
     pub fn run(mut self) -> JoinHandle<()> {
         return tokio::spawn(async move {
-            while let Some((node_id, packet)) = self.receiver.recv().await {
+            while let Some((node_id, packet)) = self.packet_receiver.recv().await {
                 match packet {
                     NetworkPacket::Handshake { .. } => {
-                        eprintln!("Received unexpected handshake from {}", node_id);
+                        self.logger.log(
+                            &format!("Received unexpected handshake from {}", node_id),
+                            LogSource::Network,
+                            LogLevel::Warning,
+                        );
                     }
                     NetworkPacket::ReducerCall {
                         module_name,
                         reducer_name,
                         input,
                     } => self
-                        .event_sender
+                        .runtime_event_sender
                         .send(EventInstance::RemoteReducerCall {
                             module_name,
                             reducer_name,
@@ -195,7 +229,7 @@ impl Network {
                         })
                         .unwrap(),
                     NetworkPacket::RequestSubscription(request_subscription) => self
-                        .event_sender
+                        .runtime_event_sender
                         .send(EventInstance::RequestSubscription {
                             requesting_node_id: node_id,
                             event: match request_subscription.event {
@@ -218,7 +252,7 @@ impl Network {
                         })
                         .unwrap(),
                     NetworkPacket::TableEvent(subscription_event) => {
-                        self.event_sender
+                        self.runtime_event_sender
                             .send(match subscription_event {
                                 protocol::TableEventInstance::TableInsertEvent {
                                     module_name,
@@ -253,7 +287,23 @@ impl Network {
                             .unwrap();
                     }
                     NetworkPacket::Error(err) => {
-                        println!("Received error from {}: {}", node_id, err)
+                        self.logger.log(
+                            &format!("Received error from {}: {}", node_id, err),
+                            LogSource::Network,
+                            LogLevel::Error,
+                        );
+                    }
+                    NetworkPacket::ModuleEvent(module_event_instance) => {
+                        match module_event_instance {
+                            protocol::ModuleEventInstance::Publish { wasm_binary } => self
+                                .runtime_event_sender
+                                .send(EventInstance::PublishModule { wasm_binary })
+                                .unwrap(),
+                            protocol::ModuleEventInstance::Remove { module_name } => self
+                                .runtime_event_sender
+                                .send(EventInstance::RemoveModule { module_name })
+                                .unwrap(),
+                        }
                     }
                 }
             }
@@ -270,13 +320,20 @@ async fn connection_task(
     stream: TcpStream,
     mut receiver: mpsc::Receiver<NetworkPacket>,
     sender: mpsc::Sender<(NodeId, NetworkPacket)>,
+    logger: Logger,
 ) {
     let (mut reader, mut writer) = stream.into_split();
+    let write_logger = logger.clone();
+    let read_logger = logger;
 
     let write_loop = tokio::spawn(async move {
         while let Some(packet) = receiver.recv().await {
             if let Err(e) = write_packet(&mut writer, &packet).await {
-                eprintln!("Write error to {}: {:?}", node_id, e);
+                write_logger.log(
+                    &format!("Write error to {}: {:?}", node_id, e),
+                    LogSource::Network,
+                    LogLevel::Error,
+                );
                 break;
             }
         }
@@ -291,7 +348,11 @@ async fn connection_task(
                     }
                 }
                 Err(e) => {
-                    eprintln!("Read error from {}: {:?}", node_id, e);
+                    read_logger.log(
+                        &format!("Read error from {}: {:?}", node_id, e),
+                        LogSource::Network,
+                        LogLevel::Error,
+                    );
                     break;
                 }
             }
@@ -309,7 +370,8 @@ async fn handshake_incoming(
     my_address: String,
     mut stream: TcpStream,
     peers: &mut Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
-    global_sender: mpsc::Sender<(NodeId, NetworkPacket)>,
+    packet_sender: mpsc::Sender<(NodeId, NetworkPacket)>,
+    logger: Logger,
 ) -> Result<(), IntersticeError> {
     let packet = read_packet(&mut stream).await?;
 
@@ -339,7 +401,11 @@ async fn handshake_incoming(
 
     // If already connected, drop duplicate
     if peers.contains_key(&peer_id) {
-        println!("Duplicate incoming connection from {}, dropping", peer_id);
+        logger.log(
+            &format!("Duplicate incoming connection from {}, dropping", peer_id),
+            LogSource::Network,
+            LogLevel::Warning,
+        );
         return Ok(());
     }
 
@@ -359,10 +425,15 @@ async fn handshake_incoming(
         peer_id,
         stream,
         receiver,
-        global_sender.clone(),
+        packet_sender.clone(),
+        logger.clone(),
     ));
 
-    println!("Accepted peer {}", peer_id);
+    logger.log(
+        &format!("Accepted peer {}", peer_id),
+        LogSource::Network,
+        LogLevel::Info,
+    );
 
     Ok(())
 }

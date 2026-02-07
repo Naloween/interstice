@@ -15,6 +15,7 @@ name = "interstice-cli"
 path = "src/main.rs"
 
 [dependencies]
+directories = "6.0.0"
 interstice-core = { path = "../interstice-core", version = "0.1.0" }
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.49", features = ["full"] }

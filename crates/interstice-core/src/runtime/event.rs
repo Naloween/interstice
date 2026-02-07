@@ -39,6 +39,12 @@ pub enum EventInstance {
         reducer_name: String,
         input: IntersticeValue,
     },
+    PublishModule {
+        wasm_binary: Vec<u8>,
+    },
+    RemoveModule {
+        module_name: String,
+    },
 }
 
 impl EventInstance {

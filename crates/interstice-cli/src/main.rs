@@ -1,7 +1,11 @@
 // Interstice CLI - Command-line interface
 
-use interstice_core::{IntersticeError, Node};
-use std::{fs::File, io::Write as _, path::Path};
+use interstice_cli::{
+    example::example,
+    init::init,
+    start::{start, start_new},
+};
+use interstice_core::IntersticeError;
 
 #[tokio::main]
 async fn main() -> Result<(), IntersticeError> {
@@ -16,42 +20,30 @@ async fn main() -> Result<(), IntersticeError> {
 
     match command.as_str() {
         "start" => {
-            let port = args[2].trim().parse().expect("Failed to parse port");
-            let mut node = Node::new(Path::new("./transactions_log"), port)?;
-            node.clear_logs().await.expect("Couldn't clear logs");
-            node.start().await?;
-            Ok(())
+            if args.len() < 3 {
+                print_help();
+                return Ok(());
+            } else if args.len() == 3 {
+                let port = args[2].trim().parse().expect("Failed to parse port");
+                start_new(port).await
+            } else if args.len() == 4 {
+                let id = args[2].trim().parse().expect("Failed to parse node ID");
+                let port = args[3].trim().parse().expect("Failed to parse port");
+                start(id, port).await
+            } else {
+                print_help();
+                Ok(())
+            }
         }
         "example" => {
-            let port = args[2].trim().parse().expect("Failed to parse port");
-            let mut node = Node::new(Path::new("./transactions_log"), port)?;
-            node.clear_logs().await.expect("Couldn't clear logs");
-            let hello_path = "../../target/wasm32-unknown-unknown/debug/hello.wasm";
-            let caller_path = "../../target/wasm32-unknown-unknown/debug/caller.wasm";
-            let graphics_path = "../../target/wasm32-unknown-unknown/debug/graphics.wasm";
-
-            if port != 8080 {
-                // Client
-                let _caller_schema = node.load_module(caller_path).await?.to_public();
-                let _graphics_schema = node.load_module(graphics_path).await?.to_public();
-            } else {
-                // Server
-                let hello_schema = node.load_module(hello_path).await?; //.to_public();
-                File::create("./hello_schema.toml")
-                    .unwrap()
-                    .write_all(&hello_schema.to_toml_string().unwrap().as_bytes())
-                    .unwrap();
+            if args.len() < 3 {
+                print_help();
+                return Ok(());
             }
-
-            let node_schema = node.schema("MyNode".into()).await.to_public();
-            File::create("./node_schema.toml")
-                .unwrap()
-                .write_all(&node_schema.to_toml_string().unwrap().as_bytes())
-                .unwrap();
-
-            node.start().await?;
-            Ok(())
+            let port = args[2].trim().parse().expect("Failed to parse port");
+            example(port).await
         }
+        "init" => init(),
         "help" | "-h" | "--help" => {
             print_help();
             Ok(())
@@ -71,8 +63,11 @@ fn print_help() {
     println!("  interstice <COMMAND> [OPTIONS]");
     println!();
     println!("COMMANDS:");
-    println!("  start                            Start an interstice node");
-    println!("  example                          Start an interstice node example, when on port 8080 it loads the hello module, otherwise it loads the caller and graphics modules");
+    println!("  start [port]                           Start an interstice node");
+    println!("  start [id] [port]                     Start an interstice node");
+    println!(
+        "  example [port]                        Start an interstice node example, when on port 8080 it loads the hello module, otherwise it loads the caller and graphics modules"
+    );
     println!("  help                             Show this help message");
     println!();
     println!("OPTIONS:");

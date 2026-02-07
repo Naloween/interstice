@@ -1,5 +1,6 @@
 use crate::{
     error::IntersticeError,
+    logger::{LogLevel, LogSource},
     network::protocol::{NetworkPacket, RequestSubscription, TableEvent},
     runtime::{
         Runtime,
@@ -23,12 +24,53 @@ use wasmtime::{Module as wasmtimeModule, Store};
 
 pub struct Module {
     instance: Arc<Mutex<WasmInstance>>,
+    wasm_bytes: Vec<u8>,
     pub schema: Arc<ModuleSchema>,
     pub tables: Arc<Mutex<HashMap<String, Table>>>,
 }
 
 impl Module {
-    pub fn new(mut instance: WasmInstance) -> Result<Self, IntersticeError> {
+    pub fn from_file(runtime: Arc<Runtime>, path: &Path) -> Result<Self, IntersticeError> {
+        let wasm_module = wasmtimeModule::from_file(&runtime.engine, path).unwrap();
+        let mut store = Store::new(
+            &runtime.engine,
+            StoreState {
+                runtime: runtime.clone(),
+                module_schema: ModuleSchema::empty(),
+            },
+        );
+        let instance = runtime
+            .linker
+            .lock()
+            .unwrap()
+            .instantiate(&mut store, &wasm_module)
+            .unwrap();
+        let instance = WasmInstance::new(store, instance)?;
+        let module = Module::new(instance, std::fs::read(path).unwrap())?;
+        Ok(module)
+    }
+
+    pub fn from_bytes(runtime: Arc<Runtime>, wasm_binary: &[u8]) -> Result<Self, IntersticeError> {
+        let wasm_module = wasmtimeModule::new(&runtime.engine, wasm_binary).unwrap();
+        let mut store = Store::new(
+            &runtime.engine,
+            StoreState {
+                runtime: runtime.clone(),
+                module_schema: ModuleSchema::empty(),
+            },
+        );
+        let instance = runtime
+            .linker
+            .lock()
+            .unwrap()
+            .instantiate(&mut store, &wasm_module)
+            .unwrap();
+        let instance = WasmInstance::new(store, instance)?;
+        let module = Module::new(instance, wasm_binary.to_vec())?;
+        Ok(module)
+    }
+
+    pub fn new(mut instance: WasmInstance, wasm_bytes: Vec<u8>) -> Result<Self, IntersticeError> {
         let schema = instance.load_schema()?;
         if schema.abi_version != ABI_VERSION {
             return Err(IntersticeError::AbiVersionMismatch {
@@ -56,6 +98,7 @@ impl Module {
 
         Ok(Self {
             instance: Arc::new(Mutex::new(instance)),
+            wasm_bytes,
             schema: Arc::new(schema),
             tables: Arc::new(Mutex::new(tables)),
         })
@@ -72,29 +115,10 @@ impl Module {
 }
 
 impl Runtime {
-    pub async fn load_module<P: AsRef<Path>>(
+    pub async fn load_module(
         runtime: Arc<Self>,
-        path: P,
+        module: Module,
     ) -> Result<ModuleSchema, IntersticeError> {
-        // Create wasm instance from provided file
-        let wasm_module = wasmtimeModule::from_file(&runtime.engine, path).unwrap();
-        let mut store = Store::new(
-            &runtime.engine,
-            StoreState {
-                runtime: runtime.clone(),
-                module_schema: ModuleSchema::empty(),
-            },
-        );
-        let instance = runtime
-            .linker
-            .lock()
-            .unwrap()
-            .instantiate(&mut store, &wasm_module)
-            .unwrap();
-        let instance = WasmInstance::new(store, instance)?;
-
-        // Create module
-        let module = Module::new(instance)?;
         let module_schema = module.schema.clone();
 
         // If the module requires GPU authority and the app is not initialized yet, queue it for loading after app initialization
@@ -106,23 +130,26 @@ impl Runtime {
             && !*runtime.app_initialized.lock().unwrap()
         {
             runtime.pending_app_modules.lock().unwrap().push(module);
-            println!(
-                "Module '{}' is queued for loading after app initialization",
-                runtime
-                    .pending_app_modules
-                    .lock()
-                    .unwrap()
-                    .last()
-                    .unwrap()
-                    .schema
-                    .name
+            runtime.logger.log(
+                &format!(
+                    "Module '{}' is queued for loading after app initialization",
+                    runtime
+                        .pending_app_modules
+                        .lock()
+                        .unwrap()
+                        .last()
+                        .unwrap()
+                        .schema
+                        .name
+                ),
+                LogSource::Runtime,
+                LogLevel::Info,
             );
             runtime.run_app_notify.notify_one();
             return Ok(module_schema.as_ref().clone());
-        } else {
-            Runtime::publish_module(runtime, module).await?;
-            return Ok(module_schema.as_ref().clone());
         }
+        Runtime::publish_module(runtime, module).await?;
+        return Ok(module_schema.as_ref().clone());
     }
 
     pub async fn publish_module(runtime: Arc<Self>, module: Module) -> Result<(), IntersticeError> {
@@ -250,6 +277,12 @@ impl Runtime {
             }
         }
 
+        // save module
+        let module_path = runtime
+            .modules_path
+            .join(format!("{}.wasm", module_schema.name));
+        std::fs::write(module_path, &module.wasm_bytes).unwrap();
+
         runtime
             .modules
             .lock()
@@ -263,8 +296,16 @@ impl Runtime {
                 module_name: module_schema.name.clone(),
             })
             .unwrap();
-        println!("Loaded module '{}'", module_schema.name);
+        runtime.logger.log(
+            &format!("Loaded module '{}'", module_schema.name),
+            LogSource::Runtime,
+            LogLevel::Info,
+        );
 
         Ok(())
+    }
+
+    pub fn remove_module(runtime: Arc<Runtime>, module_name: &str) {
+        todo!()
     }
 }

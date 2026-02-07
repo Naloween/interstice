@@ -14,6 +14,7 @@ pub enum NetworkPacket {
     },
     RequestSubscription(RequestSubscription),
     TableEvent(TableEventInstance),
+    ModuleEvent(ModuleEventInstance),
     Error(String),
 }
 
@@ -49,4 +50,10 @@ pub enum TableEventInstance {
         table_name: String,
         deleted_row: Row,
     },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ModuleEventInstance {
+    Publish { wasm_binary: Vec<u8> },
+    Remove { module_name: String },
 }

@@ -1,4 +1,5 @@
 use super::StoreState;
+use crate::logger::{LogLevel, LogSource};
 use wasmtime::{Caller, Linker};
 
 pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> {
@@ -19,7 +20,14 @@ pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> 
                 Ok(Some(result)) => result,
                 Ok(None) => 0,
                 Err(err) => {
-                    println!("An error occured when dispatching the host call: {}", err);
+                    runtime.logger.log(
+                        &format!(
+                            "An error occured when dispatching the host call: {}",
+                            err
+                        ),
+                        LogSource::Runtime,
+                        LogLevel::Error,
+                    );
                     0
                 }
             }

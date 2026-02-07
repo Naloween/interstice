@@ -172,9 +172,9 @@ and long-lived, before moving to authority and advanced optimizations.
 
 - Network handle disconnection (remove subscriptions)
 - Gpu error handling instead of panic (frame not begun etc.. Especially on resize where it interrupts the current render)
-- save modules loaded, node id etc.. Along with the table datas.
 - add file authority
 - add audio authority
+- add module authority (ability to load, delete update modules on the current node)
 - parallelize runtime
 - Auto_inc flag table column
 - Indexed tables (add index flag macro on field struct)
@@ -189,22 +189,14 @@ and long-lived, before moving to authority and advanced optimizations.
 - Table migration support
 - Table Views (allow row filtering based on current state and requesting node id)
 - Subscription execution ordering guarantees ?
-- Add table feature to not be logged (saved)
-- Structured logging
+- Add table feature to not be logged (saved) with the elusive attribute. Usefull for non persistent state like the mouse position.
 
 ## Tooling & CLI
 
-- Init module (build.rs, Cargo.toml, src/lib.rs, .cargo/config.toml for wasm32 build with corresponding default macros)
 - publish module (build to wasm and send the file to the node at the specified adress)
 - Update interstice
 - Transaction log inspection
-- Replay / determinism checker
-
-## Debugging & Observability
-
-- Reducer execution tracing
-- Subscription trace graphs
-- Deterministic replay debugging
+- Benchmarkings
 
 ---
 
