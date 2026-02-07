@@ -356,7 +356,7 @@ impl Network {
             self.logger.log(
                 &format!("Received close from unknown peer {}", node_id),
                 LogSource::Network,
-                LogLevel::Warning,
+                LogLevel::Info,
             );
         }
     }
@@ -460,6 +460,7 @@ fn is_disconnect_error(err: &IntersticeError) -> bool {
         IntersticeError::Internal(message) => {
             let msg = message.to_lowercase();
             msg.contains("os error 10054")
+                || msg.contains("unexpected end of file")
                 || msg.contains("connection reset")
                 || msg.contains("connection aborted")
                 || msg.contains("broken pipe")

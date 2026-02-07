@@ -350,6 +350,20 @@ impl Runtime {
                 network_handle.disconnect_peer(node_id).await;
             });
         }
+
+        // Removing module from authority modules if it has any authority
+        let authorities_to_remove = runtime
+            .authority_modules
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, entry)| entry.module_name == module_name)
+            .map(|(authority, _)| authority.clone())
+            .collect::<Vec<_>>();
+        for authority in authorities_to_remove {
+            runtime.authority_modules.lock().unwrap().remove(&authority);
+        }
+
         runtime.logger.log(
             &format!("Removed module '{}'", module_name),
             LogSource::Runtime,

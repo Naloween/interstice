@@ -1,10 +1,9 @@
 use interstice_core::{
-    IntersticeError, ModuleEventInstance, NetworkPacket, interstice_abi::encode,
-    packet::write_packet,
+    IntersticeError, ModuleEventInstance, NetworkPacket,
+    packet::{read_packet, write_packet},
 };
 use serde_json::Value;
 use std::path::{Path, PathBuf};
-use tokio::io::AsyncWriteExt;
 
 pub async fn publish(
     node_address: String,
@@ -23,6 +22,7 @@ pub async fn publish(
         address: "127.0.0.1:12345".into(),
     };
     write_packet(&mut stream, &packet).await?;
+    let _ = read_packet(&mut stream).await?;
 
     // Build module using cargo
     println!(
@@ -53,6 +53,34 @@ pub async fn publish(
 
     // Send wasm binary to node
     let packet = NetworkPacket::ModuleEvent(ModuleEventInstance::Publish { wasm_binary });
+    write_packet(&mut stream, &packet).await?;
+
+    // Close connection properly
+    let packet = NetworkPacket::Close;
+    write_packet(&mut stream, &packet).await?;
+
+    Ok(())
+}
+
+pub async fn remove(node_address: String, module_name: &str) -> Result<(), IntersticeError> {
+    // This should take a module name and send a message to the node to delete the module with that name. It should also be able to use saved servers nodes with their adress to easily delete from known nodes.
+
+    // The cLI simulate a remote node instance
+    let cli_node_id = uuid::Uuid::new_v4();
+
+    // connect to node
+    let mut stream = tokio::net::TcpStream::connect(node_address).await.unwrap();
+    let packet = NetworkPacket::Handshake {
+        node_id: cli_node_id.to_string(),
+        address: "127.0.0.1:12345".into(),
+    };
+    write_packet(&mut stream, &packet).await?;
+    let _ = read_packet(&mut stream).await?;
+
+    // Send wasm binary to node
+    let packet = NetworkPacket::ModuleEvent(ModuleEventInstance::Remove {
+        module_name: module_name.into(),
+    });
     write_packet(&mut stream, &packet).await?;
 
     // Close connection properly
@@ -133,20 +161,4 @@ fn normalize_path_buf(path: PathBuf) -> String {
         .or_else(|| s.strip_prefix("\\\\?\\"))
         .unwrap_or(&s)
         .to_string()
-}
-
-pub async fn remove(node_address: String, module_name: &str) -> Result<(), IntersticeError> {
-    // This should take a module name and send a message to the node to delete the module with that name. It should also be able to use saved servers nodes with their adress to easily delete from known nodes.
-
-    // connect to node
-    let mut stream = tokio::net::TcpStream::connect(node_address).await.unwrap();
-
-    // Send wasm binary to node
-    let packet = NetworkPacket::ModuleEvent(ModuleEventInstance::Remove {
-        module_name: module_name.into(),
-    });
-    let bytes = encode(&packet).unwrap();
-    stream.write_all(&bytes).await.unwrap();
-
-    Ok(())
 }
