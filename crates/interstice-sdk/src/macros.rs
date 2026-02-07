@@ -113,6 +113,18 @@ macro_rules! interstice_module {
             }
         }
     };
+
+    (@impl_authority Module) => {
+        pub trait ModuleExt {
+            fn module(&self) -> ModuleAuthority;
+        }
+
+        impl ModuleExt for interstice_sdk::ReducerContext {
+            fn module(&self) -> interstice_sdk::ModuleAuthority {
+                interstice_sdk::ModuleAuthority
+            }
+        }
+    };
 }
 
 pub fn describe_module(

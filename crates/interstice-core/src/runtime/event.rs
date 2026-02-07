@@ -4,7 +4,7 @@ use crate::{
     node::NodeId,
     runtime::{Runtime, authority::AuthorityEntry},
 };
-use interstice_abi::{Authority, FileEvent, InputEvent, IntersticeValue, Row, SubscriptionEventSchema};
+use interstice_abi::{Authority, FileEvent, InputEvent, IntersticeValue, ModuleEvent, Row, SubscriptionEventSchema};
 
 #[derive(Debug, Clone)]
 pub enum EventInstance {
@@ -30,6 +30,7 @@ pub enum EventInstance {
     Render,
     Input(InputEvent),
     File(FileEvent),
+    Module(ModuleEvent),
     AppInitialized,
     RequestSubscription {
         requesting_node_id: NodeId,
@@ -42,9 +43,11 @@ pub enum EventInstance {
     },
     PublishModule {
         wasm_binary: Vec<u8>,
+        source_node_id: NodeId,
     },
     RemoveModule {
         module_name: String,
+        source_node_id: NodeId,
     },
 }
 
@@ -138,6 +141,13 @@ impl EventInstance {
                     return false;
                 }
             }
+            EventInstance::Module(module_event) => {
+                match (module_event, event_schema) {
+                    (ModuleEvent::PublishRequest { .. }, SubscriptionEventSchema::ModulePublish) => true,
+                    (ModuleEvent::RemoveRequest { .. }, SubscriptionEventSchema::ModuleRemove) => true,
+                    _ => false,
+                }
+            }
             _ => false,
         }
     }
@@ -210,6 +220,17 @@ impl Runtime {
                     }
                 }
             }
+        } else if let EventInstance::Module(_) = event {
+            for module in self.modules.lock().unwrap().values() {
+                for sub in &module.schema.subscriptions {
+                    if event.has_schema(&sub.event) {
+                        out.push(SubscriptionTarget::Local {
+                            module: module.schema.name.clone(),
+                            reducer: sub.reducer_name.clone(),
+                        });
+                    }
+                }
+            }
         } else {
             for module in self.modules.lock().unwrap().values() {
                 for sub in &module.schema.subscriptions {
@@ -264,6 +285,9 @@ impl Runtime {
                     EventInstance::File(file_event) => {
                         IntersticeValue::Vec(vec![file_event.into()])
                     }
+                    EventInstance::Module(module_event) => {
+                        IntersticeValue::Vec(vec![module_event.into()])
+                    }
                     _ => IntersticeValue::Vec(vec![]),
                 };
                 let _ret = self.call_reducer(&module, &reducer, args)?;
@@ -299,7 +323,7 @@ impl Runtime {
                         table_name,
                         deleted_row,
                     }),
-                    EventInstance::File(_) | EventInstance::Input(_) => {
+                    EventInstance::File(_) | EventInstance::Input(_) | EventInstance::Module(_) => {
                         return Ok(());
                     }
                     event => {

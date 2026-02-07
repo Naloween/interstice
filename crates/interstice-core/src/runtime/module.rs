@@ -164,18 +164,19 @@ impl Runtime {
                 ));
             } else {
                 let on_event_reducer_name = match authority {
-                    interstice_abi::Authority::Gpu => module_schema
+                    Authority::Gpu => module_schema
                         .subscriptions
                         .iter()
                         .find(|sub| sub.event == SubscriptionEventSchema::Render)
                         .map(|sub| sub.reducer_name.clone()),
-                    interstice_abi::Authority::Audio => None,
-                    interstice_abi::Authority::Input => module_schema
+                    Authority::Audio => None,
+                    Authority::Input => module_schema
                         .subscriptions
                         .iter()
                         .find(|sub| sub.event == SubscriptionEventSchema::Input)
                         .map(|sub| sub.reducer_name.clone()),
-                    interstice_abi::Authority::File => None,
+                    Authority::File => None,
+                    Authority::Module => None,
                 };
                 runtime.authority_modules.lock().unwrap().insert(
                     authority.clone(),

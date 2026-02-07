@@ -144,11 +144,31 @@ pub fn get_register_subscription_function(
                                             }
                                         );
                                 },
+                                "module_publish" => {
+                                    return Some(
+                                            quote! {
+                                                interstice_sdk::SubscriptionSchema {
+                                                    reducer_name: stringify!(#reducer_ident).to_string(),
+                                                    event: interstice_sdk::SubscriptionEventSchema::ModulePublish
+                                                }
+                                            }
+                                        );
+                                },
+                                "module_remove" => {
+                                    return Some(
+                                            quote! {
+                                                interstice_sdk::SubscriptionSchema {
+                                                    reducer_name: stringify!(#reducer_ident).to_string(),
+                                                    event: interstice_sdk::SubscriptionEventSchema::ModuleRemove
+                                                }
+                                            }
+                                        );
+                                },
                                 _ => {
                                     return Some(
                                         syn::Error::new_spanned(
                                             litstr,
-                                            "Expected 'init', 'input', 'render', 'file:<path>', 'file_recursive:<path>' or formats: '[module].[table].[event]' or '[node].[module].[table].[event]'",
+                                            "Expected 'init', 'input', 'render', 'module_publish', 'module_remove', 'file:<path>', 'file_recursive:<path>' or formats: '[module].[table].[event]' or '[node].[module].[table].[event]'",
                                         )
                                         .to_compile_error()
                                         .into(),
@@ -161,7 +181,7 @@ pub fn get_register_subscription_function(
                 return Some(
                     syn::Error::new_spanned(
                         &nv.value,
-                        "Expected 'init', 'input', 'render', 'file:<path>', 'file_recursive:<path>' or formats: '[module].[table].[event]' or '[node].[module].[table].[event]'",
+                        "Expected 'init', 'input', 'render', 'module_publish', 'module_remove', 'file:<path>', 'file_recursive:<path>' or formats: '[module].[table].[event]' or '[node].[module].[table].[event]'",
                     )
                     .to_compile_error()
                     .into(),

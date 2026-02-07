@@ -65,6 +65,7 @@ macro_rules! impl_to_interstice_value {
     };
 }
 
+impl_to_interstice_value!(U8, u8);
 impl_to_interstice_value!(U32, u32);
 impl_to_interstice_value!(U64, u64);
 impl_to_interstice_value!(I32, i32);
@@ -90,6 +91,7 @@ macro_rules! impl_tryfrom_numeric {
     };
 }
 
+impl_tryfrom_numeric!(U8, u8);
 impl_tryfrom_numeric!(U32, u32);
 impl_tryfrom_numeric!(U64, u64);
 impl_tryfrom_numeric!(I32, i32);

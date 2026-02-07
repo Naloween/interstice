@@ -8,6 +8,7 @@ use std::{
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum IntersticeType {
     Void,
+    U8,
     U32,
     U64,
     I32,
@@ -26,6 +27,7 @@ impl Display for IntersticeType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             IntersticeType::Void => write!(f, "()"),
+            IntersticeType::U8 => write!(f, "u8"),
             IntersticeType::U32 => write!(f, "u32"),
             IntersticeType::U64 => write!(f, "u64"),
             IntersticeType::I32 => write!(f, "i32"),
@@ -181,6 +183,7 @@ impl<'a> Parser<'a> {
 
         // ---- Primitives ----
         let primitive = match ident.as_str() {
+            "u8" => Some(IntersticeType::U8),
             "u32" => Some(IntersticeType::U32),
             "u64" => Some(IntersticeType::U64),
             "i32" => Some(IntersticeType::I32),

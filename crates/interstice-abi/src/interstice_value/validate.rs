@@ -29,6 +29,13 @@ pub fn validate_value(
                 false
             }
         }
+        IntersticeValue::U8(_) => {
+            if let IntersticeType::U8 = ty {
+                true
+            } else {
+                false
+            }
+        }
         IntersticeValue::U64(_) => {
             if let IntersticeType::U64 = ty {
                 true

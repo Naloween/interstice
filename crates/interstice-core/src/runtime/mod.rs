@@ -22,7 +22,7 @@ use crate::{
         wasm::{StoreState, linker::define_host_calls},
     },
 };
-use interstice_abi::{Authority, SubscriptionEventSchema};
+use interstice_abi::{Authority, ModuleEvent, SubscriptionEventSchema};
 use notify::RecommendedWatcher;
 use std::{
     collections::HashMap,
@@ -140,16 +140,54 @@ impl Runtime {
                             .or_insert(Vec::new())
                             .push(event);
                     }
-                    EventInstance::PublishModule { wasm_binary } => {
-                        Runtime::load_module(
-                            runtime.clone(),
-                            Module::from_bytes(runtime.clone(), &wasm_binary).unwrap(),
-                        )
-                        .await
-                        .unwrap();
+                    EventInstance::PublishModule {
+                        wasm_binary,
+                        source_node_id,
+                    } => {
+                        if runtime
+                            .authority_modules
+                            .lock()
+                            .unwrap()
+                            .contains_key(&Authority::Module)
+                        {
+                            let module_name = Module::from_bytes(runtime.clone(), &wasm_binary)
+                                .map(|m| m.schema.name.clone())
+                                .unwrap_or_else(|_| "unknown".into());
+                            let _ = runtime.event_sender.send(EventInstance::Module(
+                                ModuleEvent::PublishRequest {
+                                    node_id: source_node_id.to_string(),
+                                    module_name,
+                                    wasm_binary,
+                                },
+                            ));
+                        } else {
+                            Runtime::load_module(
+                                runtime.clone(),
+                                Module::from_bytes(runtime.clone(), &wasm_binary).unwrap(),
+                            )
+                            .await
+                            .unwrap();
+                        }
                     }
-                    EventInstance::RemoveModule { module_name } => {
-                        Runtime::remove_module(runtime.clone(), &module_name);
+                    EventInstance::RemoveModule {
+                        module_name,
+                        source_node_id,
+                    } => {
+                        if runtime
+                            .authority_modules
+                            .lock()
+                            .unwrap()
+                            .contains_key(&Authority::Module)
+                        {
+                            let _ = runtime.event_sender.send(EventInstance::Module(
+                                ModuleEvent::RemoveRequest {
+                                    node_id: source_node_id.to_string(),
+                                    module_name,
+                                },
+                            ));
+                        } else {
+                            Runtime::remove_module(runtime.clone(), &module_name);
+                        }
                     }
                     event => {
                         let triggered = runtime.find_subscriptions(&event).unwrap();

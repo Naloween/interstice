@@ -83,6 +83,27 @@ impl Runtime {
 
                 self.handle_file_call(file_call, memory, caller)
             }
+            HostCall::Module(module_call) => {
+                let auth_modules = self.authority_modules.lock().unwrap();
+                let module_auth_entry = auth_modules
+                    .get(&Authority::Module)
+                    .ok_or_else(|| IntersticeError::Internal("No Module authority module".into()))?;
+
+                if module_auth_entry.module_name != caller_module_schema.name {
+                    return Err(IntersticeError::Unauthorized(Authority::Module));
+                }
+
+                drop(auth_modules);
+
+                let runtime = caller.data().runtime.clone();
+                self.handle_module_call(
+                    module_call,
+                    memory,
+                    caller,
+                    caller_module_schema,
+                    runtime,
+                )
+            }
         };
     }
 

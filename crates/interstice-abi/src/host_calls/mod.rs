@@ -2,10 +2,12 @@ mod audio;
 mod file;
 mod gpu;
 mod input;
+mod module;
 
 pub use file::*;
 pub use gpu::*;
 pub use input::*;
+pub use module::*;
 
 use crate::{IntersticeValue, Row};
 use serde::{Deserialize, Serialize};
@@ -22,6 +24,7 @@ pub enum HostCall {
     Audio,
     Input,
     File(FileCall),
+    Module(ModuleCall),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]

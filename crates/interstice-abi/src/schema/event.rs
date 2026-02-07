@@ -26,4 +26,6 @@ pub enum SubscriptionEventSchema {
         path: String,
         recursive: bool,
     },
+    ModulePublish,
+    ModuleRemove,
 }

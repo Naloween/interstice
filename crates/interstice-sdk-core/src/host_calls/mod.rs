@@ -1,11 +1,13 @@
 mod core;
 mod file;
 mod gpu;
+mod module;
 
 pub use core::*;
 pub use file::*;
 pub use gpu::*;
 use interstice_abi::{HostCall, decode, encode, unpack_ptr_len};
+pub use module::*;
 use serde::Deserialize;
 
 #[cfg(target_arch = "wasm32")]

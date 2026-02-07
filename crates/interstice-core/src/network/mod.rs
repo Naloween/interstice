@@ -329,11 +329,17 @@ impl Network {
                         match module_event_instance {
                             protocol::ModuleEventInstance::Publish { wasm_binary } => self
                                 .runtime_event_sender
-                                .send(EventInstance::PublishModule { wasm_binary })
+                                .send(EventInstance::PublishModule {
+                                    wasm_binary,
+                                    source_node_id: node_id,
+                                })
                                 .unwrap(),
                             protocol::ModuleEventInstance::Remove { module_name } => self
                                 .runtime_event_sender
-                                .send(EventInstance::RemoveModule { module_name })
+                                .send(EventInstance::RemoveModule {
+                                    module_name,
+                                    source_node_id: node_id,
+                                })
                                 .unwrap(),
                         }
                     }
