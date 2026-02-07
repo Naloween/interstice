@@ -11,9 +11,10 @@ use crate::{
     },
 };
 use interstice_abi::{
-    ABI_VERSION, Authority, IntersticeValue, ModuleSchema, NodeSelection, ReducerContext,
-    SubscriptionEventSchema, get_reducer_wrapper_name,
+    ABI_VERSION, Authority, FileEvent, IntersticeValue, ModuleSchema, NodeSelection,
+    ReducerContext, SubscriptionEventSchema, get_reducer_wrapper_name,
 };
+use notify::{RecursiveMode, Watcher};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -289,6 +290,8 @@ impl Runtime {
             .unwrap()
             .insert(module.schema.name.clone(), Arc::new(module));
 
+        setup_file_watches(runtime.clone(), &module_schema)?;
+
         // Throw init event
         runtime
             .event_sender
@@ -344,7 +347,7 @@ impl Runtime {
             })
             .collect::<Vec<_>>();
 
-        for (node_id, address) in node_ids_to_disconnect {
+        for (node_id, _) in node_ids_to_disconnect {
             let network_handle = runtime.network_handle.clone();
             tokio::spawn(async move {
                 network_handle.disconnect_peer(node_id).await;
@@ -364,10 +367,111 @@ impl Runtime {
             runtime.authority_modules.lock().unwrap().remove(&authority);
         }
 
+        runtime.file_watchers.lock().unwrap().clear();
+
         runtime.logger.log(
             &format!("Removed module '{}'", module_name),
             LogSource::Runtime,
             LogLevel::Info,
         );
     }
+}
+
+fn setup_file_watches(
+    runtime: Arc<Runtime>,
+    module_schema: &ModuleSchema,
+) -> Result<(), IntersticeError> {
+    if !module_schema
+        .authorities
+        .iter()
+        .any(|a| *a == Authority::File)
+    {
+        return Ok(());
+    }
+
+    let mut watchers_for_module = Vec::new();
+
+    for sub in &module_schema.subscriptions {
+        if let SubscriptionEventSchema::File { path, recursive } = &sub.event {
+            let event_sender = runtime.event_sender.clone();
+            let logger = runtime.logger.clone();
+
+            let mut watcher =
+                notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+                    match res {
+                        Ok(event) => {
+                            let mut events = Vec::new();
+                            match event.kind {
+                                notify::EventKind::Create(_) => {
+                                    for p in &event.paths {
+                                        events.push(FileEvent::Created {
+                                            path: p.to_string_lossy().to_string(),
+                                        });
+                                    }
+                                }
+                                notify::EventKind::Modify(notify::event::ModifyKind::Name(_)) => {
+                                    if event.paths.len() >= 2 {
+                                        events.push(FileEvent::Renamed {
+                                            from: event.paths[0].to_string_lossy().to_string(),
+                                            to: event.paths[1].to_string_lossy().to_string(),
+                                        });
+                                    }
+                                }
+                                notify::EventKind::Modify(_) => {
+                                    for p in &event.paths {
+                                        events.push(FileEvent::Modified {
+                                            path: p.to_string_lossy().to_string(),
+                                        });
+                                    }
+                                }
+                                notify::EventKind::Remove(_) => {
+                                    for p in &event.paths {
+                                        events.push(FileEvent::Deleted {
+                                            path: p.to_string_lossy().to_string(),
+                                        });
+                                    }
+                                }
+                                _ => {}
+                            }
+
+                            for ev in events {
+                                let _ = event_sender.send(EventInstance::File(ev));
+                            }
+                        }
+                        Err(err) => {
+                            logger.log(
+                                &format!("File watch error: {}", err),
+                                LogSource::Runtime,
+                                LogLevel::Warning,
+                            );
+                        }
+                    }
+                })
+                .map_err(|err| {
+                    IntersticeError::Internal(format!("Failed to create watcher: {}", err))
+                })?;
+
+            let mode = if *recursive {
+                RecursiveMode::Recursive
+            } else {
+                RecursiveMode::NonRecursive
+            };
+
+            watcher.watch(Path::new(path), mode).map_err(|err| {
+                IntersticeError::Internal(format!("Failed to watch path: {}", err))
+            })?;
+
+            watchers_for_module.push(watcher);
+        }
+    }
+
+    if !watchers_for_module.is_empty() {
+        runtime
+            .file_watchers
+            .lock()
+            .unwrap()
+            .extend(watchers_for_module);
+    }
+
+    Ok(())
 }

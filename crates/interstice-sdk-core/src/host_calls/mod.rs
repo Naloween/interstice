@@ -1,7 +1,9 @@
 mod core;
+mod file;
 mod gpu;
 
 pub use core::*;
+pub use file::*;
 pub use gpu::*;
 use interstice_abi::{HostCall, decode, encode, unpack_ptr_len};
 use serde::Deserialize;

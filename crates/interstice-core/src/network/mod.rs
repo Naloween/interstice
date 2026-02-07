@@ -464,7 +464,6 @@ fn is_disconnect_error(err: &IntersticeError) -> bool {
                 || msg.contains("connection reset")
                 || msg.contains("connection aborted")
                 || msg.contains("broken pipe")
-                || msg.contains("unexpected eof")
                 || msg.contains("eof")
         }
         _ => false,

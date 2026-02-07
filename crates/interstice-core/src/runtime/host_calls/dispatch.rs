@@ -69,7 +69,20 @@ impl Runtime {
 
             HostCall::Audio => todo!(),
             HostCall::Input => todo!(),
-            HostCall::File => todo!(),
+            HostCall::File(file_call) => {
+                let auth_modules = self.authority_modules.lock().unwrap();
+                let file_auth_entry = auth_modules
+                    .get(&Authority::File)
+                    .ok_or_else(|| IntersticeError::Internal("No File authority module".into()))?;
+
+                if file_auth_entry.module_name != caller_module_schema.name {
+                    return Err(IntersticeError::Unauthorized(Authority::File));
+                }
+
+                drop(auth_modules);
+
+                self.handle_file_call(file_call, memory, caller)
+            }
         };
     }
 

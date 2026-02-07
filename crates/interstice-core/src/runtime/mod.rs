@@ -23,6 +23,7 @@ use crate::{
     },
 };
 use interstice_abi::{Authority, SubscriptionEventSchema};
+use notify::RecommendedWatcher;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -53,6 +54,7 @@ pub struct Runtime {
     run_app_notify: Arc<Notify>,
     node_subscriptions: Arc<Mutex<HashMap<NodeId, Vec<SubscriptionEventSchema>>>>,
     pub(crate) logger: Logger,
+    pub(crate) file_watchers: Arc<Mutex<Vec<RecommendedWatcher>>>,
 }
 
 impl Runtime {
@@ -86,6 +88,7 @@ impl Runtime {
             run_app_notify,
             node_subscriptions: Arc::new(Mutex::new(HashMap::new())),
             logger,
+            file_watchers: Arc::new(Mutex::new(Vec::new())),
         })
     }
 

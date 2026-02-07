@@ -3,6 +3,7 @@ mod file;
 mod gpu;
 mod input;
 
+pub use file::*;
 pub use gpu::*;
 pub use input::*;
 
@@ -20,7 +21,7 @@ pub enum HostCall {
     Gpu(GpuCall),
     Audio,
     Input,
-    File,
+    File(FileCall),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]

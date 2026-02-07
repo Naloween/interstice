@@ -22,4 +22,8 @@ pub enum SubscriptionEventSchema {
     Init,
     Input,
     Render,
+    File {
+        path: String,
+        recursive: bool,
+    },
 }

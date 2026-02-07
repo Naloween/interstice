@@ -23,6 +23,33 @@ pub fn get_register_subscription_function(
                 if let Expr::Lit(expr_lit) = &nv.value {
                     if let syn::Lit::Str(litstr) = &expr_lit.lit {
                         let content = litstr.value();
+                        if let Some(path) = content.strip_prefix("file_recursive:") {
+                            return Some(
+                                quote! {
+                                    interstice_sdk::SubscriptionSchema {
+                                        reducer_name: stringify!(#reducer_ident).to_string(),
+                                        event: interstice_sdk::SubscriptionEventSchema::File {
+                                            path: #path.to_string(),
+                                            recursive: true,
+                                        }
+                                    }
+                                }
+                            );
+                        }
+                        if let Some(path) = content.strip_prefix("file:") {
+                            return Some(
+                                quote! {
+                                    interstice_sdk::SubscriptionSchema {
+                                        reducer_name: stringify!(#reducer_ident).to_string(),
+                                        event: interstice_sdk::SubscriptionEventSchema::File {
+                                            path: #path.to_string(),
+                                            recursive: false,
+                                        }
+                                    }
+                                }
+                            );
+                        }
+
                         let segments: Vec<_> = content.split('.').collect();
 
                         if segments.len() == 3 || segments.len() == 4 {
@@ -121,7 +148,7 @@ pub fn get_register_subscription_function(
                                     return Some(
                                         syn::Error::new_spanned(
                                             litstr,
-                                            "Expected 'init', 'input', 'render' or formats: '[module].[table].[event]' or '[node].[module].[table].[event]'",
+                                            "Expected 'init', 'input', 'render', 'file:<path>', 'file_recursive:<path>' or formats: '[module].[table].[event]' or '[node].[module].[table].[event]'",
                                         )
                                         .to_compile_error()
                                         .into(),
@@ -134,7 +161,7 @@ pub fn get_register_subscription_function(
                 return Some(
                     syn::Error::new_spanned(
                         &nv.value,
-                        "Expected 'init', 'input', 'render' or formats: '[module].[table].[event]' or '[node].[module].[table].[event]'",
+                        "Expected 'init', 'input', 'render', 'file:<path>', 'file_recursive:<path>' or formats: '[module].[table].[event]' or '[node].[module].[table].[event]'",
                     )
                     .to_compile_error()
                     .into(),

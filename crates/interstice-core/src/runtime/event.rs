@@ -4,7 +4,7 @@ use crate::{
     node::NodeId,
     runtime::{Runtime, authority::AuthorityEntry},
 };
-use interstice_abi::{Authority, InputEvent, IntersticeValue, Row, SubscriptionEventSchema};
+use interstice_abi::{Authority, FileEvent, InputEvent, IntersticeValue, Row, SubscriptionEventSchema};
 
 #[derive(Debug, Clone)]
 pub enum EventInstance {
@@ -29,6 +29,7 @@ pub enum EventInstance {
     },
     Render,
     Input(InputEvent),
+    File(FileEvent),
     AppInitialized,
     RequestSubscription {
         requesting_node_id: NodeId,
@@ -119,6 +120,24 @@ impl EventInstance {
                     return false;
                 }
             }
+            EventInstance::File(file_event) => {
+                if let SubscriptionEventSchema::File { path, recursive } = event_schema {
+                    let event_path = std::path::Path::new(match file_event {
+                        FileEvent::Created { path }
+                        | FileEvent::Modified { path }
+                        | FileEvent::Deleted { path } => path,
+                        FileEvent::Renamed { to, .. } => to,
+                    });
+                    let schema_path = std::path::Path::new(path);
+
+                    if *recursive {
+                        return event_path.starts_with(schema_path);
+                    }
+                    return event_path == schema_path;
+                } else {
+                    return false;
+                }
+            }
             _ => false,
         }
     }
@@ -180,6 +199,17 @@ impl Runtime {
                     reducer: on_input_reducer_name,
                 });
             }
+        } else if let EventInstance::File(_) = event {
+            for module in self.modules.lock().unwrap().values() {
+                for sub in &module.schema.subscriptions {
+                    if event.has_schema(&sub.event) {
+                        out.push(SubscriptionTarget::Local {
+                            module: module.schema.name.clone(),
+                            reducer: sub.reducer_name.clone(),
+                        });
+                    }
+                }
+            }
         } else {
             for module in self.modules.lock().unwrap().values() {
                 for sub in &module.schema.subscriptions {
@@ -231,6 +261,9 @@ impl Runtime {
                     EventInstance::Input(input_event) => {
                         IntersticeValue::Vec(vec![input_event.into()])
                     }
+                    EventInstance::File(file_event) => {
+                        IntersticeValue::Vec(vec![file_event.into()])
+                    }
                     _ => IntersticeValue::Vec(vec![]),
                 };
                 let _ret = self.call_reducer(&module, &reducer, args)?;
@@ -266,6 +299,9 @@ impl Runtime {
                         table_name,
                         deleted_row,
                     }),
+                    EventInstance::File(_) | EventInstance::Input(_) => {
+                        return Ok(());
+                    }
                     event => {
                         return Err(IntersticeError::Internal(format!(
                             "Tried to send an event {:?} to remote node {}, which is not supported",

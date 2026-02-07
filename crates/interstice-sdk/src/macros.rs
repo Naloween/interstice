@@ -101,6 +101,18 @@ macro_rules! interstice_module {
             }
         }
     };
+
+    (@impl_authority File) => {
+        pub trait FileExt {
+            fn file(&self) -> File;
+        }
+
+        impl FileExt for interstice_sdk::ReducerContext {
+            fn file(&self) -> interstice_sdk::File {
+                interstice_sdk::File
+            }
+        }
+    };
 }
 
 pub fn describe_module(
