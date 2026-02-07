@@ -170,33 +170,39 @@ and long-lived, before moving to authority and advanced optimizations.
 
 ---
 
-- add file authority
-- add module authority (ability to load, delete update modules on the current node)
+## Features
+
 - Auto_inc flag table column
 - Indexed tables (add index flag macro on field struct)
 - Get table row by index (primary key and indexed columns)
 - Table Views (allow row filtering based on current state and requesting node id)
+- add audio authority
+- Table migration support
+- Subscription execution ordering guarantees ?
+- Add elusive table feature (to not be logged (saved)). Usefull for non persistent states like the mouse position.
+
+## Robustness, error handling and fixes
+
 - Network handle reconnections and be more robust
 - Gpu error handling instead of panic (frame not begun etc.. Especially on resize where it interrupts the current render)
-- add audio authority
-- parallelize runtime
 - macros more checks and better error handlings (subscription check args and types)
+
+## Optimizations
+
+- parallelize runtime
 - Efficient table scans through iter
 - Better type convertions designs (instead of always converting to IntersticeValue as an intermediate)
 - Optimize type convertions (no clones)
 - transaction logs snaptchots, separate logs before snapchot (archive) and after the current snaptchot
 - transaction logs add indexes to retreive efficiently per module, per table transactions
 - Columnar / structured storage backend
-- Make the CLI instantiate a node with default modules to manage all the commands, connect to other modules and so on (this also shows that we can have whole programs embeded in a module seemlessly)
-- Table migration support
-- Subscription execution ordering guarantees ?
-- Add table feature to not be logged (saved) with the elusive attribute. Usefull for non persistent state like the mouse position.
 
 ## Tooling & CLI
 
+- Make the CLI instantiate a node with default modules to manage all the commands, connect to other modules and so on (this also shows that we can have whole programs embeded in a module seemlessly)
 - Update interstice
-- Transaction log inspection
 - Benchmarkings
+- Rewind time and monitor previous module states and node states
 
 ---
 
