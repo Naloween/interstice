@@ -170,24 +170,24 @@ and long-lived, before moving to authority and advanced optimizations.
 
 ---
 
-- Network handle disconnection (remove subscriptions)
+- Auto_inc flag table column
+- Indexed tables (add index flag macro on field struct)
+- Get table row by index (primary key and indexed columns)
+- Table Views (allow row filtering based on current state and requesting node id)
+- Network handle reconnections and be more robust
 - Gpu error handling instead of panic (frame not begun etc.. Especially on resize where it interrupts the current render)
 - add file authority
 - add audio authority
 - add module authority (ability to load, delete update modules on the current node)
 - parallelize runtime
-- Auto_inc flag table column
-- Indexed tables (add index flag macro on field struct)
-- Get table row by index (primary key and indexed columns)
 - macros more checks and better error handlings (subscription check args and types)
 - Efficient table scans through iter
 - Better type convertions designs (instead of always converting to IntersticeValue as an intermediate)
 - Optimize type convertions (no clones)
-- transaction logs snaptchots, separate logs before snapchot (archive) and afetr the current snaptchot
+- transaction logs snaptchots, separate logs before snapchot (archive) and after the current snaptchot
 - transaction logs add indexes to retreive efficiently per module, per table transactions
 - Columnar / structured storage backend
 - Table migration support
-- Table Views (allow row filtering based on current state and requesting node id)
 - Subscription execution ordering guarantees ?
 - Add table feature to not be logged (saved) with the elusive attribute. Usefull for non persistent state like the mouse position.
 

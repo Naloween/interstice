@@ -7,6 +7,7 @@ pub enum NetworkPacket {
         node_id: String,
         address: String,
     },
+    Close,
     ReducerCall {
         module_name: String,
         reducer_name: String,

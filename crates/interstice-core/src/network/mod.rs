@@ -9,7 +9,7 @@ use packet::{read_packet, write_packet};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -79,6 +79,7 @@ impl NetworkHandle {
             &mut cloned_peers,
             packet_sender,
             self.logger.clone(),
+            false,
         )
         .await
         {
@@ -90,17 +91,36 @@ impl NetworkHandle {
         }
     }
 
+    pub async fn disconnect_peer(&self, node_id: NodeId) {
+        let peer = { self.peers.lock().unwrap().remove(&node_id) };
+
+        if let Some(peer) = peer {
+            let _ = peer.send(NetworkPacket::Close).await;
+            peer.close();
+            self.logger.log(
+                &format!("Disconnected peer {}", node_id),
+                LogSource::Network,
+                LogLevel::Info,
+            );
+        } else {
+            self.logger.log(
+                &format!("Attempted to disconnect unknown peer {}", node_id),
+                LogSource::Network,
+                LogLevel::Warning,
+            );
+        }
+    }
+
     pub fn send_packet(&self, node_id: NodeId, packet: NetworkPacket) {
         let peers = self.peers.clone();
         tokio::spawn(async move {
             let peer = {
                 let peers = peers.lock().unwrap();
-                peers
-                    .get(&node_id)
-                    .ok_or(IntersticeError::UnknownPeer)?
-                    .clone()
+                peers.get(&node_id).cloned()
             };
-            peer.send(packet).await
+            if let Some(peer) = peer {
+                let _ = peer.send(packet).await;
+            }
         });
     }
 
@@ -114,6 +134,14 @@ impl NetworkHandle {
             "Couldn't find node id with address {address}. Disponible peers: \n {:?}",
             self.peers.lock().unwrap().values()
         )));
+    }
+    pub fn connected_peers(&self) -> Vec<(NodeId, String)> {
+        self.peers
+            .lock()
+            .unwrap()
+            .values()
+            .map(|peer| (peer.node_id, peer.address.clone()))
+            .collect()
     }
 }
 
@@ -178,6 +206,7 @@ impl Network {
                                 &mut cloned_peers,
                                 cloned_sender,
                                 logger.clone(),
+                                true,
                             )
                             .await
                             {
@@ -215,6 +244,9 @@ impl Network {
                             LogSource::Network,
                             LogLevel::Warning,
                         );
+                    }
+                    NetworkPacket::Close => {
+                        self.disconnect_peer_remote(node_id);
                     }
                     NetworkPacket::ReducerCall {
                         module_name,
@@ -309,6 +341,25 @@ impl Network {
             }
         });
     }
+
+    fn disconnect_peer_remote(&self, node_id: NodeId) {
+        let peer = { self.peers.lock().unwrap().remove(&node_id) };
+
+        if let Some(peer) = peer {
+            peer.close();
+            self.logger.log(
+                &format!("Peer {} disconnected", node_id),
+                LogSource::Network,
+                LogLevel::Info,
+            );
+        } else {
+            self.logger.log(
+                &format!("Received close from unknown peer {}", node_id),
+                LogSource::Network,
+                LogLevel::Warning,
+            );
+        }
+    }
 }
 
 //
@@ -320,40 +371,74 @@ async fn connection_task(
     stream: TcpStream,
     mut receiver: mpsc::Receiver<NetworkPacket>,
     sender: mpsc::Sender<(NodeId, NetworkPacket)>,
+    close_receiver: watch::Receiver<bool>,
     logger: Logger,
 ) {
     let (mut reader, mut writer) = stream.into_split();
     let write_logger = logger.clone();
     let read_logger = logger;
+    let mut write_close = close_receiver.clone();
+    let mut read_close = close_receiver;
+    let write_sender = sender.clone();
+    let read_sender = sender;
 
     let write_loop = tokio::spawn(async move {
-        while let Some(packet) = receiver.recv().await {
-            if let Err(e) = write_packet(&mut writer, &packet).await {
-                write_logger.log(
-                    &format!("Write error to {}: {:?}", node_id, e),
-                    LogSource::Network,
-                    LogLevel::Error,
-                );
-                break;
+        loop {
+            tokio::select! {
+                _ = write_close.changed() => {
+                    if *write_close.borrow() {
+                        break;
+                    }
+                }
+                packet = receiver.recv() => {
+                    match packet {
+                        Some(packet) => {
+                            if let Err(e) = write_packet(&mut writer, &packet).await {
+                                write_logger.log(
+                                    &format!("Write error to {}: {:?}", node_id, e),
+                                    LogSource::Network,
+                                    LogLevel::Error,
+                                );
+                                let _ = write_sender
+                                    .send((node_id, NetworkPacket::Close))
+                                    .await;
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
+                }
             }
         }
     });
 
     let read_loop = tokio::spawn(async move {
         loop {
-            match read_packet(&mut reader).await {
-                Ok(packet) => {
-                    if sender.send((node_id, packet)).await.is_err() {
+            tokio::select! {
+                _ = read_close.changed() => {
+                    if *read_close.borrow() {
                         break;
                     }
                 }
-                Err(e) => {
-                    read_logger.log(
-                        &format!("Read error from {}: {:?}", node_id, e),
-                        LogSource::Network,
-                        LogLevel::Error,
-                    );
-                    break;
+                packet = read_packet(&mut reader) => {
+                    match packet {
+                        Ok(packet) => {
+                            if read_sender.send((node_id, packet)).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            read_logger.log(
+                                &format!("Read error from {}: {:?}", node_id, e),
+                                LogSource::Network,
+                                LogLevel::Error,
+                            );
+                            let _ = read_sender
+                                .send((node_id, NetworkPacket::Close))
+                                .await;
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -372,6 +457,7 @@ async fn handshake_incoming(
     peers: &mut Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
     packet_sender: mpsc::Sender<(NodeId, NetworkPacket)>,
     logger: Logger,
+    send_handshake_response: bool,
 ) -> Result<(), IntersticeError> {
     let packet = read_packet(&mut stream).await?;
 
@@ -385,17 +471,19 @@ async fn handshake_incoming(
     };
     let peer_id = NodeId::parse_str(&peer_id_str).expect("Couldn't parse node id");
 
-    // Reply with our handshake immediately so the remote side won't block
-    // waiting for it (prevents their read from hitting EOF if we drop
-    // the connection due to a duplicate).
-    write_packet(
-        &mut stream,
-        &NetworkPacket::Handshake {
-            node_id: my_node_id.to_string(),
-            address: my_address,
-        },
-    )
-    .await?;
+    if send_handshake_response {
+        // Reply with our handshake immediately so the remote side won't block
+        // waiting for it (prevents their read from hitting EOF if we drop
+        // the connection due to a duplicate).
+        write_packet(
+            &mut stream,
+            &NetworkPacket::Handshake {
+                node_id: my_node_id.to_string(),
+                address: my_address,
+            },
+        )
+        .await?;
+    }
 
     let mut peers = peers.lock().unwrap();
 
@@ -411,12 +499,14 @@ async fn handshake_incoming(
 
     // Create channel
     let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
+    let (close_sender, close_receiver) = watch::channel(false);
 
     // Register peer
     let handle = PeerHandle {
         node_id: peer_id,
         address: peer_address,
         sender,
+        close_sender,
     };
     peers.insert(peer_id, handle);
 
@@ -426,6 +516,7 @@ async fn handshake_incoming(
         stream,
         receiver,
         packet_sender.clone(),
+        close_receiver,
         logger.clone(),
     ));
 

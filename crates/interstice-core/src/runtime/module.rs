@@ -306,6 +306,54 @@ impl Runtime {
     }
 
     pub fn remove_module(runtime: Arc<Runtime>, module_name: &str) {
-        todo!()
+        runtime.modules.lock().unwrap().remove(module_name);
+        let module_path = runtime.modules_path.join(format!("{}.wasm", module_name));
+        // Removing module file
+        if module_path.exists() {
+            std::fs::remove_file(module_path).unwrap();
+        }
+        // Closing module network connections
+        let node_ids_to_disconnect = runtime
+            .network_handle
+            .connected_peers()
+            .into_iter()
+            .filter(|(node_id, _)| {
+                runtime
+                    .node_subscriptions
+                    .lock()
+                    .unwrap()
+                    .get(node_id)
+                    .map(|subs| {
+                        subs.iter().any(|sub| match sub {
+                            SubscriptionEventSchema::Insert {
+                                module_name: sub_module_name,
+                                ..
+                            }
+                            | SubscriptionEventSchema::Update {
+                                module_name: sub_module_name,
+                                ..
+                            }
+                            | SubscriptionEventSchema::Delete {
+                                module_name: sub_module_name,
+                                ..
+                            } => sub_module_name == module_name,
+                            _ => false,
+                        })
+                    })
+                    .unwrap_or(false)
+            })
+            .collect::<Vec<_>>();
+
+        for (node_id, address) in node_ids_to_disconnect {
+            let network_handle = runtime.network_handle.clone();
+            tokio::spawn(async move {
+                network_handle.disconnect_peer(node_id).await;
+            });
+        }
+        runtime.logger.log(
+            &format!("Removed module '{}'", module_name),
+            LogSource::Runtime,
+            LogLevel::Info,
+        );
     }
 }
