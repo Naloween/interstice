@@ -150,17 +150,17 @@ pub fn render(ctx: ReducerContext) {
     gpu.present();
 }
 
-#[reducer(on = "input")]
-pub fn on_input(ctx: ReducerContext, event: InputEvent) {
-    // Handle input events (unchanged)
-    match event {
-        InputEvent::Key {
-            physical_key,
-            state,
-            ..
-        } => {
-            ctx.log(&format!("Key {:?} {:?}", physical_key, state));
-        }
-        _ => {}
-    }
-}
+// #[reducer(on = "input")]
+// pub fn on_input(ctx: ReducerContext, event: InputEvent) {
+//     // Handle input events (unchanged)
+//     match event {
+//         InputEvent::Key {
+//             physical_key,
+//             state,
+//             ..
+//         } => {
+//             ctx.log(&format!("Key {:?} {:?}", physical_key, state));
+//         }
+//         _ => {}
+//     }
+// }

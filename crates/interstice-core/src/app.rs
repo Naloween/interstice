@@ -1,14 +1,17 @@
 use crate::{
     node::NodeId,
     runtime::{
+        GpuCallRequest, GpuCallResult, ReducerJob, Runtime,
         event::EventInstance,
         host_calls::{gpu::GpuState, input::from_winit::get_input_event_from_device_event},
     },
 };
+use interstice_abi::{Authority, IntersticeValue};
 use pollster::FutureExt;
 use std::{
     hash::{Hash, Hasher},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, mpsc::Receiver},
+    time::Duration,
 };
 use tokio::sync::mpsc::UnboundedSender;
 use winit::{
@@ -22,6 +25,8 @@ pub struct App {
     node_id: NodeId,
     event_sender: UnboundedSender<EventInstance>,
     gpu: Arc<Mutex<Option<GpuState>>>,
+    runtime: Arc<Runtime>,
+    gpu_call_receiver: Receiver<GpuCallRequest>,
 }
 
 impl App {
@@ -29,11 +34,15 @@ impl App {
         node_id: NodeId,
         event_sender: UnboundedSender<EventInstance>,
         gpu: Arc<Mutex<Option<GpuState>>>,
+        runtime: Arc<Runtime>,
+        gpu_call_receiver: Receiver<GpuCallRequest>,
     ) -> Self {
         Self {
             gpu,
             node_id,
             event_sender,
+            runtime,
+            gpu_call_receiver,
         }
     }
 
@@ -64,19 +73,43 @@ impl ApplicationHandler for App {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        self.drain_gpu_calls();
         match event {
             WindowEvent::CloseRequested => {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                // self.gpu.as_ref().unwrap().window.request_redraw();
-                self.event_sender.send(EventInstance::Render).unwrap();
+                let render_target = {
+                    self.runtime
+                        .authority_modules
+                        .lock()
+                        .unwrap()
+                        .get(&Authority::Gpu)
+                        .cloned()
+                        .and_then(|entry| {
+                            entry
+                                .on_event_reducer_name
+                                .map(|reducer| (entry.module_name, reducer))
+                        })
+                };
+
+                if let Some((module_name, reducer_name)) = render_target {
+                    let (done_tx, done_rx) = std::sync::mpsc::channel();
+                    let send_result = self.runtime.reducer_sender.send(ReducerJob {
+                        module_name,
+                        reducer_name,
+                        input: IntersticeValue::Vec(vec![]),
+                        completion: Some(done_tx),
+                    });
+                    let _ = send_result;
+                    self.wait_for_render_completion(done_rx);
+                }
             }
             WindowEvent::Resized(size) => {
                 let mut gpu = self.gpu.lock().unwrap();
                 let gpu = gpu.as_mut().unwrap();
                 gpu.graphics_end_frame();
-                gpu.configure_surface(size.width, size.height);
+                gpu.configure_surface(size.width.max(1), size.height.max(1));
             }
             _ => (),
         };
@@ -88,6 +121,7 @@ impl ApplicationHandler for App {
         device_id: DeviceId,
         event: DeviceEvent,
     ) {
+        self.drain_gpu_calls();
         let mut hasher = std::hash::DefaultHasher::new();
         device_id.hash(&mut hasher);
         let device_id = hasher.finish() as u32;
@@ -95,5 +129,172 @@ impl ApplicationHandler for App {
         self.event_sender
             .send(EventInstance::Input(input_event))
             .unwrap();
+    }
+}
+
+impl App {
+    fn wait_for_render_completion(&mut self, done_rx: std::sync::mpsc::Receiver<()>) {
+        loop {
+            self.drain_gpu_calls();
+            match done_rx.recv_timeout(Duration::from_millis(1)) {
+                Ok(()) => break,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+    }
+
+    fn drain_gpu_calls(&mut self) {
+        while let Ok(req) = self.gpu_call_receiver.try_recv() {
+            let result = self.execute_gpu_call(req.call);
+            let _ = req.respond_to.send(result);
+        }
+    }
+
+    fn execute_gpu_call(
+        &mut self,
+        call: interstice_abi::GpuCall,
+    ) -> Result<GpuCallResult, crate::IntersticeError> {
+        let mut gpu = self.gpu.lock().unwrap();
+        let gpu = gpu
+            .as_mut()
+            .ok_or_else(|| crate::IntersticeError::Internal("GPU not initialized".into()))?;
+
+        let result = match call {
+            interstice_abi::GpuCall::CreateBuffer(desc) => {
+                let id = gpu.create_buffer(desc);
+                GpuCallResult::I64(id as i64)
+            }
+            interstice_abi::GpuCall::WriteBuffer(w) => {
+                gpu.write_buffer(w);
+                GpuCallResult::None
+            }
+            interstice_abi::GpuCall::CreateTexture(desc) => {
+                let id = gpu.create_texture(desc);
+                GpuCallResult::I64(id as i64)
+            }
+            interstice_abi::GpuCall::CreateTextureView(v) => {
+                let id = gpu.create_texture_view(v);
+                GpuCallResult::I64(id as i64)
+            }
+            interstice_abi::GpuCall::CreateShaderModule(s) => {
+                let id = gpu.create_shader_module(s);
+                GpuCallResult::I64(id as i64)
+            }
+            interstice_abi::GpuCall::CreateBindGroupLayout(bgl) => {
+                let id = gpu.create_bind_group_layout(bgl);
+                GpuCallResult::I64(id as i64)
+            }
+            interstice_abi::GpuCall::CreateBindGroup(bg) => {
+                let id = gpu.create_bind_group(bg);
+                GpuCallResult::I64(id as i64)
+            }
+            interstice_abi::GpuCall::CreatePipelineLayout(pl) => {
+                let id = gpu.create_pipeline_layout(pl);
+                GpuCallResult::I64(id as i64)
+            }
+            interstice_abi::GpuCall::CreateRenderPipeline(rp) => {
+                let id = gpu.create_render_pipeline(rp);
+                GpuCallResult::I64(id as i64)
+            }
+            interstice_abi::GpuCall::CreateComputePipeline(cp) => {
+                let id = gpu.create_compute_pipeline(cp);
+                GpuCallResult::I64(id as i64)
+            }
+            interstice_abi::GpuCall::CreateCommandEncoder => {
+                let id = gpu.create_command_encoder();
+                GpuCallResult::I64(id as i64)
+            }
+            interstice_abi::GpuCall::BeginRenderPass(rp) => {
+                let id = gpu.begin_render_pass(rp);
+                GpuCallResult::I64(id as i64)
+            }
+            interstice_abi::GpuCall::EndRenderPass { pass } => {
+                gpu.end_render_pass(pass);
+                GpuCallResult::None
+            }
+            interstice_abi::GpuCall::SetRenderPipeline { pass, pipeline } => {
+                gpu.set_render_pipeline(pass, pipeline);
+                GpuCallResult::None
+            }
+            interstice_abi::GpuCall::SetBindGroup {
+                pass,
+                index,
+                bind_group,
+            } => {
+                gpu.set_bind_group(pass, index, bind_group);
+                GpuCallResult::None
+            }
+            interstice_abi::GpuCall::SetVertexBuffer(vb) => {
+                gpu.set_vertex_buffer(vb);
+                GpuCallResult::None
+            }
+            interstice_abi::GpuCall::SetIndexBuffer(ib) => {
+                gpu.set_index_buffer(ib);
+                GpuCallResult::None
+            }
+            interstice_abi::GpuCall::Draw(d) => {
+                gpu.draw(d);
+                GpuCallResult::None
+            }
+            interstice_abi::GpuCall::DrawIndexed(d) => {
+                gpu.draw_indexed(d);
+                GpuCallResult::None
+            }
+            interstice_abi::GpuCall::BeginComputePass { encoder } => {
+                gpu.begin_compute_pass(encoder);
+                GpuCallResult::None
+            }
+            interstice_abi::GpuCall::EndComputePass { pass } => {
+                gpu.end_compute_pass(pass);
+                GpuCallResult::None
+            }
+            interstice_abi::GpuCall::SetComputePipeline { pass, pipeline } => {
+                gpu.set_compute_pipeline(pass, pipeline);
+                GpuCallResult::None
+            }
+            interstice_abi::GpuCall::Dispatch { pass, x, y, z } => {
+                gpu.dispatch(pass, x, y, z);
+                GpuCallResult::None
+            }
+            interstice_abi::GpuCall::CopyBufferToBuffer(c) => {
+                gpu.copy_buffer_to_buffer(c);
+                GpuCallResult::None
+            }
+            interstice_abi::GpuCall::CopyBufferToTexture(c) => {
+                gpu.copy_buffer_to_texture(c);
+                GpuCallResult::None
+            }
+            interstice_abi::GpuCall::CopyTextureToBuffer(c) => {
+                gpu.copy_texture_to_buffer(c);
+                GpuCallResult::None
+            }
+            interstice_abi::GpuCall::Submit { encoder } => {
+                gpu.submit(encoder);
+                GpuCallResult::None
+            }
+            interstice_abi::GpuCall::Present => {
+                gpu.graphics_end_frame();
+                GpuCallResult::None
+            }
+            interstice_abi::GpuCall::BeginFrame => {
+                gpu.graphics_begin_frame();
+                GpuCallResult::None
+            }
+            interstice_abi::GpuCall::GetSurfaceFormat => {
+                let format = gpu.get_surface_format();
+                GpuCallResult::TextureFormat(format)
+            }
+            interstice_abi::GpuCall::GetLimits => GpuCallResult::None,
+            interstice_abi::GpuCall::DestroyBuffer { .. } => todo!(),
+            interstice_abi::GpuCall::DestroyTexture { .. } => todo!(),
+            interstice_abi::GpuCall::WriteTexture(_) => todo!(),
+            interstice_abi::GpuCall::GetCurrentSurfaceTexture => {
+                let id = gpu.get_current_surface_texture();
+                GpuCallResult::I64(id as i64)
+            }
+        };
+
+        Ok(result)
     }
 }

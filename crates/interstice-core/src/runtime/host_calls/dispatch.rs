@@ -5,7 +5,7 @@ use serde::Serialize;
 use wasmtime::{Caller, Memory};
 
 impl Runtime {
-    pub(crate) fn dispatch_host_call(
+    pub(crate) async fn dispatch_host_call(
         &self,
         memory: &wasmtime::Memory,
         caller: &mut Caller<'_, StoreState>,
@@ -18,13 +18,16 @@ impl Runtime {
 
         return match host_call {
             HostCall::CallReducer(call_reducer_request) => {
-                self.handle_call_reducer(&caller_module_schema.name.clone(), call_reducer_request)?;
+                let _ = self
+                    .handle_call_reducer(&caller_module_schema.name.clone(), call_reducer_request)
+                    .await?;
                 Ok(None)
             }
             HostCall::CallQuery(call_query_request) => {
-                let response =
-                    self.handle_call_query(&caller_module_schema.name.clone(), call_query_request)?;
-                let result = self.send_data_to_module(response, memory, caller);
+                let response = self
+                    .handle_call_query(&caller_module_schema.name.clone(), call_query_request)
+                    .await?;
+                let result = self.send_data_to_module(response, memory, caller).await;
                 Ok(Some(result))
             }
             HostCall::Log(log_request) => {
@@ -34,68 +37,69 @@ impl Runtime {
             HostCall::InsertRow(insert_row_request) => {
                 let response =
                     self.handle_insert_row(&caller_module_schema.clone(), insert_row_request);
-                let result = self.send_data_to_module(response, memory, caller);
+                let result = self.send_data_to_module(response, memory, caller).await;
                 Ok(Some(result))
             }
             HostCall::UpdateRow(update_row_request) => {
                 let response =
                     self.handle_update_row(caller_module_schema.name.clone(), update_row_request);
-                let result = self.send_data_to_module(response, memory, caller);
+                let result = self.send_data_to_module(response, memory, caller).await;
                 Ok(Some(result))
             }
             HostCall::DeleteRow(delete_row_request) => {
                 let response =
                     self.handle_delete_row(caller_module_schema.name.clone(), delete_row_request);
-                let result = self.send_data_to_module(response, memory, caller);
+                let result = self.send_data_to_module(response, memory, caller).await;
                 Ok(Some(result))
             }
             HostCall::TableScan(table_scan_request) => {
                 let response = self.handle_table_scan(table_scan_request);
-                let result = self.send_data_to_module(response, memory, caller);
+                let result = self.send_data_to_module(response, memory, caller).await;
                 Ok(Some(result))
             }
             HostCall::Gpu(gpu_call) => {
-                let auth_modules = self.authority_modules.lock().unwrap();
-                let gpu_auth_entry = auth_modules
-                    .get(&Authority::Gpu)
-                    .ok_or_else(|| IntersticeError::Internal("No GPU authority module".into()))?;
+                {
+                    let auth_modules = self.authority_modules.lock().unwrap();
+                    let gpu_auth_entry = auth_modules.get(&Authority::Gpu).ok_or_else(|| {
+                        IntersticeError::Internal("No GPU authority module".into())
+                    })?;
 
-                if gpu_auth_entry.module_name != caller_module_schema.name {
-                    return Err(IntersticeError::Unauthorized(Authority::Gpu));
+                    if gpu_auth_entry.module_name != caller_module_schema.name {
+                        return Err(IntersticeError::Unauthorized(Authority::Gpu));
+                    }
                 }
 
-                drop(auth_modules);
-
-                self.handle_gpu_call(gpu_call, memory, caller)
+                self.handle_gpu_call(gpu_call, memory, caller).await
             }
 
             HostCall::Audio => todo!(),
             HostCall::Input => todo!(),
             HostCall::File(file_call) => {
-                let auth_modules = self.authority_modules.lock().unwrap();
-                let file_auth_entry = auth_modules
-                    .get(&Authority::File)
-                    .ok_or_else(|| IntersticeError::Internal("No File authority module".into()))?;
+                {
+                    let auth_modules = self.authority_modules.lock().unwrap();
+                    let file_auth_entry = auth_modules.get(&Authority::File).ok_or_else(|| {
+                        IntersticeError::Internal("No File authority module".into())
+                    })?;
 
-                if file_auth_entry.module_name != caller_module_schema.name {
-                    return Err(IntersticeError::Unauthorized(Authority::File));
+                    if file_auth_entry.module_name != caller_module_schema.name {
+                        return Err(IntersticeError::Unauthorized(Authority::File));
+                    }
                 }
 
-                drop(auth_modules);
-
-                self.handle_file_call(file_call, memory, caller)
+                self.handle_file_call(file_call, memory, caller).await
             }
             HostCall::Module(module_call) => {
-                let auth_modules = self.authority_modules.lock().unwrap();
-                let module_auth_entry = auth_modules.get(&Authority::Module).ok_or_else(|| {
-                    IntersticeError::Internal("No Module authority module".into())
-                })?;
+                {
+                    let auth_modules = self.authority_modules.lock().unwrap();
+                    let module_auth_entry =
+                        auth_modules.get(&Authority::Module).ok_or_else(|| {
+                            IntersticeError::Internal("No Module authority module".into())
+                        })?;
 
-                if module_auth_entry.module_name != caller_module_schema.name {
-                    return Err(IntersticeError::Unauthorized(Authority::Module));
+                    if module_auth_entry.module_name != caller_module_schema.name {
+                        return Err(IntersticeError::Unauthorized(Authority::Module));
+                    }
                 }
-
-                drop(auth_modules);
 
                 let runtime = caller.data().runtime.clone();
                 self.handle_module_call(module_call, memory, caller, caller_module_schema, runtime)
@@ -103,7 +107,7 @@ impl Runtime {
         };
     }
 
-    fn send_bytes_to_module(
+    async fn send_bytes_to_module(
         &self,
         memory: &Memory,
         mut caller: &mut Caller<'_, StoreState>,
@@ -117,14 +121,17 @@ impl Runtime {
             .typed::<i32, i32>(&caller)
             .unwrap();
 
-        let ptr = alloc.call(&mut caller, bytes.len() as i32).unwrap();
+        let ptr = alloc
+            .call_async(&mut caller, bytes.len() as i32)
+            .await
+            .unwrap();
 
         memory.write(&mut caller, ptr as usize, bytes).unwrap();
 
         (ptr, bytes.len() as i32)
     }
 
-    pub fn send_data_to_module<T>(
+    pub async fn send_data_to_module<T>(
         &self,
         result: T,
         memory: &wasmtime::Memory,
@@ -134,7 +141,7 @@ impl Runtime {
         T: Serialize,
     {
         let encoded = encode(&result).unwrap();
-        let (ptr, len) = self.send_bytes_to_module(memory, caller, &encoded);
+        let (ptr, len) = self.send_bytes_to_module(memory, caller, &encoded).await;
         return pack_ptr_len(ptr, len);
     }
 }

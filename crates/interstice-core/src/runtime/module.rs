@@ -21,17 +21,18 @@ use std::{
     path::Path,
     sync::{Arc, Mutex},
 };
+use tokio::sync::Mutex as TokioMutex;
 use wasmtime::{Module as wasmtimeModule, Store};
 
 pub struct Module {
-    instance: Arc<Mutex<WasmInstance>>,
+    instance: Arc<TokioMutex<WasmInstance>>,
     wasm_bytes: Vec<u8>,
     pub schema: Arc<ModuleSchema>,
     pub tables: Arc<Mutex<HashMap<String, Table>>>,
 }
 
 impl Module {
-    pub fn from_file(runtime: Arc<Runtime>, path: &Path) -> Result<Self, IntersticeError> {
+    pub async fn from_file(runtime: Arc<Runtime>, path: &Path) -> Result<Self, IntersticeError> {
         let wasm_module = wasmtimeModule::from_file(&runtime.engine, path).unwrap();
         let mut store = Store::new(
             &runtime.engine,
@@ -42,16 +43,18 @@ impl Module {
         );
         let instance = runtime
             .linker
-            .lock()
-            .unwrap()
-            .instantiate(&mut store, &wasm_module)
+            .instantiate_async(&mut store, &wasm_module)
+            .await
             .unwrap();
         let instance = WasmInstance::new(store, instance)?;
-        let module = Module::new(instance, std::fs::read(path).unwrap())?;
+        let module = Module::new(instance, std::fs::read(path).unwrap()).await?;
         Ok(module)
     }
 
-    pub fn from_bytes(runtime: Arc<Runtime>, wasm_binary: &[u8]) -> Result<Self, IntersticeError> {
+    pub async fn from_bytes(
+        runtime: Arc<Runtime>,
+        wasm_binary: &[u8],
+    ) -> Result<Self, IntersticeError> {
         let wasm_module = wasmtimeModule::new(&runtime.engine, wasm_binary).unwrap();
         let mut store = Store::new(
             &runtime.engine,
@@ -62,17 +65,19 @@ impl Module {
         );
         let instance = runtime
             .linker
-            .lock()
-            .unwrap()
-            .instantiate(&mut store, &wasm_module)
+            .instantiate_async(&mut store, &wasm_module)
+            .await
             .unwrap();
         let instance = WasmInstance::new(store, instance)?;
-        let module = Module::new(instance, wasm_binary.to_vec())?;
+        let module = Module::new(instance, wasm_binary.to_vec()).await?;
         Ok(module)
     }
 
-    pub fn new(mut instance: WasmInstance, wasm_bytes: Vec<u8>) -> Result<Self, IntersticeError> {
-        let schema = instance.load_schema()?;
+    pub async fn new(
+        mut instance: WasmInstance,
+        wasm_bytes: Vec<u8>,
+    ) -> Result<Self, IntersticeError> {
+        let schema = instance.load_schema().await?;
         if schema.abi_version != ABI_VERSION {
             return Err(IntersticeError::AbiVersionMismatch {
                 expected: ABI_VERSION,
@@ -98,29 +103,34 @@ impl Module {
         instance.store.data_mut().module_schema = schema.clone();
 
         Ok(Self {
-            instance: Arc::new(Mutex::new(instance)),
+            instance: Arc::new(TokioMutex::new(instance)),
             wasm_bytes,
             schema: Arc::new(schema),
             tables: Arc::new(Mutex::new(tables)),
         })
     }
 
-    pub fn call_reducer(
+    pub async fn call_reducer(
         &self,
         reducer: &str,
         args: (ReducerContext, impl Serialize),
     ) -> Result<(), IntersticeError> {
         let func_name = &get_reducer_wrapper_name(reducer);
-        return self.instance.lock().unwrap().call_reducer(func_name, args);
+        return self
+            .instance
+            .lock()
+            .await
+            .call_reducer(func_name, args)
+            .await;
     }
 
-    pub fn call_query(
+    pub async fn call_query(
         &self,
         query: &str,
         args: (QueryContext, impl Serialize),
     ) -> Result<IntersticeValue, IntersticeError> {
         let func_name = &get_query_wrapper_name(query);
-        return self.instance.lock().unwrap().call_query(func_name, args);
+        return self.instance.lock().await.call_query(func_name, args).await;
     }
 }
 

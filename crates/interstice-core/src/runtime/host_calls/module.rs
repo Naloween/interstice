@@ -20,10 +20,12 @@ impl Runtime {
                 wasm_binary,
             } => match node_selection {
                 NodeSelection::Current => {
-                    tokio::spawn(async move {
+                    tokio::task::spawn_local(async move {
                         let _ = Runtime::load_module(
                             runtime.clone(),
-                            Module::from_bytes(runtime.clone(), &wasm_binary).unwrap(),
+                            Module::from_bytes(runtime.clone(), &wasm_binary)
+                                .await
+                                .unwrap(),
                         )
                         .await;
                     });

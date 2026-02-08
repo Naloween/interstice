@@ -2,7 +2,7 @@ use crate::{
     error::IntersticeError, runtime::Runtime, runtime::event::EventInstance,
     runtime::transaction::Transaction,
 };
-use interstice_abi::{IntersticeValue, QueryContext, ReducerContext};
+use interstice_abi::ReducerContext;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,29 +29,30 @@ impl CallFrame {
 }
 
 impl Runtime {
-    pub(crate) fn call_reducer(
+    pub(crate) async fn call_reducer(
         &self,
         module_name: &str,
         reducer_name: &str,
         args: impl Serialize,
     ) -> Result<(), IntersticeError> {
         // Lookup module
-        let mut modules = self.modules.lock().unwrap();
-        let module = modules
-            .get_mut(module_name)
-            .ok_or_else(|| {
-                IntersticeError::ModuleNotFound(
-                    module_name.into(),
-                    format!(
-                        "When trying to invoke reducer '{}' from '{}'",
-                        reducer_name, module_name
-                    ),
-                )
-            })?
-            .clone();
-        drop(modules); // Very important to release lock so that we can access to other modules during host calls
+        let module = {
+            let mut modules = self.modules.lock().unwrap();
+            modules
+                .get_mut(module_name)
+                .ok_or_else(|| {
+                    IntersticeError::ModuleNotFound(
+                        module_name.into(),
+                        format!(
+                            "When trying to invoke reducer '{}' from '{}'",
+                            reducer_name, module_name
+                        ),
+                    )
+                })?
+                .clone()
+        };
 
-        // Check that reducer exist in schema
+        // Check that reducer exists in schema
         module
             .schema
             .reducers
@@ -84,18 +85,20 @@ impl Runtime {
 
         // Call WASM function
         let reducer_context = ReducerContext::new();
-        module.call_reducer(reducer_name, (reducer_context, args))?;
+        module
+            .call_reducer(reducer_name, (reducer_context, args))
+            .await?;
 
         // Pop frame
         let reducer_frame = self.call_stack.lock().unwrap().pop().unwrap();
 
-        // Apply transaction
+        // Apply transactions
         let mut emitted_events = Vec::new();
         for transaction in reducer_frame.transactions {
             emitted_events.append(&mut self.apply_transaction(transaction)?);
         }
 
-        // send events
+        // Send events
         for ev in emitted_events {
             self.event_sender.send(ev).unwrap();
         }

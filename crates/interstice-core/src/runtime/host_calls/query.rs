@@ -1,9 +1,10 @@
 use interstice_abi::{CallQueryRequest, CallQueryResponse, ModuleSelection, NodeSelection};
 
 use crate::{IntersticeError, NetworkPacket, runtime::Runtime};
+use tokio::sync::oneshot;
 
 impl Runtime {
-    pub(crate) fn handle_call_query(
+    pub(crate) async fn handle_call_query(
         &self,
         caller_module_name: &String,
         call_query_request: CallQueryRequest,
@@ -18,25 +19,27 @@ impl Runtime {
                     module_name,
                     &call_query_request.query_name,
                     call_query_request.input,
-                )?;
+                ).await?;
                 Ok(result)
             }
             NodeSelection::Other(node_name) => {
-                let modules = self.modules.lock().unwrap();
-                let module = modules.get(caller_module_name).unwrap();
-                let node_dependency = module
-                    .schema
-                    .node_dependencies
-                    .iter()
-                    .find(|n| n.name == node_name)
-                    .unwrap();
-                let network = &mut self.network_handle.clone();
-                let node_id = network
-                    .get_node_id_from_adress(&node_dependency.address)
-                    .unwrap();
+                let network = self.network_handle.clone();
+                let node_id = {
+                    let modules = self.modules.lock().unwrap();
+                    let module = modules.get(caller_module_name).unwrap();
+                    let node_dependency = module
+                        .schema
+                        .node_dependencies
+                        .iter()
+                        .find(|n| n.name == node_name)
+                        .unwrap();
+                    network
+                        .get_node_id_from_adress(&node_dependency.address)
+                        .unwrap()
+                };
                 let request_id = uuid::Uuid::new_v4().to_string();
 
-                let (sender, receiver) = std::sync::mpsc::channel();
+                let (sender, receiver) = oneshot::channel();
                 self.pending_query_responses
                     .lock()
                     .unwrap()
@@ -51,12 +54,9 @@ impl Runtime {
                         input: call_query_request.input.clone(),
                     },
                 );
-                todo!(
-                    "Properly design the async query call instead of blocking (makes the runtime stop indefinitly)"
-                );
-                let result = receiver.recv().map_err(|_| {
-                    IntersticeError::ProtocolError("Query response channel closed".into())
-                })?;
+                let result = receiver
+                    .await
+                    .map_err(|_| IntersticeError::ProtocolError("Query response channel closed".into()))?;
                 Ok(result)
             }
         }

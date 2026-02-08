@@ -6,7 +6,7 @@ use crate::{
 use interstice_abi::{CallReducerRequest, ModuleSelection, NodeSelection};
 
 impl Runtime {
-    pub(crate) fn handle_call_reducer(
+    pub(crate) async fn handle_call_reducer(
         &self,
         caller_module_name: &String,
         call_reducer_request: CallReducerRequest,
@@ -28,7 +28,8 @@ impl Runtime {
                     module_name,
                     &call_reducer_request.reducer_name,
                     call_reducer_request.input,
-                )?;
+                )
+                .await?;
                 Ok(())
             }
             NodeSelection::Other(node_name) => {

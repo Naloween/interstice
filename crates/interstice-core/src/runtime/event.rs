@@ -4,7 +4,9 @@ use crate::{
     node::NodeId,
     runtime::{Runtime, authority::AuthorityEntry},
 };
-use interstice_abi::{Authority, FileEvent, InputEvent, IntersticeValue, ModuleEvent, Row, SubscriptionEventSchema};
+use interstice_abi::{
+    Authority, FileEvent, InputEvent, IntersticeValue, ModuleEvent, Row, SubscriptionEventSchema,
+};
 
 #[derive(Debug, Clone)]
 pub enum EventInstance {
@@ -27,7 +29,6 @@ pub enum EventInstance {
     Init {
         module_name: String,
     },
-    Render,
     Input(InputEvent),
     File(FileEvent),
     Module(ModuleEvent),
@@ -120,13 +121,6 @@ impl EventInstance {
                     return false;
                 }
             }
-            EventInstance::Render => {
-                if let SubscriptionEventSchema::Render = event_schema {
-                    return true;
-                } else {
-                    return false;
-                }
-            }
             EventInstance::Input(_input_event) => {
                 if let SubscriptionEventSchema::Input = event_schema {
                     return true;
@@ -152,13 +146,13 @@ impl EventInstance {
                     return false;
                 }
             }
-            EventInstance::Module(module_event) => {
-                match (module_event, event_schema) {
-                    (ModuleEvent::PublishRequest { .. }, SubscriptionEventSchema::ModulePublish) => true,
-                    (ModuleEvent::RemoveRequest { .. }, SubscriptionEventSchema::ModuleRemove) => true,
-                    _ => false,
+            EventInstance::Module(module_event) => match (module_event, event_schema) {
+                (ModuleEvent::PublishRequest { .. }, SubscriptionEventSchema::ModulePublish) => {
+                    true
                 }
-            }
+                (ModuleEvent::RemoveRequest { .. }, SubscriptionEventSchema::ModuleRemove) => true,
+                _ => false,
+            },
             _ => false,
         }
     }
@@ -187,22 +181,6 @@ impl Runtime {
                         reducer: sub.reducer_name.clone(),
                     });
                 }
-            }
-        } else if let EventInstance::Render = event {
-            if let Some(AuthorityEntry {
-                module_name: gpu_module_name,
-                on_event_reducer_name: Some(render_reducer_name),
-            }) = self
-                .authority_modules
-                .lock()
-                .unwrap()
-                .get(&Authority::Gpu)
-                .cloned()
-            {
-                out.push(SubscriptionTarget::Local {
-                    module: gpu_module_name,
-                    reducer: render_reducer_name,
-                });
             }
         } else if let EventInstance::Input(_) = event {
             if let Some(AuthorityEntry {
@@ -301,7 +279,12 @@ impl Runtime {
                     }
                     _ => IntersticeValue::Vec(vec![]),
                 };
-                let _ret = self.call_reducer(&module, &reducer, args)?;
+                let _ = self.reducer_sender.send(crate::runtime::ReducerJob {
+                    module_name: module,
+                    reducer_name: reducer,
+                    input: args,
+                    completion: None,
+                });
             }
             SubscriptionTarget::Remote(uuid) => {
                 let packet = match event {

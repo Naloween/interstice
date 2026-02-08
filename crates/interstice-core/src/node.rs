@@ -7,7 +7,7 @@ use crate::{
 };
 use interstice_abi::{ModuleSchema, NodeSchema};
 use std::sync::Arc;
-use std::{fs::File, path::Path, sync::Mutex};
+use std::{fs::File, path::Path, sync::Mutex, thread};
 use tokio::sync::{
     Notify,
     mpsc::{self, UnboundedReceiver},
@@ -47,7 +47,6 @@ impl Node {
         let network = Network::new(id, address.clone(), event_sender.clone(), logger.clone());
         let network_handle = network.get_handle();
         let gpu = Arc::new(Mutex::new(None));
-        let app = App::new(id, event_sender.clone(), gpu.clone());
         let run_app_notify = Arc::new(Notify::new());
         let runtime = Arc::new(Runtime::new(
             modules_path,
@@ -58,6 +57,14 @@ impl Node {
             run_app_notify.clone(),
             logger.clone(),
         )?);
+        let gpu_call_receiver = runtime.take_gpu_call_receiver();
+        let app = App::new(
+            id,
+            event_sender.clone(),
+            runtime.gpu.clone(),
+            runtime.clone(),
+            gpu_call_receiver,
+        );
 
         let node = Self {
             id,
@@ -95,7 +102,6 @@ impl Node {
         let network = Network::new(id, address.clone(), event_sender.clone(), logger.clone());
         let network_handle = network.get_handle();
         let gpu = Arc::new(Mutex::new(None));
-        let app = App::new(id, event_sender.clone(), gpu.clone());
         let run_app_notify = Arc::new(Notify::new());
         let runtime = Arc::new(Runtime::new(
             modules_path.clone(),
@@ -106,12 +112,20 @@ impl Node {
             run_app_notify.clone(),
             logger.clone(),
         )?);
+        let gpu_call_receiver = runtime.take_gpu_call_receiver();
+        let app = App::new(
+            id,
+            event_sender.clone(),
+            runtime.gpu.clone(),
+            runtime.clone(),
+            gpu_call_receiver,
+        );
 
         // Load all modules
         for module_path in std::fs::read_dir(&modules_path).unwrap() {
             let module_path = module_path.unwrap().path();
             if module_path.extension().and_then(|s| s.to_str()) == Some("wasm") {
-                let module = Module::from_file(runtime.clone(), &module_path)?;
+                let module = Module::from_file(runtime.clone(), &module_path).await?;
                 Runtime::load_module(runtime.clone(), module).await?;
             }
         }
@@ -137,22 +151,41 @@ impl Node {
         self.logger.log(message, source, level);
     }
 
-    pub async fn start(mut self) -> Result<(), IntersticeError> {
-        self.logger.log(
-            &format!("Starting node with ID: {}", self.id),
+    pub async fn start(self) -> Result<(), IntersticeError> {
+        let Node {
+            id,
+            runtime,
+            app,
+            mut network,
+            network_handle: _network_handle,
+            event_receiver,
+            run_app_notify,
+            logger,
+        } = self;
+
+        logger.log(
+            &format!("Starting node with ID: {}", id),
             LogSource::Node,
             LogLevel::Info,
         );
 
         // Run network events
-        self.network.listen()?;
-        let _net_handle = self.network.run();
-        let _runtime_handle = Runtime::run(self.runtime, self.event_receiver);
+        network.listen()?;
+        let _net_handle = network.run();
 
-        self.run_app_notify.notified().await;
-        self.app.run();
+        thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to build runtime");
+            let local = tokio::task::LocalSet::new();
+            local.block_on(&rt, async move {
+                Runtime::run(runtime, event_receiver).await;
+            });
+        });
 
-        // let _ = tokio::join!(net_handle, runtime_handle);
+        run_app_notify.notified().await;
+        app.run();
 
         Ok(())
     }
@@ -185,7 +218,7 @@ impl Node {
         &self,
         path: P,
     ) -> Result<ModuleSchema, IntersticeError> {
-        let module = Module::from_file(self.runtime.clone(), path.as_ref())?;
+        let module = Module::from_file(self.runtime.clone(), path.as_ref()).await?;
         Runtime::load_module(self.runtime.clone(), module).await
     }
 
@@ -193,7 +226,7 @@ impl Node {
         &self,
         bytes: &[u8],
     ) -> Result<ModuleSchema, IntersticeError> {
-        let module = Module::from_bytes(self.runtime.clone(), bytes)?;
+        let module = Module::from_bytes(self.runtime.clone(), bytes).await?;
         Runtime::load_module(self.runtime.clone(), module).await
     }
 

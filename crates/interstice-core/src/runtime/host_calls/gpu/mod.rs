@@ -71,6 +71,7 @@ enum RenderCommand {
 }
 
 pub struct ComputePassState {
+    #[allow(dead_code)]
     desc_encoder: GpuId,
     pipeline: Option<GpuId>,
     bind_groups: Vec<(u32, GpuId)>,

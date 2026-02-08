@@ -35,7 +35,7 @@ impl WasmInstance {
         })
     }
 
-    pub fn load_schema(&mut self) -> Result<ModuleSchema, IntersticeError> {
+    pub async fn load_schema(&mut self) -> Result<ModuleSchema, IntersticeError> {
         let func = self
             .instance
             .get_func(&mut self.store, "interstice_describe")
@@ -46,7 +46,8 @@ impl WasmInstance {
             .map_err(|_| IntersticeError::BadSignature("interstice_describe".into()))?;
 
         let packed = typed
-            .call(&mut self.store, ())
+            .call_async(&mut self.store, ())
+            .await
             .map_err(|e| IntersticeError::WasmTrap(e.to_string()))?;
 
         let ptr = (packed >> 32) as i32;
@@ -63,14 +64,14 @@ impl WasmInstance {
             .typed::<(i32, i32), ()>(&self.store)
             .map_err(|_| IntersticeError::BadSignature("dealloc".into()))?;
 
-        let _ = dealloc.call(&mut self.store, (ptr, len));
+        let _ = dealloc.call_async(&mut self.store, (ptr, len)).await;
 
         let schema = decode(&bytes).map_err(|_| IntersticeError::InvalidSchema)?;
 
         Ok(schema)
     }
 
-    pub fn call_reducer(
+    pub async fn call_reducer(
         &mut self,
         func_name: &str,
         args: impl Serialize,
@@ -100,7 +101,8 @@ impl WasmInstance {
 
         // --- allocate input ---
         let ptr = alloc
-            .call(&mut self.store, args_bytes.len() as i32)
+            .call_async(&mut self.store, args_bytes.len() as i32)
+            .await
             .map_err(|e| IntersticeError::WasmTrap(e.to_string()))?;
 
         // write args
@@ -110,18 +112,20 @@ impl WasmInstance {
 
         // --- call reducer ---
         reducer
-            .call(&mut self.store, (ptr, args_bytes.len() as i32))
+            .call_async(&mut self.store, (ptr, args_bytes.len() as i32))
+            .await
             .map_err(|e| IntersticeError::WasmTrap(e.to_string()))?;
 
         // free input
         dealloc
-            .call(&mut self.store, (ptr, args_bytes.len() as i32))
+            .call_async(&mut self.store, (ptr, args_bytes.len() as i32))
+            .await
             .ok();
 
         Ok(())
     }
 
-    pub fn call_query(
+    pub async fn call_query(
         &mut self,
         func_name: &str,
         args: impl Serialize,
@@ -151,7 +155,8 @@ impl WasmInstance {
 
         // --- allocate input ---
         let ptr = alloc
-            .call(&mut self.store, args_bytes.len() as i32)
+            .call_async(&mut self.store, args_bytes.len() as i32)
+            .await
             .map_err(|e| IntersticeError::WasmTrap(e.to_string()))?;
 
         // write args
@@ -161,12 +166,14 @@ impl WasmInstance {
 
         // --- call query ---
         let packed = query
-            .call(&mut self.store, (ptr, args_bytes.len() as i32))
+            .call_async(&mut self.store, (ptr, args_bytes.len() as i32))
+            .await
             .map_err(|e| IntersticeError::WasmTrap(e.to_string()))?;
 
         // free input
         dealloc
-            .call(&mut self.store, (ptr, args_bytes.len() as i32))
+            .call_async(&mut self.store, (ptr, args_bytes.len() as i32))
+            .await
             .ok();
 
         // unpack result
@@ -179,7 +186,10 @@ impl WasmInstance {
             .map_err(|_| IntersticeError::MemoryRead)?;
 
         // free output
-        dealloc.call(&mut self.store, (res_ptr, res_len)).ok();
+        dealloc
+            .call_async(&mut self.store, (res_ptr, res_len))
+            .await
+            .ok();
 
         let out = decode(&out).map_err(|err| {
             IntersticeError::Internal(format!("failed to deserialize query output: {}", err))
