@@ -11,13 +11,17 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         syn::Ident::new(&format!("{}EditHandle", struct_name), struct_ident.span());
     let table_read_handle_struct =
         syn::Ident::new(&format!("{}ReadHandle", struct_name), struct_ident.span());
-    let has_table_edit_handle_trait =
-        syn::Ident::new(&format!("Has{}EditHandle", struct_name), struct_ident.span());
+    let has_table_edit_handle_trait = syn::Ident::new(
+        &format!("Has{}EditHandle", struct_name),
+        struct_ident.span(),
+    );
     let get_table_edit_handle_fn = syn::Ident::new(&table_name, struct_ident.span());
-    let has_table_read_handle_trait =
-        syn::Ident::new(&format!("Has{}ReadHandle", struct_name), struct_ident.span());
+    let has_table_read_handle_trait = syn::Ident::new(
+        &format!("Has{}ReadHandle", struct_name),
+        struct_ident.span(),
+    );
     let get_table_read_handle_fn = syn::Ident::new(&table_name, struct_ident.span());
-    
+
     let schema_fn = syn::Ident::new(
         &format!("interstice_{}_schema", table_name),
         struct_ident.span(),
@@ -58,12 +62,13 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    let mut primary_key: Option<(&syn::Ident, String, proc_macro2::TokenStream)> = None;
+    let mut primary_key: Option<(&syn::Ident, String, proc_macro2::TokenStream, syn::Type)> = None;
     let mut schema_fields = Vec::new();
     let mut entry_fields = Vec::new();
     for field in fields.iter() {
         let field_name = field.ident.as_ref().unwrap().to_string();
-        let field_ty_str = field.ty.to_token_stream().to_string();
+        let field_ty_ident = field.ty.clone();
+        let field_ty_str = field_ty_ident.to_token_stream().to_string();
         let field_ty = quote! { interstice_sdk::IntersticeType::from_str(&#field_ty_str).unwrap()};
         let field_ident = field.ident.as_ref().unwrap();
 
@@ -77,7 +82,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 return quote! {compile_error!("Only one #[primary_key] field is allowed");}.into();
             }
 
-            primary_key = Some((field_ident, field_name, field_ty));
+            primary_key = Some((field_ident, field_name, field_ty, field_ty_ident));
         } else {
             entry_fields.push(field_ident.clone());
             schema_fields.push(quote! {
@@ -88,7 +93,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             });
         }
     }
-    let (pk_ident, pk_name, pk_type) = match primary_key {
+    let (pk_ident, pk_name, pk_type, pk_type_ident) = match primary_key {
         Some(pk) => pk,
         None => {
             return quote! {compile_error!("A #[primary_key] field is required");}.into();
@@ -102,6 +107,12 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             field.attrs.retain(|a| !a.path().is_ident("primary_key"));
         }
     }
+
+    let read_table_imp = quote! {
+        pub fn scan(&self) -> Vec<#struct_ident>{
+            interstice_sdk::host_calls::scan(interstice_sdk::ModuleSelection::Current, #table_name.to_string()).into_iter().map(|x| x.into()).collect()
+        }
+    };
 
     quote! {
         #[interstice_type]
@@ -151,26 +162,39 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         impl #table_edit_handle_struct{
             pub fn insert(&self, row: #struct_ident){
                 interstice_sdk::host_calls::insert_row(
-                    ModuleSelection::Current,
+                    interstice_sdk::ModuleSelection::Current,
                     #table_name.to_string(),
                     row.into(),
                 );
             }
 
-            pub fn scan(&self) -> Vec<#struct_ident>{
-                interstice_sdk::host_calls::scan(interstice_sdk::ModuleSelection::Current, #table_name.to_string()).into_iter().map(|x| x.into()).collect()
+            pub fn update(&self, row: #struct_ident){
+                interstice_sdk::host_calls::update_row(
+                    interstice_sdk::ModuleSelection::Current,
+                    #table_name.to_string(),
+                    row.into(),
+                );
             }
+
+            pub fn delete(&self, primary_key: #pk_type_ident){
+                interstice_sdk::host_calls::delete_row(
+                    interstice_sdk::ModuleSelection::Current,
+                    #table_name.to_string(),
+                    primary_key.into(),
+                );
+            }
+
+            #read_table_imp
+
         }
 
         pub struct #table_read_handle_struct{
         }
 
         impl #table_read_handle_struct{
-            pub fn scan(&self) -> Vec<#struct_ident>{
-                interstice_sdk::host_calls::scan(interstice_sdk::ModuleSelection::Current, #table_name.to_string()).into_iter().map(|x| x.into()).collect()
-            }
+            #read_table_imp
         }
-        
+
 
         pub trait #has_table_edit_handle_trait {
             fn #get_table_edit_handle_fn(&self) -> #table_edit_handle_struct;

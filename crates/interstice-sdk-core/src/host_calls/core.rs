@@ -1,6 +1,7 @@
 use interstice_abi::{
-    CallQueryRequest, CallReducerRequest, HostCall, InsertRowRequest, IntersticeValue, LogRequest,
-    ModuleSelection, NodeSelection, Row, TableScanRequest,
+    CallQueryRequest, CallReducerRequest, DeleteRowRequest, HostCall, InsertRowRequest,
+    IntersticeValue, LogRequest, ModuleSelection, NodeSelection, Row, TableScanRequest,
+    UpdateRowRequest,
 };
 
 pub fn log(message: &str) {
@@ -53,6 +54,31 @@ pub fn insert_row(module_selection: ModuleSelection, table_name: String, row: Ro
 
     host_call(call);
 }
+
+pub fn update_row(module_selection: ModuleSelection, table_name: String, row: Row) {
+    let call = HostCall::UpdateRow(UpdateRowRequest {
+        module_selection,
+        table_name,
+        row,
+    });
+
+    host_call(call);
+}
+
+pub fn delete_row(
+    module_selection: ModuleSelection,
+    table_name: String,
+    primary_key: IntersticeValue,
+) {
+    let call = HostCall::DeleteRow(DeleteRowRequest {
+        module_selection,
+        table_name,
+        primary_key,
+    });
+
+    host_call(call);
+}
+
 pub fn scan(module_selection: ModuleSelection, table_name: String) -> Vec<Row> {
     let call = HostCall::TableScan(TableScanRequest {
         module_selection,

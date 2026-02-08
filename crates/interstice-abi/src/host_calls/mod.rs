@@ -93,7 +93,7 @@ pub enum UpdateRowResponse {
 pub struct DeleteRowRequest {
     pub module_selection: ModuleSelection,
     pub table_name: String,
-    pub key: IntersticeValue,
+    pub primary_key: IntersticeValue,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

@@ -1,6 +1,6 @@
 use crate::{
-    runtime::{Runtime, reducer::CallFrameKind},
     runtime::transaction::Transaction,
+    runtime::{Runtime, reducer::CallFrameKind},
 };
 use interstice_abi::{
     DeleteRowRequest, DeleteRowResponse, InsertRowRequest, InsertRowResponse, ModuleSchema,
@@ -72,7 +72,7 @@ impl Runtime {
         reducer_frame.transactions.push(Transaction::Delete {
             module_name: caller_module_name,
             table_name: delete_row_request.table_name,
-            deleted_row_id: delete_row_request.key,
+            deleted_row_id: delete_row_request.primary_key,
         });
         DeleteRowResponse::Ok
     }
