@@ -172,9 +172,10 @@ and long-lived, before moving to authority and advanced optimizations.
 
 ## Features
 
-- Auto_inc flag table column
+- Remove reducers returning values and instead add query system
 - Indexed tables (add index flag macro on field struct)
 - Get table row by index (primary key and indexed columns)
+- Auto_inc flag table column
 - Table Views (allow row filtering based on current state and requesting node id)
 - add audio authority
 - Table migration support
@@ -184,6 +185,7 @@ and long-lived, before moving to authority and advanced optimizations.
 
 ## Robustness, error handling and fixes
 
+- Change the macro building to use quote instead of raw strings
 - Network handle reconnections and be more robust
 - Gpu error handling instead of panic (frame not begun etc.. Especially on resize where it interrupts the current render)
 - macros more checks and better error handlings (subscription check args and types)

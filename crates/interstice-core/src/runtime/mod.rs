@@ -2,6 +2,7 @@ mod authority;
 pub mod event;
 pub mod host_calls;
 pub mod module;
+mod query;
 mod reducer;
 mod table;
 pub mod transaction;
@@ -18,15 +19,16 @@ use crate::{
         event::EventInstance,
         host_calls::gpu::GpuState,
         module::Module,
-        reducer::ReducerFrame,
+        reducer::CallFrame,
         wasm::{StoreState, linker::define_host_calls},
     },
 };
-use interstice_abi::{Authority, ModuleEvent, SubscriptionEventSchema};
+use interstice_abi::{Authority, IntersticeValue, ModuleEvent, SubscriptionEventSchema};
 use notify::RecommendedWatcher;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    sync::mpsc::Sender as StdSender,
     sync::{Arc, Mutex},
 };
 use tokio::{
@@ -42,7 +44,7 @@ pub struct Runtime {
     pub(crate) gpu: Arc<Mutex<Option<GpuState>>>,
     pub(crate) modules: Arc<Mutex<HashMap<String, Arc<Module>>>>,
     pub(crate) authority_modules: Arc<Mutex<HashMap<Authority, AuthorityEntry>>>,
-    pub(crate) call_stack: Arc<Mutex<Vec<ReducerFrame>>>,
+    pub(crate) call_stack: Arc<Mutex<Vec<CallFrame>>>,
     pub(crate) engine: Arc<Engine>,
     pub(crate) linker: Arc<Mutex<Linker<StoreState>>>,
     pub(crate) event_sender: UnboundedSender<EventInstance>,
@@ -50,6 +52,7 @@ pub struct Runtime {
     pub(crate) transaction_logs: Arc<Mutex<TransactionLog>>,
     pub(crate) app_initialized: Arc<Mutex<bool>>,
     pub(crate) pending_app_modules: Arc<Mutex<Vec<Module>>>,
+    pub(crate) pending_query_responses: Arc<Mutex<HashMap<String, StdSender<IntersticeValue>>>>,
     pub(crate) modules_path: PathBuf,
     run_app_notify: Arc<Notify>,
     node_subscriptions: Arc<Mutex<HashMap<NodeId, Vec<SubscriptionEventSchema>>>>,
@@ -85,6 +88,7 @@ impl Runtime {
             authority_modules: Arc::new(Mutex::new(HashMap::new())),
             app_initialized: Arc::new(Mutex::new(false)),
             pending_app_modules: Arc::new(Mutex::new(Vec::new())),
+            pending_query_responses: Arc::new(Mutex::new(HashMap::new())),
             run_app_notify,
             node_subscriptions: Arc::new(Mutex::new(HashMap::new())),
             logger,
@@ -127,6 +131,34 @@ impl Runtime {
                         // Invoke the requested reducer with no args (network
                         // reducer packet currently does not carry args).
                         let _ = runtime.call_reducer(&module_name, &reducer_name, input);
+                    }
+                    EventInstance::RemoteQueryCall {
+                        requesting_node_id,
+                        request_id,
+                        module_name,
+                        query_name,
+                        input,
+                    } => {
+                        let result = runtime
+                            .call_query(&module_name, &query_name, input)
+                            .unwrap_or(IntersticeValue::Void);
+                        runtime.network_handle.send_packet(
+                            requesting_node_id,
+                            crate::network::protocol::NetworkPacket::QueryResponse {
+                                request_id,
+                                result,
+                            },
+                        );
+                    }
+                    EventInstance::RemoteQueryResponse { request_id, result } => {
+                        if let Some(sender) = runtime
+                            .pending_query_responses
+                            .lock()
+                            .unwrap()
+                            .remove(&request_id)
+                        {
+                            let _ = sender.send(result);
+                        }
                     }
                     EventInstance::RequestSubscription {
                         requesting_node_id,

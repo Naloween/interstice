@@ -13,6 +13,16 @@ pub enum NetworkPacket {
         reducer_name: String,
         input: IntersticeValue,
     },
+    QueryCall {
+        request_id: String,
+        module_name: String,
+        query_name: String,
+        input: IntersticeValue,
+    },
+    QueryResponse {
+        request_id: String,
+        result: IntersticeValue,
+    },
     RequestSubscription(RequestSubscription),
     TableEvent(TableEventInstance),
     ModuleEvent(ModuleEventInstance),

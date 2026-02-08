@@ -17,11 +17,17 @@ patch = 1
 
 [[modules.reducers]]
 name = "hello"
-return_type = "Void"
 
 [[modules.reducers.arguments]]
 name = "name"
 field_type = "String"
+
+[[modules.queries]]
+name = "get_greetings"
+arguments = []
+
+[modules.queries.return_type.Vec]
+Named = "Greetings"
 
 [[modules.tables]]
 name = "greetings"
@@ -42,6 +48,13 @@ Named = "TestCustomType"
 name = "id"
 field_type = "U64"
 
+[modules.type_definitions.TestCustomType.Struct]
+name = "TestCustomType"
+
+[[modules.type_definitions.TestCustomType.Struct.fields]]
+name = "val"
+field_type = "U32"
+
 [modules.type_definitions.Greetings.Struct]
 name = "Greetings"
 
@@ -58,10 +71,3 @@ name = "custom"
 
 [modules.type_definitions.Greetings.Struct.fields.field_type]
 Named = "TestCustomType"
-
-[modules.type_definitions.TestCustomType.Struct]
-name = "TestCustomType"
-
-[[modules.type_definitions.TestCustomType.Struct.fields]]
-name = "val"
-field_type = "U32"

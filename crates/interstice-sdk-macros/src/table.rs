@@ -1,5 +1,5 @@
 use proc_macro::TokenStream;
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use syn::Meta;
 
 pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -7,11 +7,17 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     let struct_ident = &input.ident;
     let struct_name = struct_ident.to_string();
     let table_name = struct_name.to_lowercase();
-    let table_handle_struct =
-        syn::Ident::new(&format!("{}Handle", struct_name), struct_ident.span());
-    let has_table_handle_trait =
-        syn::Ident::new(&format!("Has{}Handle", struct_name), struct_ident.span());
-    let get_table_handle_fn = syn::Ident::new(&table_name, struct_ident.span());
+    let table_edit_handle_struct =
+        syn::Ident::new(&format!("{}EditHandle", struct_name), struct_ident.span());
+    let table_read_handle_struct =
+        syn::Ident::new(&format!("{}ReadHandle", struct_name), struct_ident.span());
+    let has_table_edit_handle_trait =
+        syn::Ident::new(&format!("Has{}EditHandle", struct_name), struct_ident.span());
+    let get_table_edit_handle_fn = syn::Ident::new(&table_name, struct_ident.span());
+    let has_table_read_handle_trait =
+        syn::Ident::new(&format!("Has{}ReadHandle", struct_name), struct_ident.span());
+    let get_table_read_handle_fn = syn::Ident::new(&table_name, struct_ident.span());
+    
     let schema_fn = syn::Ident::new(
         &format!("interstice_{}_schema", table_name),
         struct_ident.span(),
@@ -139,10 +145,10 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             interstice_sdk::registry::register_table(#schema_fn);
         }
 
-        pub struct #table_handle_struct{
+        pub struct #table_edit_handle_struct{
         }
 
-        impl #table_handle_struct{
+        impl #table_edit_handle_struct{
             pub fn insert(&self, row: #struct_ident){
                 interstice_sdk::host_calls::insert_row(
                     ModuleSelection::Current,
@@ -156,13 +162,33 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
-        pub trait #has_table_handle_trait {
-            fn #get_table_handle_fn(&self) -> #table_handle_struct;
+        pub struct #table_read_handle_struct{
         }
 
-        impl #has_table_handle_trait for interstice_sdk::CurrentModuleContext {
-            fn #get_table_handle_fn(&self) -> #table_handle_struct {
-                return #table_handle_struct {}
+        impl #table_read_handle_struct{
+            pub fn scan(&self) -> Vec<#struct_ident>{
+                interstice_sdk::host_calls::scan(interstice_sdk::ModuleSelection::Current, #table_name.to_string()).into_iter().map(|x| x.into()).collect()
+            }
+        }
+        
+
+        pub trait #has_table_edit_handle_trait {
+            fn #get_table_edit_handle_fn(&self) -> #table_edit_handle_struct;
+        }
+
+        impl #has_table_edit_handle_trait for interstice_sdk::ReducerContextCurrentModuleTables {
+            fn #get_table_edit_handle_fn(&self) -> #table_edit_handle_struct {
+                return #table_edit_handle_struct {}
+            }
+        }
+
+        pub trait #has_table_read_handle_trait {
+            fn #get_table_read_handle_fn(&self) -> #table_read_handle_struct;
+        }
+
+        impl #has_table_read_handle_trait for interstice_sdk::QueryContextCurrentModuleTables {
+            fn #get_table_read_handle_fn(&self) -> #table_read_handle_struct {
+                return #table_read_handle_struct {}
             }
         }
 

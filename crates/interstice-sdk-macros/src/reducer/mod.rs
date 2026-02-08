@@ -3,8 +3,8 @@ mod subscription;
 mod wrapper;
 
 use proc_macro::TokenStream;
-use quote::{quote, ToTokens};
-use syn::{parse_macro_input, ItemFn, Meta};
+use quote::{ToTokens, quote};
+use syn::{ItemFn, Meta, parse_macro_input};
 
 use crate::reducer::{
     schema::get_register_schema_function, subscription::get_register_subscription_function,
@@ -43,6 +43,16 @@ pub fn reducer_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         return quote! {compile_error!("The reducer should have the first argument of type 'ReducerContext'");}.into();
     }
 
+    let returns_unit = match &input_fn.sig.output {
+        syn::ReturnType::Default => true,
+        syn::ReturnType::Type(_, ty) => {
+            matches!(ty.as_ref(), syn::Type::Tuple(t) if t.elems.is_empty())
+        }
+    };
+    if !returns_unit {
+        return quote! {compile_error!("Reducers must not return a value. Use #[query] for read-only return values.");}.into();
+    }
+
     // Add potential subscription
     let attributes = syn::parse_macro_input!(
         attr with syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated
@@ -55,12 +65,7 @@ pub fn reducer_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         get_wrapper_function(reducer_ident.clone(), arg_count, use_table_subscription);
 
     // Schema function
-    let register_schema = get_register_schema_function(
-        reducer_ident.clone(),
-        input_fn.clone(),
-        arg_names,
-        arg_types,
-    );
+    let register_schema = get_register_schema_function(reducer_ident.clone(), arg_names, arg_types);
 
     // Generate wrapper and schema
     quote! {

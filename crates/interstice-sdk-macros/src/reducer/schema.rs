@@ -1,9 +1,8 @@
-use quote::{quote, ToTokens};
+use quote::quote;
 use syn::{Ident, ItemFn, Pat, Type};
 
 pub fn get_register_schema_function(
     reducer_ident: Ident,
-    input_fn: ItemFn,
     arg_names: Vec<&Box<Pat>>,
     arg_types: Vec<&Box<Type>>,
 ) -> proc_macro2::TokenStream {
@@ -29,22 +28,11 @@ pub fn get_register_schema_function(
         },
     );
 
-    let return_type = match &input_fn.sig.output {
-        syn::ReturnType::Default => quote! { interstice_sdk::IntersticeType::Void },
-        syn::ReturnType::Type(_, ty) => {
-            let ty = ty.to_token_stream().to_string();
-            quote! {
-               interstice_sdk::IntersticeType::from_str(#ty).unwrap()
-            }
-        }
-    };
-
     quote! {
         fn #reducer_schema_fn() -> interstice_sdk::ReducerSchema {
             interstice_sdk::ReducerSchema::new(
                 stringify!(#reducer_ident),
                 vec![#(#schema_entries),*],
-                #return_type,
             )
         }
 

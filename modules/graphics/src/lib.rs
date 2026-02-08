@@ -89,7 +89,7 @@ pub fn init(ctx: ReducerContext) {
     });
 
     // Store pipeline in table
-    ctx.current.pipelinetable().insert(PipelineTable {
+    ctx.current.tables.pipelinetable().insert(PipelineTable {
         id: 0,
         pipeline_id: pipeline,
     });
@@ -100,7 +100,7 @@ pub fn render(ctx: ReducerContext) {
     let gpu = ctx.gpu();
 
     // Get pipeline from table
-    let pipeline = if let Some(p) = ctx.current.pipelinetable().scan().get(0) {
+    let pipeline = if let Some(p) = ctx.current.tables.pipelinetable().scan().get(0) {
         p.pipeline_id
     } else {
         return;

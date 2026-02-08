@@ -70,11 +70,11 @@ impl WasmInstance {
         Ok(schema)
     }
 
-    pub fn call_function(
+    pub fn call_reducer(
         &mut self,
         func_name: &str,
         args: impl Serialize,
-    ) -> Result<IntersticeValue, IntersticeError> {
+    ) -> Result<(), IntersticeError> {
         let args_bytes = encode(&args).map_err(|err| {
             IntersticeError::Internal(format!("failed to serialize reducer arguments: {}", err))
         })?;
@@ -95,7 +95,7 @@ impl WasmInstance {
             .ok_or_else(|| IntersticeError::WasmFuncNotFound(func_name.into()))?;
 
         let reducer = func
-            .typed::<(i32, i32), i64>(&self.store)
+            .typed::<(i32, i32), ()>(&self.store)
             .map_err(|_| IntersticeError::BadSignature(func_name.into()))?;
 
         // --- allocate input ---
@@ -109,7 +109,58 @@ impl WasmInstance {
             .map_err(|_| IntersticeError::MemoryWrite)?;
 
         // --- call reducer ---
-        let packed = reducer
+        reducer
+            .call(&mut self.store, (ptr, args_bytes.len() as i32))
+            .map_err(|e| IntersticeError::WasmTrap(e.to_string()))?;
+
+        // free input
+        dealloc
+            .call(&mut self.store, (ptr, args_bytes.len() as i32))
+            .ok();
+
+        Ok(())
+    }
+
+    pub fn call_query(
+        &mut self,
+        func_name: &str,
+        args: impl Serialize,
+    ) -> Result<IntersticeValue, IntersticeError> {
+        let args_bytes = encode(&args).map_err(|err| {
+            IntersticeError::Internal(format!("failed to serialize query arguments: {}", err))
+        })?;
+
+        let alloc = self
+            .alloc
+            .typed::<i32, i32>(&self.store)
+            .map_err(|_| IntersticeError::BadSignature("alloc".into()))?;
+
+        let dealloc = self
+            .dealloc
+            .typed::<(i32, i32), ()>(&self.store)
+            .map_err(|_| IntersticeError::BadSignature("dealloc".into()))?;
+
+        let func = self
+            .instance
+            .get_func(&mut self.store, func_name)
+            .ok_or_else(|| IntersticeError::WasmFuncNotFound(func_name.into()))?;
+
+        let query = func
+            .typed::<(i32, i32), i64>(&self.store)
+            .map_err(|_| IntersticeError::BadSignature(func_name.into()))?;
+
+        // --- allocate input ---
+        let ptr = alloc
+            .call(&mut self.store, args_bytes.len() as i32)
+            .map_err(|e| IntersticeError::WasmTrap(e.to_string()))?;
+
+        // write args
+        self.memory
+            .write(&mut self.store, ptr as usize, &args_bytes)
+            .map_err(|_| IntersticeError::MemoryWrite)?;
+
+        // --- call query ---
+        let packed = query
             .call(&mut self.store, (ptr, args_bytes.len() as i32))
             .map_err(|e| IntersticeError::WasmTrap(e.to_string()))?;
 
@@ -131,7 +182,7 @@ impl WasmInstance {
         dealloc.call(&mut self.store, (res_ptr, res_len)).ok();
 
         let out = decode(&out).map_err(|err| {
-            IntersticeError::Internal(format!("failed to deserialize reducer output: {}", err))
+            IntersticeError::Internal(format!("failed to deserialize query output: {}", err))
         })?;
 
         Ok(out)

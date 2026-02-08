@@ -1,26 +1,35 @@
-use crate::{error::IntersticeError, network::protocol::NetworkPacket, runtime::Runtime};
-use interstice_abi::{
-    CallReducerRequest, CallReducerResponse, IntersticeValue, ModuleSelection, NodeSelection,
+use crate::{
+    error::IntersticeError,
+    network::protocol::NetworkPacket,
+    runtime::{Runtime, reducer::CallFrameKind},
 };
+use interstice_abi::{CallReducerRequest, ModuleSelection, NodeSelection};
 
 impl Runtime {
     pub(crate) fn handle_call_reducer(
         &self,
         caller_module_name: &String,
         call_reducer_request: CallReducerRequest,
-    ) -> Result<CallReducerResponse, IntersticeError> {
+    ) -> Result<(), IntersticeError> {
+        if let Some(frame) = self.call_stack.lock().unwrap().last() {
+            if frame.kind == CallFrameKind::Query {
+                return Err(IntersticeError::Internal(
+                    "Reducers cannot be called from a query context".into(),
+                ));
+            }
+        }
         let module_name = match &call_reducer_request.module_selection {
             ModuleSelection::Current => caller_module_name,
             ModuleSelection::Other(name) => name,
         };
         match call_reducer_request.node_selection {
             NodeSelection::Current => {
-                let result = self.call_reducer(
+                self.call_reducer(
                     module_name,
                     &call_reducer_request.reducer_name,
                     call_reducer_request.input,
                 )?;
-                Ok(result)
+                Ok(())
             }
             NodeSelection::Other(node_name) => {
                 let modules = self.modules.lock().unwrap();
@@ -43,7 +52,7 @@ impl Runtime {
                         input: call_reducer_request.input.clone(),
                     },
                 );
-                Ok(IntersticeValue::Void)
+                Ok(())
             }
         }
     }

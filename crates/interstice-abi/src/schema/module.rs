@@ -1,6 +1,6 @@
 use crate::{
-    ABI_VERSION, Authority, IntersticeType, ModuleDependency, NodeDependency, ReducerSchema,
-    SubscriptionSchema, TableSchema, TableVisibility, Version,
+    ABI_VERSION, Authority, IntersticeType, ModuleDependency, NodeDependency, QuerySchema,
+    ReducerSchema, SubscriptionSchema, TableSchema, TableVisibility, Version,
     interstice_type_def::IntersticeTypeDef,
 };
 use serde::{Deserialize, Serialize};
@@ -21,6 +21,7 @@ pub struct ModuleSchema {
     pub version: Version,
     pub visibility: ModuleVisibility,
     pub reducers: Vec<ReducerSchema>,
+    pub queries: Vec<QuerySchema>,
     pub tables: Vec<TableSchema>,
     pub subscriptions: Vec<SubscriptionSchema>,
     pub type_definitions: HashMap<String, IntersticeTypeDef>,
@@ -41,6 +42,7 @@ impl ModuleSchema {
             },
             visibility: ModuleVisibility::Private,
             reducers: Vec::new(),
+            queries: Vec::new(),
             tables: Vec::new(),
             subscriptions: Vec::new(),
             type_definitions: HashMap::new(),
@@ -55,6 +57,7 @@ impl ModuleSchema {
         version: Version,
         visibility: ModuleVisibility,
         reducers: Vec<ReducerSchema>,
+        queries: Vec<QuerySchema>,
         tables: Vec<TableSchema>,
         subscriptions: Vec<SubscriptionSchema>,
         type_definitions: HashMap<String, IntersticeTypeDef>,
@@ -68,6 +71,7 @@ impl ModuleSchema {
             visibility,
             version,
             reducers,
+            queries,
             tables,
             subscriptions,
             type_definitions,
@@ -114,12 +118,15 @@ impl ModuleSchema {
             }
         }
 
+        let queries = self.queries.clone();
+
         Self {
             abi_version: self.abi_version,
             name: self.name,
             visibility: self.visibility,
             version: self.version,
             reducers,
+            queries,
             tables,
             subscriptions: Vec::new(),
             type_definitions,

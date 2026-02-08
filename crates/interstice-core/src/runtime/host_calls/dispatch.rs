@@ -18,10 +18,12 @@ impl Runtime {
 
         return match host_call {
             HostCall::CallReducer(call_reducer_request) => {
-                let response = self.handle_call_reducer(
-                    &caller_module_schema.name.clone(),
-                    call_reducer_request,
-                )?;
+                self.handle_call_reducer(&caller_module_schema.name.clone(), call_reducer_request)?;
+                Ok(None)
+            }
+            HostCall::CallQuery(call_query_request) => {
+                let response =
+                    self.handle_call_query(&caller_module_schema.name.clone(), call_query_request)?;
                 let result = self.send_data_to_module(response, memory, caller);
                 Ok(Some(result))
             }
@@ -85,9 +87,9 @@ impl Runtime {
             }
             HostCall::Module(module_call) => {
                 let auth_modules = self.authority_modules.lock().unwrap();
-                let module_auth_entry = auth_modules
-                    .get(&Authority::Module)
-                    .ok_or_else(|| IntersticeError::Internal("No Module authority module".into()))?;
+                let module_auth_entry = auth_modules.get(&Authority::Module).ok_or_else(|| {
+                    IntersticeError::Internal("No Module authority module".into())
+                })?;
 
                 if module_auth_entry.module_name != caller_module_schema.name {
                     return Err(IntersticeError::Unauthorized(Authority::Module));
@@ -96,13 +98,7 @@ impl Runtime {
                 drop(auth_modules);
 
                 let runtime = caller.data().runtime.clone();
-                self.handle_module_call(
-                    module_call,
-                    memory,
-                    caller,
-                    caller_module_schema,
-                    runtime,
-                )
+                self.handle_module_call(module_call, memory, caller, caller_module_schema, runtime)
             }
         };
     }

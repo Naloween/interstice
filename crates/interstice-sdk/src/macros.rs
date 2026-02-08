@@ -136,6 +136,7 @@ pub fn describe_module(
     node_dependencies: Vec<NodeDependency>,
 ) -> i64 {
     let reducers = interstice_sdk_core::registry::collect_reducers();
+    let queries = interstice_sdk_core::registry::collect_queries();
     let tables = interstice_sdk_core::registry::collect_tables();
     let subscriptions = interstice_sdk_core::registry::collect_subscriptions();
     let type_definitions = interstice_sdk_core::registry::collect_type_definitions();
@@ -146,6 +147,7 @@ pub fn describe_module(
         version: version.into(),
         visibility,
         reducers,
+        queries,
         tables,
         subscriptions,
         type_definitions,

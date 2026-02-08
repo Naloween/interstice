@@ -1,4 +1,6 @@
-use interstice_abi::{IntersticeTypeDef, ReducerSchema, SubscriptionSchema, TableSchema};
+use interstice_abi::{
+    IntersticeTypeDef, QuerySchema, ReducerSchema, SubscriptionSchema, TableSchema,
+};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -18,12 +20,14 @@ pub struct SubscriptionRegistration {}
 
 pub type TableSchemaFn = fn() -> TableSchema;
 pub type ReducerSchemaFn = fn() -> ReducerSchema;
+pub type QuerySchemaFn = fn() -> QuerySchema;
 pub type SubscriptionSchemaFn = fn() -> SubscriptionSchema;
 pub type IntersticeTypeDefFn = fn() -> IntersticeTypeDef;
 
 lazy_static::lazy_static! {
     pub static ref TABLE_REGISTRY: Arc<Mutex<Vec<TableSchemaFn>>> = Arc::new(Mutex::new(Vec::new()));
     pub static ref REDUCER_REGISTRY: Arc<Mutex<Vec<ReducerSchemaFn>>> = Arc::new(Mutex::new(Vec::new()));
+    pub static ref QUERY_REGISTRY: Arc<Mutex<Vec<QuerySchemaFn>>> = Arc::new(Mutex::new(Vec::new()));
     pub static ref SUBSCRIPTION_REGISTRY: Arc<Mutex<Vec<SubscriptionSchemaFn>>> = Arc::new(Mutex::new(Vec::new()));
     pub static ref INTERSTICE_TYPE_DEFINITION_REGISTRY: Arc<Mutex<Vec<IntersticeTypeDefFn>>> = Arc::new(Mutex::new(Vec::new()));
 }
@@ -36,6 +40,11 @@ pub fn register_table(f: TableSchemaFn) {
 /// Called by each `#[reducer]` macro to register its schema function
 pub fn register_reducer(f: ReducerSchemaFn) {
     REDUCER_REGISTRY.lock().unwrap().push(f);
+}
+
+/// Called by each `#[query]` macro to register its schema function
+pub fn register_query(f: QuerySchemaFn) {
+    QUERY_REGISTRY.lock().unwrap().push(f);
 }
 
 /// Called by each `#[reducer]` macro to register its potential subscription schema function
@@ -59,6 +68,10 @@ pub fn collect_reducers() -> Vec<ReducerSchema> {
         .iter()
         .map(|f| f())
         .collect()
+}
+
+pub fn collect_queries() -> Vec<QuerySchema> {
+    QUERY_REGISTRY.lock().unwrap().iter().map(|f| f()).collect()
 }
 
 pub fn collect_subscriptions() -> Vec<SubscriptionSchema> {

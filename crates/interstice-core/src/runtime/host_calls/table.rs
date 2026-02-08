@@ -1,4 +1,7 @@
-use crate::{runtime::Runtime, runtime::transaction::Transaction};
+use crate::{
+    runtime::{Runtime, reducer::CallFrameKind},
+    runtime::transaction::Transaction,
+};
 use interstice_abi::{
     DeleteRowRequest, DeleteRowResponse, InsertRowRequest, InsertRowResponse, ModuleSchema,
     TableScanRequest, TableScanResponse, UpdateRowRequest, UpdateRowResponse,
@@ -28,6 +31,9 @@ impl Runtime {
         }
         let mut reducer_frame = self.call_stack.lock().unwrap();
         let reducer_frame = reducer_frame.last_mut().unwrap();
+        if reducer_frame.kind == CallFrameKind::Query {
+            return InsertRowResponse::Err("Insert not allowed in query context".into());
+        }
         reducer_frame.transactions.push(Transaction::Insert {
             module_name: caller_module_schema.name.clone(),
             table_name: insert_row_request.table_name,
@@ -43,6 +49,9 @@ impl Runtime {
     ) -> UpdateRowResponse {
         let mut reducer_frame = self.call_stack.lock().unwrap();
         let reducer_frame = reducer_frame.last_mut().unwrap();
+        if reducer_frame.kind == CallFrameKind::Query {
+            return UpdateRowResponse::Err("Update not allowed in query context".into());
+        }
         reducer_frame.transactions.push(Transaction::Update {
             module_name: caller_module_name,
             table_name: update_row_request.table_name,
@@ -57,6 +66,9 @@ impl Runtime {
     ) -> DeleteRowResponse {
         let mut reducer_frame = self.call_stack.lock().unwrap();
         let reducer_frame = reducer_frame.last_mut().unwrap();
+        if reducer_frame.kind == CallFrameKind::Query {
+            return DeleteRowResponse::Err("Delete not allowed in query context".into());
+        }
         reducer_frame.transactions.push(Transaction::Delete {
             module_name: caller_module_name,
             table_name: delete_row_request.table_name,

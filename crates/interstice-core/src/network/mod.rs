@@ -260,6 +260,25 @@ impl Network {
                             input,
                         })
                         .unwrap(),
+                    NetworkPacket::QueryCall {
+                        request_id,
+                        module_name,
+                        query_name,
+                        input,
+                    } => self
+                        .runtime_event_sender
+                        .send(EventInstance::RemoteQueryCall {
+                            requesting_node_id: node_id,
+                            request_id,
+                            module_name,
+                            query_name,
+                            input,
+                        })
+                        .unwrap(),
+                    NetworkPacket::QueryResponse { request_id, result } => self
+                        .runtime_event_sender
+                        .send(EventInstance::RemoteQueryResponse { request_id, result })
+                        .unwrap(),
                     NetworkPacket::RequestSubscription(request_subscription) => self
                         .runtime_event_sender
                         .send(EventInstance::RequestSubscription {

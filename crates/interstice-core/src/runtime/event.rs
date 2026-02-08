@@ -41,6 +41,17 @@ pub enum EventInstance {
         reducer_name: String,
         input: IntersticeValue,
     },
+    RemoteQueryCall {
+        requesting_node_id: NodeId,
+        request_id: String,
+        module_name: String,
+        query_name: String,
+        input: IntersticeValue,
+    },
+    RemoteQueryResponse {
+        request_id: String,
+        result: IntersticeValue,
+    },
     PublishModule {
         wasm_binary: Vec<u8>,
         source_node_id: NodeId,

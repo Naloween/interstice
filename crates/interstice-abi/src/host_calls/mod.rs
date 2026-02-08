@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize, Serialize)]
 pub enum HostCall {
     CallReducer(CallReducerRequest),
+    CallQuery(CallQueryRequest),
     Log(LogRequest),
     InsertRow(InsertRowRequest),
     UpdateRow(UpdateRowRequest),
@@ -47,7 +48,15 @@ pub struct CallReducerRequest {
     pub input: IntersticeValue,
 }
 
-pub type CallReducerResponse = IntersticeValue;
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CallQueryRequest {
+    pub node_selection: NodeSelection,
+    pub module_selection: ModuleSelection,
+    pub query_name: String,
+    pub input: IntersticeValue,
+}
+
+pub type CallQueryResponse = IntersticeValue;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LogRequest {
@@ -106,4 +115,8 @@ pub struct TableScanResponse {
 
 pub fn get_reducer_wrapper_name(reducer_name: &str) -> String {
     format!("__interstice_reducer_wrapper_{}", reducer_name)
+}
+
+pub fn get_query_wrapper_name(query_name: &str) -> String {
+    format!("__interstice_query_wrapper_{}", query_name)
 }

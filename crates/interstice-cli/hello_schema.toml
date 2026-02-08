@@ -13,11 +13,9 @@ patch = 1
 [[reducers]]
 name = "init"
 arguments = []
-return_type = "Void"
 
 [[reducers]]
 name = "hello"
-return_type = "Void"
 
 [[reducers.arguments]]
 name = "name"
@@ -25,12 +23,18 @@ field_type = "String"
 
 [[reducers]]
 name = "on_greeting_insert"
-return_type = "Void"
 
 [[reducers.arguments]]
 name = "inserted_row"
 
 [reducers.arguments.field_type]
+Named = "Greetings"
+
+[[queries]]
+name = "get_greetings"
+arguments = []
+
+[queries.return_type.Vec]
 Named = "Greetings"
 
 [[tables]]

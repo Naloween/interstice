@@ -2,19 +2,27 @@ use crate::{
     error::IntersticeError, runtime::Runtime, runtime::event::EventInstance,
     runtime::transaction::Transaction,
 };
-use interstice_abi::{IntersticeValue, ReducerContext};
+use interstice_abi::{IntersticeValue, QueryContext, ReducerContext};
 use serde::Serialize;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallFrameKind {
+    Reducer,
+    Query,
+}
+
 #[derive(Debug)]
-pub struct ReducerFrame {
+pub struct CallFrame {
     pub module: String,
+    pub kind: CallFrameKind,
     pub transactions: Vec<Transaction>,
 }
 
-impl ReducerFrame {
-    pub fn new(module: String) -> Self {
+impl CallFrame {
+    pub fn new(module: String, kind: CallFrameKind) -> Self {
         Self {
             module,
+            kind,
             transactions: Vec::new(),
         }
     }
@@ -26,7 +34,7 @@ impl Runtime {
         module_name: &str,
         reducer_name: &str,
         args: impl Serialize,
-    ) -> Result<IntersticeValue, IntersticeError> {
+    ) -> Result<(), IntersticeError> {
         // Lookup module
         let mut modules = self.modules.lock().unwrap();
         let module = modules
@@ -72,11 +80,11 @@ impl Runtime {
         self.call_stack
             .lock()
             .unwrap()
-            .push(ReducerFrame::new(module_name.into()));
+            .push(CallFrame::new(module_name.into(), CallFrameKind::Reducer));
 
         // Call WASM function
         let reducer_context = ReducerContext::new();
-        let result = module.call_reducer(reducer_name, (reducer_context, args))?;
+        module.call_reducer(reducer_name, (reducer_context, args))?;
 
         // Pop frame
         let reducer_frame = self.call_stack.lock().unwrap().pop().unwrap();
@@ -92,7 +100,7 @@ impl Runtime {
             self.event_sender.send(ev).unwrap();
         }
 
-        Ok(result)
+        Ok(())
     }
 
     pub(crate) fn apply_transaction(

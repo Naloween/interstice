@@ -11,8 +11,8 @@ use crate::{
     },
 };
 use interstice_abi::{
-    ABI_VERSION, Authority, FileEvent, IntersticeValue, ModuleSchema, NodeSelection,
-    ReducerContext, SubscriptionEventSchema, get_reducer_wrapper_name,
+    ABI_VERSION, Authority, FileEvent, IntersticeValue, ModuleSchema, NodeSelection, QueryContext,
+    ReducerContext, SubscriptionEventSchema, get_query_wrapper_name, get_reducer_wrapper_name,
 };
 use notify::{RecursiveMode, Watcher};
 use serde::Serialize;
@@ -109,9 +109,18 @@ impl Module {
         &self,
         reducer: &str,
         args: (ReducerContext, impl Serialize),
-    ) -> Result<IntersticeValue, IntersticeError> {
+    ) -> Result<(), IntersticeError> {
         let func_name = &get_reducer_wrapper_name(reducer);
-        return self.instance.lock().unwrap().call_function(func_name, args);
+        return self.instance.lock().unwrap().call_reducer(func_name, args);
+    }
+
+    pub fn call_query(
+        &self,
+        query: &str,
+        args: (QueryContext, impl Serialize),
+    ) -> Result<IntersticeValue, IntersticeError> {
+        let func_name = &get_query_wrapper_name(query);
+        return self.instance.lock().unwrap().call_query(func_name, args);
     }
 }
 

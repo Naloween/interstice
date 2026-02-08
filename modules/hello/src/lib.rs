@@ -28,7 +28,7 @@ pub fn init(ctx: ReducerContext) {
 #[reducer]
 pub fn hello(ctx: ReducerContext, name: String) {
     ctx.log(&format!("Saying hello to {}", name));
-    ctx.current.greetings().insert(Greetings {
+    ctx.current.tables.greetings().insert(Greetings {
         id: 0,
         greeting: format!("Hello, {}!", name),
         custom: TestCustomType { val: 0 },
@@ -38,4 +38,9 @@ pub fn hello(ctx: ReducerContext, name: String) {
 #[reducer(on = "hello.greetings.insert")]
 fn on_greeting_insert(ctx: ReducerContext, inserted_row: Greetings) {
     ctx.log(&format!("Inserted greeting: {:?}", inserted_row));
+}
+
+#[query]
+fn get_greetings(ctx: QueryContext) -> Vec<Greetings> {
+    ctx.current.tables.greetings().scan()
 }

@@ -1,6 +1,5 @@
-use serde::{Deserialize, Serialize};
-
 use crate::NodeSelection;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub enum SubscriptionEventSchema {
