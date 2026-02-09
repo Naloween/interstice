@@ -8,7 +8,7 @@ Contents
 - Quickstart
 - Module authoring
 - Examples
-- Publishing (draft)
+- Publishing
 - Roadmap & TODOs
 - Contribution & License
 
@@ -33,61 +33,138 @@ Prerequisites
 rustup target add wasm32-unknown-unknown
 ```
 
+Build example modules (from workspace root):
+
+```bash
+cargo build -p hello
+cargo build -p caller
+cargo build -p graphics
+```
+
+Go to the cli crate:
+
+```bash
+cd crates/interstice-cli
+```
+
 Start a node (port 8080):
 
 ```bash
-cargo run -p interstice-cli -- start 8080
+cargo run example 8080
 ```
 
 Start a second node (port 8081) to simulate remote interactions:
 
 ```bash
-cargo run -p interstice-cli -- start 8081
+cargo run example 8081
 ```
-
-Build example modules (from workspace root):
-
-```bash
-cargo build -p hello --target wasm32-unknown-unknown --release
-cargo build -p caller --target wasm32-unknown-unknown --release
-cargo build -p graphics --target wasm32-unknown-unknown --release
-```
-
-Loading / publishing modules (current)
-
-Currently the node loads modules from the modules directory or via manual install. A `publish` CLI command is planned (see Publishing section below) to upload and validate module WASM artifacts on a running node.
 
 ---
 
 # Module authoring
 
-Minimal layout
+## Quickstart
+
+the CLI provides an easy simple init commands to start a rust module for interstice, it fills the project with a simple hello example, setup the config to build for wasm, adds the needed macros calls in build.rs and at the top of lib.rs
+
+```bash
+interstice-cli run init
+```
+
+## Minimal layout
 
 - `Cargo.toml` — set `crate-type = ["cdylib"]` and depend on `interstice-sdk`.
 - `build.rs` — optional helper to produce the WASM artifact.
 - `src/lib.rs` — module implementation.
 
-SDK macros & patterns
+## SDK macros & patterns
 
-- `interstice_module!(...)` — register the module (visibility, authorities).
-- `#[table]` — mark table row structs; use `#[primary_key]` on the key field.
-- `#[interstice_type]` — custom serializable types.
-- `#[reducer]` — declare reducers; `on = "event"` subscribes to events.
+At the top of `lib.rs`, you need to call `interstice_module!()` to define the required global wasm glue for interstice. The name of the module is taken from the Cargo.toml.
+Additionaly you can specify two parameters `interstice_module!(visibility: Public, authorities: [Gpu, Input])`. The `visibility` tells if the module is accessible from other nodes (default to `Private`). This means that if the moduel is `Private`, only local modules from the same node can access the module's reducers, queries and tables for subscription.
+the `authorities` argument define potential authority claimed by this module. See below for further information.
 
-Reducer & table usage
+### Table
 
-Reducers receive `ReducerContext` and typed args. Use `ctx.current.<table>().insert(...)` and `ctx.current.<table>().scan()` for table operations. Keep reducers deterministic and avoid blocking operations; model async work via events.
+Inside your module you may define tables through the `#[table]` macro on top of a struct:
+```rust
+#[table]
+struct MyTable{
+  #[primary_key]
+  id: u64,
+  content: String
+}
+```
 
-Capabilities
+You need to define one field with the `#[primary_key]` flag on one of the struct field. It acts as the identity for any row in the table and has the unique constraint. However it doesn't auto increment by default, so you should manually generate the id on row insertion.
 
-Declare requested authorities with `interstice_module!(authorities: [Input, Gpu]);` for privileged modules.
+### Interstice Type
 
-Build for WASM
+In a table struct, a variety of default types are supported as field. However if you need fields with your own types you may use `#[interstice_type]` on top of enum or struct definition:
+
+```rust
+#[interstice_type]
+pub MyCustomEnum {
+  A,
+  B(String),
+  C(MyCustomStruct),
+}
+
+#[interstice_type]
+pub MyCustomStruct {
+  value: i64,
+}
+```
+
+Note that defining a struct as a table also makes it an interstice type and may be used as such.
+
+### Reducer
+
+After defining your data (tables and types) you probably want to define some reducers and queries. Reducers don't return anything and may update the tables of the current module. Reducers can call other queries and reducers from other modules.
+
+You define them through the `#[reducer]` marker on top of a function:
+
+```rust
+#[reducer]
+fn my_reducer(ctx: ReducerContext, my_arg1: u32, my_arg2: MyCustomenum){
+  ...
+}
+```
+
+The first argument of a reducer should always be a `ReducerContext`.
+Use `ctx.current.<table>().insert(...)` and `ctx.current.<table>().scan()` for table operations.
+
+Additionally reducers can subscribe to a particular event, in which case they cannot be called externally in another way.
+There is different kind of events, all abide by the format:
+`#[reducer(on = "<event>")]`
+
+where event can be `init`, `<module>.<table>.<table_event>`, `<node>.<module>.<table>.<table_event>`.
+
+Here `<module>` is the module name where you want to subscribe to, if current module you should put the current module name defined in Cargo.toml.
+`<table>` should be table name you want to subscribe to.
+`<table_event>` can be `insert`, `update` or `delete`.
+When subscribing to an event, it imposes specific arguments for the reducer. For example the insert event impose to have only one additional argument of type of the table where you subscribed and will be the inserted row.
+
+### Query
+
+Appart from reducers you may also want to define queries. Similarly to reducers thay are defined through `#[query]` marker on top of functions:
+
+```rust
+#[query]
+fn my_query(ctx: QueryContext, my_arg1: u32, my_arg2: MyCustomenum) -> MyCustomStruct {
+  ...
+}
+```
+
+Constrary to reducers, queries can return some value but are read only and cannot mutate any tables. They can call other queries but cannot call other reducers. they also cannot subscribe to any event as they cannot have any effect on the current state.
+
+## Build for WASM
 
 ```bash
 rustup target add wasm32-unknown-unknown
 cargo build -p <module> --target wasm32-unknown-unknown --release
 ```
+
+You can omit the target argument if the .cargo/config.toml is already well configured, which is the case when you used the init cli command.
 
 ---
 
@@ -103,14 +180,14 @@ cargo build -p <module> --target wasm32-unknown-unknown --release
 Reproduce
 
 1. Start two nodes (ports 8080 and 8081).
-2. Build and install `hello` on one node and `caller` on the other (manual copy/publish step today).
-3. Run `graphics` on a node with display privileges to see the triangle.
+2. Build and install `hello` on one node and `caller` on the other.
+3. Run `graphics` on a node to see the triangle.
 
 ---
 
-# Publishing (draft)
+# Publishing
 
-Manual workflow
+## Manual workflow
 
 1. Build module WASM:
 
@@ -119,17 +196,18 @@ cargo build -p hello --target wasm32-unknown-unknown --release
 ```
 
 2. Locate the WASM in `target/wasm32-unknown-unknown/release/`.
-3. Copy the artifact into the node's modules directory or use the planned CLI `publish` command.
+3. Use this path to manually add a module from rust code using `Node::load_module()`
 
-Planned CLI flow
+There is no way of publishing to an already started node manually. See the CLI flow below.
 
-- `interstice-cli publish --addr <host:port> <module.wasm>` — upload, validate, and install a module on a running node. The node verifies schema compatibility and requested capabilities.
+## CLI flow
 
-Security
+- `interstice-cli publish <node-address> <module-rust-project-path>` — build, upload, validate, and install a module on a running node. The node verifies schema compatibility and requested capabilities.
 
-- Publishing requires operator privileges and authenticated endpoints. The node must validate requested capabilities and allow grant/revoke.
+# Security
 
-For details see `docs/Publishing.md`.
+- Publishing doesn't require any priviledge by default, so anyone can publish and remove module, even remotely.
+- To prevent this default behavior the node needs to have loaded a module with the Module authority. In this case, all request will be forwarded to this module. This is the only module capable of publishing and removing module on the node it runs. 
 
 ---
 
@@ -137,26 +215,27 @@ For details see `docs/Publishing.md`.
 
 Interstice is organized around a small trusted core that loads, sandboxes, and executes WASM modules. Modules express functionality entirely through typed, versioned interfaces composed of tables and reducers. The core is responsible for state, scheduling, capability enforcement, and deterministic ordering; modules own logic and optional privileged abilities when granted.
 
-Key concepts
+## Key concepts
 
 - Node: a runtime process hosting modules and exposing endpoints for inter-node calls.
 - Module: a WASM component with a serialized interface (tables, reducers, requested authorities, version).
 - Table: typed, versioned records owned by a module; mutations happen inside reducers.
-- Reducer: deterministic state-transition functions that run inside the module with a `ReducerContext`.
+- Reducer: deterministic state-transition function that run inside a module.
+- Query: deterministic read-only function that run inside a module and return some value
 - Subscription: declarative binding that schedule reducers when events occur (table changes, initialization, input event...).
 
-Authorities
+## Authorities
 
 Authorities are typed tokens granting modules access to privileged host functionality (gpu access, input event...). Only one module can hold an authority at a time.
 
-Execution model
+## Execution model
 
 1. Reducer invocation (external call or subscription)
 2. Reducer performs host calls to mutate tables
 3. Core records changes and resolves subscriptions
 4. Dependent reducers are scheduled deterministically
 
-Determinism and concurrency
+## Determinism and concurrency
 
 - Deterministic replay is a design goal: given the same inputs, module versions, and initial state, execution is reproducible.
 - The core may parallelize execution when it can prove no conflicting writes will occur.
@@ -165,23 +244,21 @@ Determinism and concurrency
 
 # Roadmap & TODOs
 
-This document lists the core features required to make Interstice stable, ergonomic,
-and long-lived, before moving to authority and advanced optimizations.
+This document lists the core features required to make Interstice stable, ergonomic and long-lived, before moving to advanced optimizations.
 
 ---
 
 ## Features
 
-- Remove reducers returning values and instead add query system
 - Indexed tables (add index flag macro on field struct)
 - Get table row by index (primary key and indexed columns)
 - Auto_inc flag table column
 - Table Views (allow row filtering based on current state and requesting node id)
+- Add token to confirm node identities on connection (generate one token per node connecting to one one)
 - add audio authority
 - Table migration support
 - Subscription execution ordering guarantees ?
 - Add elusive table feature (to not be logged (saved)). Usefull for non persistent states like the mouse position.
-- Add token to confirm node identities on connection (generate one token per node connecting to one one)
 
 ## Robustness, error handling and fixes
 
@@ -192,13 +269,13 @@ and long-lived, before moving to authority and advanced optimizations.
 
 ## Optimizations
 
-- parallelize runtime
 - Efficient table scans through iter
 - Better type convertions designs (instead of always converting to IntersticeValue as an intermediate)
 - Optimize type convertions (no clones)
 - transaction logs snaptchots, separate logs before snapchot (archive) and after the current snaptchot
 - transaction logs add indexes to retreive efficiently per module, per table transactions
 - Columnar / structured storage backend
+- parallelize reducers calls when possible
 
 ## Tooling & CLI
 
