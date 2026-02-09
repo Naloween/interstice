@@ -1,12 +1,14 @@
 // Interstice CLI - Command-line interface
 
 use interstice_cli::{
+    call_query::call_query,
+    call_reducer::call_reducer,
     example::example,
     init::init,
     module::{publish, remove},
     start::{start, start_new},
 };
-use interstice_core::IntersticeError;
+use interstice_core::{IntersticeError, interstice_abi::IntersticeValue};
 
 #[tokio::main]
 async fn main() -> Result<(), IntersticeError> {
@@ -63,6 +65,36 @@ async fn main() -> Result<(), IntersticeError> {
             let module_name = &args[3];
             remove(node_address, module_name).await
         }
+        "call_reducer" => {
+            if args.len() < 5 {
+                print_help();
+                return Ok(());
+            }
+            let node_address = args[2].clone();
+            let module_name = args[3].clone();
+            let reducer_name = args[4].clone();
+            let mut input_vec: Vec<IntersticeValue> = Vec::new();
+            for arg in &args[5..] {
+                input_vec.push(arg.clone().into());
+            }
+            let input = IntersticeValue::Vec(input_vec);
+            call_reducer(node_address, module_name, reducer_name, input.into()).await
+        }
+        "call_query" => {
+            if args.len() < 5 {
+                print_help();
+                return Ok(());
+            }
+            let node_address = args[2].clone();
+            let module_name = args[3].clone();
+            let query_name = args[4].clone();
+            let mut input_vec: Vec<IntersticeValue> = Vec::new();
+            for arg in &args[5..] {
+                input_vec.push(arg.clone().into());
+            }
+            let input = IntersticeValue::Vec(input_vec);
+            call_query(node_address, module_name, query_name, input.into()).await
+        }
         "help" | "-h" | "--help" => {
             print_help();
             Ok(())
@@ -92,6 +124,12 @@ fn print_help() {
     );
     println!("  publish <node_address> <module_path>   Publish a module to a node");
     println!("  remove <node_address> <module_name>    Remove a module from a node");
+    println!(
+        "  call_reducer <node_address> <module_name> <reducer_name>    Call a reducer of a module on a node"
+    );
+    println!(
+        "  call_query <node_address> <module_name> <query_name>        Call a query of a module on a node"
+    );
     println!("  help                             Show this help message");
     println!();
     println!("OPTIONS:");
