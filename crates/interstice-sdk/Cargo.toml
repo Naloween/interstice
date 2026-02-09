@@ -1,6 +1,6 @@
 [package]
 name = "interstice-sdk"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 description = "Rust SDK and helpers for writing Interstice WASM modules"
@@ -11,7 +11,7 @@ keywords = ["interstice", "wasm", "sdk"]
 all-features = true
 
 [dependencies]
-interstice-abi = { path = "../interstice-abi", version = "0.1.0" }
-interstice-sdk-core = { path = "../interstice-sdk-core", version = "0.1.0" }
-interstice-sdk-macros = { path = "../interstice-sdk-macros", version = "0.1.0" }
+interstice-abi = { path = "../interstice-abi", version = "0.2.0" }
+interstice-sdk-core = { path = "../interstice-sdk-core", version = "0.2.0" }
+interstice-sdk-macros = { path = "../interstice-sdk-macros", version = "0.2.0" }
 wee_alloc = "0.4"
