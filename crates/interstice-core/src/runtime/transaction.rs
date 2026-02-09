@@ -1,4 +1,4 @@
-use interstice_abi::{IntersticeValue, Row, decode, encode};
+use interstice_abi::{IndexKey, IntersticeValue, Row, decode, encode};
 use serde::{Deserialize, Serialize};
 
 use crate::error::IntersticeError;
@@ -18,7 +18,7 @@ pub enum Transaction {
     Delete {
         module_name: String,
         table_name: String,
-        deleted_row_id: IntersticeValue,
+        deleted_row_id: IndexKey,
     },
 }
 

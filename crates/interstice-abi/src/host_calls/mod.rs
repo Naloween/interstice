@@ -9,7 +9,7 @@ pub use gpu::*;
 pub use input::*;
 pub use module::*;
 
-use crate::{IntersticeValue, Row};
+use crate::{IndexKey, IntersticeValue, Row};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -93,7 +93,7 @@ pub enum UpdateRowResponse {
 pub struct DeleteRowRequest {
     pub module_selection: ModuleSelection,
     pub table_name: String,
-    pub primary_key: IntersticeValue,
+    pub primary_key: IndexKey,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

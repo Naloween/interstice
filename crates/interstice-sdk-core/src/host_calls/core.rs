@@ -1,5 +1,5 @@
 use interstice_abi::{
-    CallQueryRequest, CallReducerRequest, DeleteRowRequest, HostCall, InsertRowRequest,
+    CallQueryRequest, CallReducerRequest, DeleteRowRequest, HostCall, IndexKey, InsertRowRequest,
     IntersticeValue, LogRequest, ModuleSelection, NodeSelection, Row, TableScanRequest,
     UpdateRowRequest,
 };
@@ -65,11 +65,7 @@ pub fn update_row(module_selection: ModuleSelection, table_name: String, row: Ro
     host_call(call);
 }
 
-pub fn delete_row(
-    module_selection: ModuleSelection,
-    table_name: String,
-    primary_key: IntersticeValue,
-) {
+pub fn delete_row(module_selection: ModuleSelection, table_name: String, primary_key: IndexKey) {
     let call = HostCall::DeleteRow(DeleteRowRequest {
         module_selection,
         table_name,

@@ -90,7 +90,7 @@ impl Runtime {
                     .lock()
                     .unwrap()
                     .get(&table_scan_request.table_name)
-                    .map(|t| t.rows.clone())
+                    .map(|t| t.scan().to_vec())
             })
             .map(|rows| TableScanResponse { rows })
             .unwrap_or(TableScanResponse { rows: vec![] })

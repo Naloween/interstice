@@ -24,6 +24,9 @@ pub enum IntersticeError {
         module: String,
         reducer: String,
     },
+    RowNotFound {
+        primary_key_value: interstice_abi::IndexKey,
+    },
     InvalidRow {
         module: String,
         table: String,
@@ -97,6 +100,13 @@ impl fmt::Display for IntersticeError {
             }
             ModuleNotFound(name, context) => {
                 write!(f, "module '{}' not found. {}", name, context)
+            }
+            RowNotFound { primary_key_value } => {
+                write!(
+                    f,
+                    "row with primary key value {:?} not found",
+                    primary_key_value
+                )
             }
             TableNotFound {
                 module_name: module,

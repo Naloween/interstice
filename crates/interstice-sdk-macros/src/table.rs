@@ -1,6 +1,8 @@
 use proc_macro::TokenStream;
 use quote::{ToTokens, quote};
-use syn::Meta;
+use syn::{Meta, Type};
+
+use crate::index_key::validate_index_key_type;
 
 pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemStruct);
@@ -100,6 +102,10 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
+    if let Err(message) = validate_index_key_type(&pk_type_ident) {
+        return quote! {compile_error!(#message);}.into();
+    }
+
     // Generate the output struct without the primary key attribute
     let mut output_struct = input.clone();
     if let syn::Fields::Named(fields) = &mut output_struct.fields {
@@ -180,7 +186,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 interstice_sdk::host_calls::delete_row(
                     interstice_sdk::ModuleSelection::Current,
                     #table_name.to_string(),
-                    primary_key.into(),
+                    TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(primary_key)).expect("Failed to convert IntersticeValue to IndexKey"),
                 );
             }
 

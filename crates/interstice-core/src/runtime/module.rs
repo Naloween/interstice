@@ -88,15 +88,7 @@ impl Module {
         let tables = schema
             .tables
             .iter()
-            .map(|table_schema| {
-                (
-                    table_schema.name.clone(),
-                    Table {
-                        schema: table_schema.clone(),
-                        rows: Vec::new(),
-                    },
-                )
-            })
+            .map(|table_schema| (table_schema.name.clone(), Table::new(table_schema.clone())))
             .collect();
 
         // Set module name in the store state

@@ -1,3 +1,4 @@
+mod index_key;
 mod init;
 mod interstice_type;
 mod query;

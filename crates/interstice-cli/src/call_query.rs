@@ -36,7 +36,7 @@ pub async fn call_query(
     let response_packet = read_packet(&mut stream).await?;
     match response_packet {
         NetworkPacket::QueryResponse {
-            request_id: response_request_id,
+            request_id: _response_request_id,
             result,
         } => {
             println!("Query response: {:?}", result);

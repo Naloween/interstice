@@ -1,7 +1,9 @@
 mod convert;
+mod index_key;
 mod row;
 mod validate;
 
+pub use index_key::IndexKey;
 pub use validate::validate_value;
 
 use serde::{Deserialize, Serialize};

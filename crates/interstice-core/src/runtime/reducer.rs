@@ -140,7 +140,7 @@ impl Runtime {
                             module_name: module_name.clone(),
                             table_name: table_name.clone(),
                         })?;
-                table.rows.push(new_row.clone());
+                table.insert(new_row.clone());
                 events.push(EventInstance::TableInsertEvent {
                     module_name,
                     table_name,
@@ -172,22 +172,16 @@ impl Runtime {
                             module_name: module_name.clone(),
                             table_name: table_name.clone(),
                         })?;
-                let mut old_row = None;
-                for row in table.rows.iter_mut() {
-                    if row.primary_key == update_row.primary_key {
-                        old_row = Some(row.clone());
-                        *row = update_row.clone();
-                        break;
-                    }
-                }
-                if let Some(old_row) = old_row {
-                    events.push(EventInstance::TableUpdateEvent {
+
+                match table.update(update_row.clone()) {
+                    Ok(old_row) => events.push(EventInstance::TableUpdateEvent {
                         module_name,
                         table_name,
                         old_row,
                         new_row: update_row,
-                    });
-                }
+                    }),
+                    Err(_err) => {} // If the row to update is not found, we won't emit an event
+                };
             }
             Transaction::Delete {
                 module_name,
@@ -213,18 +207,16 @@ impl Runtime {
                             module_name: module_name.clone(),
                             table_name: table_name.clone(),
                         })?;
-                let deleted_row_idx = table
-                    .rows
-                    .iter()
-                    .position(|row| row.primary_key == deleted_row_id);
 
-                if let Some(deleted_row_idx) = deleted_row_idx {
-                    let deleted_row = table.rows.swap_remove(deleted_row_idx);
-                    events.push(EventInstance::TableDeleteEvent {
-                        module_name,
-                        table_name,
-                        deleted_row,
-                    });
+                match table.delete(&deleted_row_id) {
+                    Ok(deleted_row) => {
+                        events.push(EventInstance::TableDeleteEvent {
+                            module_name,
+                            table_name,
+                            deleted_row,
+                        });
+                    }
+                    Err(_err) => {} // If the row to delete is not found, we won't emit an event
                 }
             }
         };

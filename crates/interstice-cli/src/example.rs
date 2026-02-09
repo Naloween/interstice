@@ -1,4 +1,4 @@
-use std::{fs::File, io::Write as _, path::Path};
+use std::{fs::File, io::Write as _};
 
 use interstice_core::{IntersticeError, Node};
 
