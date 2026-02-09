@@ -1,6 +1,6 @@
 [package]
 name = "interstice-sdk-macros"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 description = "Procedural macros to generate typed SDK bindings for Interstice modules"
@@ -17,5 +17,5 @@ proc-macro = true
 syn = { version = "2", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"
-interstice-abi = { path = "../interstice-abi", version = "0.1.0" }
-interstice-sdk-core = { path = "../interstice-sdk-core", version = "0.1.0" }
+interstice-abi = { path = "../interstice-abi", version = "0.2.0" }
+interstice-sdk-core = { path = "../interstice-sdk-core", version = "0.2.0" }
