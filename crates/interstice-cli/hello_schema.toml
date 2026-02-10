@@ -41,7 +41,7 @@ Named = "Greetings"
 name = "greetings"
 type_name = "Greetings"
 visibility = "Public"
-primary_key_auto_inc = false
+primary_key_auto_inc = true
 
 [[tables.fields]]
 name = "greeting"

@@ -29,11 +29,14 @@ pub fn init(ctx: ReducerContext) {
 #[reducer]
 pub fn hello(ctx: ReducerContext, name: String) {
     ctx.log(&format!("Saying hello to {}", name));
-    let _ = ctx.current.tables.greetings().insert(Greetings {
+    match ctx.current.tables.greetings().insert(Greetings {
         id: 0,
         greeting: format!("Hello, {}!", name),
         custom: TestCustomType { val: 0 },
-    });
+    }) {
+        Ok(_) => (),
+        Err(err) => ctx.log(&format!("Failed to insert greeting: {:?}", err)),
+    }
 }
 
 #[reducer(on = "hello.greetings.insert")]
