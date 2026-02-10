@@ -140,7 +140,7 @@ impl Runtime {
                             module_name: module_name.clone(),
                             table_name: table_name.clone(),
                         })?;
-                table.insert(new_row.clone());
+                table.insert(new_row.clone())?;
                 events.push(EventInstance::TableInsertEvent {
                     module_name,
                     table_name,
@@ -173,15 +173,13 @@ impl Runtime {
                             table_name: table_name.clone(),
                         })?;
 
-                match table.update(update_row.clone()) {
-                    Ok(old_row) => events.push(EventInstance::TableUpdateEvent {
-                        module_name,
-                        table_name,
-                        old_row,
-                        new_row: update_row,
-                    }),
-                    Err(_err) => {} // If the row to update is not found, we won't emit an event
-                };
+                let old_row = table.update(update_row.clone())?;
+                events.push(EventInstance::TableUpdateEvent {
+                    module_name,
+                    table_name,
+                    old_row,
+                    new_row: update_row,
+                });
             }
             Transaction::Delete {
                 module_name,

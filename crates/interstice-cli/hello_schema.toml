@@ -56,6 +56,11 @@ Named = "TestCustomType"
 name = "id"
 field_type = "U64"
 
+[[tables.indexes]]
+field_name = "greeting"
+index_type = "BTree"
+unique = true
+
 [[subscriptions]]
 reducer_name = "init"
 event = "Init"
@@ -67,13 +72,6 @@ reducer_name = "on_greeting_insert"
 node_selection = "Current"
 module_name = "hello"
 table_name = "greetings"
-
-[type_definitions.TestCustomType.Struct]
-name = "TestCustomType"
-
-[[type_definitions.TestCustomType.Struct.fields]]
-name = "val"
-field_type = "U32"
 
 [type_definitions.Greetings.Struct]
 name = "Greetings"
@@ -91,3 +89,10 @@ name = "custom"
 
 [type_definitions.Greetings.Struct.fields.field_type]
 Named = "TestCustomType"
+
+[type_definitions.TestCustomType.Struct]
+name = "TestCustomType"
+
+[[type_definitions.TestCustomType.Struct.fields]]
+name = "val"
+field_type = "U32"

@@ -4,7 +4,9 @@ use crate::{
 };
 use interstice_abi::{
     DeleteRowRequest, DeleteRowResponse, InsertRowRequest, InsertRowResponse, ModuleSchema,
-    TableScanRequest, TableScanResponse, UpdateRowRequest, UpdateRowResponse,
+    TableGetByPrimaryKeyRequest, TableGetByPrimaryKeyResponse, TableIndexScanRequest,
+    TableIndexScanResponse, TableScanRequest, TableScanResponse, UpdateRowRequest,
+    UpdateRowResponse,
 };
 
 impl Runtime {
@@ -94,5 +96,56 @@ impl Runtime {
             })
             .map(|rows| TableScanResponse { rows })
             .unwrap_or(TableScanResponse { rows: vec![] })
+    }
+
+    pub(crate) fn handle_table_get_by_primary_key(
+        &self,
+        request: TableGetByPrimaryKeyRequest,
+    ) -> TableGetByPrimaryKeyResponse {
+        let row = {
+            let modules = self.modules.lock().unwrap();
+            let module = match modules.get(&self.call_stack.lock().unwrap().last().unwrap().module)
+            {
+                Some(module) => module,
+                None => return TableGetByPrimaryKeyResponse::Err("Module not found".into()),
+            };
+            let tables = module.tables.lock().unwrap();
+            let table = match tables.get(&request.table_name) {
+                Some(table) => table,
+                None => return TableGetByPrimaryKeyResponse::Err("Table not found".into()),
+            };
+            table.get_by_primary_key(&request.primary_key).cloned()
+        };
+
+        TableGetByPrimaryKeyResponse::Ok(row)
+    }
+
+    pub(crate) fn handle_table_index_scan(
+        &self,
+        request: TableIndexScanRequest,
+    ) -> TableIndexScanResponse {
+        let rows = {
+            let modules = self.modules.lock().unwrap();
+            let module = match modules.get(&self.call_stack.lock().unwrap().last().unwrap().module)
+            {
+                Some(module) => module,
+                None => return TableIndexScanResponse::Err("Module not found".into()),
+            };
+            let tables = module.tables.lock().unwrap();
+            let table = match tables.get(&request.table_name) {
+                Some(table) => table,
+                None => return TableIndexScanResponse::Err("Table not found".into()),
+            };
+
+            match table.get_by_index(&request.field_name, &request.query) {
+                Ok(rows) => Ok(rows.into_iter().cloned().collect::<Vec<_>>()),
+                Err(err) => Err(err.to_string()),
+            }
+        };
+
+        match rows {
+            Ok(rows) => TableIndexScanResponse::Ok { rows },
+            Err(err) => TableIndexScanResponse::Err(err),
+        }
     }
 }

@@ -9,6 +9,7 @@ interstice_module!(visibility: Public);
 pub struct Greetings {
     #[primary_key]
     pub id: u64,
+    #[index(btree, unique)]
     pub greeting: String,
     pub custom: TestCustomType,
 }

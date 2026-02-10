@@ -10,12 +10,26 @@ pub struct TableSchema {
     pub visibility: TableVisibility,
     pub fields: Vec<FieldDef>,
     pub primary_key: FieldDef,
+    pub indexes: Vec<IndexSchema>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub enum TableVisibility {
     Public,
     Private,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub enum IndexType {
+    Hash,
+    BTree,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct IndexSchema {
+    pub field_name: String,
+    pub index_type: IndexType,
+    pub unique: bool,
 }
 
 impl TableSchema {

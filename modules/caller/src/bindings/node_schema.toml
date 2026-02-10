@@ -48,6 +48,11 @@ Named = "TestCustomType"
 name = "id"
 field_type = "U64"
 
+[[modules.tables.indexes]]
+field_name = "greeting"
+index_type = "BTree"
+unique = true
+
 [modules.type_definitions.TestCustomType.Struct]
 name = "TestCustomType"
 

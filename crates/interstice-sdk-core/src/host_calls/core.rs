@@ -1,7 +1,8 @@
 use interstice_abi::{
     CallQueryRequest, CallReducerRequest, DeleteRowRequest, HostCall, IndexKey, InsertRowRequest,
     IntersticeValue, LogRequest, ModuleSelection, NodeSelection, Row, TableScanRequest,
-    UpdateRowRequest,
+    UpdateRowRequest, TableGetByPrimaryKeyRequest, TableGetByPrimaryKeyResponse,
+    TableIndexScanRequest, TableIndexScanResponse, IndexQuery,
 };
 
 pub fn log(message: &str) {
@@ -84,6 +85,46 @@ pub fn scan(module_selection: ModuleSelection, table_name: String) -> Vec<Row> {
     let pack = host_call(call);
     let rows: Vec<Row> = unpack(pack);
     return rows;
+}
+
+pub fn get_by_primary_key(
+    module_selection: ModuleSelection,
+    table_name: String,
+    primary_key: IndexKey,
+) -> Result<Option<Row>, String> {
+    let call = HostCall::TableGetByPrimaryKey(TableGetByPrimaryKeyRequest {
+        module_selection,
+        table_name,
+        primary_key,
+    });
+
+    let pack = host_call(call);
+    let response: TableGetByPrimaryKeyResponse = unpack(pack);
+    match response {
+        TableGetByPrimaryKeyResponse::Ok(row) => Ok(row),
+        TableGetByPrimaryKeyResponse::Err(err) => Err(err),
+    }
+}
+
+pub fn scan_index(
+    module_selection: ModuleSelection,
+    table_name: String,
+    field_name: String,
+    query: IndexQuery,
+) -> Result<Vec<Row>, String> {
+    let call = HostCall::TableIndexScan(TableIndexScanRequest {
+        module_selection,
+        table_name,
+        field_name,
+        query,
+    });
+
+    let pack = host_call(call);
+    let response: TableIndexScanResponse = unpack(pack);
+    match response {
+        TableIndexScanResponse::Ok { rows } => Ok(rows),
+        TableIndexScanResponse::Err(err) => Err(err),
+    }
 }
 
 use interstice_abi::{QueryContext, ReducerContext};

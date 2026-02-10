@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::{ToTokens, quote};
-use syn::{Meta, Type};
+use syn::Meta;
 
 use crate::index_key::validate_index_key_type;
 
@@ -67,6 +67,8 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut primary_key: Option<(&syn::Ident, String, proc_macro2::TokenStream, syn::Type)> = None;
     let mut schema_fields = Vec::new();
     let mut entry_fields = Vec::new();
+    let mut index_schemas = Vec::new();
+    let mut indexed_fields: Vec<(syn::Ident, String, syn::Type, proc_macro2::TokenStream, bool, bool)> = Vec::new();
     for field in fields.iter() {
         let field_name = field.ident.as_ref().unwrap().to_string();
         let field_ty_ident = field.ty.clone();
@@ -78,6 +80,65 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             .attrs
             .iter()
             .any(|attr| attr.path().is_ident("primary_key"));
+
+        let index_attr = field.attrs.iter().find(|attr| attr.path().is_ident("index"));
+        if let Some(attr) = index_attr {
+            if is_pk {
+                return quote! {compile_error!("#[index] cannot be used on #[primary_key] fields");}.into();
+            }
+
+            let args = attr.parse_args_with(
+                syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated,
+            );
+            let args = match args {
+                Ok(args) => args,
+                Err(_) => {
+                    return quote! {compile_error!("Invalid #[index(...)] syntax");}.into();
+                }
+            };
+
+            let mut index_type: Option<proc_macro2::TokenStream> = None;
+            let mut is_btree = false;
+            let mut unique = false;
+
+            for arg in args {
+                match arg {
+                    Meta::Path(path) if path.is_ident("hash") => {
+                        index_type = Some(quote! { interstice_sdk::IndexType::Hash });
+                        is_btree = false;
+                    }
+                    Meta::Path(path) if path.is_ident("btree") => {
+                        index_type = Some(quote! { interstice_sdk::IndexType::BTree });
+                        is_btree = true;
+                    }
+                    Meta::Path(path) if path.is_ident("unique") => {
+                        unique = true;
+                    }
+                    _ => {
+                        return quote! {compile_error!("Invalid #[index] argument. Use hash, btree, and/or unique");}.into();
+                    }
+                }
+            }
+
+            if index_type.is_none() {
+                return quote! {compile_error!("#[index] requires an index type (hash or btree)");}.into();
+            }
+
+            if let Err(message) = validate_index_key_type(&field_ty_ident) {
+                return quote! {compile_error!(#message);}.into();
+            }
+
+            let index_type = index_type.unwrap();
+            index_schemas.push(quote! {
+                interstice_sdk::IndexSchema {
+                    field_name: #field_name.to_string(),
+                    index_type: #index_type,
+                    unique: #unique,
+                }
+            });
+
+            indexed_fields.push((field_ident.clone(), field_name.clone(), field_ty_ident.clone(), index_type, unique, is_btree));
+        }
 
         if is_pk {
             if primary_key.is_some() {
@@ -111,6 +172,121 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     if let syn::Fields::Named(fields) = &mut output_struct.fields {
         for field in fields.named.iter_mut() {
             field.attrs.retain(|a| !a.path().is_ident("primary_key"));
+            field.attrs.retain(|a| !a.path().is_ident("index"));
+        }
+    }
+
+    let mut index_read_methods = Vec::new();
+    for (_index_ident, index_name, index_ty_ident, _index_type, unique, is_btree) in &indexed_fields {
+        let fn_eq = syn::Ident::new(&format!("scan_by_{}_eq", index_name), struct_ident.span());
+        let fn_lt = syn::Ident::new(&format!("scan_by_{}_lt", index_name), struct_ident.span());
+        let fn_lte = syn::Ident::new(&format!("scan_by_{}_lte", index_name), struct_ident.span());
+        let fn_gt = syn::Ident::new(&format!("scan_by_{}_gt", index_name), struct_ident.span());
+        let fn_gte = syn::Ident::new(&format!("scan_by_{}_gte", index_name), struct_ident.span());
+        let fn_range = syn::Ident::new(&format!("scan_by_{}_range", index_name), struct_ident.span());
+        let fn_get = syn::Ident::new(&format!("get_by_{}", index_name), struct_ident.span());
+
+        index_read_methods.push(quote! {
+            pub fn #fn_eq(&self, value: #index_ty_ident) -> Vec<#struct_ident> {
+                interstice_sdk::host_calls::scan_index(
+                    interstice_sdk::ModuleSelection::Current,
+                    #table_name.to_string(),
+                    #index_name.to_string(),
+                    interstice_sdk::IndexQuery::Eq(TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(value)).expect("Failed to convert IntersticeValue to IndexKey")),
+                )
+                .unwrap_or_default()
+                .into_iter()
+                .map(|x| x.into())
+                .collect()
+            }
+        });
+
+        if *unique {
+            index_read_methods.push(quote! {
+                pub fn #fn_get(&self, value: #index_ty_ident) -> Option<#struct_ident> {
+                    self.#fn_eq(value).into_iter().next()
+                }
+            });
+        }
+
+        if *is_btree {
+            index_read_methods.push(quote! {
+                pub fn #fn_lt(&self, value: #index_ty_ident) -> Vec<#struct_ident> {
+                    interstice_sdk::host_calls::scan_index(
+                        interstice_sdk::ModuleSelection::Current,
+                        #table_name.to_string(),
+                        #index_name.to_string(),
+                        interstice_sdk::IndexQuery::Lt(TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(value)).expect("Failed to convert IntersticeValue to IndexKey")),
+                    )
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|x| x.into())
+                    .collect()
+                }
+
+                pub fn #fn_lte(&self, value: #index_ty_ident) -> Vec<#struct_ident> {
+                    interstice_sdk::host_calls::scan_index(
+                        interstice_sdk::ModuleSelection::Current,
+                        #table_name.to_string(),
+                        #index_name.to_string(),
+                        interstice_sdk::IndexQuery::Lte(TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(value)).expect("Failed to convert IntersticeValue to IndexKey")),
+                    )
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|x| x.into())
+                    .collect()
+                }
+
+                pub fn #fn_gt(&self, value: #index_ty_ident) -> Vec<#struct_ident> {
+                    interstice_sdk::host_calls::scan_index(
+                        interstice_sdk::ModuleSelection::Current,
+                        #table_name.to_string(),
+                        #index_name.to_string(),
+                        interstice_sdk::IndexQuery::Gt(TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(value)).expect("Failed to convert IntersticeValue to IndexKey")),
+                    )
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|x| x.into())
+                    .collect()
+                }
+
+                pub fn #fn_gte(&self, value: #index_ty_ident) -> Vec<#struct_ident> {
+                    interstice_sdk::host_calls::scan_index(
+                        interstice_sdk::ModuleSelection::Current,
+                        #table_name.to_string(),
+                        #index_name.to_string(),
+                        interstice_sdk::IndexQuery::Gte(TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(value)).expect("Failed to convert IntersticeValue to IndexKey")),
+                    )
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|x| x.into())
+                    .collect()
+                }
+
+                pub fn #fn_range(
+                    &self,
+                    min: #index_ty_ident,
+                    max: #index_ty_ident,
+                    include_min: bool,
+                    include_max: bool,
+                ) -> Vec<#struct_ident> {
+                    interstice_sdk::host_calls::scan_index(
+                        interstice_sdk::ModuleSelection::Current,
+                        #table_name.to_string(),
+                        #index_name.to_string(),
+                        interstice_sdk::IndexQuery::Range {
+                            min: TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(min)).expect("Failed to convert IntersticeValue to IndexKey"),
+                            max: TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(max)).expect("Failed to convert IntersticeValue to IndexKey"),
+                            include_min,
+                            include_max,
+                        },
+                    )
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|x| x.into())
+                    .collect()
+                }
+            });
         }
     }
 
@@ -118,6 +294,19 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         pub fn scan(&self) -> Vec<#struct_ident>{
             interstice_sdk::host_calls::scan(interstice_sdk::ModuleSelection::Current, #table_name.to_string()).into_iter().map(|x| x.into()).collect()
         }
+
+        pub fn get(&self, primary_key: #pk_type_ident) -> Option<#struct_ident> {
+            interstice_sdk::host_calls::get_by_primary_key(
+                interstice_sdk::ModuleSelection::Current,
+                #table_name.to_string(),
+                TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(primary_key)).expect("Failed to convert IntersticeValue to IndexKey"),
+            )
+            .ok()
+            .and_then(|row| row)
+            .map(|row| row.into())
+        }
+
+        #(#index_read_methods)*
     };
 
     quote! {
@@ -155,6 +344,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                     name: #pk_name.to_string(),
                     field_type: #pk_type.into(),
                 },
+                indexes: vec![#(#index_schemas),*],
             }
         }
         #[interstice_sdk::init]

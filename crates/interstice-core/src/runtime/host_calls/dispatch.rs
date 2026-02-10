@@ -57,6 +57,16 @@ impl Runtime {
                 let result = self.send_data_to_module(response, memory, caller).await;
                 Ok(Some(result))
             }
+            HostCall::TableGetByPrimaryKey(request) => {
+                let response = self.handle_table_get_by_primary_key(request);
+                let result = self.send_data_to_module(response, memory, caller).await;
+                Ok(Some(result))
+            }
+            HostCall::TableIndexScan(request) => {
+                let response = self.handle_table_index_scan(request);
+                let result = self.send_data_to_module(response, memory, caller).await;
+                Ok(Some(result))
+            }
             HostCall::Gpu(gpu_call) => {
                 {
                     let auth_modules = self.authority_modules.lock().unwrap();

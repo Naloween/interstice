@@ -15,6 +15,61 @@ pub enum IndexKey {
     Tuple(Vec<IndexKey>),
 }
 
+impl PartialOrd for IndexKey {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for IndexKey {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use IndexKey::*;
+        let rank = |key: &IndexKey| match key {
+            U8(_) => 0,
+            U32(_) => 1,
+            U64(_) => 2,
+            I32(_) => 3,
+            I64(_) => 4,
+            Bool(_) => 5,
+            String(_) => 6,
+            Option(_) => 7,
+            Tuple(_) => 8,
+        };
+
+        let self_rank = rank(self);
+        let other_rank = rank(other);
+        if self_rank != other_rank {
+            return self_rank.cmp(&other_rank);
+        }
+
+        match (self, other) {
+            (U8(a), U8(b)) => a.cmp(b),
+            (U32(a), U32(b)) => a.cmp(b),
+            (U64(a), U64(b)) => a.cmp(b),
+            (I32(a), I32(b)) => a.cmp(b),
+            (I64(a), I64(b)) => a.cmp(b),
+            (Bool(a), Bool(b)) => a.cmp(b),
+            (String(a), String(b)) => a.cmp(b),
+            (Option(a), Option(b)) => match (a, b) {
+                (None, None) => std::cmp::Ordering::Equal,
+                (None, Some(_)) => std::cmp::Ordering::Less,
+                (Some(_), None) => std::cmp::Ordering::Greater,
+                (Some(a), Some(b)) => a.cmp(b),
+            },
+            (Tuple(a), Tuple(b)) => {
+                for (left, right) in a.iter().zip(b.iter()) {
+                    let ord = left.cmp(right);
+                    if ord != std::cmp::Ordering::Equal {
+                        return ord;
+                    }
+                }
+                a.len().cmp(&b.len())
+            }
+            _ => std::cmp::Ordering::Equal,
+        }
+    }
+}
+
 impl TryFrom<&IntersticeValue> for IndexKey {
     type Error = String;
 

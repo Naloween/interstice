@@ -27,6 +27,18 @@ pub enum IntersticeError {
     RowNotFound {
         primary_key_value: interstice_abi::IndexKey,
     },
+    UniqueConstraintViolation {
+        table_name: String,
+        field_name: String,
+    },
+    IndexNotFound {
+        table_name: String,
+        field_name: String,
+    },
+    IndexQueryUnsupported {
+        table_name: String,
+        field_name: String,
+    },
     InvalidRow {
         module: String,
         table: String,
@@ -106,6 +118,36 @@ impl fmt::Display for IntersticeError {
                     f,
                     "row with primary key value {:?} not found",
                     primary_key_value
+                )
+            }
+            UniqueConstraintViolation {
+                table_name,
+                field_name,
+            } => {
+                write!(
+                    f,
+                    "unique constraint violation on table '{}' field '{}'",
+                    table_name, field_name
+                )
+            }
+            IndexNotFound {
+                table_name,
+                field_name,
+            } => {
+                write!(
+                    f,
+                    "index not found on table '{}' field '{}'",
+                    table_name, field_name
+                )
+            }
+            IndexQueryUnsupported {
+                table_name,
+                field_name,
+            } => {
+                write!(
+                    f,
+                    "index query not supported for table '{}' field '{}'",
+                    table_name, field_name
                 )
             }
             TableNotFound {

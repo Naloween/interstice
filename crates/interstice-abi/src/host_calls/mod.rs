@@ -21,6 +21,8 @@ pub enum HostCall {
     UpdateRow(UpdateRowRequest),
     DeleteRow(DeleteRowRequest),
     TableScan(TableScanRequest),
+    TableGetByPrimaryKey(TableGetByPrimaryKeyRequest),
+    TableIndexScan(TableIndexScanRequest),
     Gpu(GpuCall),
     Audio,
     Input,
@@ -111,6 +113,48 @@ pub struct TableScanRequest {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct TableScanResponse {
     pub rows: Vec<Row>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct TableGetByPrimaryKeyRequest {
+    pub module_selection: ModuleSelection,
+    pub table_name: String,
+    pub primary_key: IndexKey,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum TableGetByPrimaryKeyResponse {
+    Ok(Option<Row>),
+    Err(String),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum IndexQuery {
+    Eq(IndexKey),
+    Lt(IndexKey),
+    Lte(IndexKey),
+    Gt(IndexKey),
+    Gte(IndexKey),
+    Range {
+        min: IndexKey,
+        max: IndexKey,
+        include_min: bool,
+        include_max: bool,
+    },
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct TableIndexScanRequest {
+    pub module_selection: ModuleSelection,
+    pub table_name: String,
+    pub field_name: String,
+    pub query: IndexQuery,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum TableIndexScanResponse {
+    Ok { rows: Vec<Row> },
+    Err(String),
 }
 
 pub fn get_reducer_wrapper_name(reducer_name: &str) -> String {
