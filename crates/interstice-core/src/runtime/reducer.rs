@@ -1,9 +1,11 @@
 use crate::{
-    error::IntersticeError, runtime::Runtime, runtime::event::EventInstance,
+    error::IntersticeError,
     runtime::transaction::Transaction,
+    runtime::{Runtime, table::TableAutoIncSnapshot},
 };
 use interstice_abi::ReducerContext;
 use serde::Serialize;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CallFrameKind {
@@ -16,6 +18,7 @@ pub struct CallFrame {
     pub module: String,
     pub kind: CallFrameKind,
     pub transactions: Vec<Transaction>,
+    pub auto_inc_snapshots: HashMap<String, TableAutoIncSnapshot>,
 }
 
 impl CallFrame {
@@ -24,6 +27,7 @@ impl CallFrame {
             module,
             kind,
             transactions: Vec::new(),
+            auto_inc_snapshots: HashMap::new(),
         }
     }
 }
@@ -95,7 +99,7 @@ impl Runtime {
         // Apply transactions
         let mut emitted_events = Vec::new();
         for transaction in reducer_frame.transactions {
-            emitted_events.append(&mut self.apply_transaction(transaction)?);
+            emitted_events.append(&mut self.apply_transaction(transaction, true)?);
         }
 
         // Send events
@@ -104,120 +108,5 @@ impl Runtime {
         }
 
         Ok(())
-    }
-
-    pub(crate) fn apply_transaction(
-        &self,
-        transaction: Transaction,
-    ) -> Result<Vec<EventInstance>, IntersticeError> {
-        // Add transaction to the logs
-        self.transaction_logs.lock().unwrap().append(&transaction)?;
-
-        // Apply transactions locally and collect events
-        let mut events = Vec::new();
-        match transaction {
-            Transaction::Insert {
-                module_name,
-                table_name,
-                new_row,
-            } => {
-                let mut modules = self.modules.lock().unwrap();
-                let module = modules.get_mut(&module_name).ok_or_else(|| {
-                    IntersticeError::ModuleNotFound(
-                        module_name.clone(),
-                        format!(
-                            "When trying to insert into table '{}' from '{}'",
-                            table_name.clone(),
-                            module_name.clone()
-                        ),
-                    )
-                })?;
-                let mut tables = module.tables.lock().unwrap();
-                let table =
-                    tables
-                        .get_mut(&table_name)
-                        .ok_or_else(|| IntersticeError::TableNotFound {
-                            module_name: module_name.clone(),
-                            table_name: table_name.clone(),
-                        })?;
-                table.insert(new_row.clone())?;
-                events.push(EventInstance::TableInsertEvent {
-                    module_name,
-                    table_name,
-                    inserted_row: new_row,
-                });
-            }
-
-            Transaction::Update {
-                module_name,
-                table_name,
-                update_row,
-            } => {
-                let mut modules = self.modules.lock().unwrap();
-                let module = modules.get_mut(&module_name).ok_or_else(|| {
-                    IntersticeError::ModuleNotFound(
-                        module_name.clone(),
-                        format!(
-                            "When trying to update table '{}' from '{}'",
-                            table_name.clone(),
-                            module_name.clone()
-                        ),
-                    )
-                })?;
-                let mut tables = module.tables.lock().unwrap();
-                let table =
-                    tables
-                        .get_mut(&table_name)
-                        .ok_or_else(|| IntersticeError::TableNotFound {
-                            module_name: module_name.clone(),
-                            table_name: table_name.clone(),
-                        })?;
-
-                let old_row = table.update(update_row.clone())?;
-                events.push(EventInstance::TableUpdateEvent {
-                    module_name,
-                    table_name,
-                    old_row,
-                    new_row: update_row,
-                });
-            }
-            Transaction::Delete {
-                module_name,
-                table_name,
-                deleted_row_id,
-            } => {
-                let mut modules = self.modules.lock().unwrap();
-                let module = modules.get_mut(&module_name).ok_or_else(|| {
-                    IntersticeError::ModuleNotFound(
-                        module_name.clone(),
-                        format!(
-                            "When trying to delete a row of table '{}' from '{}'",
-                            table_name.clone(),
-                            module_name.clone()
-                        ),
-                    )
-                })?;
-                let mut tables = module.tables.lock().unwrap();
-                let table =
-                    tables
-                        .get_mut(&table_name)
-                        .ok_or_else(|| IntersticeError::TableNotFound {
-                            module_name: module_name.clone(),
-                            table_name: table_name.clone(),
-                        })?;
-
-                match table.delete(&deleted_row_id) {
-                    Ok(deleted_row) => {
-                        events.push(EventInstance::TableDeleteEvent {
-                            module_name,
-                            table_name,
-                            deleted_row,
-                        });
-                    }
-                    Err(_err) => {} // If the row to delete is not found, we won't emit an event
-                }
-            }
-        };
-        return Ok(events);
     }
 }

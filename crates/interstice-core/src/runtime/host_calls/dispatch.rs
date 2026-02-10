@@ -41,8 +41,7 @@ impl Runtime {
                 Ok(Some(result))
             }
             HostCall::UpdateRow(update_row_request) => {
-                let response =
-                    self.handle_update_row(caller_module_schema.name.clone(), update_row_request);
+                let response = self.handle_update_row(&caller_module_schema, update_row_request);
                 let result = self.send_data_to_module(response, memory, caller).await;
                 Ok(Some(result))
             }

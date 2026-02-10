@@ -30,9 +30,15 @@ impl Runtime {
                 None => return InsertRowResponse::Err("Table not found".into()),
             };
 
-            match table.prepare_insert(row) {
-                Ok(prepared) => row = prepared,
-                Err(err) => return InsertRowResponse::Err(err.to_string()),
+            let mut reducer_frame = self.call_stack.lock().unwrap();
+            let reducer_frame = reducer_frame.last_mut().unwrap();
+            let snapshot = reducer_frame
+                .auto_inc_snapshots
+                .entry(insert_row_request.table_name.clone())
+                .or_insert_with(|| table.auto_inc_snapshot());
+
+            if let Err(err) = table.apply_auto_inc_from_snapshot(&mut row, snapshot) {
+                return InsertRowResponse::Err(err.to_string());
             }
 
             if let Err(err) = table.validate_insert(&row) {
@@ -69,16 +75,50 @@ impl Runtime {
 
     pub(crate) fn handle_update_row(
         &self,
-        caller_module_name: String,
+        caller_module_schema: &ModuleSchema,
         update_row_request: UpdateRowRequest,
     ) -> UpdateRowResponse {
+        if let Some(table) = caller_module_schema
+            .tables
+            .iter()
+            .find(|t| t.name == update_row_request.table_name)
+        {
+            if !table.validate_row(
+                &update_row_request.row,
+                &caller_module_schema.type_definitions,
+            ) {
+                return UpdateRowResponse::Err(format!(
+                    "Invalid row for table {} in module {}",
+                    table.name.clone(),
+                    caller_module_schema.name.clone()
+                ));
+            }
+        }
+
+        {
+            let modules = self.modules.lock().unwrap();
+            let module = match modules.get(&self.call_stack.lock().unwrap().last().unwrap().module)
+            {
+                Some(module) => module,
+                None => return UpdateRowResponse::Err("Module not found".into()),
+            };
+            let tables = module.tables.lock().unwrap();
+            let table = match tables.get(&update_row_request.table_name) {
+                Some(table) => table,
+                None => return UpdateRowResponse::Err("Table not found".into()),
+            };
+            if let Err(err) = table.validate_update(&update_row_request.row) {
+                return UpdateRowResponse::Err(err.to_string());
+            }
+        }
+
         let mut reducer_frame = self.call_stack.lock().unwrap();
         let reducer_frame = reducer_frame.last_mut().unwrap();
         if reducer_frame.kind == CallFrameKind::Query {
             return UpdateRowResponse::Err("Update not allowed in query context".into());
         }
         reducer_frame.transactions.push(Transaction::Update {
-            module_name: caller_module_name,
+            module_name: caller_module_schema.name.clone(),
             table_name: update_row_request.table_name,
             update_row: update_row_request.row,
         });
@@ -89,6 +129,23 @@ impl Runtime {
         caller_module_name: String,
         delete_row_request: DeleteRowRequest,
     ) -> DeleteRowResponse {
+        {
+            let modules = self.modules.lock().unwrap();
+            let module = match modules.get(&self.call_stack.lock().unwrap().last().unwrap().module)
+            {
+                Some(module) => module,
+                None => return DeleteRowResponse::Err("Module not found".into()),
+            };
+            let tables = module.tables.lock().unwrap();
+            let table = match tables.get(&delete_row_request.table_name) {
+                Some(table) => table,
+                None => return DeleteRowResponse::Err("Table not found".into()),
+            };
+            if let Err(err) = table.validate_delete(&delete_row_request.primary_key) {
+                return DeleteRowResponse::Err(err.to_string());
+            }
+        }
+
         let mut reducer_frame = self.call_stack.lock().unwrap();
         let reducer_frame = reducer_frame.last_mut().unwrap();
         if reducer_frame.kind == CallFrameKind::Query {

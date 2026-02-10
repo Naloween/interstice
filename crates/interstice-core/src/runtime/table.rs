@@ -15,6 +15,12 @@ pub struct Table {
     primary_key_auto_inc_state: Option<AutoIncState>,
 }
 
+#[derive(Debug)]
+pub(crate) struct TableAutoIncSnapshot {
+    primary: Option<AutoIncState>,
+    indexes: Vec<Option<AutoIncState>>,
+}
+
 struct TableIndex {
     field_name: String,
     field_index: usize,
@@ -24,6 +30,7 @@ struct TableIndex {
     index: IndexImpl,
 }
 
+#[derive(Clone, Debug)]
 enum AutoIncState {
     U8(u8),
     U32(u32),
@@ -182,9 +189,30 @@ impl Table {
         }
     }
 
-    pub fn prepare_insert(&mut self, mut row: Row) -> Result<Row, IntersticeError> {
+    pub(crate) fn auto_inc_snapshot(&self) -> TableAutoIncSnapshot {
+        TableAutoIncSnapshot {
+            primary: self.primary_key_auto_inc_state.clone(),
+            indexes: self
+                .indexes
+                .iter()
+                .map(|index| {
+                    if index.auto_inc {
+                        index.auto_inc_state.clone()
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        }
+    }
+
+    pub(crate) fn apply_auto_inc_from_snapshot(
+        &self,
+        row: &mut Row,
+        snapshot: &mut TableAutoIncSnapshot,
+    ) -> Result<(), IntersticeError> {
         if self.primary_key_auto_inc {
-            let state = self.primary_key_auto_inc_state.as_mut().ok_or_else(|| {
+            let state = snapshot.primary.as_mut().ok_or_else(|| {
                 IntersticeError::Internal(format!(
                     "auto_inc is not supported for primary key in table '{}'",
                     self.schema.name
@@ -192,10 +220,32 @@ impl Table {
             })?;
             row.primary_key = state.next_value()?;
         }
-        for table_index in &mut self.indexes {
-            table_index.apply_auto_inc(&mut row, &self.schema.name)?;
+
+        for (index, table_index) in self.indexes.iter().enumerate() {
+            if !table_index.auto_inc {
+                continue;
+            }
+            let state = snapshot
+                .indexes
+                .get_mut(index)
+                .and_then(|s| s.as_mut())
+                .ok_or_else(|| {
+                    IntersticeError::Internal(format!(
+                        "auto_inc is not supported for field '{}' in table '{}'",
+                        table_index.field_name, self.schema.name
+                    ))
+                })?;
+            let value = state.next_value()?;
+            if let Some(entry) = row.entries.get_mut(table_index.field_index) {
+                *entry = value;
+            } else {
+                return Err(IntersticeError::Internal(
+                    "Index field out of bounds".to_string(),
+                ));
+            }
         }
-        Ok(row)
+
+        Ok(())
     }
 
     pub fn validate_insert(&self, row: &Row) -> Result<(), IntersticeError> {
@@ -225,6 +275,59 @@ impl Table {
         }
 
         Ok(())
+    }
+
+    pub fn validate_update(&self, row: &Row) -> Result<(), IntersticeError> {
+        let primary_key_value: IndexKey = row
+            .primary_key
+            .clone()
+            .try_into()
+            .map_err(|err| IntersticeError::Internal(err))?;
+
+        let current_index = *self
+            .primary_key_index
+            .get(&primary_key_value)
+            .ok_or(IntersticeError::RowNotFound { primary_key_value })?;
+
+        let existing_row = self
+            .rows
+            .get(current_index)
+            .ok_or_else(|| IntersticeError::Internal("Row index out of bounds".into()))?;
+
+        for table_index in &self.indexes {
+            let old_key = table_index.key_from_row(existing_row)?;
+            let new_key = table_index.key_from_row(row)?;
+
+            if table_index.auto_inc && old_key != new_key {
+                return Err(IntersticeError::AutoIncUpdateNotAllowed {
+                    table_name: self.schema.name.clone(),
+                    field_name: table_index.field_name.clone(),
+                });
+            }
+
+            if table_index.unique && old_key != new_key {
+                if let Some(positions) = table_index.positions(&new_key) {
+                    if positions.iter().any(|pos| *pos != current_index) {
+                        return Err(IntersticeError::UniqueConstraintViolation {
+                            table_name: self.schema.name.clone(),
+                            field_name: table_index.field_name.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn validate_delete(&self, primary_key_value: &IndexKey) -> Result<(), IntersticeError> {
+        if self.primary_key_index.contains_key(primary_key_value) {
+            Ok(())
+        } else {
+            Err(IntersticeError::RowNotFound {
+                primary_key_value: primary_key_value.clone(),
+            })
+        }
     }
 
     pub fn insert(&mut self, row: Row) -> Result<(), IntersticeError> {
@@ -385,27 +488,6 @@ impl TableIndex {
             .and_then(|value| value.clone().try_into().map_err(IntersticeError::Internal))
     }
 
-    fn apply_auto_inc(&mut self, row: &mut Row, table_name: &str) -> Result<(), IntersticeError> {
-        if !self.auto_inc {
-            return Ok(());
-        }
-        let state = self.auto_inc_state.as_mut().ok_or_else(|| {
-            IntersticeError::Internal(format!(
-                "auto_inc is not supported for field '{}' in table '{}'",
-                self.field_name, table_name
-            ))
-        })?;
-        let value = state.next_value()?;
-        if let Some(entry) = row.entries.get_mut(self.field_index) {
-            *entry = value;
-            Ok(())
-        } else {
-            Err(IntersticeError::Internal(
-                "Index field out of bounds".to_string(),
-            ))
-        }
-    }
-
     fn sync_auto_inc_from_row(
         &mut self,
         row: &Row,
@@ -431,6 +513,13 @@ impl TableIndex {
         match &self.index {
             IndexImpl::Hash(map) => map.contains_key(key),
             IndexImpl::BTree(map) => map.contains_key(key),
+        }
+    }
+
+    fn positions(&self, key: &IndexKey) -> Option<&Vec<usize>> {
+        match &self.index {
+            IndexImpl::Hash(map) => map.get(key),
+            IndexImpl::BTree(map) => map.get(key),
         }
     }
 

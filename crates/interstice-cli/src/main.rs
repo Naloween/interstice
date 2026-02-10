@@ -1,16 +1,16 @@
 // Interstice CLI - Command-line interface
 
 use interstice_cli::{
+    bindings::{add_module_binding, add_node_binding},
     call_query::call_query,
     call_reducer::call_reducer,
+    data_directory::nodes_dir,
     example::example,
     init::init,
     module::{publish, remove},
-    start::start,
-    bindings::{add_module_binding, add_node_binding},
-    data_directory::nodes_dir,
     node_client::handshake_with_node,
     node_registry::{NodeRecord, NodeRegistry},
+    start::start,
 };
 use interstice_core::{IntersticeError, Node, interstice_abi::IntersticeValue};
 use std::path::Path;
@@ -199,10 +199,7 @@ async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError> {
                     .last_seen
                     .map(|t| t.to_string())
                     .unwrap_or_else(|| "-".into());
-                println!(
-                    "{} | {} | {} | {}",
-                    node.name, node.address, id, last_seen
-                );
+                println!("{} | {} | {} | {}", node.name, node.address, id, last_seen);
             }
         }
         "remove" => {
@@ -210,7 +207,20 @@ async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError> {
                 print_help();
                 return Ok(());
             }
-            registry.remove(&args[3])?;
+            let removed = registry.remove(&args[3])?;
+            if removed.local {
+                if let Some(node_id) = removed.node_id {
+                    let node_path = nodes_dir().join(node_id);
+                    if node_path.exists() {
+                        std::fs::remove_dir_all(&node_path).map_err(|err| {
+                            IntersticeError::Internal(format!(
+                                "Failed to remove node data {}: {err}",
+                                node_path.display()
+                            ))
+                        })?;
+                    }
+                }
+            }
             println!("Node removed.");
         }
         "rename" => {
@@ -231,12 +241,17 @@ async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError> {
                 .ok_or_else(|| IntersticeError::Internal("Node not found".into()))?;
             println!("name: {}", node.name);
             println!("address: {}", node.address);
-            println!("node_id: {}", node.node_id.clone().unwrap_or_else(|| "-".into()));
+            println!(
+                "node_id: {}",
+                node.node_id.clone().unwrap_or_else(|| "-".into())
+            );
             println!("local: {}", node.local);
             println!("elusive: {}", node.elusive);
             println!(
                 "last_seen: {}",
-                node.last_seen.map(|t| t.to_string()).unwrap_or_else(|| "-".into())
+                node.last_seen
+                    .map(|t| t.to_string())
+                    .unwrap_or_else(|| "-".into())
             );
         }
         "start" => {
@@ -288,7 +303,10 @@ async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError> {
                 return Ok(());
             }
             let node_ref = &args[3];
-            let out_path = args.get(4).map(Path::new).unwrap_or_else(|| Path::new("node_schema.toml"));
+            let out_path = args
+                .get(4)
+                .map(Path::new)
+                .unwrap_or_else(|| Path::new("node_schema.toml"));
             let address = registry
                 .resolve_address(node_ref)
                 .ok_or_else(|| IntersticeError::Internal("Unknown node".into()))?;
@@ -296,7 +314,8 @@ async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError> {
                 .get(node_ref)
                 .map(|n| n.name.clone())
                 .unwrap_or_else(|| node_ref.clone());
-            let (schema, handshake) = interstice_cli::node_client::fetch_node_schema(&address, &node_name).await?;
+            let (schema, handshake) =
+                interstice_cli::node_client::fetch_node_schema(&address, &node_name).await?;
             registry.set_last_seen(node_ref);
             registry.set_node_id(node_ref, handshake.node_id);
             registry.save()?;
@@ -347,4 +366,3 @@ async fn handle_bindings_command(args: &[String]) -> Result<(), IntersticeError>
     }
     Ok(())
 }
-

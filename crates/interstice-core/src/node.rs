@@ -146,12 +146,17 @@ impl Node {
             let module_path = module_path.unwrap().path();
             if module_path.extension().and_then(|s| s.to_str()) == Some("wasm") {
                 let module = Module::from_file(runtime.clone(), &module_path).await?;
-                Runtime::load_module(runtime.clone(), module).await?;
+                Runtime::load_module(runtime.clone(), module, false).await?;
             }
         }
 
-        // Replay transaction logs to restore state
-        runtime.replay()?; // Doesn't work when module loaded afetr app initialization, need to load modules before replaying logs
+        // Replay transaction logs to restore state once all modules are available
+        if runtime.pending_app_modules.lock().unwrap().is_empty() {
+            runtime.replay()?;
+            runtime.ready.notify_waiters();
+        } else {
+            *runtime.replay_after_app_init.lock().unwrap() = true;
+        }
 
         let node = Self {
             id,
@@ -286,7 +291,7 @@ impl Node {
         path: P,
     ) -> Result<ModuleSchema, IntersticeError> {
         let module = Module::from_file(self.runtime.clone(), path.as_ref()).await?;
-        Runtime::load_module(self.runtime.clone(), module).await
+        Runtime::load_module(self.runtime.clone(), module, true).await
     }
 
     pub async fn load_module_from_bytes(
@@ -294,7 +299,7 @@ impl Node {
         bytes: &[u8],
     ) -> Result<ModuleSchema, IntersticeError> {
         let module = Module::from_bytes(self.runtime.clone(), bytes).await?;
-        Runtime::load_module(self.runtime.clone(), module).await
+        Runtime::load_module(self.runtime.clone(), module, true).await
     }
 
     pub fn get_port(&self) -> u32 {

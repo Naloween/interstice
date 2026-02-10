@@ -130,6 +130,7 @@ impl Runtime {
     pub async fn load_module(
         runtime: Arc<Self>,
         module: Module,
+        fire_init: bool,
     ) -> Result<ModuleSchema, IntersticeError> {
         let module_schema = module.schema.clone();
 
@@ -141,18 +142,15 @@ impl Runtime {
             .is_some()
             && !*runtime.app_initialized.lock().unwrap()
         {
-            runtime.pending_app_modules.lock().unwrap().push(module);
+            runtime
+                .pending_app_modules
+                .lock()
+                .unwrap()
+                .push((module, fire_init));
             runtime.logger.log(
                 &format!(
                     "Module '{}' is queued for loading after app initialization",
-                    runtime
-                        .pending_app_modules
-                        .lock()
-                        .unwrap()
-                        .last()
-                        .unwrap()
-                        .schema
-                        .name
+                    module_schema.name
                 ),
                 LogSource::Runtime,
                 LogLevel::Info,
@@ -160,11 +158,15 @@ impl Runtime {
             runtime.run_app_notify.notify_one();
             return Ok(module_schema.as_ref().clone());
         }
-        Runtime::publish_module(runtime, module).await?;
+        Runtime::publish_module(runtime, module, fire_init).await?;
         return Ok(module_schema.as_ref().clone());
     }
 
-    pub async fn publish_module(runtime: Arc<Self>, module: Module) -> Result<(), IntersticeError> {
+    pub async fn publish_module(
+        runtime: Arc<Self>,
+        module: Module,
+        fire_init: bool,
+    ) -> Result<(), IntersticeError> {
         let module_schema = module.schema.clone();
         for authority in &module_schema.authorities {
             if let Some(other_entry) = runtime.authority_modules.lock().unwrap().get(authority) {
@@ -305,12 +307,14 @@ impl Runtime {
         setup_file_watches(runtime.clone(), &module_schema)?;
 
         // Throw init event
-        runtime
-            .event_sender
-            .send(EventInstance::Init {
-                module_name: module_schema.name.clone(),
-            })
-            .unwrap();
+        if fire_init {
+            runtime
+                .event_sender
+                .send(EventInstance::Init {
+                    module_name: module_schema.name.clone(),
+                })
+                .unwrap();
+        }
         runtime.logger.log(
             &format!("Loaded module '{}'", module_schema.name),
             LogSource::Runtime,

@@ -26,6 +26,7 @@ impl Runtime {
                             Module::from_bytes(runtime.clone(), &wasm_binary)
                                 .await
                                 .unwrap(),
+                            true,
                         )
                         .await;
                     });

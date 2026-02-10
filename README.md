@@ -329,6 +329,7 @@ This document lists the core features required to make Interstice stable, ergono
 
 ## Robustness, error handling and fixes
 
+- Fix replay not working on module that requires app (module loaded after app runs but replay happens before)
 - Propagate host call errors to module instead of internal error
 - macros more checks and better error handlings (subscription check args and types)
 - Change the macro building to use quote instead of raw strings

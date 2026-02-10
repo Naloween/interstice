@@ -50,7 +50,7 @@ pub struct Runtime {
     pub(crate) network_handle: NetworkHandle,
     pub(crate) transaction_logs: Arc<Mutex<TransactionLog>>,
     pub(crate) app_initialized: Arc<Mutex<bool>>,
-    pub(crate) pending_app_modules: Arc<Mutex<Vec<Module>>>,
+    pub(crate) pending_app_modules: Arc<Mutex<Vec<(Module, bool)>>>,
     pub(crate) pending_query_responses:
         Arc<Mutex<HashMap<String, oneshot::Sender<IntersticeValue>>>>,
     pub(crate) reducer_sender: UnboundedSender<ReducerJob>,
@@ -62,6 +62,8 @@ pub struct Runtime {
     node_subscriptions: Arc<Mutex<HashMap<NodeId, Vec<SubscriptionEventSchema>>>>,
     pub(crate) logger: Logger,
     pub(crate) file_watchers: Arc<Mutex<Vec<RecommendedWatcher>>>,
+    pub(crate) replay_after_app_init: Arc<Mutex<bool>>,
+    pub(crate) ready: Arc<Notify>,
 }
 
 #[derive(Debug, Clone)]
@@ -142,7 +144,13 @@ impl Runtime {
             node_subscriptions: Arc::new(Mutex::new(HashMap::new())),
             logger,
             file_watchers: Arc::new(Mutex::new(Vec::new())),
+            replay_after_app_init: Arc::new(Mutex::new(false)),
+            ready: Arc::new(Notify::new()),
         })
+    }
+
+    pub(crate) async fn wait_until_ready(&self) {
+        self.ready.notified().await;
     }
 
     pub fn take_gpu_call_receiver(&self) -> mpsc::Receiver<GpuCallRequest> {
@@ -172,6 +180,7 @@ impl Runtime {
         });
 
         while let Some(event) = event_receiver.recv().await {
+            runtime.wait_until_ready().await;
             match event {
                 EventInstance::AppInitialized => {
                     let modules = runtime
@@ -180,9 +189,11 @@ impl Runtime {
                         .unwrap()
                         .drain(..)
                         .collect::<Vec<_>>();
-                    for module in modules {
+                    for (module, fire_init) in modules {
                         let module_name = module.schema.name.clone();
-                        if let Err(err) = Runtime::publish_module(runtime.clone(), module).await {
+                        if let Err(err) =
+                            Runtime::publish_module(runtime.clone(), module, fire_init).await
+                        {
                             runtime.logger.log(
                                 &format!("Failed to load module '{}': {}", module_name, err),
                                 LogSource::Runtime,
@@ -191,6 +202,17 @@ impl Runtime {
                         }
                     }
                     *runtime.app_initialized.lock().unwrap() = true;
+                    if *runtime.replay_after_app_init.lock().unwrap() {
+                        if let Err(err) = runtime.replay() {
+                            runtime.logger.log(
+                                &format!("Replay failed after app init: {}", err),
+                                LogSource::Runtime,
+                                LogLevel::Error,
+                            );
+                        }
+                        *runtime.replay_after_app_init.lock().unwrap() = false;
+                        runtime.ready.notify_waiters();
+                    }
                 }
                 EventInstance::RemoteReducerCall {
                     module_name,
@@ -275,6 +297,7 @@ impl Runtime {
                             Module::from_bytes(runtime.clone(), &wasm_binary)
                                 .await
                                 .unwrap(),
+                            true,
                         )
                         .await
                         .unwrap();
@@ -343,7 +366,7 @@ impl Runtime {
         let transactions = self.transaction_logs.lock().unwrap().read_all()?;
 
         for transaction in transactions {
-            let _events = self.apply_transaction(transaction)?;
+            let _events = self.apply_transaction(transaction, false)?;
         }
 
         Ok(())
