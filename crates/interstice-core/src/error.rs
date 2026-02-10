@@ -39,6 +39,10 @@ pub enum IntersticeError {
         table_name: String,
         field_name: String,
     },
+    AutoIncUpdateNotAllowed {
+        table_name: String,
+        field_name: String,
+    },
     InvalidRow {
         module: String,
         table: String,
@@ -148,6 +152,16 @@ impl fmt::Display for IntersticeError {
                     f,
                     "index query not supported for table '{}' field '{}'",
                     table_name, field_name
+                )
+            }
+            AutoIncUpdateNotAllowed {
+                table_name,
+                field_name,
+            } => {
+                write!(
+                    f,
+                    "auto_inc field '{}' on table '{}' cannot be updated",
+                    field_name, table_name
                 )
             }
             TableNotFound {

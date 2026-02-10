@@ -41,6 +41,7 @@ Named = "Greetings"
 name = "greetings"
 type_name = "Greetings"
 visibility = "Public"
+primary_key_auto_inc = false
 
 [[tables.fields]]
 name = "greeting"
@@ -60,6 +61,7 @@ field_type = "U64"
 field_name = "greeting"
 index_type = "BTree"
 unique = true
+auto_inc = false
 
 [[subscriptions]]
 reducer_name = "init"
@@ -72,6 +74,13 @@ reducer_name = "on_greeting_insert"
 node_selection = "Current"
 module_name = "hello"
 table_name = "greetings"
+
+[type_definitions.TestCustomType.Struct]
+name = "TestCustomType"
+
+[[type_definitions.TestCustomType.Struct.fields]]
+name = "val"
+field_type = "U32"
 
 [type_definitions.Greetings.Struct]
 name = "Greetings"
@@ -89,10 +98,3 @@ name = "custom"
 
 [type_definitions.Greetings.Struct.fields.field_type]
 Named = "TestCustomType"
-
-[type_definitions.TestCustomType.Struct]
-name = "TestCustomType"
-
-[[type_definitions.TestCustomType.Struct.fields]]
-name = "val"
-field_type = "U32"

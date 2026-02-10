@@ -89,13 +89,33 @@ Inside your module you may define tables through the `#[table]` macro on top of 
 ```rust
 #[table]
 struct MyTable{
-  #[primary_key]
+  #[primary_key(auto_inc)]
   id: u64,
+
+  #[index(hash, unique)]
+  email: String,
+
+  #[index(btree)]
+  created_at: i64,
+
   content: String
 }
 ```
 
-You need to define one field with the `#[primary_key]` flag on one of the struct field. It acts as the identity for any row in the table and has the unique constraint. However it doesn't auto increment by default, so you should manually generate the id on row insertion.
+Rules:
+- `#[primary_key]` is required and enforces uniqueness. Add `auto_inc` to generate values automatically.
+- `#[index(hash)]` and `#[index(btree)]` create secondary indexes. Use `unique` to enforce uniqueness, and `auto_inc` to generate integer values on insert.
+- `auto_inc` is supported for integer types only (u8, u32, u64, i32, i64).
+
+When inserting, the table API returns the inserted row so you can read generated values:
+```rust
+let row = ctx.current.tables.mytable().insert(MyTable {
+  id: 0,
+  email: "user@example.com".to_string(),
+  created_at: 0,
+  content: "hello".to_string(),
+})?;
+```
 
 ### Interstice Type
 
@@ -250,9 +270,6 @@ This document lists the core features required to make Interstice stable, ergono
 
 ## Features
 
-- Indexed tables (add index flag macro on field struct)
-- Get table row by index (primary key and indexed columns)
-- Auto_inc flag table column
 - Table Views (allow row filtering based on current state and requesting node id)
 - Add token to confirm node identities on connection (generate one token per node connecting to one one)
 - add audio authority

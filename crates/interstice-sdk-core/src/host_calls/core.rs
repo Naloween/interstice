@@ -2,7 +2,7 @@ use interstice_abi::{
     CallQueryRequest, CallReducerRequest, DeleteRowRequest, HostCall, IndexKey, InsertRowRequest,
     IntersticeValue, LogRequest, ModuleSelection, NodeSelection, Row, TableScanRequest,
     UpdateRowRequest, TableGetByPrimaryKeyRequest, TableGetByPrimaryKeyResponse,
-    TableIndexScanRequest, TableIndexScanResponse, IndexQuery,
+    TableIndexScanRequest, TableIndexScanResponse, IndexQuery, InsertRowResponse,
 };
 
 pub fn log(message: &str) {
@@ -46,14 +46,23 @@ pub fn call_query(
     return result;
 }
 
-pub fn insert_row(module_selection: ModuleSelection, table_name: String, row: Row) {
+pub fn insert_row(
+    module_selection: ModuleSelection,
+    table_name: String,
+    row: Row,
+) -> Result<Row, String> {
     let call = HostCall::InsertRow(InsertRowRequest {
         module_selection,
         table_name,
         row,
     });
 
-    host_call(call);
+    let pack = host_call(call);
+    let response: InsertRowResponse = unpack(pack);
+    match response {
+        InsertRowResponse::Ok(row) => Ok(row),
+        InsertRowResponse::Err(err) => Err(err),
+    }
 }
 
 pub fn update_row(module_selection: ModuleSelection, table_name: String, row: Row) {

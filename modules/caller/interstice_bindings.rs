@@ -54,12 +54,13 @@ impl Into<Greetings> for interstice_sdk::Row {
 }
 
 impl GreetingsHandle{
-    pub fn insert(&self, row: Greetings){
+    pub fn insert(&self, row: Greetings) -> Result<Greetings, String>{
         interstice_sdk::host_calls::insert_row(
             ModuleSelection::Current,
             "greetings".to_string(),
             row.into(),
-        );
+        )
+        .map(|row| row.into())
     }
 
     pub fn scan(&self) -> Vec<Greetings>{

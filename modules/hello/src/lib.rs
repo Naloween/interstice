@@ -29,7 +29,7 @@ pub fn init(ctx: ReducerContext) {
 #[reducer]
 pub fn hello(ctx: ReducerContext, name: String) {
     ctx.log(&format!("Saying hello to {}", name));
-    ctx.current.tables.greetings().insert(Greetings {
+    let _ = ctx.current.tables.greetings().insert(Greetings {
         id: 0,
         greeting: format!("Hello, {}!", name),
         custom: TestCustomType { val: 0 },

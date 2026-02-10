@@ -33,6 +33,7 @@ Named = "Greetings"
 name = "greetings"
 type_name = "Greetings"
 visibility = "Public"
+primary_key_auto_inc = false
 
 [[modules.tables.fields]]
 name = "greeting"
@@ -52,6 +53,7 @@ field_type = "U64"
 field_name = "greeting"
 index_type = "BTree"
 unique = true
+auto_inc = false
 
 [modules.type_definitions.TestCustomType.Struct]
 name = "TestCustomType"

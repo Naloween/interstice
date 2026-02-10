@@ -64,7 +64,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    let mut primary_key: Option<(&syn::Ident, String, proc_macro2::TokenStream, syn::Type)> = None;
+    let mut primary_key: Option<(&syn::Ident, String, proc_macro2::TokenStream, syn::Type, bool)> = None;
     let mut schema_fields = Vec::new();
     let mut entry_fields = Vec::new();
     let mut index_schemas = Vec::new();
@@ -80,6 +80,27 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             .attrs
             .iter()
             .any(|attr| attr.path().is_ident("primary_key"));
+
+        let mut pk_auto_inc = false;
+        if is_pk {
+            if let Some(attr) = field.attrs.iter().find(|attr| attr.path().is_ident("primary_key")) {
+                let args = attr.parse_args_with(
+                    syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated,
+                );
+                if let Ok(args) = args {
+                    for arg in args {
+                        match arg {
+                            Meta::Path(path) if path.is_ident("auto_inc") => {
+                                pk_auto_inc = true;
+                            }
+                            _ => {
+                                return quote! {compile_error!("Invalid #[primary_key] argument. Use auto_inc");}.into();
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         let index_attr = field.attrs.iter().find(|attr| attr.path().is_ident("index"));
         if let Some(attr) = index_attr {
@@ -100,6 +121,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             let mut index_type: Option<proc_macro2::TokenStream> = None;
             let mut is_btree = false;
             let mut unique = false;
+            let mut auto_inc = false;
 
             for arg in args {
                 match arg {
@@ -114,8 +136,11 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                     Meta::Path(path) if path.is_ident("unique") => {
                         unique = true;
                     }
+                    Meta::Path(path) if path.is_ident("auto_inc") => {
+                        auto_inc = true;
+                    }
                     _ => {
-                        return quote! {compile_error!("Invalid #[index] argument. Use hash, btree, and/or unique");}.into();
+                        return quote! {compile_error!("Invalid #[index] argument. Use hash, btree, unique, and/or auto_inc");}.into();
                     }
                 }
             }
@@ -128,12 +153,27 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 return quote! {compile_error!(#message);}.into();
             }
 
+            if auto_inc {
+                if !matches!(field_ty_ident, syn::Type::Path(_)) {
+                    return quote! {compile_error!("#[index(auto_inc)] requires an integer field type");}.into();
+                }
+                let type_name = field_ty_ident.to_token_stream().to_string();
+                match type_name.as_str() {
+                    "u8" | "u32" | "u64" | "i32" | "i64" => {}
+                    _ => {
+                        return quote! {compile_error!("#[index(auto_inc)] is only supported for integer field types (u8, u32, u64, i32, i64)");}.into();
+                    }
+                }
+                unique = true;
+            }
+
             let index_type = index_type.unwrap();
             index_schemas.push(quote! {
                 interstice_sdk::IndexSchema {
                     field_name: #field_name.to_string(),
                     index_type: #index_type,
                     unique: #unique,
+                    auto_inc: #auto_inc,
                 }
             });
 
@@ -145,7 +185,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 return quote! {compile_error!("Only one #[primary_key] field is allowed");}.into();
             }
 
-            primary_key = Some((field_ident, field_name, field_ty, field_ty_ident));
+            primary_key = Some((field_ident, field_name, field_ty, field_ty_ident, pk_auto_inc));
         } else {
             entry_fields.push(field_ident.clone());
             schema_fields.push(quote! {
@@ -156,7 +196,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             });
         }
     }
-    let (pk_ident, pk_name, pk_type, pk_type_ident) = match primary_key {
+    let (pk_ident, pk_name, pk_type, pk_type_ident, pk_auto_inc) = match primary_key {
         Some(pk) => pk,
         None => {
             return quote! {compile_error!("A #[primary_key] field is required");}.into();
@@ -165,6 +205,16 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     if let Err(message) = validate_index_key_type(&pk_type_ident) {
         return quote! {compile_error!(#message);}.into();
+    }
+
+    if pk_auto_inc {
+        let type_name = pk_type_ident.to_token_stream().to_string();
+        match type_name.as_str() {
+            "u8" | "u32" | "u64" | "i32" | "i64" => {}
+            _ => {
+                return quote! {compile_error!("#[primary_key(auto_inc)] is only supported for integer field types (u8, u32, u64, i32, i64)");}.into();
+            }
+        }
     }
 
     // Generate the output struct without the primary key attribute
@@ -344,6 +394,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                     name: #pk_name.to_string(),
                     field_type: #pk_type.into(),
                 },
+                primary_key_auto_inc: #pk_auto_inc,
                 indexes: vec![#(#index_schemas),*],
             }
         }
@@ -356,12 +407,13 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
 
         impl #table_edit_handle_struct{
-            pub fn insert(&self, row: #struct_ident){
+            pub fn insert(&self, row: #struct_ident) -> Result<#struct_ident, String>{
                 interstice_sdk::host_calls::insert_row(
                     interstice_sdk::ModuleSelection::Current,
                     #table_name.to_string(),
                     row.into(),
-                );
+                )
+                .map(|row| row.into())
             }
 
             pub fn update(&self, row: #struct_ident){

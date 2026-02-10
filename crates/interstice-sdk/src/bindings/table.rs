@@ -34,9 +34,11 @@ pub fn get_table_code(table_schema: TableSchema, module_tables_name: &str) -> St
         + &table_handle_struct_name
         + "{\n    pub fn insert(&self, row: "
         + &table_struct_name
-        + "){\n        interstice_sdk::host_calls::insert_row(\n           interstice_sdk:: ModuleSelection::Current,\n            \""
+        + ") -> Result<"
+        + &table_struct_name
+        + ", String>{\n        interstice_sdk::host_calls::insert_row(\n           interstice_sdk:: ModuleSelection::Current,\n            \""
         + &table_name
-        + "\".to_string(),\n            row.into(),\n        );\n    }\n\n    pub fn scan(&self) -> Vec<"
+        + "\".to_string(),\n            row.into(),\n        )\n        .map(|row| row.try_into().unwrap())\n    }\n\n    pub fn scan(&self) -> Vec<"
         + &table_struct_name
         + ">{\n        interstice_sdk::host_calls::scan(interstice_sdk::ModuleSelection::Current, \""
         + &table_name

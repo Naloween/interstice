@@ -10,6 +10,7 @@ pub struct TableSchema {
     pub visibility: TableVisibility,
     pub fields: Vec<FieldDef>,
     pub primary_key: FieldDef,
+    pub primary_key_auto_inc: bool,
     pub indexes: Vec<IndexSchema>,
 }
 
@@ -30,6 +31,7 @@ pub struct IndexSchema {
     pub field_name: String,
     pub index_type: IndexType,
     pub unique: bool,
+    pub auto_inc: bool,
 }
 
 impl TableSchema {

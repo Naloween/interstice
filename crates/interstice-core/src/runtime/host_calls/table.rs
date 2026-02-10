@@ -15,15 +15,37 @@ impl Runtime {
         caller_module_schema: &ModuleSchema,
         insert_row_request: InsertRowRequest,
     ) -> InsertRowResponse {
+        let mut row = insert_row_request.row;
+
+        {
+            let modules = self.modules.lock().unwrap();
+            let module = match modules.get(&self.call_stack.lock().unwrap().last().unwrap().module)
+            {
+                Some(module) => module,
+                None => return InsertRowResponse::Err("Module not found".into()),
+            };
+            let mut tables = module.tables.lock().unwrap();
+            let table = match tables.get_mut(&insert_row_request.table_name) {
+                Some(table) => table,
+                None => return InsertRowResponse::Err("Table not found".into()),
+            };
+
+            match table.prepare_insert(row) {
+                Ok(prepared) => row = prepared,
+                Err(err) => return InsertRowResponse::Err(err.to_string()),
+            }
+
+            if let Err(err) = table.validate_insert(&row) {
+                return InsertRowResponse::Err(err.to_string());
+            }
+        }
+
         if let Some(table) = caller_module_schema
             .tables
             .iter()
             .find(|t| t.name == insert_row_request.table_name)
         {
-            if !table.validate_row(
-                &insert_row_request.row,
-                &caller_module_schema.type_definitions,
-            ) {
+            if !table.validate_row(&row, &caller_module_schema.type_definitions) {
                 return InsertRowResponse::Err(format!(
                     "Invalid row for table {} in module {}",
                     table.name.clone(),
@@ -31,6 +53,7 @@ impl Runtime {
                 ));
             }
         }
+
         let mut reducer_frame = self.call_stack.lock().unwrap();
         let reducer_frame = reducer_frame.last_mut().unwrap();
         if reducer_frame.kind == CallFrameKind::Query {
@@ -39,9 +62,9 @@ impl Runtime {
         reducer_frame.transactions.push(Transaction::Insert {
             module_name: caller_module_schema.name.clone(),
             table_name: insert_row_request.table_name,
-            new_row: insert_row_request.row,
+            new_row: row.clone(),
         });
-        InsertRowResponse::Ok
+        InsertRowResponse::Ok(row)
     }
 
     pub(crate) fn handle_update_row(

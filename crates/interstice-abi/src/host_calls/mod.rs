@@ -74,7 +74,7 @@ pub struct InsertRowRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum InsertRowResponse {
-    Ok,
+    Ok(Row),
     Err(String),
 }
 
