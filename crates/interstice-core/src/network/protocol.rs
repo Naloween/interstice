@@ -1,3 +1,4 @@
+use interstice_abi::NodeSchema;
 use interstice_abi::{IntersticeValue, Row};
 use serde::{Deserialize, Serialize};
 
@@ -6,6 +7,7 @@ pub enum NetworkPacket {
     Handshake {
         node_id: String,
         address: String,
+        token: String,
     },
     Close,
     ReducerCall {
@@ -26,6 +28,14 @@ pub enum NetworkPacket {
     RequestSubscription(RequestSubscription),
     TableEvent(TableEventInstance),
     ModuleEvent(ModuleEventInstance),
+    SchemaRequest {
+        request_id: String,
+        node_name: String,
+    },
+    SchemaResponse {
+        request_id: String,
+        schema: NodeSchema,
+    },
     Error(String),
 }
 

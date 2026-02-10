@@ -3,6 +3,7 @@ use crate::logger::{LogLevel, LogSource, Logger};
 use crate::network::peer::PeerHandle;
 use crate::network::protocol::NetworkPacket;
 use crate::node::NodeId;
+use crate::persistence::PeerTokenStore;
 use crate::runtime::event::EventInstance;
 use interstice_abi::{NodeSelection, SubscriptionEventSchema};
 use packet::{read_packet, write_packet};
@@ -23,6 +24,7 @@ pub struct Network {
     node_id: Uuid,
     address: String,
     peers: Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
+    peer_tokens: Arc<Mutex<PeerTokenStore>>,
     runtime_event_sender: mpsc::UnboundedSender<EventInstance>,
     logger: Logger,
 
@@ -38,6 +40,7 @@ pub struct NetworkHandle {
     pub node_id: Uuid,
     pub address: String,
     peers: Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
+    peer_tokens: Arc<Mutex<PeerTokenStore>>,
     packet_sender: mpsc::Sender<(NodeId, NetworkPacket)>,
     logger: Logger,
 }
@@ -61,12 +64,15 @@ impl NetworkHandle {
             .map_err(|_| IntersticeError::Internal("Failed to connect to node".into()))
             .unwrap();
 
+        let local_token = { self.peer_tokens.lock().unwrap().local_token() };
+
         // Send our handshake
         write_packet(
             &mut stream,
             &NetworkPacket::Handshake {
                 address: address.clone(),
                 node_id: my_node_id.to_string(),
+                token: local_token,
             },
         )
         .await
@@ -79,6 +85,7 @@ impl NetworkHandle {
             &mut cloned_peers,
             packet_sender,
             self.logger.clone(),
+            self.peer_tokens.clone(),
             false,
         )
         .await
@@ -150,6 +157,7 @@ impl Network {
         node_id: Uuid,
         address: String,
         event_sender: mpsc::UnboundedSender<EventInstance>,
+        peer_tokens: Arc<Mutex<PeerTokenStore>>,
         logger: Logger,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
@@ -158,6 +166,7 @@ impl Network {
             node_id,
             address,
             peers: Arc::new(Mutex::new(HashMap::new())),
+            peer_tokens,
             packet_receiver: receiver,
             packet_sender: sender,
             runtime_event_sender: event_sender,
@@ -170,6 +179,7 @@ impl Network {
             node_id: self.node_id.clone(),
             address: self.address.clone(),
             peers: self.peers.clone(),
+            peer_tokens: self.peer_tokens.clone(),
             packet_sender: self.packet_sender.clone(),
             logger: self.logger.clone(),
         }
@@ -178,6 +188,7 @@ impl Network {
     pub fn listen(&mut self) -> Result<(), IntersticeError> {
         let peers = self.peers.clone();
         let sender = self.packet_sender.clone();
+        let peer_tokens = self.peer_tokens.clone();
         let my_address = self.address.clone();
         let my_node_id = self.node_id.clone();
         let logger = self.logger.clone();
@@ -198,6 +209,7 @@ impl Network {
                         let cloned_sender = sender.clone();
                         let my_address = my_address.clone();
                         let logger = logger.clone();
+                        let peer_tokens = peer_tokens.clone();
                         tokio::spawn(async move {
                             if let Err(e) = handshake_incoming(
                                 my_node_id,
@@ -206,6 +218,7 @@ impl Network {
                                 &mut cloned_peers,
                                 cloned_sender,
                                 logger.clone(),
+                                peer_tokens.clone(),
                                 true,
                             )
                             .await
@@ -362,6 +375,25 @@ impl Network {
                                 .unwrap(),
                         }
                     }
+                    NetworkPacket::SchemaRequest {
+                        request_id,
+                        node_name,
+                    } => {
+                        self.runtime_event_sender
+                            .send(EventInstance::SchemaRequest {
+                                requesting_node_id: node_id,
+                                request_id,
+                                node_name,
+                            })
+                            .unwrap();
+                    }
+                    NetworkPacket::SchemaResponse { .. } => {
+                        self.logger.log(
+                            "Received unexpected schema response",
+                            LogSource::Network,
+                            LogLevel::Warning,
+                        );
+                    }
                 }
             }
         });
@@ -505,12 +537,17 @@ async fn handshake_incoming(
     peers: &mut Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
     packet_sender: mpsc::Sender<(NodeId, NetworkPacket)>,
     logger: Logger,
+    peer_tokens: Arc<Mutex<PeerTokenStore>>,
     send_handshake_response: bool,
 ) -> Result<(), IntersticeError> {
     let packet = read_packet(&mut stream).await?;
 
-    let (peer_id_str, peer_address) = match packet {
-        NetworkPacket::Handshake { node_id, address } => (node_id, address),
+    let (peer_id_str, peer_address, peer_token) = match packet {
+        NetworkPacket::Handshake {
+            node_id,
+            address,
+            token,
+        } => (node_id, address, token),
         _ => {
             return Err(IntersticeError::ProtocolError(
                 "Expected handshake packet".into(),
@@ -519,7 +556,22 @@ async fn handshake_incoming(
     };
     let peer_id = NodeId::parse_str(&peer_id_str).expect("Couldn't parse node id");
 
+    {
+        let mut store = peer_tokens.lock().unwrap();
+        if let Some(existing) = store.get_peer_token(&peer_id) {
+            if existing != peer_token {
+                return Err(IntersticeError::ProtocolError(format!(
+                    "Peer token mismatch for {}",
+                    peer_id
+                )));
+            }
+        } else {
+            store.set_peer_token(&peer_id, peer_token)?;
+        }
+    }
+
     if send_handshake_response {
+        let local_token = { peer_tokens.lock().unwrap().local_token() };
         // Reply with our handshake immediately so the remote side won't block
         // waiting for it (prevents their read from hitting EOF if we drop
         // the connection due to a duplicate).
@@ -528,6 +580,7 @@ async fn handshake_incoming(
             &NetworkPacket::Handshake {
                 node_id: my_node_id.to_string(),
                 address: my_address,
+                token: local_token,
             },
         )
         .await?;

@@ -61,6 +61,11 @@ pub enum EventInstance {
         module_name: String,
         source_node_id: NodeId,
     },
+    SchemaRequest {
+        requesting_node_id: NodeId,
+        request_id: String,
+        node_name: String,
+    },
 }
 
 impl EventInstance {

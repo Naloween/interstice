@@ -7,7 +7,7 @@ interstice_module!(visibility: Public);
 #[table(public)]
 #[derive(Debug)]
 pub struct Greetings {
-    #[primary_key]
+    #[primary_key(auto_inc)]
     pub id: u64,
     #[index(btree, unique)]
     pub greeting: String,

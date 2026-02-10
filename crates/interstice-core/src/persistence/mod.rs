@@ -8,8 +8,10 @@
 
 mod config;
 mod log_rotation;
+mod peer_tokens;
 mod transaction_log;
 
 pub use config::PersistenceConfig;
 pub use log_rotation::{LogRotator, RotationConfig};
+pub use peer_tokens::PeerTokenStore;
 pub use transaction_log::TransactionLog;

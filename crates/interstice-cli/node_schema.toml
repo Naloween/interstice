@@ -55,13 +55,6 @@ index_type = "BTree"
 unique = true
 auto_inc = false
 
-[modules.type_definitions.TestCustomType.Struct]
-name = "TestCustomType"
-
-[[modules.type_definitions.TestCustomType.Struct.fields]]
-name = "val"
-field_type = "U32"
-
 [modules.type_definitions.Greetings.Struct]
 name = "Greetings"
 
@@ -78,3 +71,10 @@ name = "custom"
 
 [modules.type_definitions.Greetings.Struct.fields.field_type]
 Named = "TestCustomType"
+
+[modules.type_definitions.TestCustomType.Struct]
+name = "TestCustomType"
+
+[[modules.type_definitions.TestCustomType.Struct.fields]]
+name = "val"
+field_type = "U32"

@@ -1,7 +1,10 @@
 pub mod call_query;
 pub mod call_reducer;
+pub mod bindings;
 pub mod data_directory;
 pub mod example;
 pub mod init;
 pub mod module;
+pub mod node_client;
+pub mod node_registry;
 pub mod start;

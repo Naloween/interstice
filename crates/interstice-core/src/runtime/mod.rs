@@ -23,11 +23,13 @@ use crate::{
         wasm::{StoreState, linker::define_host_calls},
     },
 };
-use interstice_abi::{Authority, IntersticeValue, ModuleEvent, SubscriptionEventSchema};
+use interstice_abi::{
+    Authority, IntersticeValue, ModuleEvent, NodeSchema, SubscriptionEventSchema,
+};
 use notify::RecommendedWatcher;
 use std::{
     collections::HashMap,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, Mutex, mpsc},
 };
 use tokio::sync::{
@@ -55,7 +57,7 @@ pub struct Runtime {
     reducer_receiver: Mutex<Option<UnboundedReceiver<ReducerJob>>>,
     pub(crate) gpu_call_sender: mpsc::Sender<GpuCallRequest>,
     gpu_call_receiver: Mutex<Option<mpsc::Receiver<GpuCallRequest>>>,
-    pub(crate) modules_path: PathBuf,
+    pub(crate) modules_path: Option<PathBuf>,
     run_app_notify: Arc<Notify>,
     node_subscriptions: Arc<Mutex<HashMap<NodeId, Vec<SubscriptionEventSchema>>>>,
     pub(crate) logger: Logger,
@@ -100,8 +102,8 @@ impl Drop for CompletionGuard {
 
 impl Runtime {
     pub fn new(
-        modules_path: PathBuf,
-        transaction_log_path: &Path,
+        modules_path: Option<PathBuf>,
+        transaction_logs: TransactionLog,
         event_sender: UnboundedSender<EventInstance>,
         network_handle: NetworkHandle,
         gpu: Arc<Mutex<Option<GpuState>>>,
@@ -120,15 +122,14 @@ impl Runtime {
         })?;
         Ok(Self {
             gpu,
+            modules: Arc::new(Mutex::new(HashMap::new())),
+            authority_modules: Arc::new(Mutex::new(HashMap::new())),
             call_stack: Arc::new(Mutex::new(Vec::new())),
             engine,
             linker: Arc::new(linker),
             event_sender,
             network_handle,
-            transaction_logs: Arc::new(Mutex::new(TransactionLog::new(transaction_log_path)?)),
-            modules_path,
-            modules: Arc::new(Mutex::new(HashMap::new())),
-            authority_modules: Arc::new(Mutex::new(HashMap::new())),
+            transaction_logs: Arc::new(Mutex::new(transaction_logs)),
             app_initialized: Arc::new(Mutex::new(false)),
             pending_app_modules: Arc::new(Mutex::new(Vec::new())),
             pending_query_responses: Arc::new(Mutex::new(HashMap::new())),
@@ -136,6 +137,7 @@ impl Runtime {
             reducer_receiver: Mutex::new(Some(reducer_receiver)),
             gpu_call_sender,
             gpu_call_receiver: Mutex::new(Some(gpu_call_receiver)),
+            modules_path,
             run_app_notify,
             node_subscriptions: Arc::new(Mutex::new(HashMap::new())),
             logger,
@@ -298,6 +300,20 @@ impl Runtime {
                         Runtime::remove_module(runtime.clone(), &module_name);
                     }
                 }
+                EventInstance::SchemaRequest {
+                    requesting_node_id,
+                    request_id,
+                    node_name,
+                } => {
+                    let schema = runtime.build_node_schema(node_name).to_public();
+                    runtime.network_handle.send_packet(
+                        requesting_node_id,
+                        crate::network::protocol::NetworkPacket::SchemaResponse {
+                            request_id,
+                            schema,
+                        },
+                    );
+                }
                 event => {
                     let triggered = runtime.find_subscriptions(&event).unwrap();
 
@@ -306,6 +322,20 @@ impl Runtime {
                     }
                 }
             }
+        }
+    }
+
+    fn build_node_schema(&self, name: String) -> NodeSchema {
+        NodeSchema {
+            name,
+            address: self.network_handle.address.clone(),
+            modules: self
+                .modules
+                .lock()
+                .unwrap()
+                .values()
+                .map(|m| (*m.schema).clone())
+                .collect(),
         }
     }
 

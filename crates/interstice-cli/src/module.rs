@@ -1,28 +1,19 @@
-use interstice_core::{
-    IntersticeError, ModuleEventInstance, NetworkPacket,
-    packet::{read_packet, write_packet},
-};
+use crate::node_client::handshake_with_node;
+use crate::node_registry::NodeRegistry;
+use interstice_core::{IntersticeError, ModuleEventInstance, NetworkPacket, packet::write_packet};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-pub async fn publish(
-    node_address: String,
-    module_project_path: &Path,
-) -> Result<(), IntersticeError> {
+pub async fn publish(node_ref: String, module_project_path: &Path) -> Result<(), IntersticeError> {
     // This should take a path to a rust project that it will build and publish. The module name is from Cargo.toml. It should build the project using cargo, then read the generated wasm file and send it to the node using the network module.
     // It should also be able to use saved servers nodes with their adress to easily publish to known nodes.
 
-    // The cLI simulate a remote node instance
-    let cli_node_id = uuid::Uuid::new_v4();
-
     // connect to node
-    let mut stream = tokio::net::TcpStream::connect(node_address).await.unwrap();
-    let packet = NetworkPacket::Handshake {
-        node_id: cli_node_id.to_string(),
-        address: "127.0.0.1:12345".into(),
-    };
-    write_packet(&mut stream, &packet).await?;
-    let _ = read_packet(&mut stream).await?;
+    let registry = NodeRegistry::load()?;
+    let node_address = registry
+        .resolve_address(&node_ref)
+        .ok_or_else(|| IntersticeError::Internal("Unknown node".into()))?;
+    let (mut stream, _handshake) = handshake_with_node(&node_address).await?;
 
     // Build module using cargo
     println!(
@@ -62,20 +53,15 @@ pub async fn publish(
     Ok(())
 }
 
-pub async fn remove(node_address: String, module_name: &str) -> Result<(), IntersticeError> {
+pub async fn remove(node_ref: String, module_name: &str) -> Result<(), IntersticeError> {
     // This should take a module name and send a message to the node to delete the module with that name. It should also be able to use saved servers nodes with their adress to easily delete from known nodes.
 
-    // The cLI simulate a remote node instance
-    let cli_node_id = uuid::Uuid::new_v4();
-
     // connect to node
-    let mut stream = tokio::net::TcpStream::connect(node_address).await.unwrap();
-    let packet = NetworkPacket::Handshake {
-        node_id: cli_node_id.to_string(),
-        address: "127.0.0.1:12345".into(),
-    };
-    write_packet(&mut stream, &packet).await?;
-    let _ = read_packet(&mut stream).await?;
+    let registry = NodeRegistry::load()?;
+    let node_address = registry
+        .resolve_address(&node_ref)
+        .ok_or_else(|| IntersticeError::Internal("Unknown node".into()))?;
+    let (mut stream, _handshake) = handshake_with_node(&node_address).await?;
 
     // Send wasm binary to node
     let packet = NetworkPacket::ModuleEvent(ModuleEventInstance::Remove {

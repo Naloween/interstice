@@ -2,10 +2,25 @@ use std::{fs::File, io::Write as _};
 
 use interstice_core::{IntersticeError, Node};
 
-use crate::data_directory::data_file;
+use crate::{
+    data_directory::nodes_dir,
+    node_registry::{NodeRecord, NodeRegistry},
+};
 
 pub async fn example(port: u32) -> Result<(), IntersticeError> {
-    let mut node = Node::new(&data_file(), port)?;
+    let mut node = Node::new(&nodes_dir(), port)?;
+    let mut registry = NodeRegistry::load()?;
+    let name = format!("example-{}", port);
+    if registry.get(&name).is_none() {
+        registry.add(NodeRecord {
+            name,
+            address: format!("127.0.0.1:{}", port),
+            node_id: Some(node.id.to_string()),
+            local: true,
+            last_seen: None,
+            elusive: false,
+        })?;
+    }
     node.clear_logs().await.expect("Couldn't clear logs");
     let hello_bytes = include_bytes!("../../../target/wasm32-unknown-unknown/debug/hello.wasm");
     let caller_bytes = include_bytes!("../../../target/wasm32-unknown-unknown/debug/caller.wasm");

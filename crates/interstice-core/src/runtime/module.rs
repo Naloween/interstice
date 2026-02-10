@@ -291,10 +291,10 @@ impl Runtime {
         }
 
         // save module
-        let module_path = runtime
-            .modules_path
-            .join(format!("{}.wasm", module_schema.name));
-        std::fs::write(module_path, &module.wasm_bytes).unwrap();
+        if let Some(modules_path) = &runtime.modules_path {
+            let module_path = modules_path.join(format!("{}.wasm", module_schema.name));
+            std::fs::write(module_path, &module.wasm_bytes).unwrap();
+        }
 
         runtime
             .modules
@@ -322,10 +322,11 @@ impl Runtime {
 
     pub fn remove_module(runtime: Arc<Runtime>, module_name: &str) {
         runtime.modules.lock().unwrap().remove(module_name);
-        let module_path = runtime.modules_path.join(format!("{}.wasm", module_name));
-        // Removing module file
-        if module_path.exists() {
-            std::fs::remove_file(module_path).unwrap();
+        if let Some(modules_path) = &runtime.modules_path {
+            let module_path = modules_path.join(format!("{}.wasm", module_name));
+            if module_path.exists() {
+                std::fs::remove_file(module_path).unwrap();
+            }
         }
         // Closing module network connections
         let node_ids_to_disconnect = runtime

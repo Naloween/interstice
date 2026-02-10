@@ -3,24 +3,21 @@ use interstice_core::{
     interstice_abi::IntersticeValue,
     packet::{read_packet, write_packet},
 };
+use crate::node_client::handshake_with_node;
+use crate::node_registry::NodeRegistry;
 
 pub async fn call_query(
-    node_address: String,
+    node_ref: String,
     module_name: String,
     query_name: String,
     input: IntersticeValue,
 ) -> Result<(), IntersticeError> {
-    // The CLI simulate a remote node instance
-    let cli_node_id = uuid::Uuid::new_v4();
-
+    let registry = NodeRegistry::load()?;
+    let node_address = registry
+        .resolve_address(&node_ref)
+        .ok_or_else(|| IntersticeError::Internal("Unknown node".into()))?;
     // connect to node
-    let mut stream = tokio::net::TcpStream::connect(node_address).await.unwrap();
-    let packet = NetworkPacket::Handshake {
-        node_id: cli_node_id.to_string(),
-        address: "127.0.0.1:12345".into(),
-    };
-    write_packet(&mut stream, &packet).await?;
-    let _ = read_packet(&mut stream).await?;
+    let (mut stream, _handshake) = handshake_with_node(&node_address).await?;
 
     // Send call query packet to node
     let request_id = uuid::Uuid::new_v4().to_string();

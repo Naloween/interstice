@@ -3,6 +3,8 @@ use crate::{
     error::IntersticeError,
     logger::{LogLevel, LogSource, Logger},
     network::{Network, NetworkHandle},
+    persistence::PeerTokenStore,
+    persistence::TransactionLog,
     runtime::{Runtime, event::EventInstance, module::Module},
 };
 use interstice_abi::{ModuleSchema, NodeSchema};
@@ -44,13 +46,22 @@ impl Node {
             File::create(data_path.join("node.log")).expect("Should be able to create log file"),
         );
 
-        let network = Network::new(id, address.clone(), event_sender.clone(), logger.clone());
+        let peer_tokens = Arc::new(Mutex::new(PeerTokenStore::load_or_create(
+            data_path.join("peer_tokens.toml"),
+        )?));
+        let network = Network::new(
+            id,
+            address.clone(),
+            event_sender.clone(),
+            peer_tokens,
+            logger.clone(),
+        );
         let network_handle = network.get_handle();
         let gpu = Arc::new(Mutex::new(None));
         let run_app_notify = Arc::new(Notify::new());
         let runtime = Arc::new(Runtime::new(
-            modules_path,
-            &transaction_log_path,
+            Some(modules_path),
+            TransactionLog::new(&transaction_log_path)?,
             event_sender.clone(),
             network_handle.clone(),
             gpu,
@@ -99,13 +110,22 @@ impl Node {
             .expect("Should be able to open log file");
         let logger = Logger::new(logger_file);
 
-        let network = Network::new(id, address.clone(), event_sender.clone(), logger.clone());
+        let peer_tokens = Arc::new(Mutex::new(PeerTokenStore::load_or_create(
+            data_path.join("peer_tokens.toml"),
+        )?));
+        let network = Network::new(
+            id,
+            address.clone(),
+            event_sender.clone(),
+            peer_tokens,
+            logger.clone(),
+        );
         let network_handle = network.get_handle();
         let gpu = Arc::new(Mutex::new(None));
         let run_app_notify = Arc::new(Notify::new());
         let runtime = Arc::new(Runtime::new(
-            modules_path.clone(),
-            &transaction_log_path,
+            Some(modules_path.clone()),
+            TransactionLog::new(&transaction_log_path)?,
             event_sender.clone(),
             network_handle.clone(),
             gpu,
@@ -145,6 +165,53 @@ impl Node {
         };
 
         Ok(node)
+    }
+
+    pub fn new_elusive(port: u32) -> Result<Self, IntersticeError> {
+        let id = Uuid::new_v4();
+        let address = format!("127.0.0.1:{}", port);
+        let (event_sender, event_receiver) = mpsc::unbounded_channel();
+        let logger = Logger::new_stdout();
+
+        let peer_tokens = Arc::new(Mutex::new(PeerTokenStore::new_in_memory()));
+        let network = Network::new(
+            id,
+            address.clone(),
+            event_sender.clone(),
+            peer_tokens,
+            logger.clone(),
+        );
+        let network_handle = network.get_handle();
+        let gpu = Arc::new(Mutex::new(None));
+        let run_app_notify = Arc::new(Notify::new());
+        let runtime = Arc::new(Runtime::new(
+            None,
+            TransactionLog::new_in_memory(),
+            event_sender.clone(),
+            network_handle.clone(),
+            gpu,
+            run_app_notify.clone(),
+            logger.clone(),
+        )?);
+        let gpu_call_receiver = runtime.take_gpu_call_receiver();
+        let app = App::new(
+            id,
+            event_sender.clone(),
+            runtime.gpu.clone(),
+            runtime.clone(),
+            gpu_call_receiver,
+        );
+
+        Ok(Self {
+            id,
+            runtime,
+            app,
+            network,
+            network_handle,
+            event_receiver,
+            run_app_notify,
+            logger,
+        })
     }
 
     pub fn log(&self, message: &str, source: LogSource, level: LogLevel) {

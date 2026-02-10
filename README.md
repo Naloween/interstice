@@ -177,6 +177,21 @@ fn my_query(ctx: QueryContext, my_arg1: u32, my_arg2: MyCustomenum) -> MyCustomS
 
 Constrary to reducers, queries can return some value but are read only and cannot mutate any tables. They can call other queries but cannot call other reducers. they also cannot subscribe to any event as they cannot have any effect on the current state.
 
+### Bindings
+
+Bindings live in `src/bindings/`.
+
+That folder can contain TOML files describing either:
+
+- Module dependencies (local): module schemas for other modules available in the *same node*.
+- Node dependencies (remote): node schemas that include the node address and the public schemas of the modules you depend on.
+
+With only those files, the SDK reads the schemas and generates typed functions to call reducers/queries and subscribe to tables.
+
+When adding a binding, the CLI should fetch the schema from a running node and write it into `src/bindings/`. The schema used is the **public** view (`schema.to_public()`), which strips private tables and (for node schemas) private modules.
+
+
+
 ## Build for WASM
 
 ```bash
@@ -223,6 +238,42 @@ There is no way of publishing to an already started node manually. See the CLI f
 ## CLI flow
 
 - `interstice-cli publish <node-address> <module-rust-project-path>` — build, upload, validate, and install a module on a running node. The node verifies schema compatibility and requested capabilities.
+
+# CLI usage
+
+## Data layout
+
+- CLI metadata lives under the OS data directory (`data_file()` in the CLI).
+- Node registry is stored in `nodes.toml` (friendly names, addresses, IDs, etc.).
+- Node runtime data lives under `nodes/<node_id>/` (modules, logs, transaction log).
+
+## Node management
+
+- `interstice-cli node add <name> <address>`
+- `interstice-cli node create <name> <port> [--elusive]`
+- `interstice-cli node list`
+- `interstice-cli node remove <name|id>`
+- `interstice-cli node rename <old> <new>`
+- `interstice-cli node show <name|id>`
+- `interstice-cli node start <name|id>`
+- `interstice-cli node ping <name|id>`
+- `interstice-cli node schema <name|id> [out]`
+
+The `--elusive` flag starts a node without any persistence: no node directory, no transaction log, no module files, and no log file. All state is kept in memory for that session only.
+
+## Bindings helpers
+
+- `interstice-cli bindings add module <node> <module> [project_path]`
+- `interstice-cli bindings add node <node> [project_path]`
+
+These commands fetch **public** schemas from the target node and write TOML files into `src/bindings/`.
+
+## Module commands
+
+- `interstice-cli publish <node> <module_path>`
+- `interstice-cli remove <node> <module_name>`
+- `interstice-cli call_reducer <node> <module_name> <reducer_name> [args...]`
+- `interstice-cli call_query <node> <module_name> <query_name> [args...]`
 
 # Security
 
@@ -271,7 +322,6 @@ This document lists the core features required to make Interstice stable, ergono
 ## Features
 
 - Table Views (allow row filtering based on current state and requesting node id)
-- Add token to confirm node identities on connection (generate one token per node connecting to one one)
 - add audio authority
 - Table migration support
 - Subscription execution ordering guarantees ?
@@ -279,10 +329,10 @@ This document lists the core features required to make Interstice stable, ergono
 
 ## Robustness, error handling and fixes
 
+- Propagate host call errors to module instead of internal error
+- macros more checks and better error handlings (subscription check args and types)
 - Change the macro building to use quote instead of raw strings
 - Network handle reconnections and be more robust
-- Gpu error handling instead of panic (frame not begun etc.. Especially on resize where it interrupts the current render)
-- macros more checks and better error handlings (subscription check args and types)
 
 ## Optimizations
 
@@ -296,7 +346,6 @@ This document lists the core features required to make Interstice stable, ergono
 
 ## Tooling & CLI
 
-- Make the CLI instantiate a node with default modules to manage all the commands, connect to other modules and so on (this also shows that we can have whole programs embeded in a module seemlessly)
 - Update interstice
 - Benchmarkings
 - Rewind time and monitor previous module states and node states
