@@ -322,14 +322,15 @@ This document lists the core features required to make Interstice stable, ergono
 
 ## Features
 
+- Add Ephemeral and Stateful tables (Ephemeral are never saved on disk while stateful are not logged only snaptchoted). Ephemeral are usfull for things like mouse position or the PipelineTable in graphics while the Stateful table is usefull for big blobs like images, videos, datasets but also things you don't want to be logged in transactions.
 - Table Views (allow row filtering based on current state and requesting node id)
-- Add elusive table feature (to not be logged, saved). Usefull for non persistent states like the mouse position, or gpu state that reset at each restart anyway.
 - add audio authority
 - Table migration support (ability to update a module without deleting all the data)
 - Default modules (ModuleManager, Graphics, Inputs)
 
 ## Robustness, error handling and fixes
 
+- Remove elusive node
 - Move the File authority to its separate struct from runtime instead of having everything inside the runtime. Also change how the watching files handles since there is at most one module with the authority.
 - macros more checks and better error handlings (subscription check args and types)
 - Change the macro building to use quote instead of raw strings
