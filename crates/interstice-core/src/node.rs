@@ -68,6 +68,7 @@ impl Node {
             run_app_notify.clone(),
             logger.clone(),
         )?);
+        runtime.mark_ready();
         let gpu_call_receiver = runtime.take_gpu_call_receiver();
         let app = App::new(
             id,
@@ -153,7 +154,7 @@ impl Node {
         // Replay transaction logs to restore state once all modules are available
         if runtime.pending_app_modules.lock().unwrap().is_empty() {
             runtime.replay()?;
-            runtime.ready.notify_waiters();
+            runtime.mark_ready();
         } else {
             *runtime.replay_after_app_init.lock().unwrap() = true;
         }
@@ -198,6 +199,7 @@ impl Node {
             run_app_notify.clone(),
             logger.clone(),
         )?);
+        runtime.mark_ready();
         let gpu_call_receiver = runtime.take_gpu_call_receiver();
         let app = App::new(
             id,

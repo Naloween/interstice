@@ -58,6 +58,32 @@ pub async fn example(port: u32) -> Result<(), IntersticeError> {
             .unwrap()
             .write_all(&hello_schema.to_toml_string().unwrap().as_bytes())
             .unwrap();
+    } else {
+        let modules_path = nodes_dir().join(node.id.to_string()).join("modules");
+        let has_modules = std::fs::read_dir(&modules_path)
+            .map(|mut entries| entries.any(|entry| {
+                entry
+                    .ok()
+                    .and_then(|entry| {
+                        entry.path().extension().and_then(|s| s.to_str()).map(|s| s.to_string())
+                    })
+                    == Some("wasm".into())
+            }))
+            .unwrap_or(false);
+
+        if !has_modules && port != 8080 {
+            let _caller_schema = node.load_module_from_bytes(caller_bytes).await?.to_public();
+            let _graphics_schema = node
+                .load_module_from_bytes(graphics_bytes)
+                .await?
+                .to_public();
+        } else if !has_modules {
+            let hello_schema = node.load_module_from_bytes(hello_bytes).await?;
+            File::create("./hello_schema.toml")
+                .unwrap()
+                .write_all(&hello_schema.to_toml_string().unwrap().as_bytes())
+                .unwrap();
+        }
     }
 
     let node_schema = node.schema("MyNode".into()).await.to_public();

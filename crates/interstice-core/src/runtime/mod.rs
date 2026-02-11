@@ -31,6 +31,7 @@ use std::{
     collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex, mpsc},
+    sync::atomic::{AtomicBool, Ordering},
 };
 use tokio::sync::{
     Notify,
@@ -64,6 +65,7 @@ pub struct Runtime {
     pub(crate) file_watchers: Arc<Mutex<Vec<RecommendedWatcher>>>,
     pub(crate) replay_after_app_init: Arc<Mutex<bool>>,
     pub(crate) ready: Arc<Notify>,
+    ready_state: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Clone)]
@@ -146,11 +148,18 @@ impl Runtime {
             file_watchers: Arc::new(Mutex::new(Vec::new())),
             replay_after_app_init: Arc::new(Mutex::new(false)),
             ready: Arc::new(Notify::new()),
+            ready_state: Arc::new(AtomicBool::new(false)),
         })
     }
 
-    pub(crate) async fn wait_until_ready(&self) {
-        self.ready.notified().await;
+    pub(crate) fn is_ready(&self) -> bool {
+        self.ready_state.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn mark_ready(&self) {
+        if !self.ready_state.swap(true, Ordering::SeqCst) {
+            self.ready.notify_waiters();
+        }
     }
 
     pub fn take_gpu_call_receiver(&self) -> mpsc::Receiver<GpuCallRequest> {
@@ -179,170 +188,190 @@ impl Runtime {
             }
         });
 
+        let mut pending_events: Vec<EventInstance> = Vec::new();
+
         while let Some(event) = event_receiver.recv().await {
-            runtime.wait_until_ready().await;
-            match event {
-                EventInstance::AppInitialized => {
-                    let modules = runtime
-                        .pending_app_modules
-                        .lock()
-                        .unwrap()
-                        .drain(..)
-                        .collect::<Vec<_>>();
-                    for (module, fire_init) in modules {
-                        let module_name = module.schema.name.clone();
-                        if let Err(err) =
-                            Runtime::publish_module(runtime.clone(), module, fire_init).await
-                        {
-                            runtime.logger.log(
-                                &format!("Failed to load module '{}': {}", module_name, err),
-                                LogSource::Runtime,
-                                LogLevel::Error,
-                            );
+            if !runtime.is_ready() {
+                if matches!(event, EventInstance::AppInitialized) {
+                    Runtime::handle_event(runtime.clone(), event).await;
+                    if runtime.is_ready() && !pending_events.is_empty() {
+                        let pending = std::mem::take(&mut pending_events);
+                        for pending_event in pending {
+                            Runtime::handle_event(runtime.clone(), pending_event).await;
                         }
                     }
-                    *runtime.app_initialized.lock().unwrap() = true;
-                    if *runtime.replay_after_app_init.lock().unwrap() {
-                        if let Err(err) = runtime.replay() {
-                            runtime.logger.log(
-                                &format!("Replay failed after app init: {}", err),
-                                LogSource::Runtime,
-                                LogLevel::Error,
-                            );
-                        }
-                        *runtime.replay_after_app_init.lock().unwrap() = false;
-                        runtime.ready.notify_waiters();
+                } else {
+                    pending_events.push(event);
+                }
+                continue;
+            }
+
+            Runtime::handle_event(runtime.clone(), event).await;
+        }
+    }
+
+    async fn handle_event(runtime: Arc<Runtime>, event: EventInstance) {
+        match event {
+            EventInstance::AppInitialized => {
+                let modules = runtime
+                    .pending_app_modules
+                    .lock()
+                    .unwrap()
+                    .drain(..)
+                    .collect::<Vec<_>>();
+                for (module, fire_init) in modules {
+                    let module_name = module.schema.name.clone();
+                    if let Err(err) = Runtime::publish_module(runtime.clone(), module, fire_init)
+                        .await
+                    {
+                        runtime.logger.log(
+                            &format!("Failed to load module '{}': {}", module_name, err),
+                            LogSource::Runtime,
+                            LogLevel::Error,
+                        );
                     }
                 }
-                EventInstance::RemoteReducerCall {
+                *runtime.app_initialized.lock().unwrap() = true;
+                if *runtime.replay_after_app_init.lock().unwrap() {
+                    if let Err(err) = runtime.replay() {
+                        runtime.logger.log(
+                            &format!("Replay failed after app init: {}", err),
+                            LogSource::Runtime,
+                            LogLevel::Error,
+                        );
+                    }
+                    *runtime.replay_after_app_init.lock().unwrap() = false;
+                }
+                runtime.mark_ready();
+            }
+            EventInstance::RemoteReducerCall {
+                module_name,
+                reducer_name,
+                input,
+            } => {
+                let _ = runtime.reducer_sender.send(ReducerJob {
                     module_name,
                     reducer_name,
                     input,
-                } => {
-                    let _ = runtime.reducer_sender.send(ReducerJob {
-                        module_name,
-                        reducer_name,
-                        input,
-                        completion: None,
-                    });
-                }
-                EventInstance::RemoteQueryCall {
-                    requesting_node_id,
-                    request_id,
-                    module_name,
-                    query_name,
-                    input,
-                } => {
-                    let runtime = runtime.clone();
-                    tokio::task::spawn_local(async move {
-                        let result = runtime
-                            .call_query(&module_name, &query_name, input)
-                            .await
-                            .unwrap_or(IntersticeValue::Void);
-                        runtime.network_handle.send_packet(
-                            requesting_node_id,
-                            crate::network::protocol::NetworkPacket::QueryResponse {
-                                request_id,
-                                result,
-                            },
-                        );
-                    });
-                }
-                EventInstance::RemoteQueryResponse { request_id, result } => {
-                    if let Some(sender) = runtime
-                        .pending_query_responses
-                        .lock()
-                        .unwrap()
-                        .remove(&request_id)
-                    {
-                        let _ = sender.send(result);
-                    }
-                }
-                EventInstance::RequestSubscription {
-                    requesting_node_id,
-                    event,
-                } => {
-                    runtime
-                        .node_subscriptions
-                        .lock()
-                        .unwrap()
-                        .entry(requesting_node_id)
-                        .or_insert(Vec::new())
-                        .push(event);
-                }
-                EventInstance::PublishModule {
-                    wasm_binary,
-                    source_node_id,
-                } => {
-                    if runtime
-                        .authority_modules
-                        .lock()
-                        .unwrap()
-                        .contains_key(&Authority::Module)
-                    {
-                        let module_name = Module::from_bytes(runtime.clone(), &wasm_binary)
-                            .await
-                            .map(|m| m.schema.name.clone())
-                            .unwrap_or_else(|_| "unknown".into());
-                        let _ = runtime.event_sender.send(EventInstance::Module(
-                            ModuleEvent::PublishRequest {
-                                node_id: source_node_id.to_string(),
-                                module_name,
-                                wasm_binary,
-                            },
-                        ));
-                    } else {
-                        Runtime::load_module(
-                            runtime.clone(),
-                            Module::from_bytes(runtime.clone(), &wasm_binary)
-                                .await
-                                .unwrap(),
-                            true,
-                        )
+                    completion: None,
+                });
+            }
+            EventInstance::RemoteQueryCall {
+                requesting_node_id,
+                request_id,
+                module_name,
+                query_name,
+                input,
+            } => {
+                let runtime = runtime.clone();
+                tokio::task::spawn_local(async move {
+                    let result = runtime
+                        .call_query(&module_name, &query_name, input)
                         .await
-                        .unwrap();
-                    }
-                }
-                EventInstance::RemoveModule {
-                    module_name,
-                    source_node_id,
-                } => {
-                    if runtime
-                        .authority_modules
-                        .lock()
-                        .unwrap()
-                        .contains_key(&Authority::Module)
-                    {
-                        let _ = runtime.event_sender.send(EventInstance::Module(
-                            ModuleEvent::RemoveRequest {
-                                node_id: source_node_id.to_string(),
-                                module_name,
-                            },
-                        ));
-                    } else {
-                        Runtime::remove_module(runtime.clone(), &module_name);
-                    }
-                }
-                EventInstance::SchemaRequest {
-                    requesting_node_id,
-                    request_id,
-                    node_name,
-                } => {
-                    let schema = runtime.build_node_schema(node_name).to_public();
+                        .unwrap_or(IntersticeValue::Void);
                     runtime.network_handle.send_packet(
                         requesting_node_id,
-                        crate::network::protocol::NetworkPacket::SchemaResponse {
+                        crate::network::protocol::NetworkPacket::QueryResponse {
                             request_id,
-                            schema,
+                            result,
                         },
                     );
+                });
+            }
+            EventInstance::RemoteQueryResponse { request_id, result } => {
+                if let Some(sender) = runtime
+                    .pending_query_responses
+                    .lock()
+                    .unwrap()
+                    .remove(&request_id)
+                {
+                    let _ = sender.send(result);
                 }
-                event => {
-                    let triggered = runtime.find_subscriptions(&event).unwrap();
+            }
+            EventInstance::RequestSubscription {
+                requesting_node_id,
+                event,
+            } => {
+                runtime
+                    .node_subscriptions
+                    .lock()
+                    .unwrap()
+                    .entry(requesting_node_id)
+                    .or_insert(Vec::new())
+                    .push(event);
+            }
+            EventInstance::PublishModule {
+                wasm_binary,
+                source_node_id,
+            } => {
+                if runtime
+                    .authority_modules
+                    .lock()
+                    .unwrap()
+                    .contains_key(&Authority::Module)
+                {
+                    let module_name = Module::from_bytes(runtime.clone(), &wasm_binary)
+                        .await
+                        .map(|m| m.schema.name.clone())
+                        .unwrap_or_else(|_| "unknown".into());
+                    let _ = runtime.event_sender.send(EventInstance::Module(
+                        ModuleEvent::PublishRequest {
+                            node_id: source_node_id.to_string(),
+                            module_name,
+                            wasm_binary,
+                        },
+                    ));
+                } else {
+                    Runtime::load_module(
+                        runtime.clone(),
+                        Module::from_bytes(runtime.clone(), &wasm_binary)
+                            .await
+                            .unwrap(),
+                        true,
+                    )
+                    .await
+                    .unwrap();
+                }
+            }
+            EventInstance::RemoveModule {
+                module_name,
+                source_node_id,
+            } => {
+                if runtime
+                    .authority_modules
+                    .lock()
+                    .unwrap()
+                    .contains_key(&Authority::Module)
+                {
+                    let _ = runtime.event_sender.send(EventInstance::Module(
+                        ModuleEvent::RemoveRequest {
+                            node_id: source_node_id.to_string(),
+                            module_name,
+                        },
+                    ));
+                } else {
+                    Runtime::remove_module(runtime.clone(), &module_name);
+                }
+            }
+            EventInstance::SchemaRequest {
+                requesting_node_id,
+                request_id,
+                node_name,
+            } => {
+                let schema = runtime.build_node_schema(node_name).to_public();
+                runtime.network_handle.send_packet(
+                    requesting_node_id,
+                    crate::network::protocol::NetworkPacket::SchemaResponse {
+                        request_id,
+                        schema,
+                    },
+                );
+            }
+            event => {
+                let triggered = runtime.find_subscriptions(&event).unwrap();
 
-                    for sub in triggered {
-                        let _ = runtime.invoke_subscription(sub, event.clone());
-                    }
+                for sub in triggered {
+                    let _ = runtime.invoke_subscription(sub, event.clone());
                 }
             }
         }
