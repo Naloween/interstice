@@ -155,6 +155,18 @@ impl Node {
         if runtime.pending_app_modules.lock().unwrap().is_empty() {
             runtime.replay()?;
             runtime.mark_ready();
+            let module_names = runtime
+                .modules
+                .lock()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>();
+            for module_name in module_names {
+                let _ = runtime
+                    .event_sender
+                    .send(EventInstance::Load { module_name });
+            }
         } else {
             *runtime.replay_after_app_init.lock().unwrap() = true;
         }

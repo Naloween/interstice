@@ -22,8 +22,7 @@ pub struct VertexBufferTable {
 
 // REDUCERS
 
-#[reducer(on = "init")]
-pub fn init(ctx: ReducerContext) {
+fn setup_pipeline(ctx: &ReducerContext) {
     let gpu = ctx.gpu();
 
     // Create shader
@@ -89,10 +88,27 @@ pub fn init(ctx: ReducerContext) {
     });
 
     // Store pipeline in table
-    ctx.current.tables.pipelinetable().insert(PipelineTable {
-        id: 0,
-        pipeline_id: pipeline,
-    });
+    if let Some(existing) = ctx.current.tables.pipelinetable().scan().get(0) {
+        let _ = ctx.current.tables.pipelinetable().update(PipelineTable {
+            id: existing.id,
+            pipeline_id: pipeline,
+        });
+    } else {
+        let _ = ctx.current.tables.pipelinetable().insert(PipelineTable {
+            id: 0,
+            pipeline_id: pipeline,
+        });
+    }
+}
+
+#[reducer(on = "init")]
+pub fn init(ctx: ReducerContext) {
+    setup_pipeline(&ctx);
+}
+
+#[reducer(on = "load")]
+pub fn load(ctx: ReducerContext) {
+    setup_pipeline(&ctx);
 }
 
 #[reducer(on = "render")]

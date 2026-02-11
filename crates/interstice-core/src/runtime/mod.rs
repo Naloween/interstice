@@ -194,10 +194,45 @@ impl Runtime {
             if !runtime.is_ready() {
                 if matches!(event, EventInstance::AppInitialized) {
                     Runtime::handle_event(runtime.clone(), event).await;
-                    if runtime.is_ready() && !pending_events.is_empty() {
+
+                    if runtime.is_ready() {
+                        let mut init_events = Vec::new();
+                        let mut deferred = Vec::new();
+
+                        while let Ok(next_event) = event_receiver.try_recv() {
+                            if matches!(next_event, EventInstance::Init { .. }) {
+                                init_events.push(next_event);
+                            } else {
+                                deferred.push(next_event);
+                            }
+                        }
+
+                        for init_event in init_events {
+                            Runtime::handle_event(runtime.clone(), init_event).await;
+                        }
+
+                        let module_names = runtime
+                            .modules
+                            .lock()
+                            .unwrap()
+                            .keys()
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        for module_name in module_names {
+                            Runtime::handle_event(
+                                runtime.clone(),
+                                EventInstance::Load { module_name },
+                            )
+                            .await;
+                        }
+
                         let pending = std::mem::take(&mut pending_events);
                         for pending_event in pending {
                             Runtime::handle_event(runtime.clone(), pending_event).await;
+                        }
+
+                        for deferred_event in deferred {
+                            Runtime::handle_event(runtime.clone(), deferred_event).await;
                         }
                     }
                 } else {

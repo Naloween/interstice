@@ -19,6 +19,7 @@ pub enum SubscriptionEventSchema {
         table_name: String,
     },
     Init,
+    Load,
     Input,
     Render,
     File {

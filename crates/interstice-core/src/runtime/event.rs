@@ -29,6 +29,9 @@ pub enum EventInstance {
     Init {
         module_name: String,
     },
+    Load {
+        module_name: String,
+    },
     Input(InputEvent),
     File(FileEvent),
     Module(ModuleEvent),
@@ -126,6 +129,13 @@ impl EventInstance {
                     return false;
                 }
             }
+            EventInstance::Load { .. } => {
+                if let SubscriptionEventSchema::Load = event_schema {
+                    return true;
+                } else {
+                    return false;
+                }
+            }
             EventInstance::Input(_input_event) => {
                 if let SubscriptionEventSchema::Input = event_schema {
                     return true;
@@ -177,6 +187,17 @@ impl Runtime {
         let mut out = Vec::new();
 
         if let EventInstance::Init { module_name } = event {
+            let module = self.modules.lock().unwrap();
+            let module = module.get(module_name).unwrap();
+            for sub in &module.schema.subscriptions {
+                if event.has_schema(&sub.event) {
+                    out.push(SubscriptionTarget::Local {
+                        module: module.schema.name.clone(),
+                        reducer: sub.reducer_name.clone(),
+                    });
+                }
+            }
+        } else if let EventInstance::Load { module_name } = event {
             let module = self.modules.lock().unwrap();
             let module = module.get(module_name).unwrap();
             for sub in &module.schema.subscriptions {

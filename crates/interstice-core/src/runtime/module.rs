@@ -315,6 +315,15 @@ impl Runtime {
                 })
                 .unwrap();
         }
+
+        if runtime.is_ready() {
+            runtime
+                .event_sender
+                .send(EventInstance::Load {
+                    module_name: module_schema.name.clone(),
+                })
+                .unwrap();
+        }
         runtime.logger.log(
             &format!("Loaded module '{}'", module_schema.name),
             LogSource::Runtime,
