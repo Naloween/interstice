@@ -22,7 +22,7 @@ pub fn get_reducer_code(
         + &reducer_schema.name
         + "(&self, "
         + &arguments_str
-        + "){
+        + ") -> Result<(), String>{
         interstice_sdk::host_calls::call_reducer(
             "
         + &node_selection
@@ -36,7 +36,7 @@ pub fn get_reducer_code(
             interstice_sdk::IntersticeValue::Vec(vec!["
         + &arguments_values_str
         + "]),
-        );
+        )
     }
 "
 }

@@ -24,9 +24,9 @@ pub fn get_query_code(
         + &query_schema.name
         + "(&self, "
         + &arguments_str
-        + ") -> "
+        + ") -> Result<"
         + &return_type
-        + "{
+        + ", String>{
         let res = interstice_sdk::host_calls::call_query(
             "
         + &node_selection
@@ -40,8 +40,8 @@ pub fn get_query_code(
             interstice_sdk::IntersticeValue::Vec(vec!["
         + &arguments_values_str
         + "]),
-        );
-        res.try_into().unwrap()
+        )?;
+        Ok(res.try_into().unwrap())
     }
 "
 }

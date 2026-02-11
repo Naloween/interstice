@@ -89,6 +89,14 @@ pub enum GpuCall {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub enum GpuResponse {
+    None,
+    I64(i64),
+    TextureFormat(TextureFormat),
+    Err(String),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct CreateBuffer {
     pub size: u64,
     pub usage: BufferUsage, // your own bitflags enum

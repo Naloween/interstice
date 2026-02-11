@@ -226,8 +226,6 @@ impl Node {
             logger,
         } = self;
 
-        let event_sender = runtime.event_sender.clone();
-
         logger.log(
             &format!("Starting node with ID: {}", id),
             LogSource::Node,

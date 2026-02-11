@@ -13,6 +13,12 @@ pub enum ModuleCall {
     },
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ModuleCallResponse {
+    Ok,
+    Err(String),
+}
+
 #[derive(Debug, Deserialize, Serialize, IntersticeType, Clone)]
 pub enum ModuleEvent {
     PublishRequest {

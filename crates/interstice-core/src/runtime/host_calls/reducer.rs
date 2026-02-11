@@ -34,17 +34,26 @@ impl Runtime {
             }
             NodeSelection::Other(node_name) => {
                 let modules = self.modules.lock().unwrap();
-                let module = modules.get(caller_module_name).unwrap();
+                let module = modules.get(caller_module_name).ok_or_else(|| {
+                    IntersticeError::ModuleNotFound(
+                        caller_module_name.clone(),
+                        "Caller module missing while dispatching reducer".into(),
+                    )
+                })?;
                 let node_dependency = module
                     .schema
                     .node_dependencies
                     .iter()
                     .find(|n| n.name == node_name)
-                    .unwrap();
+                    .ok_or_else(|| {
+                        IntersticeError::Internal(format!(
+                            "Couldn't find node {node_name} in node dependencies"
+                        ))
+                    })?;
                 let network = &mut self.network_handle.clone();
                 let node_id = network
                     .get_node_id_from_adress(&node_dependency.address)
-                    .unwrap();
+                    .map_err(|_| IntersticeError::UnknownPeer)?;
                 network.send_packet(
                     node_id,
                     NetworkPacket::ReducerCall {

@@ -1,6 +1,9 @@
 use crate::runtime::wasm::{StoreState, read_bytes};
 use crate::{error::IntersticeError, runtime::Runtime};
-use interstice_abi::{Authority, HostCall, ModuleSchema, decode, encode, pack_ptr_len};
+use interstice_abi::{
+    Authority, CallQueryResponse, CallReducerResponse, HostCall, ModuleSchema, decode, encode,
+    pack_ptr_len,
+};
 use serde::Serialize;
 use wasmtime::{Caller, Memory};
 
@@ -14,19 +17,29 @@ impl Runtime {
         len: i32,
     ) -> Result<Option<i64>, IntersticeError> {
         let bytes = read_bytes(memory, caller, ptr, len)?;
-        let host_call: HostCall = decode(&bytes).unwrap();
+        let host_call: HostCall = decode(&bytes)
+            .map_err(|err| IntersticeError::Internal(format!("Failed to decode host call: {err}")))?;
 
         return match host_call {
             HostCall::CallReducer(call_reducer_request) => {
-                let _ = self
+                let response = match self
                     .handle_call_reducer(&caller_module_schema.name.clone(), call_reducer_request)
-                    .await?;
-                Ok(None)
+                    .await
+                {
+                    Ok(()) => CallReducerResponse::Ok,
+                    Err(err) => CallReducerResponse::Err(err.to_string()),
+                };
+                let result = self.send_data_to_module(response, memory, caller).await;
+                Ok(Some(result))
             }
             HostCall::CallQuery(call_query_request) => {
-                let response = self
+                let response = match self
                     .handle_call_query(&caller_module_schema.name.clone(), call_query_request)
-                    .await?;
+                    .await
+                {
+                    Ok(result) => CallQueryResponse::Ok(result),
+                    Err(err) => CallQueryResponse::Err(err.to_string()),
+                };
                 let result = self.send_data_to_module(response, memory, caller).await;
                 Ok(Some(result))
             }
@@ -67,14 +80,30 @@ impl Runtime {
                 Ok(Some(result))
             }
             HostCall::Gpu(gpu_call) => {
-                {
+                let gpu_auth_module = {
                     let auth_modules = self.authority_modules.lock().unwrap();
-                    let gpu_auth_entry = auth_modules.get(&Authority::Gpu).ok_or_else(|| {
-                        IntersticeError::Internal("No GPU authority module".into())
-                    })?;
+                    auth_modules
+                        .get(&Authority::Gpu)
+                        .map(|entry| entry.module_name.clone())
+                };
 
-                    if gpu_auth_entry.module_name != caller_module_schema.name {
-                        return Err(IntersticeError::Unauthorized(Authority::Gpu));
+                match gpu_auth_module {
+                    None => {
+                        let response = interstice_abi::GpuResponse::Err(
+                            "No GPU authority module".into(),
+                        );
+                        let result = self.send_data_to_module(response, memory, caller).await;
+                        return Ok(Some(result));
+                    }
+                    Some(module_name) => {
+                        if module_name != caller_module_schema.name {
+                            let response = interstice_abi::GpuResponse::Err(
+                                IntersticeError::Unauthorized(Authority::Gpu).to_string(),
+                            );
+                            let result =
+                                self.send_data_to_module(response, memory, caller).await;
+                            return Ok(Some(result));
+                        }
                     }
                 }
 
@@ -84,34 +113,225 @@ impl Runtime {
             HostCall::Audio => todo!(),
             HostCall::Input => todo!(),
             HostCall::File(file_call) => {
-                {
+                let file_auth_module = {
                     let auth_modules = self.authority_modules.lock().unwrap();
-                    let file_auth_entry = auth_modules.get(&Authority::File).ok_or_else(|| {
-                        IntersticeError::Internal("No File authority module".into())
-                    })?;
+                    auth_modules
+                        .get(&Authority::File)
+                        .map(|entry| entry.module_name.clone())
+                };
 
-                    if file_auth_entry.module_name != caller_module_schema.name {
-                        return Err(IntersticeError::Unauthorized(Authority::File));
+                match file_auth_module {
+                    None => {
+                        let result = match &file_call {
+                            interstice_abi::FileCall::ReadFile(_) => {
+                                self.send_data_to_module(
+                                    interstice_abi::ReadFileResponse::Err(
+                                        "No File authority module".into(),
+                                    ),
+                                    memory,
+                                    caller,
+                                )
+                                .await
+                            }
+                            interstice_abi::FileCall::WriteFile(_) => {
+                                self.send_data_to_module(
+                                    interstice_abi::WriteFileResponse::Err(
+                                        "No File authority module".into(),
+                                    ),
+                                    memory,
+                                    caller,
+                                )
+                                .await
+                            }
+                            interstice_abi::FileCall::ListDir(_) => {
+                                self.send_data_to_module(
+                                    interstice_abi::ListDirResponse::Err(
+                                        "No File authority module".into(),
+                                    ),
+                                    memory,
+                                    caller,
+                                )
+                                .await
+                            }
+                            interstice_abi::FileCall::Metadata(_) => {
+                                self.send_data_to_module(
+                                    interstice_abi::MetadataResponse::Err(
+                                        "No File authority module".into(),
+                                    ),
+                                    memory,
+                                    caller,
+                                )
+                                .await
+                            }
+                            interstice_abi::FileCall::CreateDir(_) => {
+                                self.send_data_to_module(
+                                    interstice_abi::CreateDirResponse::Err(
+                                        "No File authority module".into(),
+                                    ),
+                                    memory,
+                                    caller,
+                                )
+                                .await
+                            }
+                            interstice_abi::FileCall::RemoveFile(_) => {
+                                self.send_data_to_module(
+                                    interstice_abi::RemoveFileResponse::Err(
+                                        "No File authority module".into(),
+                                    ),
+                                    memory,
+                                    caller,
+                                )
+                                .await
+                            }
+                            interstice_abi::FileCall::RemoveDir(_) => {
+                                self.send_data_to_module(
+                                    interstice_abi::RemoveDirResponse::Err(
+                                        "No File authority module".into(),
+                                    ),
+                                    memory,
+                                    caller,
+                                )
+                                .await
+                            }
+                            interstice_abi::FileCall::Rename(_) => {
+                                self.send_data_to_module(
+                                    interstice_abi::RenameResponse::Err(
+                                        "No File authority module".into(),
+                                    ),
+                                    memory,
+                                    caller,
+                                )
+                                .await
+                            }
+                            interstice_abi::FileCall::Copy(_) => {
+                                self.send_data_to_module(
+                                    interstice_abi::CopyResponse::Err(
+                                        "No File authority module".into(),
+                                    ),
+                                    memory,
+                                    caller,
+                                )
+                                .await
+                            }
+                        };
+                        return Ok(Some(result));
+                    }
+                    Some(module_name) => {
+                        if module_name != caller_module_schema.name {
+                            let err =
+                                IntersticeError::Unauthorized(Authority::File).to_string();
+                            let result = match &file_call {
+                                interstice_abi::FileCall::ReadFile(_) => {
+                                    self.send_data_to_module(
+                                        interstice_abi::ReadFileResponse::Err(err.clone()),
+                                        memory,
+                                        caller,
+                                    )
+                                    .await
+                                }
+                                interstice_abi::FileCall::WriteFile(_) => {
+                                    self.send_data_to_module(
+                                        interstice_abi::WriteFileResponse::Err(err.clone()),
+                                        memory,
+                                        caller,
+                                    )
+                                    .await
+                                }
+                                interstice_abi::FileCall::ListDir(_) => {
+                                    self.send_data_to_module(
+                                        interstice_abi::ListDirResponse::Err(err.clone()),
+                                        memory,
+                                        caller,
+                                    )
+                                    .await
+                                }
+                                interstice_abi::FileCall::Metadata(_) => {
+                                    self.send_data_to_module(
+                                        interstice_abi::MetadataResponse::Err(err.clone()),
+                                        memory,
+                                        caller,
+                                    )
+                                    .await
+                                }
+                                interstice_abi::FileCall::CreateDir(_) => {
+                                    self.send_data_to_module(
+                                        interstice_abi::CreateDirResponse::Err(err.clone()),
+                                        memory,
+                                        caller,
+                                    )
+                                    .await
+                                }
+                                interstice_abi::FileCall::RemoveFile(_) => {
+                                    self.send_data_to_module(
+                                        interstice_abi::RemoveFileResponse::Err(err.clone()),
+                                        memory,
+                                        caller,
+                                    )
+                                    .await
+                                }
+                                interstice_abi::FileCall::RemoveDir(_) => {
+                                    self.send_data_to_module(
+                                        interstice_abi::RemoveDirResponse::Err(err.clone()),
+                                        memory,
+                                        caller,
+                                    )
+                                    .await
+                                }
+                                interstice_abi::FileCall::Rename(_) => {
+                                    self.send_data_to_module(
+                                        interstice_abi::RenameResponse::Err(err.clone()),
+                                        memory,
+                                        caller,
+                                    )
+                                    .await
+                                }
+                                interstice_abi::FileCall::Copy(_) => {
+                                    self.send_data_to_module(
+                                        interstice_abi::CopyResponse::Err(err.clone()),
+                                        memory,
+                                        caller,
+                                    )
+                                    .await
+                                }
+                            };
+                            return Ok(Some(result));
+                        }
                     }
                 }
 
                 self.handle_file_call(file_call, memory, caller).await
             }
             HostCall::Module(module_call) => {
-                {
+                let module_auth_module = {
                     let auth_modules = self.authority_modules.lock().unwrap();
-                    let module_auth_entry =
-                        auth_modules.get(&Authority::Module).ok_or_else(|| {
-                            IntersticeError::Internal("No Module authority module".into())
-                        })?;
+                    auth_modules
+                        .get(&Authority::Module)
+                        .map(|entry| entry.module_name.clone())
+                };
 
-                    if module_auth_entry.module_name != caller_module_schema.name {
-                        return Err(IntersticeError::Unauthorized(Authority::Module));
+                match module_auth_module {
+                    None => {
+                        let response = interstice_abi::ModuleCallResponse::Err(
+                            "No Module authority module".into(),
+                        );
+                        let result = self.send_data_to_module(response, memory, caller).await;
+                        return Ok(Some(result));
+                    }
+                    Some(module_name) => {
+                        if module_name != caller_module_schema.name {
+                            let response = interstice_abi::ModuleCallResponse::Err(
+                                IntersticeError::Unauthorized(Authority::Module).to_string(),
+                            );
+                            let result =
+                                self.send_data_to_module(response, memory, caller).await;
+                            return Ok(Some(result));
+                        }
                     }
                 }
 
                 let runtime = caller.data().runtime.clone();
                 self.handle_module_call(module_call, memory, caller, caller_module_schema, runtime)
+                    .await
             }
         };
     }

@@ -8,20 +8,20 @@ pub struct HelloTables{}
 pub struct HelloReducers{}
 impl HelloReducers{
 
-    pub fn hello(&self, name: String){
+    pub fn hello(&self, name: String) -> Result<(), String>{
         interstice_sdk::host_calls::call_reducer(
             ModuleSelection::Other("hello".into()),
             "hello".to_string(),
             IntersticeValue::Vec(vec![name.into()]),
-        );
+        )
     }
 
-    pub fn on_greeting_insert(&self, inserted_row: Row){
+    pub fn on_greeting_insert(&self, inserted_row: Row) -> Result<(), String>{
         interstice_sdk::host_calls::call_reducer(
             ModuleSelection::Other("hello".into()),
             "on_greeting_insert".to_string(),
             IntersticeValue::Vec(vec![inserted_row.into()]),
-        );
+        )
     }
 
 }
@@ -63,8 +63,9 @@ impl GreetingsHandle{
         .map(|row| row.into())
     }
 
-    pub fn scan(&self) -> Vec<Greetings>{
-        interstice_sdk::host_calls::scan(interstice_sdk::ModuleSelection::Current, "greetings".to_string()).into_iter().map(|x| x.into()).collect()
+    pub fn scan(&self) -> Result<Vec<Greetings>, String>{
+        interstice_sdk::host_calls::scan(interstice_sdk::ModuleSelection::Current, "greetings".to_string())
+            .map(|rows| rows.into_iter().map(|x| x.into()).collect())
     }
 }
 

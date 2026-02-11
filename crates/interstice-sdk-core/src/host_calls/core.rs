@@ -1,8 +1,9 @@
 use interstice_abi::{
-    CallQueryRequest, CallReducerRequest, DeleteRowRequest, HostCall, IndexKey, InsertRowRequest,
-    IntersticeValue, LogRequest, ModuleSelection, NodeSelection, Row, TableScanRequest,
-    UpdateRowRequest, TableGetByPrimaryKeyRequest, TableGetByPrimaryKeyResponse,
-    TableIndexScanRequest, TableIndexScanResponse, IndexQuery, InsertRowResponse,
+    CallQueryRequest, CallQueryResponse, CallReducerRequest, CallReducerResponse, DeleteRowRequest,
+    DeleteRowResponse, HostCall, IndexKey, InsertRowRequest, InsertRowResponse, IntersticeValue,
+    LogRequest, ModuleSelection, NodeSelection, Row, TableGetByPrimaryKeyRequest,
+    TableGetByPrimaryKeyResponse, TableIndexScanRequest, TableIndexScanResponse, TableScanRequest,
+    TableScanResponse, UpdateRowRequest, UpdateRowResponse, IndexQuery,
 };
 
 pub fn log(message: &str) {
@@ -17,7 +18,7 @@ pub fn call_reducer(
     module_selection: ModuleSelection,
     reducer_name: String,
     input: IntersticeValue,
-) {
+) -> Result<(), String> {
     let call = HostCall::CallReducer(CallReducerRequest {
         node_selection,
         module_selection,
@@ -25,7 +26,12 @@ pub fn call_reducer(
         input,
     });
 
-    host_call(call);
+    let pack = host_call(call);
+    let response: CallReducerResponse = unpack(pack);
+    match response {
+        CallReducerResponse::Ok => Ok(()),
+        CallReducerResponse::Err(err) => Err(err),
+    }
 }
 
 pub fn call_query(
@@ -33,7 +39,7 @@ pub fn call_query(
     module_selection: ModuleSelection,
     query_name: String,
     input: IntersticeValue,
-) -> IntersticeValue {
+) -> Result<IntersticeValue, String> {
     let call = HostCall::CallQuery(CallQueryRequest {
         node_selection,
         module_selection,
@@ -42,8 +48,11 @@ pub fn call_query(
     });
 
     let pack = host_call(call);
-    let result: IntersticeValue = unpack(pack);
-    return result;
+    let response: CallQueryResponse = unpack(pack);
+    match response {
+        CallQueryResponse::Ok(value) => Ok(value),
+        CallQueryResponse::Err(err) => Err(err),
+    }
 }
 
 pub fn insert_row(
@@ -65,35 +74,56 @@ pub fn insert_row(
     }
 }
 
-pub fn update_row(module_selection: ModuleSelection, table_name: String, row: Row) {
+pub fn update_row(
+    module_selection: ModuleSelection,
+    table_name: String,
+    row: Row,
+) -> Result<(), String> {
     let call = HostCall::UpdateRow(UpdateRowRequest {
         module_selection,
         table_name,
         row,
     });
 
-    host_call(call);
+    let pack = host_call(call);
+    let response: UpdateRowResponse = unpack(pack);
+    match response {
+        UpdateRowResponse::Ok => Ok(()),
+        UpdateRowResponse::Err(err) => Err(err),
+    }
 }
 
-pub fn delete_row(module_selection: ModuleSelection, table_name: String, primary_key: IndexKey) {
+pub fn delete_row(
+    module_selection: ModuleSelection,
+    table_name: String,
+    primary_key: IndexKey,
+) -> Result<(), String> {
     let call = HostCall::DeleteRow(DeleteRowRequest {
         module_selection,
         table_name,
         primary_key,
     });
 
-    host_call(call);
+    let pack = host_call(call);
+    let response: DeleteRowResponse = unpack(pack);
+    match response {
+        DeleteRowResponse::Ok => Ok(()),
+        DeleteRowResponse::Err(err) => Err(err),
+    }
 }
 
-pub fn scan(module_selection: ModuleSelection, table_name: String) -> Vec<Row> {
+pub fn scan(module_selection: ModuleSelection, table_name: String) -> Result<Vec<Row>, String> {
     let call = HostCall::TableScan(TableScanRequest {
         module_selection,
         table_name,
     });
 
     let pack = host_call(call);
-    let rows: Vec<Row> = unpack(pack);
-    return rows;
+    let response: TableScanResponse = unpack(pack);
+    match response {
+        TableScanResponse::Ok { rows } => Ok(rows),
+        TableScanResponse::Err(err) => Err(err),
+    }
 }
 
 pub fn get_by_primary_key(

@@ -162,20 +162,27 @@ impl Runtime {
         &self,
         table_scan_request: TableScanRequest,
     ) -> TableScanResponse {
-        self.modules
-            .lock()
-            .unwrap()
-            .get(&self.call_stack.lock().unwrap().last().unwrap().module)
-            .and_then(|module| {
-                module
-                    .tables
-                    .lock()
-                    .unwrap()
-                    .get(&table_scan_request.table_name)
-                    .map(|t| t.scan().to_vec())
-            })
-            .map(|rows| TableScanResponse { rows })
-            .unwrap_or(TableScanResponse { rows: vec![] })
+        let module_name = match self.call_stack.lock().unwrap().last() {
+            Some(frame) => frame.module.clone(),
+            None => {
+                return TableScanResponse::Err("No active call frame".into());
+            }
+        };
+
+        let modules = self.modules.lock().unwrap();
+        let module = match modules.get(&module_name) {
+            Some(module) => module,
+            None => return TableScanResponse::Err("Module not found".into()),
+        };
+        let tables = module.tables.lock().unwrap();
+        let table = match tables.get(&table_scan_request.table_name) {
+            Some(table) => table,
+            None => return TableScanResponse::Err("Table not found".into()),
+        };
+
+        TableScanResponse::Ok {
+            rows: table.scan().to_vec(),
+        }
     }
 
     pub(crate) fn handle_table_get_by_primary_key(

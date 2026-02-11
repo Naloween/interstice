@@ -1,4 +1,4 @@
-use interstice_abi::{CallQueryRequest, CallQueryResponse, ModuleSelection, NodeSelection};
+use interstice_abi::{CallQueryRequest, IntersticeValue, ModuleSelection, NodeSelection};
 
 use crate::{IntersticeError, NetworkPacket, runtime::Runtime};
 use tokio::sync::oneshot;
@@ -8,7 +8,7 @@ impl Runtime {
         &self,
         caller_module_name: &String,
         call_query_request: CallQueryRequest,
-    ) -> Result<CallQueryResponse, IntersticeError> {
+    ) -> Result<IntersticeValue, IntersticeError> {
         let module_name = match &call_query_request.module_selection {
             ModuleSelection::Current => caller_module_name,
             ModuleSelection::Other(name) => name,
@@ -26,16 +26,25 @@ impl Runtime {
                 let network = self.network_handle.clone();
                 let node_id = {
                     let modules = self.modules.lock().unwrap();
-                    let module = modules.get(caller_module_name).unwrap();
+                    let module = modules.get(caller_module_name).ok_or_else(|| {
+                        IntersticeError::ModuleNotFound(
+                            caller_module_name.clone(),
+                            "Caller module missing while dispatching query".into(),
+                        )
+                    })?;
                     let node_dependency = module
                         .schema
                         .node_dependencies
                         .iter()
                         .find(|n| n.name == node_name)
-                        .unwrap();
+                        .ok_or_else(|| {
+                            IntersticeError::Internal(format!(
+                                "Couldn't find node {node_name} in node dependencies"
+                            ))
+                        })?;
                     network
                         .get_node_id_from_adress(&node_dependency.address)
-                        .unwrap()
+                        .map_err(|_| IntersticeError::UnknownPeer)?
                 };
                 let request_id = uuid::Uuid::new_v4().to_string();
 
@@ -56,7 +65,9 @@ impl Runtime {
                 );
                 let result = receiver
                     .await
-                    .map_err(|_| IntersticeError::ProtocolError("Query response channel closed".into()))?;
+                    .map_err(|_| {
+                        IntersticeError::ProtocolError("Query response channel closed".into())
+                    })?;
                 Ok(result)
             }
         }

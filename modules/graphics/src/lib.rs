@@ -28,7 +28,7 @@ pub fn load(ctx: ReducerContext) {
     let gpu = ctx.gpu();
 
     // Create shader
-    let shader = gpu.create_shader_module(
+    let shader = match gpu.create_shader_module(
         r#"
         @vertex
         fn vs_main(@builtin(vertex_index) vid: u32) -> @builtin(position) vec4<f32> {
@@ -47,18 +47,36 @@ pub fn load(ctx: ReducerContext) {
         }
     "#
         .into(),
-    );
+    ) {
+        Ok(id) => id,
+        Err(err) => {
+            ctx.log(&format!("Failed to create shader module: {}", err));
+            return;
+        }
+    };
 
     // Get surface format
-    let surface_format = gpu.get_surface_format();
+    let surface_format = match gpu.get_surface_format() {
+        Ok(format) => format,
+        Err(err) => {
+            ctx.log(&format!("Failed to get surface format: {}", err));
+            return;
+        }
+    };
 
     // Create pipeline layout
-    let pipeline_layout = gpu.create_pipeline_layout(CreatePipelineLayout {
+    let pipeline_layout = match gpu.create_pipeline_layout(CreatePipelineLayout {
         bind_group_layouts: vec![],
-    });
+    }) {
+        Ok(id) => id,
+        Err(err) => {
+            ctx.log(&format!("Failed to create pipeline layout: {}", err));
+            return;
+        }
+    };
 
     // Create render pipeline
-    let pipeline = gpu.create_render_pipeline(CreateRenderPipeline {
+    let pipeline = match gpu.create_render_pipeline(CreateRenderPipeline {
         label: Some("main".into()),
         layout: pipeline_layout,
         vertex: VertexState {
@@ -87,19 +105,37 @@ pub fn load(ctx: ReducerContext) {
             alpha_to_coverage_enabled: false,
         },
         multiview: None,
-    });
+    }) {
+        Ok(id) => id,
+        Err(err) => {
+            ctx.log(&format!("Failed to create render pipeline: {}", err));
+            return;
+        }
+    };
 
     // Store pipeline in table
-    if let Some(existing) = ctx.current.tables.pipelinetable().scan().get(0) {
-        let _ = ctx.current.tables.pipelinetable().update(PipelineTable {
+    let existing_rows = match ctx.current.tables.pipelinetable().scan() {
+        Ok(rows) => rows,
+        Err(err) => {
+            ctx.log(&format!("Failed to scan pipeline table: {}", err));
+            return;
+        }
+    };
+
+    if let Some(existing) = existing_rows.get(0) {
+        if let Err(err) = ctx.current.tables.pipelinetable().update(PipelineTable {
             id: existing.id,
             pipeline_id: pipeline,
-        });
+        }) {
+            ctx.log(&format!("Failed to update pipeline table: {}", err));
+        }
     } else {
-        let _ = ctx.current.tables.pipelinetable().insert(PipelineTable {
+        if let Err(err) = ctx.current.tables.pipelinetable().insert(PipelineTable {
             id: 0,
             pipeline_id: pipeline,
-        });
+        }) {
+            ctx.log(&format!("Failed to insert pipeline table: {}", err));
+        }
     }
 }
 
@@ -108,19 +144,40 @@ pub fn render(ctx: ReducerContext) {
     let gpu = ctx.gpu();
 
     // Get pipeline from table
-    let pipeline = if let Some(p) = ctx.current.tables.pipelinetable().scan().get(0) {
-        p.pipeline_id
-    } else {
-        return;
+    let pipeline_rows = match ctx.current.tables.pipelinetable().scan() {
+        Ok(rows) => rows,
+        Err(err) => {
+            ctx.log(&format!("Failed to scan pipeline table: {}", err));
+            return;
+        }
+    };
+    let pipeline = match pipeline_rows.get(0) {
+        Some(p) => p.pipeline_id,
+        None => return,
     };
 
     // Begin frame
-    gpu.begin_frame();
+    if let Err(err) = gpu.begin_frame() {
+        ctx.log(&format!("Failed to begin frame: {}", err));
+        return;
+    }
 
     // Get current surface texture
-    let surface_texture = gpu.get_current_surface_texture();
-    let surface_format = gpu.get_surface_format();
-    let surface_view = gpu.create_texture_view(CreateTextureView {
+    let surface_texture = match gpu.get_current_surface_texture() {
+        Ok(id) => id,
+        Err(err) => {
+            ctx.log(&format!("Failed to get surface texture: {}", err));
+            return;
+        }
+    };
+    let surface_format = match gpu.get_surface_format() {
+        Ok(format) => format,
+        Err(err) => {
+            ctx.log(&format!("Failed to get surface format: {}", err));
+            return;
+        }
+    };
+    let surface_view = match gpu.create_texture_view(CreateTextureView {
         texture: surface_texture,
         format: Some(surface_format),
         dimension: Some(TextureViewDimension::D2),
@@ -128,13 +185,25 @@ pub fn render(ctx: ReducerContext) {
         mip_level_count: None,
         base_array_layer: 0,
         array_layer_count: None,
-    });
+    }) {
+        Ok(id) => id,
+        Err(err) => {
+            ctx.log(&format!("Failed to create surface view: {}", err));
+            return;
+        }
+    };
 
     // Create command encoder
-    let encoder = gpu.create_command_encoder();
+    let encoder = match gpu.create_command_encoder() {
+        Ok(id) => id,
+        Err(err) => {
+            ctx.log(&format!("Failed to create command encoder: {}", err));
+            return;
+        }
+    };
 
     // Begin render pass
-    let pass = gpu.begin_render_pass(BeginRenderPass {
+    let pass = match gpu.begin_render_pass(BeginRenderPass {
         color_attachments: vec![RenderPassColorAttachment {
             view: surface_view,
             resolve_target: None,
@@ -144,18 +213,38 @@ pub fn render(ctx: ReducerContext) {
         }],
         encoder,
         depth_stencil: None,
-    });
+    }) {
+        Ok(id) => id,
+        Err(err) => {
+            ctx.log(&format!("Failed to begin render pass: {}", err));
+            return;
+        }
+    };
 
     // Set pipeline and draw
-    gpu.set_render_pipeline(pass, pipeline);
-    gpu.draw(pass, 3, 1); // 3 vertices, 1 instance
+    if let Err(err) = gpu.set_render_pipeline(pass, pipeline) {
+        ctx.log(&format!("Failed to set render pipeline: {}", err));
+        return;
+    }
+    if let Err(err) = gpu.draw(pass, 3, 1) {
+        ctx.log(&format!("Failed to draw: {}", err));
+        return;
+    }
 
     // End render pass
-    gpu.end_render_pass(pass);
+    if let Err(err) = gpu.end_render_pass(pass) {
+        ctx.log(&format!("Failed to end render pass: {}", err));
+        return;
+    }
 
     // Submit and present
-    gpu.submit(encoder);
-    gpu.present();
+    if let Err(err) = gpu.submit(encoder) {
+        ctx.log(&format!("Failed to submit encoder: {}", err));
+        return;
+    }
+    if let Err(err) = gpu.present() {
+        ctx.log(&format!("Failed to present frame: {}", err));
+    }
 }
 
 // #[reducer(on = "input")]

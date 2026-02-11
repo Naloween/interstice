@@ -51,6 +51,12 @@ pub struct CallReducerRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub enum CallReducerResponse {
+    Ok,
+    Err(String),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CallQueryRequest {
     pub node_selection: NodeSelection,
     pub module_selection: ModuleSelection,
@@ -58,7 +64,11 @@ pub struct CallQueryRequest {
     pub input: IntersticeValue,
 }
 
-pub type CallQueryResponse = IntersticeValue;
+#[derive(Debug, Serialize, Deserialize)]
+pub enum CallQueryResponse {
+    Ok(IntersticeValue),
+    Err(String),
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LogRequest {
@@ -111,8 +121,9 @@ pub struct TableScanRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct TableScanResponse {
-    pub rows: Vec<Row>,
+pub enum TableScanResponse {
+    Ok { rows: Vec<Row> },
+    Err(String),
 }
 
 #[derive(Debug, Deserialize, Serialize)]

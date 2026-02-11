@@ -333,6 +333,7 @@ This document lists the core features required to make Interstice stable, ergono
 - macros more checks and better error handlings (subscription check args and types)
 - Change the macro building to use quote instead of raw strings
 - Network handle reconnections and be more robust
+- Add better funcion docs
 
 ## Optimizations
 

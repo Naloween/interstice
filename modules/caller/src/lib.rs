@@ -6,7 +6,10 @@ use interstice_sdk::*;
 #[reducer(on = "init")]
 fn caller(ctx: ReducerContext) {
     ctx.log("Calling remote hello...");
-    ctx.mynode().hello().reducers.hello("Client !".to_string());
+    if let Err(err) = ctx.mynode().hello().reducers.hello("Client !".to_string()) {
+        ctx.log(&format!("Failed to call remote hello: {}", err));
+        return;
+    }
     ctx.log("hello remote called !");
 
     // ctx.log("Calling local hello...");
