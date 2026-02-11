@@ -323,12 +323,14 @@ This document lists the core features required to make Interstice stable, ergono
 ## Features
 
 - Table Views (allow row filtering based on current state and requesting node id)
-- add audio authority
-- Table migration support
 - Add elusive table feature (to not be logged, saved). Usefull for non persistent states like the mouse position, or gpu state that reset at each restart anyway.
+- add audio authority
+- Table migration support (ability to update a module without deleting all the data)
+- Default modules (ModuleManager, Graphics, Inputs)
 
 ## Robustness, error handling and fixes
 
+- Move the File authority to its separate struct from runtime instead of having everything inside the runtime. Also change how the watching files handles since there is at most one module with the authority.
 - macros more checks and better error handlings (subscription check args and types)
 - Change the macro building to use quote instead of raw strings
 - Network handle reconnections and be more robust
@@ -336,10 +338,10 @@ This document lists the core features required to make Interstice stable, ergono
 
 ## Optimizations
 
-- Efficient table scans through iter
-- Better type convertions designs (instead of always converting to IntersticeValue as an intermediate)
-- Optimize type convertions (no clones)
 - transaction logs snaptchots, separate logs before snapchot (archive) and after the current snaptchot
+- Efficient table scans through iter
+- Better type convertions designs (instead of always converting to IntersticeValue as an intermediate in cross module interaction)
+- Optimize type convertions (no clones)
 - transaction logs add indexes to retreive efficiently per module, per table transactions
 - Columnar / structured storage backend
 - parallelize reducers calls when possible
