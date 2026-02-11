@@ -86,6 +86,7 @@ the `authorities` argument define potential authority claimed by this module. Se
 ### Table
 
 Inside your module you may define tables through the `#[table]` macro on top of a struct:
+
 ```rust
 #[table]
 struct MyTable{
@@ -103,11 +104,13 @@ struct MyTable{
 ```
 
 Rules:
+
 - `#[primary_key]` is required and enforces uniqueness. Add `auto_inc` to generate values automatically.
 - `#[index(hash)]` and `#[index(btree)]` create secondary indexes. Use `unique` to enforce uniqueness, and `auto_inc` to generate integer values on insert.
 - `auto_inc` is supported for integer types only (u8, u32, u64, i32, i64).
 
 When inserting, the table API returns the inserted row so you can read generated values:
+
 ```rust
 let row = ctx.current.tables.mytable().insert(MyTable {
   id: 0,
@@ -183,14 +186,12 @@ Bindings live in `src/bindings/`.
 
 That folder can contain TOML files describing either:
 
-- Module dependencies (local): module schemas for other modules available in the *same node*.
+- Module dependencies (local): module schemas for other modules available in the _same node_.
 - Node dependencies (remote): node schemas that include the node address and the public schemas of the modules you depend on.
 
 With only those files, the SDK reads the schemas and generates typed functions to call reducers/queries and subscribe to tables.
 
 When adding a binding, the CLI should fetch the schema from a running node and write it into `src/bindings/`. The schema used is the **public** view (`schema.to_public()`), which strips private tables and (for node schemas) private modules.
-
-
 
 ## Build for WASM
 
@@ -278,7 +279,7 @@ These commands fetch **public** schemas from the target node and write TOML file
 # Security
 
 - Publishing doesn't require any priviledge by default, so anyone can publish and remove module, even remotely.
-- To prevent this default behavior the node needs to have loaded a module with the Module authority. In this case, all request will be forwarded to this module. This is the only module capable of publishing and removing module on the node it runs. 
+- To prevent this default behavior the node needs to have loaded a module with the Module authority. In this case, all request will be forwarded to this module. This is the only module capable of publishing and removing module on the node it runs.
 
 ---
 
@@ -324,12 +325,10 @@ This document lists the core features required to make Interstice stable, ergono
 - Table Views (allow row filtering based on current state and requesting node id)
 - add audio authority
 - Table migration support
-- Subscription execution ordering guarantees ?
-- Add elusive table feature (to not be logged (saved)). Usefull for non persistent states like the mouse position.
+- Add elusive table feature (to not be logged, saved). Usefull for non persistent states like the mouse position, or gpu state that reset at each restart anyway.
 
 ## Robustness, error handling and fixes
 
-- Fix replay not working on module that requires app (module loaded after app runs but replay happens before)
 - Propagate host call errors to module instead of internal error
 - macros more checks and better error handlings (subscription check args and types)
 - Change the macro building to use quote instead of raw strings
