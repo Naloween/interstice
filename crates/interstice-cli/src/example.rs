@@ -1,7 +1,4 @@
-use std::{fs::File, io::Write as _};
-
 use interstice_core::{IntersticeError, Node};
-
 use crate::{
     data_directory::nodes_dir,
     node_registry::{NodeRecord, NodeRegistry},
@@ -53,11 +50,7 @@ pub async fn example(port: u32) -> Result<(), IntersticeError> {
             .to_public();
     } else if is_new {
         // Server
-        let hello_schema = node.load_module_from_bytes(hello_bytes).await?; //.to_public();
-        File::create("./hello_schema.toml")
-            .unwrap()
-            .write_all(&hello_schema.to_toml_string().unwrap().as_bytes())
-            .unwrap();
+        let _hello_schema = node.load_module_from_bytes(hello_bytes).await?; //.to_public();
     } else {
         let modules_path = nodes_dir().join(node.id.to_string()).join("modules");
         let has_modules = std::fs::read_dir(&modules_path)
@@ -78,19 +71,11 @@ pub async fn example(port: u32) -> Result<(), IntersticeError> {
                 .await?
                 .to_public();
         } else if !has_modules {
-            let hello_schema = node.load_module_from_bytes(hello_bytes).await?;
-            File::create("./hello_schema.toml")
-                .unwrap()
-                .write_all(&hello_schema.to_toml_string().unwrap().as_bytes())
-                .unwrap();
+            let _hello_schema = node.load_module_from_bytes(hello_bytes).await?;
         }
     }
 
-    let node_schema = node.schema("MyNode".into()).await.to_public();
-    File::create("./node_schema.toml")
-        .unwrap()
-        .write_all(&node_schema.to_toml_string().unwrap().as_bytes())
-        .unwrap();
+    let _node_schema = node.schema("MyNode".into()).await.to_public();
 
     node.start().await?;
     Ok(())
