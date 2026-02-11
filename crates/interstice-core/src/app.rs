@@ -1,9 +1,13 @@
 use crate::{
     node::NodeId,
     runtime::{
-        GpuCallRequest, GpuCallResult, ReducerJob, Runtime,
+        Runtime,
         event::EventInstance,
-        host_calls::{gpu::GpuState, input::from_winit::get_input_event_from_device_event},
+        host_calls::{
+            gpu::{GpuCallRequest, GpuCallResult, GpuState},
+            input::from_winit::get_input_event_from_device_event,
+        },
+        reducer::ReducerJob,
     },
 };
 use interstice_abi::{Authority, IntersticeValue};
@@ -70,6 +74,7 @@ impl ApplicationHandler for App {
         self.event_sender
             .send(EventInstance::AppInitialized)
             .expect("Failed to send AppInitialized event");
+        window.request_redraw();
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {

@@ -1,5 +1,5 @@
 use quote::quote;
-use syn::{Ident, ItemFn, Pat, Type};
+use syn::{Ident, Pat, Type};
 
 pub fn get_register_schema_function(
     reducer_ident: Ident,

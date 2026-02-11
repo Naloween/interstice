@@ -22,7 +22,9 @@ pub struct VertexBufferTable {
 
 // REDUCERS
 
-fn setup_pipeline(ctx: &ReducerContext) {
+#[reducer(on = "load")]
+pub fn load(ctx: ReducerContext) {
+    ctx.log("Loading graphics...");
     let gpu = ctx.gpu();
 
     // Create shader
@@ -99,16 +101,6 @@ fn setup_pipeline(ctx: &ReducerContext) {
             pipeline_id: pipeline,
         });
     }
-}
-
-#[reducer(on = "init")]
-pub fn init(ctx: ReducerContext) {
-    setup_pipeline(&ctx);
-}
-
-#[reducer(on = "load")]
-pub fn load(ctx: ReducerContext) {
-    setup_pipeline(&ctx);
 }
 
 #[reducer(on = "render")]

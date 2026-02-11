@@ -3,8 +3,11 @@ use interstice_abi::{
     Draw, DrawIndexed, GpuId, SetIndexBuffer, SetVertexBuffer,
 };
 use std::{collections::HashMap, sync::Arc};
+use tokio::sync::oneshot;
 use wgpu::{SurfaceTexture, TextureView};
 use winit::window::Window;
+
+use crate::IntersticeError;
 
 mod compute;
 pub mod conversions;
@@ -12,6 +15,18 @@ pub mod dispatch;
 mod general;
 mod render;
 mod ressource;
+
+#[derive(Debug, Clone)]
+pub enum GpuCallResult {
+    None,
+    I64(i64),
+    TextureFormat(interstice_abi::TextureFormat),
+}
+
+pub struct GpuCallRequest {
+    pub call: interstice_abi::GpuCall,
+    pub respond_to: oneshot::Sender<Result<GpuCallResult, IntersticeError>>,
+}
 
 pub struct GpuState {
     next_id: GpuId,

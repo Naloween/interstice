@@ -30,15 +30,15 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn new(root_data_path: &Path, port: u32) -> Result<Self, IntersticeError> {
+    pub fn new(nodes_path: &Path, port: u32) -> Result<Self, IntersticeError> {
         let id = Uuid::new_v4();
-        let data_path = root_data_path.join(id.to_string());
-        std::fs::create_dir_all(&data_path).expect("Should be able to create node data path");
+        let data_path = nodes_path.join(id.to_string());
         let modules_path = data_path.join("modules");
+        let transaction_log_path = data_path.join("transaction_log");
+        std::fs::create_dir_all(&data_path).expect("Should be able to create node data path");
         std::fs::create_dir_all(&modules_path).expect("Should be able to create modules path");
 
         let address = format!("127.0.0.1:{}", port);
-        let transaction_log_path = data_path.join("transaction_log");
 
         let (event_sender, event_receiver) = mpsc::unbounded_channel();
 
@@ -68,7 +68,6 @@ impl Node {
             run_app_notify.clone(),
             logger.clone(),
         )?);
-        runtime.mark_ready();
         let gpu_call_receiver = runtime.take_gpu_call_receiver();
         let app = App::new(
             id,
@@ -92,12 +91,8 @@ impl Node {
         Ok(node)
     }
 
-    pub async fn load(
-        root_data_path: &Path,
-        id: NodeId,
-        port: u32,
-    ) -> Result<Self, IntersticeError> {
-        let data_path = root_data_path.join(id.to_string());
+    pub async fn load(nodes_path: &Path, id: NodeId, port: u32) -> Result<Self, IntersticeError> {
+        let data_path = nodes_path.join(id.to_string());
         let address = format!("127.0.0.1:{}", port);
         let transaction_log_path = data_path.join("transaction_log");
         let modules_path = data_path.join("modules");
@@ -152,24 +147,7 @@ impl Node {
         }
 
         // Replay transaction logs to restore state once all modules are available
-        if runtime.pending_app_modules.lock().unwrap().is_empty() {
-            runtime.replay()?;
-            runtime.mark_ready();
-            let module_names = runtime
-                .modules
-                .lock()
-                .unwrap()
-                .keys()
-                .cloned()
-                .collect::<Vec<_>>();
-            for module_name in module_names {
-                let _ = runtime
-                    .event_sender
-                    .send(EventInstance::Load { module_name });
-            }
-        } else {
-            *runtime.replay_after_app_init.lock().unwrap() = true;
-        }
+        runtime.replay()?;
 
         let node = Self {
             id,
@@ -211,7 +189,6 @@ impl Node {
             run_app_notify.clone(),
             logger.clone(),
         )?);
-        runtime.mark_ready();
         let gpu_call_receiver = runtime.take_gpu_call_receiver();
         let app = App::new(
             id,
@@ -248,6 +225,8 @@ impl Node {
             run_app_notify,
             logger,
         } = self;
+
+        let event_sender = runtime.event_sender.clone();
 
         logger.log(
             &format!("Starting node with ID: {}", id),

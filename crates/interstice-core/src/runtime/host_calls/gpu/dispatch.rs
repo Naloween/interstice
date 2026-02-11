@@ -2,8 +2,7 @@ use wasmtime::Caller;
 
 use crate::{
     error::IntersticeError,
-    runtime::wasm::StoreState,
-    runtime::{GpuCallRequest, GpuCallResult, Runtime},
+    runtime::{GpuCallRequest, Runtime, host_calls::gpu::GpuCallResult, wasm::StoreState},
 };
 use tokio::sync::oneshot;
 

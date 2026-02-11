@@ -3,7 +3,7 @@ pub mod event;
 pub mod host_calls;
 pub mod module;
 mod query;
-mod reducer;
+pub mod reducer;
 mod table;
 pub mod transaction;
 mod wasm;
@@ -17,9 +17,9 @@ use crate::{
     runtime::{
         authority::AuthorityEntry,
         event::EventInstance,
-        host_calls::gpu::GpuState,
+        host_calls::gpu::{GpuCallRequest, GpuState},
         module::Module,
-        reducer::CallFrame,
+        reducer::{CallFrame, CompletionGuard, ReducerJob},
         wasm::{StoreState, linker::define_host_calls},
     },
 };
@@ -31,7 +31,6 @@ use std::{
     collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex, mpsc},
-    sync::atomic::{AtomicBool, Ordering},
 };
 use tokio::sync::{
     Notify,
@@ -50,8 +49,9 @@ pub struct Runtime {
     pub(crate) event_sender: UnboundedSender<EventInstance>,
     pub(crate) network_handle: NetworkHandle,
     pub(crate) transaction_logs: Arc<Mutex<TransactionLog>>,
+    pub(crate) logger: Logger,
+    run_app_notify: Arc<Notify>,
     pub(crate) app_initialized: Arc<Mutex<bool>>,
-    pub(crate) pending_app_modules: Arc<Mutex<Vec<(Module, bool)>>>,
     pub(crate) pending_query_responses:
         Arc<Mutex<HashMap<String, oneshot::Sender<IntersticeValue>>>>,
     pub(crate) reducer_sender: UnboundedSender<ReducerJob>,
@@ -59,49 +59,8 @@ pub struct Runtime {
     pub(crate) gpu_call_sender: mpsc::Sender<GpuCallRequest>,
     gpu_call_receiver: Mutex<Option<mpsc::Receiver<GpuCallRequest>>>,
     pub(crate) modules_path: Option<PathBuf>,
-    run_app_notify: Arc<Notify>,
     node_subscriptions: Arc<Mutex<HashMap<NodeId, Vec<SubscriptionEventSchema>>>>,
-    pub(crate) logger: Logger,
     pub(crate) file_watchers: Arc<Mutex<Vec<RecommendedWatcher>>>,
-    pub(crate) replay_after_app_init: Arc<Mutex<bool>>,
-    pub(crate) ready: Arc<Notify>,
-    ready_state: Arc<AtomicBool>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ReducerJob {
-    pub module_name: String,
-    pub reducer_name: String,
-    pub input: IntersticeValue,
-    pub completion: Option<mpsc::Sender<()>>,
-}
-
-#[derive(Debug, Clone)]
-pub enum GpuCallResult {
-    None,
-    I64(i64),
-    TextureFormat(interstice_abi::TextureFormat),
-}
-
-pub struct GpuCallRequest {
-    pub call: interstice_abi::GpuCall,
-    pub respond_to: oneshot::Sender<Result<GpuCallResult, IntersticeError>>,
-}
-
-struct CompletionGuard(Option<mpsc::Sender<()>>);
-
-impl CompletionGuard {
-    fn new(sender: mpsc::Sender<()>) -> Self {
-        Self(Some(sender))
-    }
-}
-
-impl Drop for CompletionGuard {
-    fn drop(&mut self) {
-        if let Some(sender) = self.0.take() {
-            let _ = sender.send(());
-        }
-    }
 }
 
 impl Runtime {
@@ -135,7 +94,6 @@ impl Runtime {
             network_handle,
             transaction_logs: Arc::new(Mutex::new(transaction_logs)),
             app_initialized: Arc::new(Mutex::new(false)),
-            pending_app_modules: Arc::new(Mutex::new(Vec::new())),
             pending_query_responses: Arc::new(Mutex::new(HashMap::new())),
             reducer_sender,
             reducer_receiver: Mutex::new(Some(reducer_receiver)),
@@ -146,20 +104,7 @@ impl Runtime {
             node_subscriptions: Arc::new(Mutex::new(HashMap::new())),
             logger,
             file_watchers: Arc::new(Mutex::new(Vec::new())),
-            replay_after_app_init: Arc::new(Mutex::new(false)),
-            ready: Arc::new(Notify::new()),
-            ready_state: Arc::new(AtomicBool::new(false)),
         })
-    }
-
-    pub(crate) fn is_ready(&self) -> bool {
-        self.ready_state.load(Ordering::SeqCst)
-    }
-
-    pub(crate) fn mark_ready(&self) {
-        if !self.ready_state.swap(true, Ordering::SeqCst) {
-            self.ready.notify_waiters();
-        }
     }
 
     pub fn take_gpu_call_receiver(&self) -> mpsc::Receiver<GpuCallRequest> {
@@ -188,96 +133,66 @@ impl Runtime {
             }
         });
 
-        let mut pending_events: Vec<EventInstance> = Vec::new();
-
         while let Some(event) = event_receiver.recv().await {
-            if !runtime.is_ready() {
-                if matches!(event, EventInstance::AppInitialized) {
-                    Runtime::handle_event(runtime.clone(), event).await;
-
-                    if runtime.is_ready() {
-                        let mut init_events = Vec::new();
-                        let mut deferred = Vec::new();
-
-                        while let Ok(next_event) = event_receiver.try_recv() {
-                            if matches!(next_event, EventInstance::Init { .. }) {
-                                init_events.push(next_event);
-                            } else {
-                                deferred.push(next_event);
-                            }
-                        }
-
-                        for init_event in init_events {
-                            Runtime::handle_event(runtime.clone(), init_event).await;
-                        }
-
-                        let module_names = runtime
-                            .modules
-                            .lock()
-                            .unwrap()
-                            .keys()
-                            .cloned()
-                            .collect::<Vec<_>>();
-                        for module_name in module_names {
-                            Runtime::handle_event(
-                                runtime.clone(),
-                                EventInstance::Load { module_name },
-                            )
-                            .await;
-                        }
-
-                        let pending = std::mem::take(&mut pending_events);
-                        for pending_event in pending {
-                            Runtime::handle_event(runtime.clone(), pending_event).await;
-                        }
-
-                        for deferred_event in deferred {
-                            Runtime::handle_event(runtime.clone(), deferred_event).await;
-                        }
-                    }
-                } else {
-                    pending_events.push(event);
-                }
-                continue;
-            }
-
-            Runtime::handle_event(runtime.clone(), event).await;
+            Runtime::handle_event(runtime.clone(), event, &mut event_receiver).await;
         }
     }
 
-    async fn handle_event(runtime: Arc<Runtime>, event: EventInstance) {
+    async fn handle_event(
+        runtime: Arc<Runtime>,
+        event: EventInstance,
+        event_receiver: &mut UnboundedReceiver<EventInstance>,
+    ) {
         match event {
+            EventInstance::RequestAppInitialization => {
+                let mut app_initialized = runtime.app_initialized.lock().unwrap();
+                if *app_initialized {
+                    runtime.logger.log(
+                        "Received duplicate app initialization request",
+                        LogSource::Runtime,
+                        LogLevel::Warning,
+                    );
+                } else {
+                    runtime.logger.log(
+                        "Received app initialization request",
+                        LogSource::Runtime,
+                        LogLevel::Info,
+                    );
+                    runtime.run_app_notify.notify_one();
+                    // Wait for app initialization to complete
+                    let mut pending_events = Vec::new();
+                    while let Some(event) = event_receiver.recv().await {
+                        if let EventInstance::AppInitialized = event {
+                            *app_initialized = true;
+                            runtime.logger.log(
+                                "App initialized",
+                                LogSource::Runtime,
+                                LogLevel::Info,
+                            );
+
+                            // process pending events
+                            for event in pending_events.into_iter() {
+                                Box::pin(Runtime::handle_event(
+                                    runtime.clone(),
+                                    event,
+                                    event_receiver,
+                                ))
+                                .await;
+                            }
+
+                            break;
+                        } else {
+                            pending_events.push(event);
+                        }
+                    }
+                }
+            }
             EventInstance::AppInitialized => {
-                let modules = runtime
-                    .pending_app_modules
-                    .lock()
-                    .unwrap()
-                    .drain(..)
-                    .collect::<Vec<_>>();
-                for (module, fire_init) in modules {
-                    let module_name = module.schema.name.clone();
-                    if let Err(err) = Runtime::publish_module(runtime.clone(), module, fire_init)
-                        .await
-                    {
-                        runtime.logger.log(
-                            &format!("Failed to load module '{}': {}", module_name, err),
-                            LogSource::Runtime,
-                            LogLevel::Error,
-                        );
-                    }
-                }
-                *runtime.app_initialized.lock().unwrap() = true;
-                if *runtime.replay_after_app_init.lock().unwrap() {
-                    if let Err(err) = runtime.replay() {
-                        runtime.logger.log(
-                            &format!("Replay failed after app init: {}", err),
-                            LogSource::Runtime,
-                            LogLevel::Error,
-                        );
-                    }
-                    *runtime.replay_after_app_init.lock().unwrap() = false;
-                }
-                runtime.mark_ready();
+                runtime.logger.log(
+                    "Unexpected App initialized event",
+                    LogSource::Runtime,
+                    LogLevel::Warning,
+                );
             }
             EventInstance::RemoteReducerCall {
                 module_name,
@@ -396,10 +311,7 @@ impl Runtime {
                 let schema = runtime.build_node_schema(node_name).to_public();
                 runtime.network_handle.send_packet(
                     requesting_node_id,
-                    crate::network::protocol::NetworkPacket::SchemaResponse {
-                        request_id,
-                        schema,
-                    },
+                    crate::network::protocol::NetworkPacket::SchemaResponse { request_id, schema },
                 );
             }
             event => {

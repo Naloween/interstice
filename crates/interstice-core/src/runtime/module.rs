@@ -134,7 +134,7 @@ impl Runtime {
     ) -> Result<ModuleSchema, IntersticeError> {
         let module_schema = module.schema.clone();
 
-        // If the module requires GPU authority and the app is not initialized yet, queue it for loading after app initialization
+        // If the module requires GPU authority and the app is not initialized yet, initialize it
         if module_schema
             .authorities
             .iter()
@@ -142,32 +142,19 @@ impl Runtime {
             .is_some()
             && !*runtime.app_initialized.lock().unwrap()
         {
-            runtime
-                .pending_app_modules
-                .lock()
-                .unwrap()
-                .push((module, fire_init));
             runtime.logger.log(
                 &format!(
-                    "Module '{}' is queued for loading after app initialization",
+                    "Module '{}' requested app initialization",
                     module_schema.name
                 ),
                 LogSource::Runtime,
                 LogLevel::Info,
             );
-            runtime.run_app_notify.notify_one();
-            return Ok(module_schema.as_ref().clone());
+            runtime
+                .event_sender
+                .send(EventInstance::RequestAppInitialization)
+                .expect("Couldn't send requets app initialization event");
         }
-        Runtime::publish_module(runtime, module, fire_init).await?;
-        return Ok(module_schema.as_ref().clone());
-    }
-
-    pub async fn publish_module(
-        runtime: Arc<Self>,
-        module: Module,
-        fire_init: bool,
-    ) -> Result<(), IntersticeError> {
-        let module_schema = module.schema.clone();
         for authority in &module_schema.authorities {
             if let Some(other_entry) = runtime.authority_modules.lock().unwrap().get(authority) {
                 return Err(IntersticeError::AuthorityAlreadyTaken(
@@ -316,21 +303,22 @@ impl Runtime {
                 .unwrap();
         }
 
-        if runtime.is_ready() {
-            runtime
-                .event_sender
-                .send(EventInstance::Load {
-                    module_name: module_schema.name.clone(),
-                })
-                .unwrap();
-        }
+        // Throw load event
+        runtime
+            .event_sender
+            .send(EventInstance::Load {
+                module_name: module_schema.name.clone(),
+            })
+            .unwrap();
+
+        // Logging
         runtime.logger.log(
             &format!("Loaded module '{}'", module_schema.name),
             LogSource::Runtime,
             LogLevel::Info,
         );
 
-        Ok(())
+        return Ok(module_schema.as_ref().clone());
     }
 
     pub fn remove_module(runtime: Arc<Runtime>, module_name: &str) {

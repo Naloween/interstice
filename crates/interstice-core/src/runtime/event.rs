@@ -35,6 +35,7 @@ pub enum EventInstance {
     Input(InputEvent),
     File(FileEvent),
     Module(ModuleEvent),
+    RequestAppInitialization,
     AppInitialized,
     RequestSubscription {
         requesting_node_id: NodeId,

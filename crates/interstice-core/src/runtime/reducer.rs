@@ -3,9 +3,18 @@ use crate::{
     runtime::transaction::Transaction,
     runtime::{Runtime, table::TableAutoIncSnapshot},
 };
-use interstice_abi::ReducerContext;
+use interstice_abi::{IntersticeValue, ReducerContext};
 use serde::Serialize;
 use std::collections::HashMap;
+use std::sync::mpsc;
+
+#[derive(Debug, Clone)]
+pub struct ReducerJob {
+    pub module_name: String,
+    pub reducer_name: String,
+    pub input: IntersticeValue,
+    pub completion: Option<mpsc::Sender<()>>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CallFrameKind {
@@ -28,6 +37,22 @@ impl CallFrame {
             kind,
             transactions: Vec::new(),
             auto_inc_snapshots: HashMap::new(),
+        }
+    }
+}
+
+pub struct CompletionGuard(Option<mpsc::Sender<()>>);
+
+impl CompletionGuard {
+    pub fn new(sender: mpsc::Sender<()>) -> Self {
+        Self(Some(sender))
+    }
+}
+
+impl Drop for CompletionGuard {
+    fn drop(&mut self) {
+        if let Some(sender) = self.0.take() {
+            let _ = sender.send(());
         }
     }
 }

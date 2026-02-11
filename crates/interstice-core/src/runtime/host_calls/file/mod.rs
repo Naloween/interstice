@@ -1,12 +1,18 @@
-use std::io::Write;
-
 use crate::{error::IntersticeError, runtime::Runtime, runtime::wasm::StoreState};
 use interstice_abi::{
     CopyResponse, CreateDirResponse, DirEntry, FileCall, FileMetadata, FileType, ListDirResponse,
     MetadataResponse, ReadFileResponse, RemoveDirResponse, RemoveFileResponse, RenameResponse,
     WriteFileResponse,
 };
+use notify::RecommendedWatcher;
+use std::{
+    io::Write,
+    sync::{Arc, Mutex},
+};
 use wasmtime::{Caller, Memory};
+pub struct Filestate {
+    pub(crate) file_watchers: Arc<Mutex<Vec<RecommendedWatcher>>>,
+}
 
 impl Runtime {
     pub async fn handle_file_call(
