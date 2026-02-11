@@ -178,9 +178,25 @@ impl ToWgpu<wgpu::BindingType> for interstice_abi::BindingType {
                     wgpu::SamplerBindingType::Filtering
                 })
             }
-            interstice_abi::BindingType::UniformBuffer => todo!(),
-            interstice_abi::BindingType::StorageBuffer { read_only } => todo!(),
-            interstice_abi::BindingType::StorageTexture { format } => todo!(),
+            interstice_abi::BindingType::UniformBuffer => wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            interstice_abi::BindingType::StorageBuffer { read_only } => {
+                wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: *read_only },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                }
+            }
+            interstice_abi::BindingType::StorageTexture { format } => {
+                wgpu::BindingType::StorageTexture {
+                    access: wgpu::StorageTextureAccess::ReadWrite,
+                    format: format.to_wgpu(),
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                }
+            }
         }
     }
 }
@@ -199,21 +215,6 @@ impl ToWgpu<wgpu::TextureSampleType> for interstice_abi::TextureSampleType {
         }
     }
 }
-
-// impl ToWgpu<wgpu::TextureSampleType> for interstice_abi::TextureSampleType {
-//     fn to_wgpu(&self) -> wgpu::TextureSampleType {
-//         match self {
-//             interstice_abi::TextureSampleType::Float { filterable } => {
-//                 wgpu::TextureSampleType::Float {
-//                     filterable: *filterable,
-//                 }
-//             }
-//             interstice_abi::TextureSampleType::Depth => wgpu::TextureSampleType::Depth,
-//             interstice_abi::TextureSampleType::Sint => wgpu::TextureSampleType::Sint,
-//             interstice_abi::TextureSampleType::Uint => wgpu::TextureSampleType::Uint,
-//         }
-//     }
-// }
 
 impl ToWgpu<wgpu::VertexStepMode> for interstice_abi::VertexStepMode {
     fn to_wgpu(&self) -> wgpu::VertexStepMode {
