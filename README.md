@@ -121,8 +121,8 @@ struct Accounts { /* ... */ }
 struct DerivedCache { /* ... */ }
 ```
 
-- `Logged` (default) – write-ahead logging only. On restart the node rebuilds the table by replaying its log. Use when you want full transaction history or plan to build your own snapshots.
-- `Stateful` – in addition to logging, the runtime periodically writes compact snapshots under the module's `snapshots/` directory and trims logs that are older than the latest snapshot. Pick this for large tables that must persist across restarts without replaying a long log.
+- `Logged` (default) – write-ahead logging only. On restart the node rebuilds the table by replaying its log. Use when you want full transaction history.
+- `Stateful` – This do not save transaction logs but instead only save the latest table state in a snapshot. Pick this for large tables that must persist across restarts without additional data usage.
 - `Ephemeral` – the table never hits disk: no log, no snapshot. Data lives strictly in-memory for the lifetime of the node process, which is ideal for caches or other derived views you can recompute.
 
 Only one persistence keyword may be used per table. If you omit the keyword you get the default logged behavior.
