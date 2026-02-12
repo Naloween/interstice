@@ -355,21 +355,17 @@ This document lists the core features required to make Interstice stable, ergono
 
 ## Robustness, error handling and fixes
 
-- Remove elusive node
 - Move the File authority to its separate struct from runtime instead of having everything inside the runtime. Also change how the watching files handles since there is at most one module with the authority.
 - macros more checks and better error handlings (subscription check args and types)
-- Change the macro building to use quote instead of raw strings
+- Change the bindings macro building to use quote instead of raw strings
 - Network handle reconnections and be more robust
-- Add better function docs
+- Add better function documentation
 
 ## Optimizations
 
-- transaction logs snaptchots, separate logs before snapchot (archive) and after the current snaptchot
 - Efficient table scans through iter
 - Better type convertions designs (instead of always converting to IntersticeValue as an intermediate in cross module interaction)
 - Optimize type convertions (no clones)
-- transaction logs add indexes to retreive efficiently per module, per table transactions
-- Columnar / structured storage backend
 - parallelize reducers calls when possible
 
 ## Tooling & CLI
