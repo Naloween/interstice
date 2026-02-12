@@ -18,7 +18,7 @@ Repository layout
 - The WASM ABI and types: [crates/interstice-abi](crates/interstice-abi)
 - The Rust SDK and macros: [crates/interstice-sdk\*](crates/interstice-sdk)
 - The CLI: [crates/interstice-cli](crates/interstice-cli)
-- Example modules: [modules/hello], [modules/caller], [modules/graphics]
+- Example modules: [modules/hello](modules/hello), [modules/caller](modules/caller), [modules/graphics](modules/graphics)
 
 ---
 
@@ -41,7 +41,7 @@ cargo build -p caller
 cargo build -p graphics
 ```
 
-Go to the cli crate:
+Go to the CLI crate:
 
 ```bash
 cd crates/interstice-cli
@@ -65,10 +65,10 @@ cargo run example 8081
 
 ## Quickstart
 
-the CLI provides an easy simple init commands to start a rust module for interstice, it fills the project with a simple hello example, setup the config to build for wasm, adds the needed macros calls in build.rs and at the top of lib.rs
+The CLI provides a simple init command to start a Rust module for Interstice. It fills the project with a hello example, sets up the config to build for WASM, and adds the required macro calls in build.rs and at the top of lib.rs.
 
 ```bash
-interstice-cli run init
+interstice-cli init
 ```
 
 ## Minimal layout
@@ -79,13 +79,13 @@ interstice-cli run init
 
 ## SDK macros & patterns
 
-At the top of `lib.rs`, you need to call `interstice_module!()` to define the required global wasm glue for interstice. The name of the module is taken from the Cargo.toml.
-Additionaly you can specify two parameters `interstice_module!(visibility: Public, authorities: [Gpu, Input])`. The `visibility` tells if the module is accessible from other nodes (default to `Private`). This means that if the moduel is `Private`, only local modules from the same node can access the module's reducers, queries and tables for subscription.
-the `authorities` argument define potential authority claimed by this module. See below for further information.
+At the top of `lib.rs`, call `interstice_module!()` to define the required global WASM glue. The module name is read from Cargo.toml.
+You can also pass parameters like `interstice_module!(visibility: Public, authorities: [Gpu, Input])`. `visibility` controls whether the module is accessible from other nodes (default is `Private`). When a module is `Private`, only local modules on the same node can access its reducers, queries, and tables for subscriptions.
+The `authorities` argument declares which capabilities the module claims. See below for details.
 
 ### Table
 
-Inside your module you may define tables through the `#[table]` macro on top of a struct:
+Define tables with the `#[table]` macro on top of a struct:
 
 ```rust
 #[table]
@@ -122,7 +122,7 @@ struct DerivedCache { /* ... */ }
 ```
 
 - `Logged` (default) – write-ahead logging only. On restart the node rebuilds the table by replaying its log. Use when you want full transaction history.
-- `Stateful` – This do not save transaction logs but instead only save the latest table state in a snapshot. Pick this for large tables that must persist across restarts without additional data usage.
+- `Stateful` – This does not save transaction logs, only the latest table state in a snapshot. Pick this for large tables that must persist across restarts without additional data usage.
 - `Ephemeral` – the table never hits disk: no log, no snapshot. Data lives strictly in-memory for the lifetime of the node process, which is ideal for caches or other derived views you can recompute.
 
 Only one persistence keyword may be used per table. If you omit the keyword you get the default logged behavior.
@@ -138,20 +138,20 @@ let row = ctx.current.tables.mytable().insert(MyTable {
 })?;
 ```
 
-### Interstice Type
+### Interstice types
 
-In a table struct, a variety of default types are supported as field. However if you need fields with your own types you may use `#[interstice_type]` on top of enum or struct definition:
+Inside a table struct, a variety of default types are supported. If you need custom types, use `#[interstice_type]` on top of an enum or struct definition:
 
 ```rust
 #[interstice_type]
-pub MyCustomEnum {
+pub enum MyCustomEnum {
   A,
   B(String),
   C(MyCustomStruct),
 }
 
 #[interstice_type]
-pub MyCustomStruct {
+pub struct MyCustomStruct {
   value: i64,
 }
 ```
@@ -160,7 +160,7 @@ Note that defining a struct as a table also makes it an interstice type and may 
 
 ### Reducer
 
-After defining your data (tables and types) you probably want to define some reducers and queries. Reducers don't return anything and may update the tables of the current module. Reducers can call other queries and reducers from other modules.
+After defining your data (tables and types), you will likely define reducers and queries. Reducers do not return anything and may update the tables of the current module. Reducers can call other queries and reducers from other modules.
 
 You define them through the `#[reducer]` marker on top of a function:
 
@@ -174,20 +174,20 @@ fn my_reducer(ctx: ReducerContext, my_arg1: u32, my_arg2: MyCustomenum){
 The first argument of a reducer should always be a `ReducerContext`.
 Use `ctx.current.<table>().insert(...)` and `ctx.current.<table>().scan()` for table operations.
 
-Additionally reducers can subscribe to a particular event, in which case they cannot be called externally in another way.
-There is different kind of events, all abide by the format:
+Reducers can also subscribe to events, in which case they cannot be called externally.
+There are different kinds of events, all following the format:
 `#[reducer(on = "<event>")]`
 
 where event can be `init`, `<module>.<table>.<table_event>`, `<node>.<module>.<table>.<table_event>`.
 
-Here `<module>` is the module name where you want to subscribe to, if current module you should put the current module name defined in Cargo.toml.
-`<table>` should be table name you want to subscribe to.
+Here `<module>` is the module name you want to subscribe to. For the current module, use the module name defined in Cargo.toml.
+`<table>` should be the table name you want to subscribe to.
 `<table_event>` can be `insert`, `update` or `delete`.
-When subscribing to an event, it imposes specific arguments for the reducer. For example the insert event impose to have only one additional argument of type of the table where you subscribed and will be the inserted row.
+When subscribing to an event, it requires specific arguments for the reducer. For example, an insert event requires a single additional argument of the table type that receives the inserted row.
 
 ### Query
 
-Appart from reducers you may also want to define queries. Similarly to reducers thay are defined through `#[query]` marker on top of functions:
+Apart from reducers you may also want to define queries. Similar to reducers, they are defined through the `#[query]` marker on top of functions:
 
 ```rust
 #[query]
@@ -196,7 +196,7 @@ fn my_query(ctx: QueryContext, my_arg1: u32, my_arg2: MyCustomenum) -> MyCustomS
 }
 ```
 
-Constrary to reducers, queries can return some value but are read only and cannot mutate any tables. They can call other queries but cannot call other reducers. they also cannot subscribe to any event as they cannot have any effect on the current state.
+Contrary to reducers, queries can return values but are read-only and cannot mutate any tables. They can call other queries but cannot call reducers. They also cannot subscribe to events, since they cannot affect the current state.
 
 ### Bindings
 
@@ -252,7 +252,7 @@ cargo build -p hello --target wasm32-unknown-unknown --release
 2. Locate the WASM in `target/wasm32-unknown-unknown/release/`.
 3. Use this path to manually add a module from rust code using `Node::load_module()`
 
-There is no way of publishing to an already started node manually. See the CLI flow below.
+There is no manual way to publish to an already running node. See the CLI flow below.
 
 ## CLI flow
 
@@ -296,8 +296,8 @@ These commands fetch **public** schemas from the target node and write TOML file
 
 # Security
 
-- Publishing doesn't require any priviledge by default, so anyone can publish and remove module, even remotely.
-- To prevent this default behavior the node needs to have loaded a module with the Module authority. In this case, all request will be forwarded to this module. This is the only module capable of publishing and removing module on the node it runs.
+- Publishing doesn't require any privilege by default, so anyone can publish and remove modules, even remotely.
+- To prevent this default behavior, the node should load a module with the Module authority. In this case, all requests are forwarded to this module, which can enforce custom policies for publish/remove and access.
 
 ---
 
@@ -310,9 +310,9 @@ Interstice is organized around a small trusted core that loads, sandboxes, and e
 - Node: a runtime process hosting modules and exposing endpoints for inter-node calls.
 - Module: a WASM component with a serialized interface (tables, reducers, requested authorities, version).
 - Table: typed, versioned records owned by a module; mutations happen inside reducers.
-- Reducer: deterministic state-transition function that run inside a module.
-- Query: deterministic read-only function that run inside a module and return some value
-- Subscription: declarative binding that schedule reducers when events occur (table changes, initialization, input event...).
+- Reducer: deterministic state-transition function that runs inside a module.
+- Query: deterministic read-only function that runs inside a module and returns a value.
+- Subscription: declarative binding that schedules reducers when events occur (table changes, initialization, input event...).
 
 ## Authorities
 
@@ -340,37 +340,38 @@ Authorities are typed tokens granting modules access to privileged host function
 
 # Roadmap & TODOs
 
-This document lists the core features required to make Interstice stable, ergonomic and long-lived, before moving to advanced optimizations.
+This roadmap is a living checklist of the main directions for Interstice. It favors clarity over fixed timelines and can evolve as the runtime grows.
 
 ---
 
-## Features
+## Security and data access
 
-- Table Views (allow row filtering based on current state and requesting node id)
-- add audio authority
-- Table migration support (ability to update a module without deleting all the data)
-- Default modules (ModuleManager, Graphics, Inputs)
+- Table views and row-level security: allow modules to filter rows based on runtime state and requesting node id
 
-## Robustness, error handling and fixes
+## Runtime and data model
 
-- Move the File authority to its separate struct from runtime instead of having everything inside the runtime. Also change how the watching files handles since there is at most one module with the authority.
-- macros more checks and better error handlings (subscription check args and types)
-- Change the bindings macro building to use quote instead of raw strings
-- Network handle reconnections and be more robust
-- Add better function documentation
+- Table migrations and schema evolution without data loss
+- Default system modules (ModuleManager, Graphics, Inputs)
+- Audio authority and host calls
 
-## Optimizations
+## Robustness and correctness
 
-- Efficient table scans through iter
-- Better type convertions designs (instead of always converting to IntersticeValue as an intermediate in cross module interaction)
-- Optimize type convertions (no clones)
-- parallelize reducers calls when possible
+- Improve macro checks and error messages (subscription args and types)
+- Harden network reconnections and peer health handling
+- Cleanly isolate File authority into its own subsystem
+- Expand function-level documentation across core and SDK
 
-## Tooling & CLI
+## Performance and determinism
 
-- Update interstice
-- Benchmarkings
-- Rewind time and monitor previous module states and node states
+- Iter-based table scans and more efficient index access
+- Reduce IntersticeValue conversions and avoid unnecessary clones
+- Parallelize reducers when safe under deterministic constraints
+
+## Tooling, diagnostics, and DX
+
+- Update tooling and install/upgrade pipeline
+- Benchmarks, profiling tools, and performance budgets
+- Time travel tooling: rewind and inspect previous node/module states
 
 ---
 
