@@ -23,4 +23,4 @@ pub use reducer_context::*;
 pub use row::*;
 pub use schema::*;
 
-pub const ABI_VERSION: u16 = 2;
+pub const ABI_VERSION: u16 = 1;
