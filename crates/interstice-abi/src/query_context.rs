@@ -10,12 +10,14 @@ pub struct QueryContextCurrentModule {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct QueryContext {
+    pub caller_node_id: String,
     pub current: QueryContextCurrentModule,
 }
 
 impl QueryContext {
-    pub fn new() -> Self {
+    pub fn new(caller_node_id: String) -> Self {
         Self {
+            caller_node_id,
             current: QueryContextCurrentModule {
                 tables: QueryContextCurrentModuleTables {},
             },

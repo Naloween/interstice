@@ -346,8 +346,6 @@ This document lists the core features required to make Interstice stable, ergono
 
 ## Features
 
-- Add caller node id in redcuer and query context.
-- Add time and random host calls.
 - Table Views (allow row filtering based on current state and requesting node id)
 - add audio authority
 - Table migration support (ability to update a module without deleting all the data)

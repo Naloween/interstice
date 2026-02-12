@@ -13,12 +13,14 @@ pub struct ReducerContextCurrentModule {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ReducerContext {
+    pub caller_node_id: String,
     pub current: ReducerContextCurrentModule,
 }
 
 impl ReducerContext {
-    pub fn new() -> Self {
+    pub fn new(caller_node_id: String) -> Self {
         Self {
+            caller_node_id,
             current: ReducerContextCurrentModule {
                 tables: ReducerContextCurrentModuleTables {},
             },

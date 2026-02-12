@@ -20,6 +20,7 @@ impl Runtime {
                         module_name,
                         &call_query_request.query_name,
                         call_query_request.input,
+                        self.network_handle.node_id,
                     )
                     .await?;
                 Ok(result)

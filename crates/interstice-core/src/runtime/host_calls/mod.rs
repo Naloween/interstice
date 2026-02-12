@@ -1,3 +1,4 @@
+mod audio;
 mod dispatch;
 mod file;
 pub mod gpu;
@@ -5,5 +6,7 @@ pub mod input;
 mod log;
 mod module;
 mod query;
+mod random;
 mod reducer;
 mod table;
+mod time;

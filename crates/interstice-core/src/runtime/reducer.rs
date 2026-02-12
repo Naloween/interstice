@@ -13,6 +13,7 @@ pub struct ReducerJob {
     pub module_name: String,
     pub reducer_name: String,
     pub input: IntersticeValue,
+    pub caller_node_id: crate::node::NodeId,
     pub completion: Option<mpsc::Sender<()>>,
 }
 
@@ -28,15 +29,17 @@ pub struct CallFrame {
     pub kind: CallFrameKind,
     pub transactions: Vec<Transaction>,
     pub auto_inc_snapshots: HashMap<String, TableAutoIncSnapshot>,
+    pub rng_state: u64,
 }
 
 impl CallFrame {
-    pub fn new(module: String, kind: CallFrameKind) -> Self {
+    pub fn new(module: String, kind: CallFrameKind, rng_state: u64) -> Self {
         Self {
             module,
             kind,
             transactions: Vec::new(),
             auto_inc_snapshots: HashMap::new(),
+            rng_state,
         }
     }
 }
@@ -63,6 +66,7 @@ impl Runtime {
         module_name: &str,
         reducer_name: &str,
         args: impl Serialize,
+        caller_node_id: crate::node::NodeId,
     ) -> Result<(), IntersticeError> {
         // Lookup module
         let module = {
@@ -107,13 +111,26 @@ impl Runtime {
         }
 
         // Push frame
-        self.call_stack
-            .lock()
-            .unwrap()
-            .push(CallFrame::new(module_name.into(), CallFrameKind::Reducer));
+        let call_sequence = self
+            .call_sequence
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let rng_seed = crate::runtime::deterministic_random::seed_from_call(
+            &caller_node_id,
+            module_name,
+            reducer_name,
+            CallFrameKind::Reducer,
+            call_sequence,
+            &args,
+        )?;
+
+        self.call_stack.lock().unwrap().push(CallFrame::new(
+            module_name.into(),
+            CallFrameKind::Reducer,
+            rng_seed,
+        ));
 
         // Call WASM function
-        let reducer_context = ReducerContext::new();
+        let reducer_context = ReducerContext::new(caller_node_id.to_string());
         module
             .call_reducer(reducer_name, (reducer_context, args))
             .await?;

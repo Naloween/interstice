@@ -1,9 +1,10 @@
 use interstice_abi::{
     CallQueryRequest, CallQueryResponse, CallReducerRequest, CallReducerResponse, DeleteRowRequest,
-    DeleteRowResponse, HostCall, IndexKey, IndexQuery, InsertRowRequest, InsertRowResponse,
-    IntersticeValue, LogRequest, ModuleSelection, NodeSelection, Row, TableGetByPrimaryKeyRequest,
-    TableGetByPrimaryKeyResponse, TableIndexScanRequest, TableIndexScanResponse, TableScanRequest,
-    TableScanResponse, UpdateRowRequest, UpdateRowResponse,
+    DeleteRowResponse, DeterministicRandomRequest, DeterministicRandomResponse, HostCall, IndexKey,
+    IndexQuery, InsertRowRequest, InsertRowResponse, IntersticeValue, LogRequest, ModuleSelection,
+    NodeSelection, Row, TableGetByPrimaryKeyRequest, TableGetByPrimaryKeyResponse,
+    TableIndexScanRequest, TableIndexScanResponse, TableScanRequest, TableScanResponse,
+    TimeRequest, TimeResponse, UpdateRowRequest, UpdateRowResponse,
 };
 
 pub fn log(message: &str) {
@@ -52,6 +53,26 @@ pub fn call_query(
     match response {
         CallQueryResponse::Ok(value) => Ok(value),
         CallQueryResponse::Err(err) => Err(err),
+    }
+}
+
+pub fn deterministic_random_u64() -> Result<u64, String> {
+    let call = HostCall::DeterministicRandom(DeterministicRandomRequest {});
+    let pack = host_call(call);
+    let response: DeterministicRandomResponse = unpack(pack);
+    match response {
+        DeterministicRandomResponse::Ok(value) => Ok(value),
+        DeterministicRandomResponse::Err(err) => Err(err),
+    }
+}
+
+pub fn time_now_ms() -> Result<u64, String> {
+    let call = HostCall::Time(TimeRequest {});
+    let pack = host_call(call);
+    let response: TimeResponse = unpack(pack);
+    match response {
+        TimeResponse::Ok { unix_ms } => Ok(unix_ms),
+        TimeResponse::Err(err) => Err(err),
     }
 }
 
@@ -174,6 +195,14 @@ pub trait HostLog {
     fn log(&self, message: &str);
 }
 
+pub trait HostTime {
+    fn time_now_ms(&self) -> Result<u64, String>;
+}
+
+pub trait HostDeterministicRandom {
+    fn deterministic_random_u64(&self) -> Result<u64, String>;
+}
+
 impl HostLog for ReducerContext {
     fn log(&self, message: &str) {
         log(message);
@@ -183,5 +212,29 @@ impl HostLog for ReducerContext {
 impl HostLog for QueryContext {
     fn log(&self, message: &str) {
         log(message);
+    }
+}
+
+impl HostTime for ReducerContext {
+    fn time_now_ms(&self) -> Result<u64, String> {
+        time_now_ms()
+    }
+}
+
+impl HostTime for QueryContext {
+    fn time_now_ms(&self) -> Result<u64, String> {
+        time_now_ms()
+    }
+}
+
+impl HostDeterministicRandom for ReducerContext {
+    fn deterministic_random_u64(&self) -> Result<u64, String> {
+        deterministic_random_u64()
+    }
+}
+
+impl HostDeterministicRandom for QueryContext {
+    fn deterministic_random_u64(&self) -> Result<u64, String> {
+        deterministic_random_u64()
     }
 }

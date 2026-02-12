@@ -28,6 +28,7 @@ impl Runtime {
                     module_name,
                     &call_reducer_request.reducer_name,
                     call_reducer_request.input,
+                    self.network_handle.node_id,
                 )
                 .await?;
                 Ok(())

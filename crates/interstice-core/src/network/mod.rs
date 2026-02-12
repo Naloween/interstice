@@ -268,6 +268,7 @@ impl Network {
                     } => self
                         .runtime_event_sender
                         .send(EventInstance::RemoteReducerCall {
+                            requesting_node_id: node_id,
                             module_name,
                             reducer_name,
                             input,

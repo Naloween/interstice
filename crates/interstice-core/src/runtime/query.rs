@@ -12,6 +12,7 @@ impl Runtime {
         module_name: &str,
         query_name: &str,
         args: impl Serialize,
+        caller_node_id: crate::node::NodeId,
     ) -> Result<IntersticeValue, IntersticeError> {
         let module = {
             let mut modules = self.modules.lock().unwrap();
@@ -55,13 +56,26 @@ impl Runtime {
         }
 
         // Push frame
-        self.call_stack
-            .lock()
-            .unwrap()
-            .push(CallFrame::new(module_name.into(), CallFrameKind::Query));
+        let call_sequence = self
+            .call_sequence
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let rng_seed = crate::runtime::deterministic_random::seed_from_call(
+            &caller_node_id,
+            module_name,
+            query_name,
+            CallFrameKind::Query,
+            call_sequence,
+            &args,
+        )?;
+
+        self.call_stack.lock().unwrap().push(CallFrame::new(
+            module_name.into(),
+            CallFrameKind::Query,
+            rng_seed,
+        ));
 
         // Call WASM function
-        let query_context = QueryContext::new();
+        let query_context = QueryContext::new(caller_node_id.to_string());
         let result = module.call_query(query_name, (query_context, args)).await?;
 
         // Pop frame

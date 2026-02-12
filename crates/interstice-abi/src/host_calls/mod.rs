@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 pub enum HostCall {
     CallReducer(CallReducerRequest),
     CallQuery(CallQueryRequest),
+    DeterministicRandom(DeterministicRandomRequest),
+    Time(TimeRequest),
     Log(LogRequest),
     InsertRow(InsertRowRequest),
     UpdateRow(UpdateRowRequest),
@@ -67,6 +69,24 @@ pub struct CallQueryRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum CallQueryResponse {
     Ok(IntersticeValue),
+    Err(String),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DeterministicRandomRequest {}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum DeterministicRandomResponse {
+    Ok(u64),
+    Err(String),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TimeRequest {}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum TimeResponse {
+    Ok { unix_ms: u64 },
     Err(String),
 }
 

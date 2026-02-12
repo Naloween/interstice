@@ -44,6 +44,16 @@ impl Runtime {
                 let result = self.send_data_to_module(response, memory, caller).await;
                 Ok(Some(result))
             }
+            HostCall::DeterministicRandom(request) => {
+                let response = self.handle_deterministic_random(request);
+                let result = self.send_data_to_module(response, memory, caller).await;
+                Ok(Some(result))
+            }
+            HostCall::Time(request) => {
+                let response = self.handle_time(request);
+                let result = self.send_data_to_module(response, memory, caller).await;
+                Ok(Some(result))
+            }
             HostCall::Log(log_request) => {
                 self.handle_log(caller_module_schema.name.clone(), log_request);
                 Ok(None)

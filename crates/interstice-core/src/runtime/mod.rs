@@ -1,4 +1,5 @@
 mod authority;
+mod deterministic_random;
 pub mod event;
 pub mod host_calls;
 pub mod module;
@@ -32,6 +33,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex, mpsc},
 };
+use std::sync::atomic::AtomicU64;
 use tokio::sync::{
     Notify,
     mpsc::{UnboundedReceiver, UnboundedSender},
@@ -61,6 +63,7 @@ pub struct Runtime {
     pub(crate) modules_path: Option<PathBuf>,
     node_subscriptions: Arc<Mutex<HashMap<NodeId, Vec<SubscriptionEventSchema>>>>,
     pub(crate) file_watchers: Arc<Mutex<Vec<RecommendedWatcher>>>,
+    pub(crate) call_sequence: AtomicU64,
 }
 
 impl Runtime {
@@ -104,6 +107,7 @@ impl Runtime {
             node_subscriptions: Arc::new(Mutex::new(HashMap::new())),
             logger,
             file_watchers: Arc::new(Mutex::new(Vec::new())),
+            call_sequence: AtomicU64::new(0),
         })
     }
 
@@ -128,7 +132,12 @@ impl Runtime {
                 let _completion_guard = job.completion.map(CompletionGuard::new);
 
                 let _ = reducer_runtime
-                    .call_reducer(&job.module_name, &job.reducer_name, job.input)
+                    .call_reducer(
+                        &job.module_name,
+                        &job.reducer_name,
+                        job.input,
+                        job.caller_node_id,
+                    )
                     .await;
             }
         });
@@ -198,11 +207,13 @@ impl Runtime {
                 module_name,
                 reducer_name,
                 input,
+                requesting_node_id,
             } => {
                 let _ = runtime.reducer_sender.send(ReducerJob {
                     module_name,
                     reducer_name,
                     input,
+                    caller_node_id: requesting_node_id,
                     completion: None,
                 });
             }
@@ -216,7 +227,7 @@ impl Runtime {
                 let runtime = runtime.clone();
                 tokio::task::spawn_local(async move {
                     let result = runtime
-                        .call_query(&module_name, &query_name, input)
+                        .call_query(&module_name, &query_name, input, requesting_node_id)
                         .await
                         .unwrap_or(IntersticeValue::Void);
                     runtime.network_handle.send_packet(

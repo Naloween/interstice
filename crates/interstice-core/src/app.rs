@@ -104,6 +104,7 @@ impl ApplicationHandler for App {
                         module_name,
                         reducer_name,
                         input: IntersticeValue::Vec(vec![]),
+                        caller_node_id: self.node_id,
                         completion: Some(done_tx),
                     });
                     let _ = send_result;

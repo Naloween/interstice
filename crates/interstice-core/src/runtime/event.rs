@@ -42,6 +42,7 @@ pub enum EventInstance {
         event: SubscriptionEventSchema,
     },
     RemoteReducerCall {
+        requesting_node_id: NodeId,
         module_name: String,
         reducer_name: String,
         input: IntersticeValue,
@@ -310,6 +311,7 @@ impl Runtime {
                     module_name: module,
                     reducer_name: reducer,
                     input: args,
+                    caller_node_id: self.network_handle.node_id,
                     completion: None,
                 });
             }
