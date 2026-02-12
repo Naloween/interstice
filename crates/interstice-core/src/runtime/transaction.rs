@@ -34,9 +34,9 @@ impl Runtime {
         log_transaction: bool,
     ) -> Result<Vec<EventInstance>, IntersticeError> {
         let mut events = Vec::new();
-        let mut module_name_for_persistence = String::new();
-        let mut table_name_for_persistence = String::new();
-        let mut persistence_kind = PersistenceKind::Logged;
+        let module_name_for_persistence;
+        let table_name_for_persistence;
+        let persistence_kind;
         let mut log_operation: Option<LogOperation> = None;
         let mut logged_snapshot_plan: Option<SnapshotPlan> = None;
         let mut logged_snapshot_rows: Option<Vec<Row>> = None;
