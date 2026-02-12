@@ -28,7 +28,11 @@ pub fn remove(node_selection: NodeSelection, module_name: String) -> Result<(), 
 pub struct ModuleAuthority;
 
 impl ModuleAuthority {
-    pub fn publish(&self, node_selection: NodeSelection, wasm_binary: Vec<u8>) -> Result<(), String> {
+    pub fn publish(
+        &self,
+        node_selection: NodeSelection,
+        wasm_binary: Vec<u8>,
+    ) -> Result<(), String> {
         publish(node_selection, wasm_binary)
     }
 

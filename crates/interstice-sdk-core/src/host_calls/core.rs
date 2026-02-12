@@ -1,9 +1,9 @@
 use interstice_abi::{
     CallQueryRequest, CallQueryResponse, CallReducerRequest, CallReducerResponse, DeleteRowRequest,
-    DeleteRowResponse, HostCall, IndexKey, InsertRowRequest, InsertRowResponse, IntersticeValue,
-    LogRequest, ModuleSelection, NodeSelection, Row, TableGetByPrimaryKeyRequest,
+    DeleteRowResponse, HostCall, IndexKey, IndexQuery, InsertRowRequest, InsertRowResponse,
+    IntersticeValue, LogRequest, ModuleSelection, NodeSelection, Row, TableGetByPrimaryKeyRequest,
     TableGetByPrimaryKeyResponse, TableIndexScanRequest, TableIndexScanResponse, TableScanRequest,
-    TableScanResponse, UpdateRowRequest, UpdateRowResponse, IndexQuery,
+    TableScanResponse, UpdateRowRequest, UpdateRowResponse,
 };
 
 pub fn log(message: &str) {

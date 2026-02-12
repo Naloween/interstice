@@ -17,8 +17,9 @@ impl Runtime {
         len: i32,
     ) -> Result<Option<i64>, IntersticeError> {
         let bytes = read_bytes(memory, caller, ptr, len)?;
-        let host_call: HostCall = decode(&bytes)
-            .map_err(|err| IntersticeError::Internal(format!("Failed to decode host call: {err}")))?;
+        let host_call: HostCall = decode(&bytes).map_err(|err| {
+            IntersticeError::Internal(format!("Failed to decode host call: {err}"))
+        })?;
 
         return match host_call {
             HostCall::CallReducer(call_reducer_request) => {
@@ -89,9 +90,8 @@ impl Runtime {
 
                 match gpu_auth_module {
                     None => {
-                        let response = interstice_abi::GpuResponse::Err(
-                            "No GPU authority module".into(),
-                        );
+                        let response =
+                            interstice_abi::GpuResponse::Err("No GPU authority module".into());
                         let result = self.send_data_to_module(response, memory, caller).await;
                         return Ok(Some(result));
                     }
@@ -100,8 +100,7 @@ impl Runtime {
                             let response = interstice_abi::GpuResponse::Err(
                                 IntersticeError::Unauthorized(Authority::Gpu).to_string(),
                             );
-                            let result =
-                                self.send_data_to_module(response, memory, caller).await;
+                            let result = self.send_data_to_module(response, memory, caller).await;
                             return Ok(Some(result));
                         }
                     }
@@ -218,8 +217,7 @@ impl Runtime {
                     }
                     Some(module_name) => {
                         if module_name != caller_module_schema.name {
-                            let err =
-                                IntersticeError::Unauthorized(Authority::File).to_string();
+                            let err = IntersticeError::Unauthorized(Authority::File).to_string();
                             let result = match &file_call {
                                 interstice_abi::FileCall::ReadFile(_) => {
                                     self.send_data_to_module(
@@ -322,8 +320,7 @@ impl Runtime {
                             let response = interstice_abi::ModuleCallResponse::Err(
                                 IntersticeError::Unauthorized(Authority::Module).to_string(),
                             );
-                            let result =
-                                self.send_data_to_module(response, memory, caller).await;
+                            let result = self.send_data_to_module(response, memory, caller).await;
                             return Ok(Some(result));
                         }
                     }

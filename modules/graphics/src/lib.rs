@@ -4,20 +4,12 @@ interstice_module!(authorities: [Input, Gpu]);
 
 // TABLES
 
-#[table]
+#[table(ephemeral)]
 #[derive(Debug)]
 pub struct PipelineTable {
     #[primary_key]
     pub id: u32,
     pub pipeline_id: u32,
-}
-
-#[table]
-#[derive(Debug)]
-pub struct VertexBufferTable {
-    #[primary_key]
-    pub id: u32,
-    pub buffer_id: u32,
 }
 
 // REDUCERS
@@ -114,28 +106,12 @@ pub fn load(ctx: ReducerContext) {
     };
 
     // Store pipeline in table
-    let existing_rows = match ctx.current.tables.pipelinetable().scan() {
-        Ok(rows) => rows,
-        Err(err) => {
-            ctx.log(&format!("Failed to scan pipeline table: {}", err));
-            return;
-        }
-    };
 
-    if let Some(existing) = existing_rows.get(0) {
-        if let Err(err) = ctx.current.tables.pipelinetable().update(PipelineTable {
-            id: existing.id,
-            pipeline_id: pipeline,
-        }) {
-            ctx.log(&format!("Failed to update pipeline table: {}", err));
-        }
-    } else {
-        if let Err(err) = ctx.current.tables.pipelinetable().insert(PipelineTable {
-            id: 0,
-            pipeline_id: pipeline,
-        }) {
-            ctx.log(&format!("Failed to insert pipeline table: {}", err));
-        }
+    if let Err(err) = ctx.current.tables.pipelinetable().insert(PipelineTable {
+        id: 0,
+        pipeline_id: pipeline,
+    }) {
+        ctx.log(&format!("Failed to insert pipeline table: {}", err));
     }
 }
 

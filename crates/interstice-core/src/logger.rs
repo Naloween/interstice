@@ -1,7 +1,7 @@
 use std::{
     fmt::Display,
     fs::File,
-    io::{self, Write},
+    io::Write,
     sync::{Arc, Mutex},
 };
 
@@ -16,12 +16,6 @@ impl Logger {
     pub fn new(log_file: File) -> Self {
         Self {
             log_sink: Arc::new(Mutex::new(Box::new(log_file))),
-        }
-    }
-
-    pub fn new_stdout() -> Self {
-        Self {
-            log_sink: Arc::new(Mutex::new(Box::new(io::sink()))),
         }
     }
 

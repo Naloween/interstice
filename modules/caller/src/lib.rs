@@ -1,12 +1,17 @@
 interstice_module!();
 
-use crate::bindings::{HasHelloContext, HasMyNodeHandle, *};
+use crate::bindings::*;
 use interstice_sdk::*;
 
 #[reducer(on = "init")]
 fn caller(ctx: ReducerContext) {
     ctx.log("Calling remote hello...");
-    if let Err(err) = ctx.mynode().hello().reducers.hello("Client !".to_string()) {
+    if let Err(err) = ctx
+        .example_8080()
+        .hello()
+        .reducers
+        .hello("Client !".to_string())
+    {
         ctx.log(&format!("Failed to call remote hello: {}", err));
         return;
     }
@@ -28,7 +33,7 @@ fn caller(ctx: ReducerContext) {
     // ));
 }
 
-#[reducer(on = "MyNode.hello.greetings.insert")]
+#[reducer(on = "example_8080.hello.greetings.insert")]
 fn on_insert_greetings(ctx: ReducerContext, inserted_row: Greetings) {
     ctx.log(&format!(
         "Caller received new greeting: {:?}",

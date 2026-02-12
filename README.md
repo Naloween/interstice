@@ -109,6 +109,24 @@ Rules:
 - `#[index(hash)]` and `#[index(btree)]` create secondary indexes. Use `unique` to enforce uniqueness, and `auto_inc` to generate integer values on insert.
 - `auto_inc` is supported for integer types only (u8, u32, u64, i32, i64).
 
+#### Persistence modes
+
+Tables default to **logged** persistence, meaning every mutation is appended to that table's log so the node can deterministically replay state. You can opt into other behaviors by annotating the table declaration:
+
+```rust
+#[table(stateful)]
+struct Accounts { /* ... */ }
+
+#[table(ephemeral)]
+struct DerivedCache { /* ... */ }
+```
+
+- `Logged` (default) – write-ahead logging only. On restart the node rebuilds the table by replaying its log. Use when you want full transaction history or plan to build your own snapshots.
+- `Stateful` – in addition to logging, the runtime periodically writes compact snapshots under the module's `snapshots/` directory and trims logs that are older than the latest snapshot. Pick this for large tables that must persist across restarts without replaying a long log.
+- `Ephemeral` – the table never hits disk: no log, no snapshot. Data lives strictly in-memory for the lifetime of the node process, which is ideal for caches or other derived views you can recompute.
+
+Only one persistence keyword may be used per table. If you omit the keyword you get the default logged behavior.
+
 When inserting, the table API returns the inserted row so you can read generated values:
 
 ```rust
@@ -298,7 +316,13 @@ Interstice is organized around a small trusted core that loads, sandboxes, and e
 
 ## Authorities
 
-Authorities are typed tokens granting modules access to privileged host functionality (gpu access, input event...). Only one module can hold an authority at a time.
+Authorities are typed tokens granting modules access to privileged host functionality (gpu access, input event...). Only one module can hold an authority at a time. Declare them via `interstice_module!(authorities: [...])` so the runtime can enforce exclusivity.
+
+- **Gpu** – grants access to the render loop plus GPU host calls. Modules with this authority can receive `render` events and submit draw commands to the host surface (see `modules/graphics`).
+- **Audio** – allows the module to stream audio samples or schedule playback through host calls. Useful for synths, music visualizers, or any module that needs low-latency audio output.
+- **Input** – subscribes the module to keyboard/mouse/controller events and lets it inspect the current input state through the `input` reducer.
+- **File** – provides controlled access to the node's data directory for reading assets, watching paths, or performing limited file IO needed for development workflows.
+- **Module** – designates a module as the module-manager for that node. When present, all publish/remove requests are routed through it (see the Security section) so it can enforce custom policies.
 
 ## Execution model
 
@@ -322,7 +346,8 @@ This document lists the core features required to make Interstice stable, ergono
 
 ## Features
 
-- Add Ephemeral and Stateful tables (Ephemeral are never saved on disk while stateful are not logged only snaptchoted). Ephemeral are usfull for things like mouse position or the PipelineTable in graphics while the Stateful table is usefull for big blobs like images, videos, datasets but also things you don't want to be logged in transactions.
+- Add caller node id in redcuer and query context.
+- Add time and random host calls.
 - Table Views (allow row filtering based on current state and requesting node id)
 - add audio authority
 - Table migration support (ability to update a module without deleting all the data)

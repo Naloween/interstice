@@ -1,10 +1,10 @@
+use crate::node_client::handshake_with_node;
+use crate::node_registry::NodeRegistry;
 use interstice_core::{
     IntersticeError, NetworkPacket,
     interstice_abi::IntersticeValue,
     packet::{read_packet, write_packet},
 };
-use crate::node_client::handshake_with_node;
-use crate::node_registry::NodeRegistry;
 
 pub async fn call_query(
     node_ref: String,
@@ -36,7 +36,7 @@ pub async fn call_query(
             request_id: _response_request_id,
             result,
         } => {
-            println!("Query response: {:?}", result);
+            println!("Query response: {}", result);
         }
         _ => {
             println!("Unexpected packet received: {:?}", response_packet);

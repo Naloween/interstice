@@ -1,7 +1,4 @@
-use crate::{
-    node_client::fetch_node_schema,
-    node_registry::NodeRegistry,
-};
+use crate::{node_client::fetch_node_schema, node_registry::NodeRegistry};
 use interstice_core::IntersticeError;
 use std::path::{Path, PathBuf};
 
@@ -28,10 +25,7 @@ pub async fn add_module_binding(
         .into_iter()
         .find(|m| m.name == module_name)
         .ok_or_else(|| {
-            IntersticeError::Internal(format!(
-                "Module '{}' not found in node schema",
-                module_name
-            ))
+            IntersticeError::Internal(format!("Module '{}' not found in node schema", module_name))
         })?;
 
     let bindings_dir = project_path.join("src").join("bindings");
@@ -74,9 +68,8 @@ pub async fn add_node_binding(
     let contents = schema.to_toml_string().map_err(|err| {
         IntersticeError::Internal(format!("Failed to serialize node schema: {err}"))
     })?;
-    std::fs::write(&out_path, contents).map_err(|err| {
-        IntersticeError::Internal(format!("Failed to write node binding: {err}"))
-    })?;
+    std::fs::write(&out_path, contents)
+        .map_err(|err| IntersticeError::Internal(format!("Failed to write node binding: {err}")))?;
     Ok(out_path)
 }
 

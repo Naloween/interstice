@@ -1,9 +1,7 @@
-use interstice_abi::{
-    IndexKey, IntersticeType, IntersticeValue, Row
-};
+use crate::{IntersticeError, runtime::table::Table};
+use interstice_abi::{IndexKey, IntersticeType, IntersticeValue, Row};
 use std::collections::BTreeMap;
 use wgpu::naga::FastHashMap;
-use crate::{IntersticeError, runtime::table::Table};
 
 #[derive(Clone, Debug)]
 pub enum AutoIncState {
@@ -19,8 +17,6 @@ pub(crate) struct TableAutoIncSnapshot {
     pub primary: Option<AutoIncState>,
     pub indexes: Vec<Option<AutoIncState>>,
 }
-
-
 
 pub enum IndexImpl {
     Hash(FastHashMap<IndexKey, Vec<usize>>),
@@ -134,8 +130,6 @@ impl AutoIncState {
 }
 
 impl Table {
-
-
     pub(crate) fn auto_inc_snapshot(&self) -> TableAutoIncSnapshot {
         TableAutoIncSnapshot {
             primary: self.primary_key_auto_inc_state.clone(),

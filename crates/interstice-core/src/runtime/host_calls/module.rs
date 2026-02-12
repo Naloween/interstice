@@ -52,8 +52,7 @@ impl Runtime {
                             ));
                         }
                     };
-                    let node_id = match self.network_handle.get_node_id_from_adress(&node_address)
-                    {
+                    let node_id = match self.network_handle.get_node_id_from_adress(&node_address) {
                         Ok(node_id) => node_id,
                         Err(err) => {
                             return Ok(Some(
@@ -103,8 +102,7 @@ impl Runtime {
                             ));
                         }
                     };
-                    let node_id = match self.network_handle.get_node_id_from_adress(&node_address)
-                    {
+                    let node_id = match self.network_handle.get_node_id_from_adress(&node_address) {
                         Ok(node_id) => node_id,
                         Err(err) => {
                             return Ok(Some(
@@ -128,9 +126,7 @@ impl Runtime {
             },
         };
 
-        let packed = self
-            .send_data_to_module(response, _memory, _caller)
-            .await;
+        let packed = self.send_data_to_module(response, _memory, _caller).await;
         Ok(Some(packed))
     }
 }

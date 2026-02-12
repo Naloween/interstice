@@ -33,28 +33,38 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         struct_ident.span(),
     );
 
-    // Check the visibility of the table
+    // Parse table attributes (visibility + persistence)
     let args = syn::parse_macro_input!(
         attr with syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated
     );
 
-    let visibility = args
-        .iter()
-        .find_map(|arg| {
-            if let Meta::Path(nv) = arg {
-                if nv.is_ident("public") {
-                    return Some(quote! { interstice_sdk::TableVisibility::Public });
-                } else if nv.is_ident("private") {
-                    return Some(quote! { interstice_sdk::TableVisibility::Private });
-                } else {
-                    return Some(quote! { compile_error!("Invalid visibility, expected 'public' or 'private'") });
-                }
+    let mut visibility = quote! { interstice_sdk::TableVisibility::Private };
+    let mut persistence = quote! { interstice_sdk::PersistenceKind::Logged };
+
+    for arg in args.iter() {
+        if let Meta::Path(nv) = arg {
+            if nv.is_ident("public") {
+                visibility = quote! { interstice_sdk::TableVisibility::Public };
+                continue;
+            } else if nv.is_ident("private") {
+                visibility = quote! { interstice_sdk::TableVisibility::Private };
+                continue;
+            } else if nv.is_ident("ephemeral") {
+                persistence = quote! { interstice_sdk::PersistenceKind::Ephemeral };
+                continue;
+            } else if nv.is_ident("stateful") {
+                persistence = quote! { interstice_sdk::PersistenceKind::Stateful };
+                continue;
+            } else if nv.is_ident("logged") {
+                persistence = quote! { interstice_sdk::PersistenceKind::Logged };
+                continue;
+            } else {
+                return quote! { compile_error!("Invalid table attribute. Expected 'public', 'private', 'ephemeral', or 'stateful'") } .into();
             }
-            None
-        })
-        .unwrap_or_else(|| {
-            quote! { interstice_sdk::TableVisibility::Private }
-        });
+        } else {
+            return quote! { compile_error!("Invalid table attribute syntax") }.into();
+        }
+    }
 
     // Generate the entries and primary key
     let fields = match &input.fields {
@@ -64,11 +74,24 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    let mut primary_key: Option<(&syn::Ident, String, proc_macro2::TokenStream, syn::Type, bool)> = None;
+    let mut primary_key: Option<(
+        &syn::Ident,
+        String,
+        proc_macro2::TokenStream,
+        syn::Type,
+        bool,
+    )> = None;
     let mut schema_fields = Vec::new();
     let mut entry_fields = Vec::new();
     let mut index_schemas = Vec::new();
-    let mut indexed_fields: Vec<(syn::Ident, String, syn::Type, proc_macro2::TokenStream, bool, bool)> = Vec::new();
+    let mut indexed_fields: Vec<(
+        syn::Ident,
+        String,
+        syn::Type,
+        proc_macro2::TokenStream,
+        bool,
+        bool,
+    )> = Vec::new();
     for field in fields.iter() {
         let field_name = field.ident.as_ref().unwrap().to_string();
         let field_ty_ident = field.ty.clone();
@@ -83,7 +106,11 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
 
         let mut pk_auto_inc = false;
         if is_pk {
-            if let Some(attr) = field.attrs.iter().find(|attr| attr.path().is_ident("primary_key")) {
+            if let Some(attr) = field
+                .attrs
+                .iter()
+                .find(|attr| attr.path().is_ident("primary_key"))
+            {
                 let args = attr.parse_args_with(
                     syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated,
                 );
@@ -102,7 +129,10 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
-        let index_attr = field.attrs.iter().find(|attr| attr.path().is_ident("index"));
+        let index_attr = field
+            .attrs
+            .iter()
+            .find(|attr| attr.path().is_ident("index"));
         if let Some(attr) = index_attr {
             if is_pk {
                 return quote! {compile_error!("#[index] cannot be used on #[primary_key] fields");}.into();
@@ -146,7 +176,8 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
 
             if index_type.is_none() {
-                return quote! {compile_error!("#[index] requires an index type (hash or btree)");}.into();
+                return quote! {compile_error!("#[index] requires an index type (hash or btree)");}
+                    .into();
             }
 
             if let Err(message) = validate_index_key_type(&field_ty_ident) {
@@ -177,7 +208,14 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 }
             });
 
-            indexed_fields.push((field_ident.clone(), field_name.clone(), field_ty_ident.clone(), index_type, unique, is_btree));
+            indexed_fields.push((
+                field_ident.clone(),
+                field_name.clone(),
+                field_ty_ident.clone(),
+                index_type,
+                unique,
+                is_btree,
+            ));
         }
 
         if is_pk {
@@ -185,7 +223,13 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 return quote! {compile_error!("Only one #[primary_key] field is allowed");}.into();
             }
 
-            primary_key = Some((field_ident, field_name, field_ty, field_ty_ident, pk_auto_inc));
+            primary_key = Some((
+                field_ident,
+                field_name,
+                field_ty,
+                field_ty_ident,
+                pk_auto_inc,
+            ));
         } else {
             entry_fields.push(field_ident.clone());
             schema_fields.push(quote! {
@@ -227,13 +271,17 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 
     let mut index_read_methods = Vec::new();
-    for (_index_ident, index_name, index_ty_ident, _index_type, unique, is_btree) in &indexed_fields {
+    for (_index_ident, index_name, index_ty_ident, _index_type, unique, is_btree) in &indexed_fields
+    {
         let fn_eq = syn::Ident::new(&format!("scan_by_{}_eq", index_name), struct_ident.span());
         let fn_lt = syn::Ident::new(&format!("scan_by_{}_lt", index_name), struct_ident.span());
         let fn_lte = syn::Ident::new(&format!("scan_by_{}_lte", index_name), struct_ident.span());
         let fn_gt = syn::Ident::new(&format!("scan_by_{}_gt", index_name), struct_ident.span());
         let fn_gte = syn::Ident::new(&format!("scan_by_{}_gte", index_name), struct_ident.span());
-        let fn_range = syn::Ident::new(&format!("scan_by_{}_range", index_name), struct_ident.span());
+        let fn_range = syn::Ident::new(
+            &format!("scan_by_{}_range", index_name),
+            struct_ident.span(),
+        );
         let fn_get = syn::Ident::new(&format!("get_by_{}", index_name), struct_ident.span());
 
         index_read_methods.push(quote! {
@@ -379,6 +427,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 },
                 primary_key_auto_inc: #pk_auto_inc,
                 indexes: vec![#(#index_schemas),*],
+                persistence: #persistence,
             }
         }
         #[interstice_sdk::init]

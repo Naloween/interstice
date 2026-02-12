@@ -2,8 +2,8 @@ mod schema;
 mod wrapper;
 
 use proc_macro::TokenStream;
-use quote::{quote, ToTokens};
-use syn::{parse_macro_input, ItemFn};
+use quote::{ToTokens, quote};
+use syn::{ItemFn, parse_macro_input};
 
 use crate::query::{schema::get_register_schema_function, wrapper::get_wrapper_function};
 
@@ -43,12 +43,8 @@ pub fn query_macro(item: TokenStream) -> TokenStream {
     let wrapper_function = get_wrapper_function(query_ident.clone(), arg_count);
 
     // Schema function
-    let register_schema = get_register_schema_function(
-        query_ident.clone(),
-        input_fn.clone(),
-        arg_names,
-        arg_types,
-    );
+    let register_schema =
+        get_register_schema_function(query_ident.clone(), input_fn.clone(), arg_names, arg_types);
 
     quote! {
         #input_fn

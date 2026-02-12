@@ -1,12 +1,14 @@
-use interstice_abi::{IndexKey, Row, decode, encode};
-use serde::{Deserialize, Serialize};
+use std::convert::TryInto;
+
+use interstice_abi::{IndexKey, PersistenceKind, Row};
 
 use crate::{
     error::IntersticeError,
+    persistence::{LogOperation, SnapshotPlan},
     runtime::{Runtime, event::EventInstance},
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug)]
 pub enum Transaction {
     Insert {
         module_name: String,
@@ -25,35 +27,30 @@ pub enum Transaction {
     },
 }
 
-impl Transaction {
-    pub fn encode(&self) -> Result<Vec<u8>, IntersticeError> {
-        encode(&self).map_err(|err| {
-            IntersticeError::Internal(format!("Couldn't encode transaction: {}", err))
-        })
-    }
-    pub fn decode(bytes: &[u8]) -> Result<Transaction, IntersticeError> {
-        decode(bytes).map_err(|err| {
-            IntersticeError::Internal(format!("Couldn't decode transaction: {}", err))
-        })
-    }
-}
-
 impl Runtime {
     pub(crate) fn apply_transaction(
         &self,
         transaction: Transaction,
         log_transaction: bool,
     ) -> Result<Vec<EventInstance>, IntersticeError> {
-        let transaction_to_log = transaction.clone();
-
-        // Apply transactions locally and collect events
         let mut events = Vec::new();
+        let mut module_name_for_persistence = String::new();
+        let mut table_name_for_persistence = String::new();
+        let mut persistence_kind = PersistenceKind::Logged;
+        let mut log_operation: Option<LogOperation> = None;
+        let mut logged_snapshot_plan: Option<SnapshotPlan> = None;
+        let mut logged_snapshot_rows: Option<Vec<Row>> = None;
+        let mut stateful_rows: Option<Vec<Row>> = None;
+
         match transaction {
             Transaction::Insert {
                 module_name,
                 table_name,
                 new_row,
             } => {
+                module_name_for_persistence = module_name.clone();
+                table_name_for_persistence = table_name.clone();
+
                 let mut modules = self.modules.lock().unwrap();
                 let module = modules.get_mut(&module_name).ok_or_else(|| {
                     IntersticeError::ModuleNotFound(
@@ -73,12 +70,49 @@ impl Runtime {
                             module_name: module_name.clone(),
                             table_name: table_name.clone(),
                         })?;
+                persistence_kind = table.schema.persistence.clone();
+
                 table.insert(new_row.clone())?;
                 events.push(EventInstance::TableInsertEvent {
                     module_name,
                     table_name,
-                    inserted_row: new_row,
+                    inserted_row: new_row.clone(),
                 });
+
+                if log_transaction {
+                    if persistence_kind != PersistenceKind::Ephemeral {
+                        let pk = row_primary_key(&new_row)?;
+                        let row_for_log = if persistence_kind == PersistenceKind::Logged {
+                            Some(new_row.clone())
+                        } else {
+                            None
+                        };
+                        log_operation = Some(LogOperation::Insert {
+                            primary_key: pk,
+                            row: row_for_log,
+                        });
+                    }
+
+                    match persistence_kind {
+                        PersistenceKind::Logged => {
+                            if let Some(plan) = self.persistence.record_logged_operation(
+                                &module_name_for_persistence,
+                                &table_name_for_persistence,
+                                log_operation
+                                    .as_ref()
+                                    .cloned()
+                                    .expect("logged operation missing"),
+                            )? {
+                                logged_snapshot_rows = Some(table.snapshot_rows());
+                                logged_snapshot_plan = Some(plan);
+                            }
+                        }
+                        PersistenceKind::Stateful => {
+                            stateful_rows = Some(table.snapshot_rows());
+                        }
+                        PersistenceKind::Ephemeral => {}
+                    }
+                }
             }
 
             Transaction::Update {
@@ -86,6 +120,9 @@ impl Runtime {
                 table_name,
                 update_row,
             } => {
+                module_name_for_persistence = module_name.clone();
+                table_name_for_persistence = table_name.clone();
+
                 let mut modules = self.modules.lock().unwrap();
                 let module = modules.get_mut(&module_name).ok_or_else(|| {
                     IntersticeError::ModuleNotFound(
@@ -105,20 +142,60 @@ impl Runtime {
                             module_name: module_name.clone(),
                             table_name: table_name.clone(),
                         })?;
+                persistence_kind = table.schema.persistence.clone();
 
                 let old_row = table.update(update_row.clone())?;
                 events.push(EventInstance::TableUpdateEvent {
                     module_name,
                     table_name,
                     old_row,
-                    new_row: update_row,
+                    new_row: update_row.clone(),
                 });
+
+                if log_transaction {
+                    if persistence_kind != PersistenceKind::Ephemeral {
+                        let pk = row_primary_key(&update_row)?;
+                        let row_for_log = if persistence_kind == PersistenceKind::Logged {
+                            Some(update_row.clone())
+                        } else {
+                            None
+                        };
+                        log_operation = Some(LogOperation::Update {
+                            primary_key: pk,
+                            row: row_for_log,
+                        });
+                    }
+
+                    match persistence_kind {
+                        PersistenceKind::Logged => {
+                            if let Some(plan) = self.persistence.record_logged_operation(
+                                &module_name_for_persistence,
+                                &table_name_for_persistence,
+                                log_operation
+                                    .as_ref()
+                                    .cloned()
+                                    .expect("logged operation missing"),
+                            )? {
+                                logged_snapshot_rows = Some(table.snapshot_rows());
+                                logged_snapshot_plan = Some(plan);
+                            }
+                        }
+                        PersistenceKind::Stateful => {
+                            stateful_rows = Some(table.snapshot_rows());
+                        }
+                        PersistenceKind::Ephemeral => {}
+                    }
+                }
             }
+
             Transaction::Delete {
                 module_name,
                 table_name,
                 deleted_row_id,
             } => {
+                module_name_for_persistence = module_name.clone();
+                table_name_for_persistence = table_name.clone();
+
                 let mut modules = self.modules.lock().unwrap();
                 let module = modules.get_mut(&module_name).ok_or_else(|| {
                     IntersticeError::ModuleNotFound(
@@ -138,27 +215,78 @@ impl Runtime {
                             module_name: module_name.clone(),
                             table_name: table_name.clone(),
                         })?;
+                persistence_kind = table.schema.persistence.clone();
 
-                match table.delete(&deleted_row_id) {
-                    Ok(deleted_row) => {
-                        events.push(EventInstance::TableDeleteEvent {
-                            module_name,
-                            table_name,
-                            deleted_row,
+                if let Ok(deleted_row) = table.delete(&deleted_row_id) {
+                    events.push(EventInstance::TableDeleteEvent {
+                        module_name,
+                        table_name,
+                        deleted_row,
+                    });
+                }
+
+                if log_transaction {
+                    if persistence_kind != PersistenceKind::Ephemeral {
+                        log_operation = Some(LogOperation::Delete {
+                            primary_key: deleted_row_id.clone(),
                         });
                     }
-                    Err(_err) => {} // If the row to delete is not found, we won't emit an event
+
+                    match persistence_kind {
+                        PersistenceKind::Logged => {
+                            if let Some(plan) = self.persistence.record_logged_operation(
+                                &module_name_for_persistence,
+                                &table_name_for_persistence,
+                                log_operation
+                                    .as_ref()
+                                    .cloned()
+                                    .expect("logged operation missing"),
+                            )? {
+                                logged_snapshot_rows = Some(table.snapshot_rows());
+                                logged_snapshot_plan = Some(plan);
+                            }
+                        }
+                        PersistenceKind::Stateful => {
+                            stateful_rows = Some(table.snapshot_rows());
+                        }
+                        PersistenceKind::Ephemeral => {}
+                    }
                 }
             }
-        };
-
-        if log_transaction {
-            self.transaction_logs
-                .lock()
-                .unwrap()
-                .append(&transaction_to_log)?;
         }
 
-        return Ok(events);
+        if log_transaction {
+            match persistence_kind {
+                PersistenceKind::Logged => {
+                    if let (Some(plan), Some(rows)) =
+                        (logged_snapshot_plan.take(), logged_snapshot_rows.take())
+                    {
+                        self.persistence.snapshot_logged_table(plan, rows)?;
+                    }
+                }
+                PersistenceKind::Stateful => {
+                    if let (Some(operation), Some(rows)) =
+                        (log_operation.take(), stateful_rows.take())
+                    {
+                        self.persistence.persist_stateful_operation(
+                            &module_name_for_persistence,
+                            &table_name_for_persistence,
+                            operation,
+                            rows,
+                        )?;
+                    }
+                }
+                PersistenceKind::Ephemeral => {}
+            }
+        }
+
+        Ok(events)
     }
+}
+
+fn row_primary_key(row: &Row) -> Result<IndexKey, IntersticeError> {
+    row.primary_key
+        .clone()
+        .try_into()
+        .map_err(|err| IntersticeError::Internal(format!("Failed to convert primary key: {}", err)))
 }

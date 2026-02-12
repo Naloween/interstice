@@ -157,7 +157,6 @@ async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError> {
                 node_id: None,
                 local: false,
                 last_seen: None,
-                elusive: false,
             })?;
             println!("Node added.");
         }
@@ -169,28 +168,15 @@ async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError> {
             let name = args[3].clone();
             let port: u32 = args[4].trim().parse().expect("Failed to parse port");
             let address = format!("127.0.0.1:{}", port);
-            if args.iter().any(|arg| arg == "--elusive") {
-                registry.add(NodeRecord {
-                    name,
-                    address,
-                    node_id: None,
-                    local: true,
-                    last_seen: None,
-                    elusive: true,
-                })?;
-                println!("Local node created (elusive).");
-            } else {
-                let node = Node::new(&nodes_dir(), port)?;
-                registry.add(NodeRecord {
-                    name,
-                    address,
-                    node_id: Some(node.id.to_string()),
-                    local: true,
-                    last_seen: None,
-                    elusive: false,
-                })?;
-                println!("Local node created.");
-            }
+            let node = Node::new(&nodes_dir(), port)?;
+            registry.add(NodeRecord {
+                name,
+                address,
+                node_id: Some(node.id.to_string()),
+                local: true,
+                last_seen: None,
+            })?;
+            println!("Local node created.");
         }
         "list" => {
             for node in registry.list_sorted() {
@@ -246,7 +232,6 @@ async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError> {
                 node.node_id.clone().unwrap_or_else(|| "-".into())
             );
             println!("local: {}", node.local);
-            println!("elusive: {}", node.elusive);
             println!(
                 "last_seen: {}",
                 node.last_seen
@@ -269,19 +254,12 @@ async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError> {
                 .ok_or_else(|| IntersticeError::Internal("Invalid address".into()))?
                 .parse()
                 .map_err(|_| IntersticeError::Internal("Invalid port".into()))?;
-            if node.elusive {
-                let node = Node::new_elusive(port)?;
-                registry.set_node_id(&args[3], node.id.to_string());
-                registry.set_last_seen(&args[3]);
-                registry.save()?;
-                node.start().await?;
-            } else {
-                let node_id = node
-                    .node_id
-                    .clone()
-                    .ok_or_else(|| IntersticeError::Internal("Missing node id".into()))?;
-                start(node_id.parse().unwrap(), port).await?;
-            }
+
+            let node_id = node
+                .node_id
+                .clone()
+                .ok_or_else(|| IntersticeError::Internal("Missing node id".into()))?;
+            start(node_id.parse().unwrap(), port).await?;
         }
         "ping" => {
             if args.len() < 4 {

@@ -183,13 +183,13 @@ impl ToWgpu<wgpu::BindingType> for interstice_abi::BindingType {
                 has_dynamic_offset: false,
                 min_binding_size: None,
             },
-            interstice_abi::BindingType::StorageBuffer { read_only } => {
-                wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: *read_only },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                }
-            }
+            interstice_abi::BindingType::StorageBuffer { read_only } => wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage {
+                    read_only: *read_only,
+                },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
             interstice_abi::BindingType::StorageTexture { format } => {
                 wgpu::BindingType::StorageTexture {
                     access: wgpu::StorageTextureAccess::ReadWrite,

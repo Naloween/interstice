@@ -1,8 +1,8 @@
-use interstice_core::{IntersticeError, Node};
 use crate::{
     data_directory::nodes_dir,
     node_registry::{NodeRecord, NodeRegistry},
 };
+use interstice_core::{IntersticeError, Node};
 
 pub async fn example(port: u32) -> Result<(), IntersticeError> {
     let mut registry = NodeRegistry::load()?;
@@ -31,7 +31,6 @@ pub async fn example(port: u32) -> Result<(), IntersticeError> {
             node_id: Some(node.id.to_string()),
             local: true,
             last_seen: None,
-            elusive: false,
         })?;
         (node, true)
     };
@@ -54,14 +53,12 @@ pub async fn example(port: u32) -> Result<(), IntersticeError> {
     } else {
         let modules_path = nodes_dir().join(node.id.to_string()).join("modules");
         let has_modules = std::fs::read_dir(&modules_path)
-            .map(|mut entries| entries.any(|entry| {
-                entry
-                    .ok()
-                    .and_then(|entry| {
-                        entry.path().extension().and_then(|s| s.to_str()).map(|s| s.to_string())
-                    })
-                    == Some("wasm".into())
-            }))
+            .map(|entries| {
+                entries.filter_map(|entry| entry.ok()).any(|entry| {
+                    let path = entry.path();
+                    path.is_dir() && path.join("module.wasm").exists()
+                })
+            })
             .unwrap_or(false);
 
         if !has_modules && port != 8080 {

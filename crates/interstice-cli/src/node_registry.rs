@@ -14,7 +14,6 @@ pub struct NodeRecord {
     pub node_id: Option<String>,
     pub local: bool,
     pub last_seen: Option<u64>,
-    pub elusive: bool,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]

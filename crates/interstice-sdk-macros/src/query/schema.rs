@@ -1,4 +1,4 @@
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use syn::{Ident, ItemFn, Pat, Type};
 
 pub fn get_register_schema_function(

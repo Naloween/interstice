@@ -1,9 +1,9 @@
 use crate::host_calls::{host_call, unpack};
 use interstice_abi::{
-    CopyRequest, CopyResponse, CreateDirRequest, CreateDirResponse, DirEntry, FileCall, HostCall,
-    ListDirRequest, ListDirResponse, MetadataRequest, MetadataResponse, ReadFileRequest,
-    ReadFileResponse, RemoveDirRequest, RemoveDirResponse, RemoveFileRequest, RemoveFileResponse,
-    RenameRequest, RenameResponse, WriteFileRequest, WriteFileResponse, FileMetadata,
+    CopyRequest, CopyResponse, CreateDirRequest, CreateDirResponse, DirEntry, FileCall,
+    FileMetadata, HostCall, ListDirRequest, ListDirResponse, MetadataRequest, MetadataResponse,
+    ReadFileRequest, ReadFileResponse, RemoveDirRequest, RemoveDirResponse, RemoveFileRequest,
+    RemoveFileResponse, RenameRequest, RenameResponse, WriteFileRequest, WriteFileResponse,
 };
 
 pub fn read_file(path: String) -> Result<Vec<u8>, String> {
@@ -59,7 +59,9 @@ pub fn create_dir(path: String, recursive: bool) -> Result<(), String> {
 }
 
 pub fn remove_file(path: String) -> Result<(), String> {
-    let pack = host_call(HostCall::File(FileCall::RemoveFile(RemoveFileRequest { path })));
+    let pack = host_call(HostCall::File(FileCall::RemoveFile(RemoveFileRequest {
+        path,
+    })));
     let response: RemoveFileResponse = unpack(pack);
     match response {
         RemoveFileResponse::Ok => Ok(()),

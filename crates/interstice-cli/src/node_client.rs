@@ -11,7 +11,9 @@ pub struct HandshakeInfo {
     pub address: String,
 }
 
-pub async fn handshake_with_node(address: &str) -> Result<(tokio::net::TcpStream, HandshakeInfo), IntersticeError> {
+pub async fn handshake_with_node(
+    address: &str,
+) -> Result<(tokio::net::TcpStream, HandshakeInfo), IntersticeError> {
     let cli_identity = load_cli_identity()?;
     let mut stream = tokio::net::TcpStream::connect(address)
         .await
@@ -25,9 +27,7 @@ pub async fn handshake_with_node(address: &str) -> Result<(tokio::net::TcpStream
     let response = read_packet(&mut stream).await?;
     match response {
         NetworkPacket::Handshake {
-            node_id,
-            address,
-            ..
+            node_id, address, ..
         } => Ok((stream, HandshakeInfo { node_id, address })),
         _ => Err(IntersticeError::ProtocolError(
             "Expected handshake response".into(),
@@ -48,7 +48,10 @@ pub async fn fetch_node_schema(
     write_packet(&mut stream, &packet).await?;
     let response = read_packet(&mut stream).await?;
     match response {
-        NetworkPacket::SchemaResponse { request_id: response_id, schema } => {
+        NetworkPacket::SchemaResponse {
+            request_id: response_id,
+            schema,
+        } => {
             if response_id != request_id {
                 return Err(IntersticeError::ProtocolError(
                     "Schema response id mismatch".into(),

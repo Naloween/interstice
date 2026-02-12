@@ -1,9 +1,10 @@
-use interstice_abi::{
-    IndexKey, IndexQuery, IndexSchema, IndexType, IntersticeType, Row  
+use crate::{
+    IntersticeError,
+    runtime::table::auto_inc::{AutoIncState, IndexImpl},
 };
+use interstice_abi::{IndexKey, IndexQuery, IndexSchema, IndexType, IntersticeType, Row};
 use std::collections::BTreeMap;
 use wgpu::naga::FastHashMap;
-use crate::{IntersticeError, runtime::table::auto_inc::{AutoIncState, IndexImpl}};
 
 pub struct TableIndex {
     pub field_name: String,
@@ -13,7 +14,6 @@ pub struct TableIndex {
     pub auto_inc_state: Option<AutoIncState>,
     pub index: IndexImpl,
 }
-
 
 impl TableIndex {
     pub fn new(schema: &IndexSchema, field_index: usize, field_type: &IntersticeType) -> Self {
@@ -139,7 +139,11 @@ impl TableIndex {
         }
     }
 
-    pub fn scan(&self, query: &IndexQuery, table_name: &str) -> Result<Vec<usize>, IntersticeError> {
+    pub fn scan(
+        &self,
+        query: &IndexQuery,
+        table_name: &str,
+    ) -> Result<Vec<usize>, IntersticeError> {
         match (&self.index, query) {
             (IndexImpl::Hash(map), IndexQuery::Eq(key)) => {
                 Ok(map.get(key).cloned().unwrap_or_default())

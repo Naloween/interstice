@@ -3,8 +3,7 @@ use crate::{
     error::IntersticeError,
     logger::{LogLevel, LogSource, Logger},
     network::{Network, NetworkHandle},
-    persistence::PeerTokenStore,
-    persistence::TransactionLog,
+    persistence::{PeerTokenStore, TableStore},
     runtime::{Runtime, event::EventInstance, module::Module},
 };
 use interstice_abi::{ModuleSchema, NodeSchema};
@@ -34,9 +33,9 @@ impl Node {
         let id = Uuid::new_v4();
         let data_path = nodes_path.join(id.to_string());
         let modules_path = data_path.join("modules");
-        let transaction_log_path = data_path.join("transaction_log");
         std::fs::create_dir_all(&data_path).expect("Should be able to create node data path");
         std::fs::create_dir_all(&modules_path).expect("Should be able to create modules path");
+        let table_store = TableStore::new(Some(modules_path.clone()));
 
         let address = format!("127.0.0.1:{}", port);
 
@@ -61,7 +60,7 @@ impl Node {
         let run_app_notify = Arc::new(Notify::new());
         let runtime = Arc::new(Runtime::new(
             Some(modules_path),
-            TransactionLog::new(&transaction_log_path)?,
+            table_store,
             event_sender.clone(),
             network_handle.clone(),
             gpu,
@@ -94,8 +93,8 @@ impl Node {
     pub async fn load(nodes_path: &Path, id: NodeId, port: u32) -> Result<Self, IntersticeError> {
         let data_path = nodes_path.join(id.to_string());
         let address = format!("127.0.0.1:{}", port);
-        let transaction_log_path = data_path.join("transaction_log");
         let modules_path = data_path.join("modules");
+        let table_store = TableStore::new(Some(modules_path.clone()));
 
         let (event_sender, event_receiver) = mpsc::unbounded_channel();
 
@@ -121,7 +120,7 @@ impl Node {
         let run_app_notify = Arc::new(Notify::new());
         let runtime = Arc::new(Runtime::new(
             Some(modules_path.clone()),
-            TransactionLog::new(&transaction_log_path)?,
+            table_store,
             event_sender.clone(),
             network_handle.clone(),
             gpu,
@@ -138,12 +137,23 @@ impl Node {
         );
 
         // Load all modules
-        for module_path in std::fs::read_dir(&modules_path).unwrap() {
-            let module_path = module_path.unwrap().path();
-            if module_path.extension().and_then(|s| s.to_str()) == Some("wasm") {
-                let module = Module::from_file(runtime.clone(), &module_path).await?;
-                Runtime::load_module(runtime.clone(), module, false).await?;
+        for entry in std::fs::read_dir(&modules_path).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
             }
+
+            std::fs::create_dir_all(path.join("logs")).unwrap();
+            std::fs::create_dir_all(path.join("snapshots")).unwrap();
+
+            let wasm_path = path.join("module.wasm");
+            if !wasm_path.exists() {
+                continue;
+            }
+
+            let module = Module::from_file(runtime.clone(), &wasm_path).await?;
+            Runtime::load_module(runtime.clone(), module, false).await?;
         }
 
         // Replay transaction logs to restore state once all modules are available
@@ -161,53 +171,6 @@ impl Node {
         };
 
         Ok(node)
-    }
-
-    pub fn new_elusive(port: u32) -> Result<Self, IntersticeError> {
-        let id = Uuid::new_v4();
-        let address = format!("127.0.0.1:{}", port);
-        let (event_sender, event_receiver) = mpsc::unbounded_channel();
-        let logger = Logger::new_stdout();
-
-        let peer_tokens = Arc::new(Mutex::new(PeerTokenStore::new_in_memory()));
-        let network = Network::new(
-            id,
-            address.clone(),
-            event_sender.clone(),
-            peer_tokens,
-            logger.clone(),
-        );
-        let network_handle = network.get_handle();
-        let gpu = Arc::new(Mutex::new(None));
-        let run_app_notify = Arc::new(Notify::new());
-        let runtime = Arc::new(Runtime::new(
-            None,
-            TransactionLog::new_in_memory(),
-            event_sender.clone(),
-            network_handle.clone(),
-            gpu,
-            run_app_notify.clone(),
-            logger.clone(),
-        )?);
-        let gpu_call_receiver = runtime.take_gpu_call_receiver();
-        let app = App::new(
-            id,
-            event_sender.clone(),
-            runtime.gpu.clone(),
-            runtime.clone(),
-            gpu_call_receiver,
-        );
-
-        Ok(Self {
-            id,
-            runtime,
-            app,
-            network,
-            network_handle,
-            event_receiver,
-            run_app_notify,
-            logger,
-        })
     }
 
     pub fn log(&self, message: &str, source: LogSource, level: LogLevel) {
@@ -269,11 +232,7 @@ impl Node {
     }
 
     pub async fn clear_logs(&mut self) -> Result<(), IntersticeError> {
-        self.runtime
-            .transaction_logs
-            .lock()
-            .unwrap()
-            .delete_all_logs()?;
+        self.runtime.persistence.clear_all()?;
         Ok(())
     }
 

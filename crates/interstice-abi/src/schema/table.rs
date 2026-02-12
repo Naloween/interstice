@@ -12,12 +12,20 @@ pub struct TableSchema {
     pub primary_key: FieldDef,
     pub primary_key_auto_inc: bool,
     pub indexes: Vec<IndexSchema>,
+    pub persistence: PersistenceKind,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub enum TableVisibility {
     Public,
     Private,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub enum PersistenceKind {
+    Logged,
+    Stateful,
+    Ephemeral,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]

@@ -1,5 +1,5 @@
 use quote::quote;
-use syn::{punctuated::Punctuated, token::Comma, Expr, Ident, Meta};
+use syn::{Expr, Ident, Meta, punctuated::Punctuated, token::Comma};
 
 pub fn get_register_subscription_function(
     reducer_ident: Ident,

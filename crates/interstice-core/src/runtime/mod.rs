@@ -4,7 +4,7 @@ pub mod host_calls;
 pub mod module;
 mod query;
 pub mod reducer;
-mod table;
+pub mod table;
 pub mod transaction;
 mod wasm;
 
@@ -13,7 +13,7 @@ use crate::{
     logger::{LogLevel, LogSource, Logger},
     network::NetworkHandle,
     node::NodeId,
-    persistence::TransactionLog,
+    persistence::TableStore,
     runtime::{
         authority::AuthorityEntry,
         event::EventInstance,
@@ -48,7 +48,7 @@ pub struct Runtime {
     pub(crate) linker: Arc<Linker<StoreState>>,
     pub(crate) event_sender: UnboundedSender<EventInstance>,
     pub(crate) network_handle: NetworkHandle,
-    pub(crate) transaction_logs: Arc<Mutex<TransactionLog>>,
+    pub(crate) persistence: Arc<TableStore>,
     pub(crate) logger: Logger,
     run_app_notify: Arc<Notify>,
     pub(crate) app_initialized: Arc<Mutex<bool>>,
@@ -66,7 +66,7 @@ pub struct Runtime {
 impl Runtime {
     pub fn new(
         modules_path: Option<PathBuf>,
-        transaction_logs: TransactionLog,
+        table_store: TableStore,
         event_sender: UnboundedSender<EventInstance>,
         network_handle: NetworkHandle,
         gpu: Arc<Mutex<Option<GpuState>>>,
@@ -92,7 +92,7 @@ impl Runtime {
             linker: Arc::new(linker),
             event_sender,
             network_handle,
-            transaction_logs: Arc::new(Mutex::new(transaction_logs)),
+            persistence: Arc::new(table_store),
             app_initialized: Arc::new(Mutex::new(false)),
             pending_query_responses: Arc::new(Mutex::new(HashMap::new())),
             reducer_sender,
@@ -339,10 +339,19 @@ impl Runtime {
     }
 
     pub fn replay(&self) -> Result<(), IntersticeError> {
-        let transactions = self.transaction_logs.lock().unwrap().read_all()?;
+        let module_entries = self
+            .modules
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(name, module)| (name.clone(), Arc::clone(module)))
+            .collect::<Vec<_>>();
 
-        for transaction in transactions {
-            let _events = self.apply_transaction(transaction, false)?;
+        for (module_name, module) in module_entries {
+            let mut tables = module.tables.lock().unwrap();
+            for table in tables.values_mut() {
+                self.persistence.restore_table(&module_name, table)?;
+            }
         }
 
         Ok(())

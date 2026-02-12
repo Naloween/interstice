@@ -1,5 +1,5 @@
 use proc_macro::TokenStream;
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use syn::parse_macro_input;
 
 pub fn derive_interstice_type_macro(input: TokenStream) -> TokenStream {

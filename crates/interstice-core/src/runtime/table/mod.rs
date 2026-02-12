@@ -1,14 +1,12 @@
-mod index;
 mod auto_inc;
+mod index;
 
 pub(crate) use auto_inc::{AutoIncState, TableAutoIncSnapshot};
 
-use interstice_abi::{
-    IndexKey, IndexQuery,  Row, TableSchema,
-};
-use wgpu::naga::FastHashMap;
-use crate::{IntersticeError};
+use crate::IntersticeError;
 use index::*;
+use interstice_abi::{IndexKey, IndexQuery, Row, TableSchema};
+use wgpu::naga::FastHashMap;
 
 pub struct Table {
     pub schema: TableSchema,
@@ -57,7 +55,6 @@ impl Table {
             primary_key_auto_inc_state,
         }
     }
-
 
     pub fn validate_insert(&self, row: &Row) -> Result<(), IntersticeError> {
         let primary_key_value: IndexKey = row
@@ -254,4 +251,16 @@ impl Table {
             .collect())
     }
 
+    pub fn snapshot_rows(&self) -> Vec<Row> {
+        self.rows.clone()
+    }
+
+    pub fn restore_from_rows(&mut self, rows: Vec<Row>) -> Result<(), IntersticeError> {
+        let schema = self.schema.clone();
+        *self = Table::new(schema);
+        for row in rows {
+            self.insert(row)?;
+        }
+        Ok(())
+    }
 }

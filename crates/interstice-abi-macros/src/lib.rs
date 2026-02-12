@@ -2,11 +2,11 @@ mod interstice_type;
 
 use crate::interstice_type::derive_interstice_type_macro;
 use proc_macro::TokenStream;
+use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::Span;
-use proc_macro_crate::{crate_name, FoundCrate};
 use quote::quote;
-use syn::parse_macro_input;
 use syn::Ident;
+use syn::parse_macro_input;
 
 #[proc_macro_derive(IntersticeType)]
 pub fn derive_interstice_type(input: TokenStream) -> TokenStream {

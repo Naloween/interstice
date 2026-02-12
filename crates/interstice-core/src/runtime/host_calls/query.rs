@@ -15,11 +15,13 @@ impl Runtime {
         };
         match call_query_request.node_selection {
             NodeSelection::Current => {
-                let result = self.call_query(
-                    module_name,
-                    &call_query_request.query_name,
-                    call_query_request.input,
-                ).await?;
+                let result = self
+                    .call_query(
+                        module_name,
+                        &call_query_request.query_name,
+                        call_query_request.input,
+                    )
+                    .await?;
                 Ok(result)
             }
             NodeSelection::Other(node_name) => {
@@ -63,11 +65,9 @@ impl Runtime {
                         input: call_query_request.input.clone(),
                     },
                 );
-                let result = receiver
-                    .await
-                    .map_err(|_| {
-                        IntersticeError::ProtocolError("Query response channel closed".into())
-                    })?;
+                let result = receiver.await.map_err(|_| {
+                    IntersticeError::ProtocolError("Query response channel closed".into())
+                })?;
                 Ok(result)
             }
         }

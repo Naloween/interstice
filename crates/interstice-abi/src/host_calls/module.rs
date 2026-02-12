@@ -1,4 +1,4 @@
-use crate::{interstice_abi_macros::IntersticeType, NodeSelection};
+use crate::{NodeSelection, interstice_abi_macros::IntersticeType};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]

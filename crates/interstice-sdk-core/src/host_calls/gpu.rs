@@ -50,7 +50,11 @@ pub fn present() -> Result<(), String> {
     expect_gpu_none(unpack_gpu_response(pack)?)
 }
 
-pub fn create_buffer(size: u64, usage: BufferUsage, mapped_at_creation: bool) -> Result<GpuId, String> {
+pub fn create_buffer(
+    size: u64,
+    usage: BufferUsage,
+    mapped_at_creation: bool,
+) -> Result<GpuId, String> {
     let pack = host_call(HostCall::Gpu(GpuCall::CreateBuffer(CreateBuffer {
         size,
         usage,
@@ -350,12 +354,7 @@ impl Gpu {
         set_render_pipeline(pass, pipeline)
     }
 
-    pub fn set_bind_group(
-        &self,
-        pass: GpuId,
-        index: u32,
-        bind_group: GpuId,
-    ) -> Result<(), String> {
+    pub fn set_bind_group(&self, pass: GpuId, index: u32, bind_group: GpuId) -> Result<(), String> {
         set_bind_group(pass, index, bind_group)
     }
 
