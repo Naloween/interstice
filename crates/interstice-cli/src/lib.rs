@@ -8,3 +8,4 @@ pub mod module;
 pub mod node_client;
 pub mod node_registry;
 pub mod start;
+pub mod update;

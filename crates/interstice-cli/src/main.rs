@@ -11,6 +11,7 @@ use interstice_cli::{
     node_client::handshake_with_node,
     node_registry::{NodeRecord, NodeRegistry},
     start::start,
+    update::update,
 };
 use interstice_core::{IntersticeError, Node, interstice_abi::IntersticeValue};
 use std::path::Path;
@@ -47,6 +48,7 @@ async fn main() -> Result<(), IntersticeError> {
             let module_project_path = std::path::Path::new(&args[3]);
             publish(node_ref, module_project_path).await
         }
+        "update" => update(),
         "remove" => {
             if args.len() < 4 {
                 print_help();
@@ -124,6 +126,7 @@ fn print_help() {
     );
     println!("  publish <node> <module_path>   Publish a module to a node");
     println!("  remove <node> <module_name>    Remove a module from a node");
+    println!("  update                          Update the interstice CLI");
     println!(
         "  call_reducer <node> <module_name> <reducer_name>    Call a reducer of a module on a node"
     );

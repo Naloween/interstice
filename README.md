@@ -22,6 +22,50 @@ Repository layout
 
 ---
 
+# Install CLI
+
+Prebuilt binaries are published on GitHub Releases.
+
+Linux / macOS:
+
+```bash
+VERSION="0.2.0"
+TARGET="x86_64-unknown-linux-gnu" # or x86_64-apple-darwin, aarch64-apple-darwin
+curl -L -o interstice.tar.gz \
+  https://github.com/Naloween/interstice/releases/download/v${VERSION}/interstice-${VERSION}-${TARGET}.tar.gz
+tar -xzf interstice.tar.gz
+sudo mv interstice /usr/local/bin/
+interstice --help
+```
+
+Windows (PowerShell):
+
+```powershell
+$Version = "0.2.0"
+$Target = "x86_64-pc-windows-msvc"
+$Url = "https://github.com/Naloween/interstice/releases/download/v$Version/interstice-$Version-$Target.zip"
+Invoke-WebRequest $Url -OutFile interstice.zip
+Expand-Archive interstice.zip -DestinationPath .
+Move-Item .\interstice.exe $Env:USERPROFILE\AppData\Local\Microsoft\WindowsApps\
+interstice --help
+```
+
+If `interstice` is not found, ensure the destination folder is on your PATH.
+
+From source (via Cargo):
+
+```bash
+cargo install --git https://github.com/Naloween/interstice --bin interstice
+```
+
+From crates.io:
+
+```bash
+cargo install interstice-cli
+```
+
+---
+
 # Quickstart
 
 Prerequisites
@@ -68,7 +112,7 @@ cargo run example 8081
 The CLI provides a simple init command to start a Rust module for Interstice. It fills the project with a hello example, sets up the config to build for WASM, and adds the required macro calls in build.rs and at the top of lib.rs.
 
 ```bash
-interstice-cli init
+interstice init
 ```
 
 ## Minimal layout
@@ -256,7 +300,7 @@ There is no manual way to publish to an already running node. See the CLI flow b
 
 ## CLI flow
 
-- `interstice-cli publish <node-address> <module-rust-project-path>` — build, upload, validate, and install a module on a running node. The node verifies schema compatibility and requested capabilities.
+- `interstice publish <node-address> <module-rust-project-path>` — build, upload, validate, and install a module on a running node. The node verifies schema compatibility and requested capabilities.
 
 # CLI usage
 
@@ -268,31 +312,32 @@ There is no manual way to publish to an already running node. See the CLI flow b
 
 ## Node management
 
-- `interstice-cli node add <name> <address>`
-- `interstice-cli node create <name> <port> [--elusive]`
-- `interstice-cli node list`
-- `interstice-cli node remove <name|id>`
-- `interstice-cli node rename <old> <new>`
-- `interstice-cli node show <name|id>`
-- `interstice-cli node start <name|id>`
-- `interstice-cli node ping <name|id>`
-- `interstice-cli node schema <name|id> [out]`
+- `interstice node add <name> <address>`
+- `interstice node create <name> <port> [--elusive]`
+- `interstice node list`
+- `interstice node remove <name|id>`
+- `interstice node rename <old> <new>`
+- `interstice node show <name|id>`
+- `interstice node start <name|id>`
+- `interstice node ping <name|id>`
+- `interstice node schema <name|id> [out]`
 
 The `--elusive` flag starts a node without any persistence: no node directory, no transaction log, no module files, and no log file. All state is kept in memory for that session only.
 
 ## Bindings helpers
 
-- `interstice-cli bindings add module <node> <module> [project_path]`
-- `interstice-cli bindings add node <node> [project_path]`
+- `interstice bindings add module <node> <module> [project_path]`
+- `interstice bindings add node <node> [project_path]`
 
 These commands fetch **public** schemas from the target node and write TOML files into `src/bindings/`.
 
 ## Module commands
 
-- `interstice-cli publish <node> <module_path>`
-- `interstice-cli remove <node> <module_name>`
-- `interstice-cli call_reducer <node> <module_name> <reducer_name> [args...]`
-- `interstice-cli call_query <node> <module_name> <query_name> [args...]`
+- `interstice publish <node> <module_path>`
+- `interstice remove <node> <module_name>`
+- `interstice call_reducer <node> <module_name> <reducer_name> [args...]`
+- `interstice call_query <node> <module_name> <query_name> [args...]`
+- `interstice update`
 
 # Security
 
