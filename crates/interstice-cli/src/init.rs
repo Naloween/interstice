@@ -39,10 +39,10 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-interstice_sdk = "0.1.0"
+interstice-sdk = "0.3.0"
 
 [build-dependencies]
-interstice_sdk = "0.1.0"
+interstice-sdk = "0.3.0"
 "#,
     );
     std::fs::write(project_path.join("Cargo.toml"), cargo_toml_content).map_err(|err| {
@@ -85,8 +85,9 @@ interstice_module!(visibility: Public);
 #[table(public)]
 #[derive(Debug)]
 pub struct Greetings {
-    #[primary_key]
+    #[primary_key(auto_inc)]
     pub id: u64,
+    #[index(btree, unique)]
     pub greeting: String,
     pub custom: TestCustomType,
 }
@@ -106,17 +107,29 @@ pub fn init(ctx: ReducerContext) {
 #[reducer]
 pub fn hello(ctx: ReducerContext, name: String) {
     ctx.log(&format!("Saying hello to {}", name));
-    ctx.current.greetings().insert(Greetings {
+    match ctx.current.tables.greetings().insert(Greetings {
         id: 0,
         greeting: format!("Hello, {}!", name),
         custom: TestCustomType { val: 0 },
-    });
+    }) {
+        Ok(_) => (),
+        Err(err) => ctx.log(&format!("Failed to insert greeting: {:?}", err)),
+    }
 }
 
 #[reducer(on = "hello.greetings.insert")]
 fn on_greeting_insert(ctx: ReducerContext, inserted_row: Greetings) {
     ctx.log(&format!("Inserted greeting: {:?}", inserted_row));
-}"#;
+}
+
+#[query]
+fn get_greetings(ctx: QueryContext) -> Vec<Greetings> {
+    ctx.current.tables.greetings().scan().unwrap_or_else(|err| {
+        ctx.log(&format!("Failed to scan greetings: {}", err));
+        vec![]
+    })
+}
+"#;
 
     std::fs::write(project_path.join("src/lib.rs"), lib_content).map_err(|err| {
         IntersticeError::Internal(format!("Failed to create src/lib.rs: {}", err))

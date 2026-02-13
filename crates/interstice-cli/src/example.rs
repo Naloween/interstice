@@ -6,19 +6,19 @@ use interstice_core::{IntersticeError, Node};
 
 const HELLO_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/module_examples/hello.wasm"
+    "/module_examples/hello_example.wasm"
 ));
 const CALLER_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/module_examples/caller.wasm"
+    "/module_examples/caller_example.wasm"
 ));
 const GRAPHICS_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/module_examples/graphics.wasm"
+    "/module_examples/graphics_example.wasm"
 ));
 const AUDIO_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/module_examples/audio.wasm"
+    "/module_examples/audio_example.wasm"
 ));
 
 struct ExampleModule {
@@ -35,7 +35,7 @@ struct ExampleConfig {
 fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> {
     match example_name {
         "hello" => Ok(ExampleConfig {
-            name: "hello",
+            name: "hello-example",
             port: 8080,
             modules: vec![ExampleModule {
                 bytes: HELLO_BYTES,
@@ -43,7 +43,7 @@ fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> 
             }],
         }),
         "caller" => Ok(ExampleConfig {
-            name: "caller",
+            name: "caller-example",
             port: 8081,
             modules: vec![ExampleModule {
                 bytes: CALLER_BYTES,
@@ -51,7 +51,7 @@ fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> 
             }],
         }),
         "graphics" => Ok(ExampleConfig {
-            name: "graphics",
+            name: "graphics-example",
             port: 8082,
             modules: vec![ExampleModule {
                 bytes: GRAPHICS_BYTES,
@@ -59,7 +59,7 @@ fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> 
             }],
         }),
         "audio" => Ok(ExampleConfig {
-            name: "audio",
+            name: "audio-example",
             port: 8083,
             modules: vec![ExampleModule {
                 bytes: AUDIO_BYTES,
@@ -75,7 +75,7 @@ fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> 
 pub async fn example(example_name: &str) -> Result<(), IntersticeError> {
     let config = example_config(example_name)?;
     let mut registry = NodeRegistry::load()?;
-    let name = format!("example-{}", config.name);
+    let name = config.name.to_string();
     let (node, is_new) = if let Some(entry) = registry.get(&name) {
         let node_id = entry
             .node_id
