@@ -5,6 +5,7 @@ interstice_module!(visibility: Public, authorities: [Audio]);
 
 const SAMPLE_RATE: u32 = 48_000;
 const CHANNELS: u16 = 2;
+const INPUT_CHANNELS: u16 = 1;
 const FRAMES_PER_BUFFER: u32 = 480;
 const FREQUENCY: f32 = 440.0;
 const VOLUME: f32 = 0.2;
@@ -23,13 +24,13 @@ pub struct AudioState {
 
 #[reducer(on = "load")]
 fn on_load(ctx: ReducerContext) {
-    let config = AudioStreamConfig {
+    let output_config = AudioStreamConfig {
         sample_rate: SAMPLE_RATE,
         channels: CHANNELS,
         frames_per_buffer: FRAMES_PER_BUFFER,
     };
 
-    let output_stream_id = match ctx.audio().open_output_stream(config.clone()) {
+    let output_stream_id = match ctx.audio().open_output_stream(output_config) {
         Ok(id) => id,
         Err(err) => {
             ctx.log(&format!("Audio output open failed: {err}"));
@@ -37,7 +38,13 @@ fn on_load(ctx: ReducerContext) {
         }
     };
 
-    let input_stream_id = match ctx.audio().open_input_stream(config) {
+    let input_config = AudioStreamConfig {
+        sample_rate: SAMPLE_RATE,
+        channels: INPUT_CHANNELS,
+        frames_per_buffer: FRAMES_PER_BUFFER,
+    };
+
+    let input_stream_id = match ctx.audio().open_input_stream(input_config) {
         Ok(id) => id,
         Err(err) => {
             ctx.log(&format!("Audio input open failed: {err}"));

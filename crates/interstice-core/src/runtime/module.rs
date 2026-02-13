@@ -160,35 +160,48 @@ impl Runtime {
                 return Err(IntersticeError::AuthorityAlreadyTaken(
                     module_schema.name.clone(),
                     authority.clone().into(),
-                    other_entry.module_name.clone(),
+                    other_entry.module_name().to_string(),
                 ));
             } else {
-                let on_event_reducer_name = match authority {
-                    Authority::Gpu => module_schema
-                        .subscriptions
-                        .iter()
-                        .find(|sub| sub.event == SubscriptionEventSchema::Render)
-                        .map(|sub| sub.reducer_name.clone()),
-                    Authority::Audio => module_schema
-                        .subscriptions
-                        .iter()
-                        .find(|sub| sub.event == SubscriptionEventSchema::AudioOutput)
-                        .map(|sub| sub.reducer_name.clone()),
-                    Authority::Input => module_schema
-                        .subscriptions
-                        .iter()
-                        .find(|sub| sub.event == SubscriptionEventSchema::Input)
-                        .map(|sub| sub.reducer_name.clone()),
-                    Authority::File => None,
-                    Authority::Module => None,
-                };
-                runtime.authority_modules.lock().unwrap().insert(
-                    authority.clone(),
-                    AuthorityEntry {
-                        module_name: module_schema.name.clone(),
-                        on_event_reducer_name,
+                let module_name = module_schema.name.clone();
+                let entry = match authority {
+                    Authority::Gpu => AuthorityEntry::Gpu {
+                        module_name,
+                        render_reducer: module_schema
+                            .subscriptions
+                            .iter()
+                            .find(|sub| sub.event == SubscriptionEventSchema::Render)
+                            .map(|sub| sub.reducer_name.clone()),
                     },
-                );
+                    Authority::Audio => AuthorityEntry::Audio {
+                        module_name,
+                        output_reducer: module_schema
+                            .subscriptions
+                            .iter()
+                            .find(|sub| sub.event == SubscriptionEventSchema::AudioOutput)
+                            .map(|sub| sub.reducer_name.clone()),
+                        input_reducer: module_schema
+                            .subscriptions
+                            .iter()
+                            .find(|sub| sub.event == SubscriptionEventSchema::AudioInput)
+                            .map(|sub| sub.reducer_name.clone()),
+                    },
+                    Authority::Input => AuthorityEntry::Input {
+                        module_name,
+                        input_reducer: module_schema
+                            .subscriptions
+                            .iter()
+                            .find(|sub| sub.event == SubscriptionEventSchema::Input)
+                            .map(|sub| sub.reducer_name.clone()),
+                    },
+                    Authority::File => AuthorityEntry::File { module_name },
+                    Authority::Module => AuthorityEntry::Module { module_name },
+                };
+                runtime
+                    .authority_modules
+                    .lock()
+                    .unwrap()
+                    .insert(authority.clone(), entry);
             }
         }
 
@@ -381,7 +394,7 @@ impl Runtime {
             .lock()
             .unwrap()
             .iter()
-            .filter(|(_, entry)| entry.module_name == module_name)
+            .filter(|(_, entry)| entry.module_name() == module_name)
             .map(|(authority, _)| authority.clone())
             .collect::<Vec<_>>();
         for authority in authorities_to_remove {

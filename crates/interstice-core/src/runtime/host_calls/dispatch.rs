@@ -95,7 +95,7 @@ impl Runtime {
                     let auth_modules = self.authority_modules.lock().unwrap();
                     auth_modules
                         .get(&Authority::Gpu)
-                        .map(|entry| entry.module_name.clone())
+                        .map(|entry| entry.module_name().to_string())
                 };
 
                 match gpu_auth_module {
@@ -123,7 +123,7 @@ impl Runtime {
                     let auth_modules = self.authority_modules.lock().unwrap();
                     auth_modules
                         .get(&Authority::Audio)
-                        .map(|entry| entry.module_name.clone())
+                        .map(|entry| entry.module_name().to_string())
                 };
 
                 match audio_auth_module {
@@ -154,7 +154,7 @@ impl Runtime {
                     let auth_modules = self.authority_modules.lock().unwrap();
                     auth_modules
                         .get(&Authority::File)
-                        .map(|entry| entry.module_name.clone())
+                        .map(|entry| entry.module_name().to_string())
                 };
 
                 match file_auth_module {
@@ -342,7 +342,7 @@ impl Runtime {
                     let auth_modules = self.authority_modules.lock().unwrap();
                     auth_modules
                         .get(&Authority::Module)
-                        .map(|entry| entry.module_name.clone())
+                        .map(|entry| entry.module_name().to_string())
                 };
 
                 match module_auth_module {

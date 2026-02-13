@@ -230,9 +230,9 @@ impl Runtime {
                 }
             }
         } else if let EventInstance::Input(_) = event {
-            if let Some(AuthorityEntry {
+            if let Some(AuthorityEntry::Input {
                 module_name,
-                on_event_reducer_name: Some(on_input_reducer_name),
+                input_reducer: Some(on_input_reducer_name),
             }) = self
                 .authority_modules
                 .lock()
@@ -246,9 +246,10 @@ impl Runtime {
                 });
             }
         } else if let EventInstance::AudioOutput = event {
-            if let Some(AuthorityEntry {
+            if let Some(AuthorityEntry::Audio {
                 module_name,
-                on_event_reducer_name: Some(on_audio_reducer_name),
+                output_reducer: Some(on_audio_reducer_name),
+                ..
             }) = self
                 .authority_modules
                 .lock()
@@ -262,9 +263,10 @@ impl Runtime {
                 });
             }
         } else if let EventInstance::AudioInput { .. } = event {
-            if let Some(AuthorityEntry {
+            if let Some(AuthorityEntry::Audio {
                 module_name,
-                on_event_reducer_name: Some(on_audio_reducer_name),
+                input_reducer: Some(on_audio_reducer_name),
+                ..
             }) = self
                 .authority_modules
                 .lock()

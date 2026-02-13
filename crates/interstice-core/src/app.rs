@@ -1,7 +1,7 @@
 use crate::{
     node::NodeId,
     runtime::{
-        Runtime,
+        AuthorityEntry, Runtime,
         event::EventInstance,
         host_calls::{
             gpu::{GpuCallRequest, GpuCallResult, GpuState},
@@ -91,10 +91,12 @@ impl ApplicationHandler for App {
                         .unwrap()
                         .get(&Authority::Gpu)
                         .cloned()
-                        .and_then(|entry| {
-                            entry
-                                .on_event_reducer_name
-                                .map(|reducer| (entry.module_name, reducer))
+                        .and_then(|entry| match entry {
+                            AuthorityEntry::Gpu {
+                                module_name,
+                                render_reducer: Some(reducer),
+                            } => Some((module_name, reducer)),
+                            _ => None,
                         })
                 };
 
