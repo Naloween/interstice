@@ -1,6 +1,6 @@
 [package]
 name = "interstice-sdk-core"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 description = "Core SDK utilities used by Interstice modules and macros"
@@ -11,6 +11,6 @@ keywords = ["interstice", "wasm", "sdk", "core"]
 all-features = true
 
 [dependencies]
-interstice-abi = { path = "../interstice-abi", version = "0.2.0" }
+interstice-abi = { path = "../interstice-abi", version = "0.3.0" }
 lazy_static = "1.5"
 serde = "1.0"

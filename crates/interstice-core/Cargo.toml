@@ -1,6 +1,6 @@
 [package]
 name = "interstice-core"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 description = "Core runtime for loading and executing Interstice WASM modules"
@@ -11,7 +11,7 @@ keywords = ["interstice", "wasm", "runtime", "wasmtime"]
 all-features = true
 
 [dependencies]
-interstice-abi = { path = "../../crates/interstice-abi", version = "0.2.0" }
+interstice-abi = { path = "../../crates/interstice-abi", version = "0.3.0" }
 wasmtime = { version = "41.0.2", features = ["component-model"] }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
