@@ -1,6 +1,6 @@
 use interstice_sdk::*;
 
-interstice_module!(authorities: [Input, Gpu]);
+interstice_module!(authorities: [Gpu]);
 
 // TABLES
 

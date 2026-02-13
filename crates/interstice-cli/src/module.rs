@@ -123,10 +123,13 @@ fn resolve_wasm_path(manifest_path: &Path) -> Result<PathBuf, IntersticeError> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| IntersticeError::Internal("Missing package name".into()))?;
 
+    // Cargo converts hyphens to underscores in output filenames
+    let wasm_filename = package_name.replace('-', "_");
+
     Ok(PathBuf::from(target_directory)
         .join("wasm32-unknown-unknown")
         .join("release")
-        .join(package_name)
+        .join(wasm_filename)
         .with_extension("wasm"))
 }
 
