@@ -29,7 +29,7 @@ Prebuilt binaries are published on GitHub Releases.
 Linux / macOS:
 
 ```bash
-VERSION="0.2.0"
+VERSION="0.3.0"
 TARGET="x86_64-unknown-linux-gnu" # or x86_64-apple-darwin, aarch64-apple-darwin
 curl -L -o interstice.tar.gz \
   https://github.com/Naloween/interstice/releases/download/v${VERSION}/interstice-${VERSION}-${TARGET}.tar.gz
@@ -41,7 +41,7 @@ interstice --help
 Windows (PowerShell):
 
 ```powershell
-$Version = "0.2.0"
+$Version = "0.3.0"
 $Target = "x86_64-pc-windows-msvc"
 $Url = "https://github.com/Naloween/interstice/releases/download/v$Version/interstice-$Version-$Target.zip"
 Invoke-WebRequest $Url -OutFile interstice.zip
