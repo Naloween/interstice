@@ -43,10 +43,11 @@ Windows (PowerShell):
 ```powershell
 $Version = "0.3.0"
 $Target = "x86_64-pc-windows-msvc"
-$Url = "https://github.com/Naloween/interstice/releases/download/v$Version/interstice-$Version-$Target.zip"
+$Url = "https://github.com/Naloween/interstice/releases/download/v${Version}/interstice-${Version}-${Target}.zip"
+
 Invoke-WebRequest $Url -OutFile interstice.zip
 Expand-Archive interstice.zip -DestinationPath .
-Move-Item .\interstice.exe $Env:USERPROFILE\AppData\Local\Microsoft\WindowsApps\
+Move-Item .\interstice.exe "$Env:USERPROFILE\AppData\Local\Microsoft\WindowsApps\"
 interstice --help
 ```
 

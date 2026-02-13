@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    name: build (${{ matrix.target }})
+    name: Build & release (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -30,7 +30,7 @@ jobs:
             archive: zip
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Install system dependencies (Linux only)
@@ -45,18 +45,21 @@ jobs:
       - name: Build CLI
         run: cargo build -p interstice-cli --bin interstice --release --target ${{ matrix.target }}
 
-      - name: Package (tar.gz)
+      # --- Packaging ---
+      - name: Package tar.gz (Linux/macOS)
         if: matrix.archive == 'tar.gz'
         shell: bash
         run: |
+          # Trim leading 'v' from tag
           VERSION="${GITHUB_REF_NAME#v}"
           TARGET="${{ matrix.target }}"
           OUTPUT="interstice-${VERSION}-${TARGET}.tar.gz"
           tar -C "target/${TARGET}/release" -czf "$OUTPUT" interstice
           echo "Packaged artifact: $OUTPUT"
+          # Export artifact filename for upload
           echo "ARTIFACT_FILE=$OUTPUT" >> $GITHUB_ENV
 
-      - name: Package (zip)
+      - name: Package zip (Windows)
         if: matrix.archive == 'zip'
         shell: pwsh
         run: |
@@ -65,11 +68,18 @@ jobs:
           $dest = "interstice-$version-$target.zip"
           Compress-Archive -Path "target/$target/release/interstice.exe" -DestinationPath $dest
           Write-Host "Packaged artifact: $dest"
+          # Export artifact filename for upload
           Add-Content -Path $Env:GITHUB_ENV -Value "ARTIFACT_FILE=$dest"
 
-      - name: Upload release artifact
+      # --- Upload ---
+      - name: Upload tar.gz artifact (Linux/macOS)
+        if: matrix.archive == 'tar.gz'
         uses: softprops/action-gh-release@v2
-        env:
-          ARTIFACT_FILE: placeholder.txt  # Will be overwritten at runtime
+        with:
+          files: ${{ env.ARTIFACT_FILE }}
+
+      - name: Upload zip artifact (Windows)
+        if: matrix.archive == 'zip'
+        uses: softprops/action-gh-release@v2
         with:
           files: ${{ env.ARTIFACT_FILE }}
