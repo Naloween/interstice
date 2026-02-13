@@ -4,14 +4,22 @@ use crate::{
 };
 use interstice_core::{IntersticeError, Node};
 
-const HELLO_BYTES: &[u8] =
-    include_bytes!("../../../target/wasm32-unknown-unknown/debug/hello.wasm");
-const CALLER_BYTES: &[u8] =
-    include_bytes!("../../../target/wasm32-unknown-unknown/debug/caller.wasm");
-const GRAPHICS_BYTES: &[u8] =
-    include_bytes!("../../../target/wasm32-unknown-unknown/debug/graphics.wasm");
-const AUDIO_BYTES: &[u8] =
-    include_bytes!("../../../target/wasm32-unknown-unknown/debug/audio.wasm");
+const HELLO_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "../../../target/wasm32-unknown-unknown/debug/hello.wasm"
+));
+const CALLER_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "../../../target/wasm32-unknown-unknown/debug/caller.wasm"
+));
+const GRAPHICS_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "../../../target/wasm32-unknown-unknown/debug/graphics.wasm"
+));
+const AUDIO_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "../../../target/wasm32-unknown-unknown/debug/audio.wasm"
+));
 
 struct ExampleModule {
     bytes: &'static [u8],
