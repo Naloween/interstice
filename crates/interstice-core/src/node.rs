@@ -1,4 +1,5 @@
 use crate::{
+    audio::AudioEngine,
     app::App,
     error::IntersticeError,
     logger::{LogLevel, LogSource, Logger},
@@ -57,12 +58,18 @@ impl Node {
         );
         let network_handle = network.get_handle();
         let gpu = Arc::new(Mutex::new(None));
+        let audio_state = Arc::new(Mutex::new(
+            crate::runtime::host_calls::audio::AudioState::new(
+                crate::runtime::host_calls::audio::start_audio_thread(),
+            ),
+        ));
         let run_app_notify = Arc::new(Notify::new());
         let runtime = Arc::new(Runtime::new(
             Some(modules_path),
             table_store,
             event_sender.clone(),
             network_handle.clone(),
+            audio_state,
             gpu,
             run_app_notify.clone(),
             logger.clone(),
@@ -117,12 +124,18 @@ impl Node {
         );
         let network_handle = network.get_handle();
         let gpu = Arc::new(Mutex::new(None));
+        let audio_state = Arc::new(Mutex::new(
+            crate::runtime::host_calls::audio::AudioState::new(
+                crate::runtime::host_calls::audio::start_audio_thread(),
+            ),
+        ));
         let run_app_notify = Arc::new(Notify::new());
         let runtime = Arc::new(Runtime::new(
             Some(modules_path.clone()),
             table_store,
             event_sender.clone(),
             network_handle.clone(),
+            audio_state,
             gpu,
             run_app_notify.clone(),
             logger.clone(),
@@ -206,6 +219,12 @@ impl Node {
                 .expect("Failed to build runtime");
             let local = tokio::task::LocalSet::new();
             local.block_on(&rt, async move {
+                let audio_engine = AudioEngine::new(
+                    runtime.audio_state.clone(),
+                    runtime.authority_modules.clone(),
+                    runtime.event_sender.clone(),
+                );
+                audio_engine.spawn();
                 Runtime::run(runtime, event_receiver).await;
             });
         });

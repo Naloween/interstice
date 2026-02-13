@@ -9,6 +9,8 @@ pub mod table;
 pub mod transaction;
 mod wasm;
 
+pub(crate) use authority::AuthorityEntry;
+
 use crate::{
     IntersticeError,
     logger::{LogLevel, LogSource, Logger},
@@ -16,9 +18,11 @@ use crate::{
     node::NodeId,
     persistence::TableStore,
     runtime::{
-        authority::AuthorityEntry,
         event::EventInstance,
-        host_calls::gpu::{GpuCallRequest, GpuState},
+        host_calls::{
+            audio::AudioState,
+            gpu::{GpuCallRequest, GpuState},
+        },
         module::Module,
         reducer::{CallFrame, CompletionGuard, ReducerJob},
         wasm::{StoreState, linker::define_host_calls},
@@ -28,12 +32,12 @@ use interstice_abi::{
     Authority, IntersticeValue, ModuleEvent, NodeSchema, SubscriptionEventSchema,
 };
 use notify::RecommendedWatcher;
+use std::sync::atomic::AtomicU64;
 use std::{
     collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex, mpsc},
 };
-use std::sync::atomic::AtomicU64;
 use tokio::sync::{
     Notify,
     mpsc::{UnboundedReceiver, UnboundedSender},
@@ -43,6 +47,7 @@ use wasmtime::{Config, Engine, Linker};
 
 pub struct Runtime {
     pub(crate) gpu: Arc<Mutex<Option<GpuState>>>,
+    pub(crate) audio_state: Arc<Mutex<AudioState>>,
     pub(crate) modules: Arc<Mutex<HashMap<String, Arc<Module>>>>,
     pub(crate) authority_modules: Arc<Mutex<HashMap<Authority, AuthorityEntry>>>,
     pub(crate) call_stack: Arc<Mutex<Vec<CallFrame>>>,
@@ -72,6 +77,7 @@ impl Runtime {
         table_store: TableStore,
         event_sender: UnboundedSender<EventInstance>,
         network_handle: NetworkHandle,
+        audio_state: Arc<Mutex<AudioState>>,
         gpu: Arc<Mutex<Option<GpuState>>>,
         run_app_notify: Arc<Notify>,
         logger: Logger,
@@ -88,6 +94,7 @@ impl Runtime {
         })?;
         Ok(Self {
             gpu,
+            audio_state,
             modules: Arc::new(Mutex::new(HashMap::new())),
             authority_modules: Arc::new(Mutex::new(HashMap::new())),
             call_stack: Arc::new(Mutex::new(Vec::new())),

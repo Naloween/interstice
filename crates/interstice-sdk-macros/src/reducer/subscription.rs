@@ -144,6 +144,26 @@ pub fn get_register_subscription_function(
                                             }
                                         );
                                 },
+                                "audio_output" => {
+                                    return Some(
+                                            quote! {
+                                                interstice_sdk::SubscriptionSchema {
+                                                    reducer_name: stringify!(#reducer_ident).to_string(),
+                                                    event: interstice_sdk::SubscriptionEventSchema::AudioOutput
+                                                }
+                                            }
+                                        );
+                                },
+                                "audio_input" => {
+                                    return Some(
+                                            quote! {
+                                                interstice_sdk::SubscriptionSchema {
+                                                    reducer_name: stringify!(#reducer_ident).to_string(),
+                                                    event: interstice_sdk::SubscriptionEventSchema::AudioInput
+                                                }
+                                            }
+                                        );
+                                },
                                 "render" => {
                                     return Some(
                                             quote! {
@@ -178,7 +198,7 @@ pub fn get_register_subscription_function(
                                     return Some(
                                         syn::Error::new_spanned(
                                             litstr,
-                                            "Expected 'init', 'load', 'input', 'render', 'module_publish', 'module_remove', 'file:<path>', 'file_recursive:<path>' or formats: '[module].[table].[event]' or '[node].[module].[table].[event]'",
+                                            "Expected 'init', 'load', 'input', 'audio_output', 'audio_input', 'render', 'module_publish', 'module_remove', 'file:<path>', 'file_recursive:<path>' or formats: '[module].[table].[event]' or '[node].[module].[table].[event]'",
                                         )
                                         .to_compile_error()
                                         .into(),
@@ -191,7 +211,7 @@ pub fn get_register_subscription_function(
                 return Some(
                     syn::Error::new_spanned(
                         &nv.value,
-                        "Expected 'init', 'load', 'input', 'render', 'module_publish', 'module_remove', 'file:<path>', 'file_recursive:<path>' or formats: '[module].[table].[event]' or '[node].[module].[table].[event]'",
+                        "Expected 'init', 'load', 'input', 'audio_output', 'audio_input', 'render', 'module_publish', 'module_remove', 'file:<path>', 'file_recursive:<path>' or formats: '[module].[table].[event]' or '[node].[module].[table].[event]'",
                     )
                     .to_compile_error()
                     .into(),

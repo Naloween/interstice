@@ -169,7 +169,11 @@ impl Runtime {
                         .iter()
                         .find(|sub| sub.event == SubscriptionEventSchema::Render)
                         .map(|sub| sub.reducer_name.clone()),
-                    Authority::Audio => None,
+                    Authority::Audio => module_schema
+                        .subscriptions
+                        .iter()
+                        .find(|sub| sub.event == SubscriptionEventSchema::AudioOutput)
+                        .map(|sub| sub.reducer_name.clone()),
                     Authority::Input => module_schema
                         .subscriptions
                         .iter()

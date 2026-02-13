@@ -33,6 +33,11 @@ pub enum EventInstance {
         module_name: String,
     },
     Input(InputEvent),
+    AudioOutput,
+    AudioInput {
+        stream_id: u64,
+        data: Vec<Vec<f32>>,
+    },
     File(FileEvent),
     Module(ModuleEvent),
     RequestAppInitialization,
@@ -145,6 +150,20 @@ impl EventInstance {
                     return false;
                 }
             }
+            EventInstance::AudioOutput => {
+                if let SubscriptionEventSchema::AudioOutput = event_schema {
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+            EventInstance::AudioInput { .. } => {
+                if let SubscriptionEventSchema::AudioInput = event_schema {
+                    return true;
+                } else {
+                    return false;
+                }
+            }
             EventInstance::File(file_event) => {
                 if let SubscriptionEventSchema::File { path, recursive } = event_schema {
                     let event_path = std::path::Path::new(match file_event {
@@ -226,6 +245,38 @@ impl Runtime {
                     reducer: on_input_reducer_name,
                 });
             }
+        } else if let EventInstance::AudioOutput = event {
+            if let Some(AuthorityEntry {
+                module_name,
+                on_event_reducer_name: Some(on_audio_reducer_name),
+            }) = self
+                .authority_modules
+                .lock()
+                .unwrap()
+                .get(&Authority::Audio)
+                .cloned()
+            {
+                out.push(SubscriptionTarget::Local {
+                    module: module_name,
+                    reducer: on_audio_reducer_name,
+                });
+            }
+        } else if let EventInstance::AudioInput { .. } = event {
+            if let Some(AuthorityEntry {
+                module_name,
+                on_event_reducer_name: Some(on_audio_reducer_name),
+            }) = self
+                .authority_modules
+                .lock()
+                .unwrap()
+                .get(&Authority::Audio)
+                .cloned()
+            {
+                out.push(SubscriptionTarget::Local {
+                    module: module_name,
+                    reducer: on_audio_reducer_name,
+                });
+            }
         } else if let EventInstance::File(_) = event {
             for module in self.modules.lock().unwrap().values() {
                 for sub in &module.schema.subscriptions {
@@ -298,6 +349,9 @@ impl Runtime {
                     } => IntersticeValue::Vec(vec![deleted_row.into()]),
                     EventInstance::Input(input_event) => {
                         IntersticeValue::Vec(vec![input_event.into()])
+                    }
+                    EventInstance::AudioInput { stream_id, data } => {
+                        IntersticeValue::Vec(vec![stream_id.into(), data.into()])
                     }
                     EventInstance::File(file_event) => {
                         IntersticeValue::Vec(vec![file_event.into()])

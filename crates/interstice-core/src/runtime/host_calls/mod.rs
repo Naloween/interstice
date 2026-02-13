@@ -1,4 +1,4 @@
-mod audio;
+pub mod audio;
 mod dispatch;
 mod file;
 pub mod gpu;

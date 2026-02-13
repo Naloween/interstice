@@ -364,7 +364,7 @@ Interstice is organized around a small trusted core that loads, sandboxes, and e
 Authorities are typed tokens granting modules access to privileged host functionality (gpu access, input event...). Only one module can hold an authority at a time. Declare them via `interstice_module!(authorities: [...])` so the runtime can enforce exclusivity.
 
 - **Gpu** – grants access to the render loop plus GPU host calls. Modules with this authority can receive `render` events and submit draw commands to the host surface (see `modules/graphics`).
-- **Audio** – allows the module to stream audio samples or schedule playback through host calls. Useful for synths, music visualizers, or any module that needs low-latency audio output.
+- **Audio** – allows the module to stream audio samples or capture input through host calls. Reducers can subscribe to `audio_output` and `audio_input` events for output ticks and input readiness.
 - **Input** – subscribes the module to keyboard/mouse/controller events and lets it inspect the current input state through the `input` reducer.
 - **File** – provides controlled access to the node's data directory for reading assets, watching paths, or performing limited file IO needed for development workflows.
 - **Module** – designates a module as the module-manager for that node. When present, all publish/remove requests are routed through it (see the Security section) so it can enforce custom policies.
@@ -402,9 +402,10 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 
 ## Robustness and correctness
 
+- Clean runtime, node and engines code (app, network, audio, file)
+- Rename the Input authority to be more xplicit (audio also has input subscription)
 - Improve macro checks and error messages (subscription args and types)
 - Harden network reconnections and peer health handling
-- Cleanly isolate File authority into its own subsystem
 - Expand function-level documentation across core and SDK
 
 ## Performance and determinism

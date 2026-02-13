@@ -21,6 +21,8 @@ pub enum SubscriptionEventSchema {
     Init,
     Load,
     Input,
+    AudioOutput,
+    AudioInput,
     Render,
     File {
         path: String,
