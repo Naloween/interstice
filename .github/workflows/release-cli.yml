@@ -33,7 +33,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install system dependencies
+      - name: Install system dependencies (Linux only)
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
 
@@ -51,7 +51,10 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           TARGET="${{ matrix.target }}"
-          tar -C "target/${TARGET}/release" -czf "interstice-${VERSION}-${TARGET}.tar.gz" interstice
+          OUTPUT="interstice-${VERSION}-${TARGET}.tar.gz"
+          tar -C "target/${TARGET}/release" -czf "$OUTPUT" interstice
+          echo "Packaged artifact: $OUTPUT"
+          echo "ARTIFACT_FILE=$OUTPUT" >> $GITHUB_ENV
 
       - name: Package (zip)
         if: matrix.archive == 'zip'
@@ -59,12 +62,14 @@ jobs:
         run: |
           $version = $Env:GITHUB_REF_NAME.TrimStart('v')
           $target = "${{ matrix.target }}"
-          $src = "target/${target}/release/interstice.exe"
           $dest = "interstice-$version-$target.zip"
-          Compress-Archive -Path $src -DestinationPath $dest
+          Compress-Archive -Path "target/$target/release/interstice.exe" -DestinationPath $dest
+          Write-Host "Packaged artifact: $dest"
+          Add-Content -Path $Env:GITHUB_ENV -Value "ARTIFACT_FILE=$dest"
 
-      - name: Upload release artifacts
+      - name: Upload release artifact
         uses: softprops/action-gh-release@v2
+        env:
+          ARTIFACT_FILE: placeholder.txt  # Will be overwritten at runtime
         with:
-          files: |
-            interstice-${{ github.ref_name }}-${{ matrix.target }}.*
+          files: ${{ env.ARTIFACT_FILE }}
