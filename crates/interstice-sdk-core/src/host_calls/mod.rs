@@ -1,9 +1,11 @@
 mod core;
+mod audio;
 mod file;
 mod gpu;
 mod module;
 
 pub use core::*;
+pub use audio::*;
 pub use file::*;
 pub use gpu::*;
 use interstice_abi::{HostCall, decode, encode, unpack_ptr_len};

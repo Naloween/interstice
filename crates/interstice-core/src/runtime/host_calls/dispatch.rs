@@ -118,8 +118,36 @@ impl Runtime {
 
                 self.handle_gpu_call(gpu_call, memory, caller).await
             }
+            HostCall::Audio(audio_call) => {
+                let audio_auth_module = {
+                    let auth_modules = self.authority_modules.lock().unwrap();
+                    auth_modules
+                        .get(&Authority::Audio)
+                        .map(|entry| entry.module_name.clone())
+                };
 
-            HostCall::Audio => todo!(),
+                match audio_auth_module {
+                    None => {
+                        let response =
+                            interstice_abi::AudioResponse::Err("No Audio authority module".into());
+                        let result = self.send_data_to_module(response, memory, caller).await;
+                        return Ok(Some(result));
+                    }
+                    Some(module_name) => {
+                        if module_name != caller_module_schema.name {
+                            let response = interstice_abi::AudioResponse::Err(
+                                IntersticeError::Unauthorized(Authority::Audio).to_string(),
+                            );
+                            let result = self.send_data_to_module(response, memory, caller).await;
+                            return Ok(Some(result));
+                        }
+                    }
+                }
+
+                let response = self.handle_audio_call(audio_call);
+                let result = self.send_data_to_module(response, memory, caller).await;
+                Ok(Some(result))
+            }
             HostCall::Input => todo!(),
             HostCall::File(file_call) => {
                 let file_auth_module = {

@@ -90,6 +90,18 @@ macro_rules! interstice_module {
     (@impl_authority Input) => {
     };
 
+    (@impl_authority Audio) => {
+        pub trait AudioExt {
+            fn audio(&self) -> Audio;
+        }
+
+        impl AudioExt for interstice_sdk::ReducerContext {
+            fn audio(&self) -> interstice_sdk::Audio {
+                interstice_sdk::Audio
+            }
+        }
+    };
+
     (@impl_authority Gpu) => {
         pub trait GpuExt {
             fn gpu(&self) -> Gpu;

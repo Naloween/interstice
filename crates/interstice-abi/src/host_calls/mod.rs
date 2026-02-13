@@ -4,6 +4,7 @@ mod gpu;
 mod input;
 mod module;
 
+pub use audio::*;
 pub use file::*;
 pub use gpu::*;
 pub use input::*;
@@ -26,7 +27,7 @@ pub enum HostCall {
     TableGetByPrimaryKey(TableGetByPrimaryKeyRequest),
     TableIndexScan(TableIndexScanRequest),
     Gpu(GpuCall),
-    Audio,
+    Audio(AudioCall),
     Input,
     File(FileCall),
     Module(ModuleCall),
