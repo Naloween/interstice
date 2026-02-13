@@ -35,8 +35,7 @@ async fn main() -> Result<(), IntersticeError> {
                 print_help();
                 return Ok(());
             }
-            let port = args[2].trim().parse().expect("Failed to parse port");
-            example(port).await
+            example(&args[2]).await
         }
         "init" => init(),
         "publish" => {
@@ -119,7 +118,7 @@ fn print_help() {
     println!("  bindings add module <node> <module> [project_path]  Add module binding");
     println!("  bindings add node <node> [project_path]            Add node binding");
     println!(
-        "  example [port]                        Start an interstice node example, when on port 8080 it loads the hello module, otherwise it loads the caller and graphics modules"
+        "  example <hello|caller|graphics|audio>  Start a named example (ports: hello=8080, caller=8081, graphics=8082, audio=8083)"
     );
     println!(
         "  init                                   Initialize a new interstice module project in the current directory"

@@ -1,0 +1,6 @@
+# Source - https://stackoverflow.com/a
+# Posted by mexus, modified by community. See post 'Timeline' for change history
+# Retrieved 2026-01-21, License - CC BY-SA 4.0
+
+[build]
+target = "wasm32-unknown-unknown"

@@ -18,7 +18,7 @@ Repository layout
 - The WASM ABI and types: [crates/interstice-abi](crates/interstice-abi)
 - The Rust SDK and macros: [crates/interstice-sdk\*](crates/interstice-sdk)
 - The CLI: [crates/interstice-cli](crates/interstice-cli)
-- Example modules: [modules/hello](modules/hello), [modules/caller](modules/caller), [modules/graphics](modules/graphics)
+- Example modules: [modules/hello](modules/hello), [modules/caller](modules/caller), [modules/graphics](modules/graphics), [modules/audio](modules/audio)
 
 ---
 
@@ -83,6 +83,7 @@ Build example modules (from workspace root):
 cargo build -p hello
 cargo build -p caller
 cargo build -p graphics
+cargo build -p audio
 ```
 
 Go to the CLI crate:
@@ -91,16 +92,16 @@ Go to the CLI crate:
 cd crates/interstice-cli
 ```
 
-Start a node (port 8080):
+Start the hello example (port 8080):
 
 ```bash
-cargo run example 8080
+cargo run example hello
 ```
 
-Start a second node (port 8081) to simulate remote interactions:
+Start the caller example (port 8081) to simulate remote interactions:
 
 ```bash
-cargo run example 8081
+cargo run example caller
 ```
 
 ---
@@ -274,12 +275,14 @@ You can omit the target argument if the .cargo/config.toml is already well confi
   - Uses generated bindings to call `hello` remotely and subscribes to `hello.greetings.insert`.
 - `modules/graphics`
   - Requests `Input` and `Gpu` authorities and renders a triangle; implements `init`, `render`, and `input` hooks.
+- `modules/audio`
+  - Requests `Audio` authority and plays a tone while logging input buffers.
 
 Reproduce
 
-1. Start two nodes (ports 8080 and 8081).
-2. Build and install `hello` on one node and `caller` on the other.
-3. Run `graphics` on a node to see the triangle.
+1. Start the hello example (`interstice example hello`).
+2. Start the caller example (`interstice example caller`) so it can call hello.
+3. Start the graphics or audio example to exercise those modules.
 
 ---
 
