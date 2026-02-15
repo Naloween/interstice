@@ -30,6 +30,13 @@ fn expect_gpu_texture_format(response: GpuResponse) -> Result<TextureFormat, Str
     }
 }
 
+fn expect_gpu_extent2d(response: GpuResponse) -> Result<(u32, u32), String> {
+    match response {
+        GpuResponse::Extent2d { width, height } => Ok((width, height)),
+        other => Err(format!("Unexpected GPU response: {:?}", other)),
+    }
+}
+
 pub fn begin_frame() -> Result<(), String> {
     let pack = host_call(HostCall::Gpu(GpuCall::BeginFrame));
     expect_gpu_none(unpack_gpu_response(pack)?)
@@ -38,6 +45,11 @@ pub fn begin_frame() -> Result<(), String> {
 pub fn get_surface_format() -> Result<TextureFormat, String> {
     let pack = host_call(HostCall::Gpu(GpuCall::GetSurfaceFormat));
     expect_gpu_texture_format(unpack_gpu_response(pack)?)
+}
+
+pub fn get_surface_size() -> Result<(u32, u32), String> {
+    let pack = host_call(HostCall::Gpu(GpuCall::GetSurfaceSize));
+    expect_gpu_extent2d(unpack_gpu_response(pack)?)
 }
 
 pub fn get_current_surface_texture() -> Result<GpuId, String> {
@@ -82,6 +94,11 @@ pub fn create_texture(desc: CreateTexture) -> Result<GpuId, String> {
     expect_gpu_i64(unpack_gpu_response(pack)?)
 }
 
+pub fn write_texture(desc: WriteTexture) -> Result<(), String> {
+    let pack = host_call(HostCall::Gpu(GpuCall::WriteTexture(desc)));
+    expect_gpu_none(unpack_gpu_response(pack)?)
+}
+
 pub fn create_texture_view(desc: CreateTextureView) -> Result<GpuId, String> {
     let pack = host_call(HostCall::Gpu(GpuCall::CreateTextureView(desc)));
     expect_gpu_i64(unpack_gpu_response(pack)?)
@@ -92,6 +109,11 @@ pub fn destroy_texture(id: GpuId) -> Result<(), String> {
     expect_gpu_none(unpack_gpu_response(pack)?)
 }
 
+pub fn destroy_texture_view(id: GpuId) -> Result<(), String> {
+    let pack = host_call(HostCall::Gpu(GpuCall::DestroyTextureView { id }));
+    expect_gpu_none(unpack_gpu_response(pack)?)
+}
+
 pub fn create_shader_module(wgsl_source: String) -> Result<GpuId, String> {
     let pack = host_call(HostCall::Gpu(GpuCall::CreateShaderModule(
         CreateShaderModule { wgsl_source },
@@ -99,9 +121,19 @@ pub fn create_shader_module(wgsl_source: String) -> Result<GpuId, String> {
     expect_gpu_i64(unpack_gpu_response(pack)?)
 }
 
+pub fn destroy_shader_module(id: GpuId) -> Result<(), String> {
+    let pack = host_call(HostCall::Gpu(GpuCall::DestroyShaderModule { id }));
+    expect_gpu_none(unpack_gpu_response(pack)?)
+}
+
 pub fn create_bind_group_layout(desc: CreateBindGroupLayout) -> Result<GpuId, String> {
     let pack = host_call(HostCall::Gpu(GpuCall::CreateBindGroupLayout(desc)));
     expect_gpu_i64(unpack_gpu_response(pack)?)
+}
+
+pub fn destroy_bind_group_layout(id: GpuId) -> Result<(), String> {
+    let pack = host_call(HostCall::Gpu(GpuCall::DestroyBindGroupLayout { id }));
+    expect_gpu_none(unpack_gpu_response(pack)?)
 }
 
 pub fn create_bind_group(desc: CreateBindGroup) -> Result<GpuId, String> {
@@ -109,9 +141,19 @@ pub fn create_bind_group(desc: CreateBindGroup) -> Result<GpuId, String> {
     expect_gpu_i64(unpack_gpu_response(pack)?)
 }
 
+pub fn destroy_bind_group(id: GpuId) -> Result<(), String> {
+    let pack = host_call(HostCall::Gpu(GpuCall::DestroyBindGroup { id }));
+    expect_gpu_none(unpack_gpu_response(pack)?)
+}
+
 pub fn create_pipeline_layout(desc: CreatePipelineLayout) -> Result<GpuId, String> {
     let pack = host_call(HostCall::Gpu(GpuCall::CreatePipelineLayout(desc)));
     expect_gpu_i64(unpack_gpu_response(pack)?)
+}
+
+pub fn destroy_pipeline_layout(id: GpuId) -> Result<(), String> {
+    let pack = host_call(HostCall::Gpu(GpuCall::DestroyPipelineLayout { id }));
+    expect_gpu_none(unpack_gpu_response(pack)?)
 }
 
 pub fn create_render_pipeline(desc: CreateRenderPipeline) -> Result<GpuId, String> {
@@ -119,9 +161,19 @@ pub fn create_render_pipeline(desc: CreateRenderPipeline) -> Result<GpuId, Strin
     expect_gpu_i64(unpack_gpu_response(pack)?)
 }
 
+pub fn destroy_render_pipeline(id: GpuId) -> Result<(), String> {
+    let pack = host_call(HostCall::Gpu(GpuCall::DestroyRenderPipeline { id }));
+    expect_gpu_none(unpack_gpu_response(pack)?)
+}
+
 pub fn create_compute_pipeline(desc: CreateComputePipeline) -> Result<GpuId, String> {
     let pack = host_call(HostCall::Gpu(GpuCall::CreateComputePipeline(desc)));
     expect_gpu_i64(unpack_gpu_response(pack)?)
+}
+
+pub fn destroy_compute_pipeline(id: GpuId) -> Result<(), String> {
+    let pack = host_call(HostCall::Gpu(GpuCall::DestroyComputePipeline { id }));
+    expect_gpu_none(unpack_gpu_response(pack)?)
 }
 
 pub fn create_command_encoder() -> Result<GpuId, String> {
@@ -273,6 +325,10 @@ impl Gpu {
         get_surface_format()
     }
 
+    pub fn get_surface_size(&self) -> Result<(u32, u32), String> {
+        get_surface_size()
+    }
+
     pub fn get_current_surface_texture(&self) -> Result<GpuId, String> {
         get_current_surface_texture()
     }
@@ -294,6 +350,10 @@ impl Gpu {
         write_buffer(buffer, offset, data)
     }
 
+    pub fn write_texture(&self, desc: WriteTexture) -> Result<(), String> {
+        write_texture(desc)
+    }
+
     pub fn destroy_buffer(&self, id: GpuId) -> Result<(), String> {
         destroy_buffer(id)
     }
@@ -310,28 +370,56 @@ impl Gpu {
         destroy_texture(id)
     }
 
+    pub fn destroy_texture_view(&self, id: GpuId) -> Result<(), String> {
+        destroy_texture_view(id)
+    }
+
     pub fn create_shader_module(&self, wgsl_source: String) -> Result<GpuId, String> {
         create_shader_module(wgsl_source)
+    }
+
+    pub fn destroy_shader_module(&self, id: GpuId) -> Result<(), String> {
+        destroy_shader_module(id)
     }
 
     pub fn create_bind_group_layout(&self, desc: CreateBindGroupLayout) -> Result<GpuId, String> {
         create_bind_group_layout(desc)
     }
 
+    pub fn destroy_bind_group_layout(&self, id: GpuId) -> Result<(), String> {
+        destroy_bind_group_layout(id)
+    }
+
     pub fn create_bind_group(&self, desc: CreateBindGroup) -> Result<GpuId, String> {
         create_bind_group(desc)
+    }
+
+    pub fn destroy_bind_group(&self, id: GpuId) -> Result<(), String> {
+        destroy_bind_group(id)
     }
 
     pub fn create_pipeline_layout(&self, desc: CreatePipelineLayout) -> Result<GpuId, String> {
         create_pipeline_layout(desc)
     }
 
+    pub fn destroy_pipeline_layout(&self, id: GpuId) -> Result<(), String> {
+        destroy_pipeline_layout(id)
+    }
+
     pub fn create_render_pipeline(&self, desc: CreateRenderPipeline) -> Result<GpuId, String> {
         create_render_pipeline(desc)
     }
 
+    pub fn destroy_render_pipeline(&self, id: GpuId) -> Result<(), String> {
+        destroy_render_pipeline(id)
+    }
+
     pub fn create_compute_pipeline(&self, desc: CreateComputePipeline) -> Result<GpuId, String> {
         create_compute_pipeline(desc)
+    }
+
+    pub fn destroy_compute_pipeline(&self, id: GpuId) -> Result<(), String> {
+        destroy_compute_pipeline(id)
     }
 
     pub fn create_command_encoder(&self) -> Result<GpuId, String> {

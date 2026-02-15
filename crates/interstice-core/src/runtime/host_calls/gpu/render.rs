@@ -62,6 +62,10 @@ impl GpuState {
         return id;
     }
 
+    pub fn destroy_render_pipeline(&mut self, id: GpuId) {
+        self.render_pipelines.remove(&id);
+    }
+
     pub fn begin_render_pass(&mut self, desc: BeginRenderPass) -> GpuId {
         let pass_id = desc.encoder;
         let enc = self.encoders.get_mut(&desc.encoder).unwrap();

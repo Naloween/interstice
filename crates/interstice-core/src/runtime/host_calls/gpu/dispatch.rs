@@ -25,6 +25,9 @@ impl Runtime {
                 GpuCallResult::None => GpuResponse::None,
                 GpuCallResult::I64(v) => GpuResponse::I64(v),
                 GpuCallResult::TextureFormat(format) => GpuResponse::TextureFormat(format),
+                GpuCallResult::Extent2d { width, height } => {
+                    GpuResponse::Extent2d { width, height }
+                }
             },
             Ok(Err(err)) => GpuResponse::Err(err.to_string()),
             Err(_) => GpuResponse::Err("Gpu call response dropped".into()),

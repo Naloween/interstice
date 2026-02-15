@@ -19,17 +19,38 @@ pub enum GpuCall {
     DestroyTexture {
         id: GpuId,
     },
+    DestroyTextureView {
+        id: GpuId,
+    },
     WriteTexture(WriteTexture),
     CreateTextureView(CreateTextureView),
 
     CreateShaderModule(CreateShaderModule),
+    DestroyShaderModule {
+        id: GpuId,
+    },
 
     CreateBindGroupLayout(CreateBindGroupLayout),
+    DestroyBindGroupLayout {
+        id: GpuId,
+    },
     CreateBindGroup(CreateBindGroup),
+    DestroyBindGroup {
+        id: GpuId,
+    },
     CreatePipelineLayout(CreatePipelineLayout),
+    DestroyPipelineLayout {
+        id: GpuId,
+    },
 
     CreateRenderPipeline(CreateRenderPipeline),
+    DestroyRenderPipeline {
+        id: GpuId,
+    },
     CreateComputePipeline(CreateComputePipeline),
+    DestroyComputePipeline {
+        id: GpuId,
+    },
 
     // ----- Command Encoding -----
     CreateCommandEncoder,
@@ -84,6 +105,7 @@ pub enum GpuCall {
 
     // Surface
     GetCurrentSurfaceTexture,
+    GetSurfaceSize,
     Present,
     BeginFrame,
 }
@@ -93,6 +115,7 @@ pub enum GpuResponse {
     None,
     I64(i64),
     TextureFormat(TextureFormat),
+    Extent2d { width: u32, height: u32 },
     Err(String),
 }
 

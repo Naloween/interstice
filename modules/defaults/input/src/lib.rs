@@ -1,6 +1,6 @@
 use interstice_sdk::*;
 
-interstice_module!(visibility: Public, authorities: [Input]);
+interstice_module!(visibility: Private, authorities: [Input]);
 
 #[table(public, ephemeral)]
 struct KeyState {
@@ -94,14 +94,11 @@ fn on_input(ctx: ReducerContext, event: InputEvent) {
                 _ => {}
             }
             // Update the pressed state anyway to throw the update event for the clients
-            let res = ctx
+            let _ = ctx
                 .current
                 .tables
                 .keystate()
                 .update(KeyState { code, pressed });
-            if let Err(err) = res {
-                ctx.log(&format!("Failed to update key state: {}", err));
-            }
         }
     }
 }

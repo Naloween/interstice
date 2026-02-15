@@ -26,6 +26,10 @@ impl GpuState {
         return id;
     }
 
+    pub fn destroy_compute_pipeline(&mut self, id: GpuId) {
+        self.compute_pipelines.remove(&id);
+    }
+
     pub fn begin_compute_pass(&mut self, encoder: GpuId) {
         let enc = self.encoders.get_mut(&encoder).unwrap();
         assert!(enc.active_pass.is_none());

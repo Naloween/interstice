@@ -20,6 +20,10 @@ impl GpuState {
         id
     }
 
+    pub fn destroy_buffer(&mut self, id: GpuId) {
+        self.buffers.remove(&id);
+    }
+
     pub fn create_command_encoder(&mut self) -> GpuId {
         let encoder = self.device.create_command_encoder(&Default::default());
         let id = self.alloc_id();
@@ -57,6 +61,10 @@ impl GpuState {
         return id;
     }
 
+    pub fn destroy_texture(&mut self, id: GpuId) {
+        self.textures.remove(&id);
+    }
+
     pub fn create_texture_view(&mut self, desc: interstice_abi::CreateTextureView) -> GpuId {
         let texture = self.textures.get(&desc.texture).unwrap();
 
@@ -79,6 +87,10 @@ impl GpuState {
         return id;
     }
 
+    pub fn destroy_texture_view(&mut self, id: GpuId) {
+        self.texture_views.remove(&id);
+    }
+
     pub fn create_shader_module(&mut self, desc: interstice_abi::CreateShaderModule) -> GpuId {
         let module = self
             .device
@@ -92,6 +104,10 @@ impl GpuState {
         self.shaders.insert(id, module);
 
         return id;
+    }
+
+    pub fn destroy_shader_module(&mut self, id: GpuId) {
+        self.shaders.remove(&id);
     }
 
     pub fn create_bind_group_layout(
@@ -111,6 +127,10 @@ impl GpuState {
 
         self.bind_group_layouts.insert(id, layout);
         return id;
+    }
+
+    pub fn destroy_bind_group_layout(&mut self, id: GpuId) {
+        self.bind_group_layouts.remove(&id);
     }
 
     pub fn create_bind_group(&mut self, desc: interstice_abi::CreateBindGroup) -> GpuId {
@@ -157,6 +177,10 @@ impl GpuState {
         return id;
     }
 
+    pub fn destroy_bind_group(&mut self, id: GpuId) {
+        self.bind_groups.remove(&id);
+    }
+
     pub fn create_pipeline_layout(&mut self, desc: interstice_abi::CreatePipelineLayout) -> GpuId {
         let layouts: Vec<_> = desc
             .bind_group_layouts
@@ -176,5 +200,9 @@ impl GpuState {
 
         self.pipeline_layouts.insert(id, layout);
         return id;
+    }
+
+    pub fn destroy_pipeline_layout(&mut self, id: GpuId) {
+        self.pipeline_layouts.remove(&id);
     }
 }

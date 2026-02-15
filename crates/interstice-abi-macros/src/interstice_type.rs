@@ -46,6 +46,47 @@ fn derive_interstice_type_macro_struct(
     }
 
     let field_name_strings: Vec<String> = field_names.iter().map(|f| f.to_string()).collect();
+    let field_assignments = field_names
+        .iter()
+        .zip(field_types.iter())
+        .zip(field_name_strings.iter())
+        .map(|((field_ident, field_ty), field_name_str)| {
+            if let Some(inner_ty) = extract_option_inner_type(field_ty) {
+                quote! {
+                    #field_ident: {
+                        let value = map
+                            .remove(#field_name_str)
+                            .ok_or_else(|| #abi::IntersticeAbiError::ConversionError(
+                                format!("Missing field {}", #field_name_str)
+                            ))?;
+                        match value {
+                            #abi::IntersticeValue::Option(opt) => match opt {
+                                Some(inner) => Some(<#inner_ty as TryFrom<#abi::IntersticeValue>>::try_from(*inner)?),
+                                None => None,
+                            },
+                            #abi::IntersticeValue::Void => None,
+                            other => {
+                                return Err(#abi::IntersticeAbiError::ConversionError(format!(
+                                    "Expected option for field {}, got {:?}", #field_name_str, other
+                                )));
+                            }
+                        }
+                    }
+                }
+            } else {
+                quote! {
+                    #field_ident: {
+                        let value = map
+                            .remove(#field_name_str)
+                            .ok_or_else(|| #abi::IntersticeAbiError::ConversionError(
+                                format!("Missing field {}", #field_name_str)
+                            ))?;
+                        <#field_ty as TryFrom<#abi::IntersticeValue>>::try_from(value)?
+                    }
+                }
+            }
+        })
+        .collect::<Vec<_>>();
 
     quote! {
         impl Into<#abi::IntersticeValue> for #struct_name {
@@ -76,9 +117,7 @@ fn derive_interstice_type_macro_struct(
                         }
 
                         Ok(Self {
-                            #(
-                                #field_names: map.remove(#field_name_strings).unwrap().try_into()?,
-                            )*
+                            #(#field_assignments,)*
                         })
                     }
                     _ => Err(Self::Error::ConversionError("Expected struct".to_string())),
@@ -86,6 +125,23 @@ fn derive_interstice_type_macro_struct(
             }
         }
     }
+}
+
+fn extract_option_inner_type(ty: &syn::Type) -> Option<syn::Type> {
+    if let syn::Type::Path(type_path) = ty {
+        if type_path.qself.is_none() {
+            if let Some(segment) = type_path.path.segments.last() {
+                if segment.ident == "Option" {
+                    if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                        if let Some(syn::GenericArgument::Type(inner_ty)) = args.args.first() {
+                            return Some(inner_ty.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 fn derive_interstice_type_macro_enum(

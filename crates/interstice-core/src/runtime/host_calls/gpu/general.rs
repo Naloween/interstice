@@ -1,6 +1,6 @@
 use interstice_abi::{
     CopyBufferToBuffer, CopyBufferToTexture, CopyTextureToBuffer, GpuId, SetIndexBuffer,
-    SetVertexBuffer,
+    SetVertexBuffer, WriteTexture,
 };
 
 use super::{ActivePass, EncoderCommand, GpuState, RenderCommand};
@@ -115,6 +115,30 @@ impl GpuState {
     pub fn write_buffer(&mut self, w: interstice_abi::WriteBuffer) {
         let buffer = self.buffers.get(&w.buffer).unwrap();
         self.queue.write_buffer(buffer, w.offset, &w.data);
+    }
+
+    pub fn write_texture(&mut self, desc: WriteTexture) {
+        let texture = self.textures.get(&desc.texture).unwrap();
+
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            &desc.data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(desc.bytes_per_row),
+                rows_per_image: Some(desc.rows_per_image),
+            },
+            wgpu::Extent3d {
+                width: desc.width,
+                height: desc.height,
+                depth_or_array_layers: desc.depth,
+            },
+        );
     }
 
     pub fn set_index_buffer(&mut self, cmd: SetIndexBuffer) {

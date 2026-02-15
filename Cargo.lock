@@ -191,14 +191,14 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 name = "audio"
 version = "0.1.0"
 dependencies = [
- "interstice-sdk 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "interstice-sdk",
 ]
 
 [[package]]
 name = "audio-example"
 version = "0.0.1"
 dependencies = [
- "interstice-sdk 0.3.0",
+ "interstice-sdk",
 ]
 
 [[package]]
@@ -345,7 +345,7 @@ checksum = "b35204fbdc0b3f4446b89fc1ac2cf84a8a68971995d0bf2e925ec7cd960f9cb3"
 name = "caller-example"
 version = "0.0.1"
 dependencies = [
- "interstice-sdk 0.3.0",
+ "interstice-sdk",
  "wee_alloc",
 ]
 
@@ -1403,14 +1403,14 @@ dependencies = [
 name = "graphics"
 version = "0.1.0"
 dependencies = [
- "interstice-sdk 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "interstice-sdk",
 ]
 
 [[package]]
 name = "graphics-example"
 version = "0.0.1"
 dependencies = [
- "interstice-sdk 0.3.0",
+ "interstice-sdk",
  "wee_alloc",
 ]
 
@@ -1480,7 +1480,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 name = "hello-example"
 version = "0.0.1"
 dependencies = [
- "interstice-sdk 0.3.0",
+ "interstice-sdk",
 ]
 
 [[package]]
@@ -1765,7 +1765,7 @@ dependencies = [
 name = "input"
 version = "0.1.0"
 dependencies = [
- "interstice-sdk 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "interstice-sdk",
 ]
 
 [[package]]
@@ -1773,20 +1773,7 @@ name = "interstice-abi"
 version = "0.3.0"
 dependencies = [
  "bitflags 2.10.0",
- "interstice-abi-macros 0.3.0",
- "postcard",
- "serde",
- "toml",
-]
-
-[[package]]
-name = "interstice-abi"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2193c530a850a5bf58376d8f9e3345935262a75213f5cdd5200468aa3ea67b2e"
-dependencies = [
- "bitflags 2.10.0",
- "interstice-abi-macros 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "interstice-abi-macros",
  "postcard",
  "serde",
  "toml",
@@ -1795,18 +1782,6 @@ dependencies = [
 [[package]]
 name = "interstice-abi-macros"
 version = "0.3.0"
-dependencies = [
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "interstice-abi-macros"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d3649ac81cc60a7ce2f773a104e958d841342a283b2ff87721cdf7c1179581e"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -1835,7 +1810,7 @@ dependencies = [
  "anyhow",
  "colored_text",
  "cpal",
- "interstice-abi 0.3.0",
+ "interstice-abi",
  "notify",
  "pollster",
  "serde",
@@ -1851,21 +1826,9 @@ dependencies = [
 name = "interstice-sdk"
 version = "0.3.0"
 dependencies = [
- "interstice-abi 0.3.0",
- "interstice-sdk-core 0.3.0",
- "interstice-sdk-macros 0.3.0",
- "wee_alloc",
-]
-
-[[package]]
-name = "interstice-sdk"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b89b81777d158875c1f63e9c972bdde0418411b55a971306a051b784c0e6173a"
-dependencies = [
- "interstice-abi 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "interstice-sdk-core 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "interstice-sdk-macros 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "interstice-abi",
+ "interstice-sdk-core",
+ "interstice-sdk-macros",
  "wee_alloc",
 ]
 
@@ -1873,18 +1836,7 @@ dependencies = [
 name = "interstice-sdk-core"
 version = "0.3.0"
 dependencies = [
- "interstice-abi 0.3.0",
- "lazy_static",
- "serde",
-]
-
-[[package]]
-name = "interstice-sdk-core"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a714f3143a3e9c1f0f8097441afce8d573fb355b9397ab097a91fa716beff6fd"
-dependencies = [
- "interstice-abi 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "interstice-abi",
  "lazy_static",
  "serde",
 ]
@@ -1893,21 +1845,8 @@ dependencies = [
 name = "interstice-sdk-macros"
 version = "0.3.0"
 dependencies = [
- "interstice-abi 0.3.0",
- "interstice-sdk-core 0.3.0",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "interstice-sdk-macros"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d35204e9208451b25f3112e085a3096b709115afef8163f6bdddfebf4d3e3c4"
-dependencies = [
- "interstice-abi 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "interstice-sdk-core 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "interstice-abi",
+ "interstice-sdk-core",
  "proc-macro2",
  "quote",
  "syn",
@@ -2242,7 +2181,7 @@ dependencies = [
 name = "module_manager"
 version = "0.1.0"
 dependencies = [
- "interstice-sdk 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "interstice-sdk",
 ]
 
 [[package]]

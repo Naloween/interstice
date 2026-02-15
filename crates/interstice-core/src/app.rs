@@ -173,41 +173,81 @@ impl App {
                 let id = gpu.create_buffer(desc);
                 Ok(GpuCallResult::I64(id as i64))
             }
+            interstice_abi::GpuCall::DestroyBuffer { id } => {
+                gpu.destroy_buffer(id);
+                Ok(GpuCallResult::None)
+            }
             interstice_abi::GpuCall::WriteBuffer(w) => {
                 gpu.write_buffer(w);
+                Ok(GpuCallResult::None)
+            }
+            interstice_abi::GpuCall::WriteTexture(w) => {
+                gpu.write_texture(w);
                 Ok(GpuCallResult::None)
             }
             interstice_abi::GpuCall::CreateTexture(desc) => {
                 let id = gpu.create_texture(desc);
                 Ok(GpuCallResult::I64(id as i64))
             }
+            interstice_abi::GpuCall::DestroyTexture { id } => {
+                gpu.destroy_texture(id);
+                Ok(GpuCallResult::None)
+            }
             interstice_abi::GpuCall::CreateTextureView(v) => {
                 let id = gpu.create_texture_view(v);
                 Ok(GpuCallResult::I64(id as i64))
+            }
+            interstice_abi::GpuCall::DestroyTextureView { id } => {
+                gpu.destroy_texture_view(id);
+                Ok(GpuCallResult::None)
             }
             interstice_abi::GpuCall::CreateShaderModule(s) => {
                 let id = gpu.create_shader_module(s);
                 Ok(GpuCallResult::I64(id as i64))
             }
+            interstice_abi::GpuCall::DestroyShaderModule { id } => {
+                gpu.destroy_shader_module(id);
+                Ok(GpuCallResult::None)
+            }
             interstice_abi::GpuCall::CreateBindGroupLayout(bgl) => {
                 let id = gpu.create_bind_group_layout(bgl);
                 Ok(GpuCallResult::I64(id as i64))
+            }
+            interstice_abi::GpuCall::DestroyBindGroupLayout { id } => {
+                gpu.destroy_bind_group_layout(id);
+                Ok(GpuCallResult::None)
             }
             interstice_abi::GpuCall::CreateBindGroup(bg) => {
                 let id = gpu.create_bind_group(bg);
                 Ok(GpuCallResult::I64(id as i64))
             }
+            interstice_abi::GpuCall::DestroyBindGroup { id } => {
+                gpu.destroy_bind_group(id);
+                Ok(GpuCallResult::None)
+            }
             interstice_abi::GpuCall::CreatePipelineLayout(pl) => {
                 let id = gpu.create_pipeline_layout(pl);
                 Ok(GpuCallResult::I64(id as i64))
+            }
+            interstice_abi::GpuCall::DestroyPipelineLayout { id } => {
+                gpu.destroy_pipeline_layout(id);
+                Ok(GpuCallResult::None)
             }
             interstice_abi::GpuCall::CreateRenderPipeline(rp) => {
                 let id = gpu.create_render_pipeline(rp);
                 Ok(GpuCallResult::I64(id as i64))
             }
+            interstice_abi::GpuCall::DestroyRenderPipeline { id } => {
+                gpu.destroy_render_pipeline(id);
+                Ok(GpuCallResult::None)
+            }
             interstice_abi::GpuCall::CreateComputePipeline(cp) => {
                 let id = gpu.create_compute_pipeline(cp);
                 Ok(GpuCallResult::I64(id as i64))
+            }
+            interstice_abi::GpuCall::DestroyComputePipeline { id } => {
+                gpu.destroy_compute_pipeline(id);
+                Ok(GpuCallResult::None)
             }
             interstice_abi::GpuCall::CreateCommandEncoder => {
                 let id = gpu.create_command_encoder();
@@ -293,16 +333,11 @@ impl App {
                 let format = gpu.get_surface_format();
                 Ok(GpuCallResult::TextureFormat(format))
             }
+            interstice_abi::GpuCall::GetSurfaceSize => {
+                let (width, height) = gpu.get_surface_size();
+                Ok(GpuCallResult::Extent2d { width, height })
+            }
             interstice_abi::GpuCall::GetLimits => Ok(GpuCallResult::None),
-            interstice_abi::GpuCall::DestroyBuffer { .. } => Err(crate::IntersticeError::Internal(
-                "DestroyBuffer not implemented".into(),
-            )),
-            interstice_abi::GpuCall::DestroyTexture { .. } => Err(
-                crate::IntersticeError::Internal("DestroyTexture not implemented".into()),
-            ),
-            interstice_abi::GpuCall::WriteTexture(_) => Err(crate::IntersticeError::Internal(
-                "WriteTexture not implemented".into(),
-            )),
             interstice_abi::GpuCall::GetCurrentSurfaceTexture => {
                 let id = gpu.get_current_surface_texture();
                 Ok(GpuCallResult::I64(id as i64))

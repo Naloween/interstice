@@ -21,6 +21,7 @@ pub enum GpuCallResult {
     None,
     I64(i64),
     TextureFormat(interstice_abi::TextureFormat),
+    Extent2d { width: u32, height: u32 },
 }
 
 pub struct GpuCallRequest {
@@ -186,6 +187,10 @@ impl GpuState {
 
     pub fn get_surface_format(&self) -> interstice_abi::TextureFormat {
         conversions::texture_format_from_wgpu(self.config.format)
+    }
+
+    pub fn get_surface_size(&self) -> (u32, u32) {
+        (self.config.width, self.config.height)
     }
 
     pub fn get_current_surface_texture(&self) -> GpuId {

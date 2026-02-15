@@ -1,3 +1,10 @@
 [workspace]
 members = ["crates/*", "modules/defaults/*", "modules/examples/*"]
 resolver = "3"
+
+[patch.crates-io]
+interstice-abi = { path = "crates/interstice-abi" }
+interstice-abi-macros = { path = "crates/interstice-abi-macros" }
+interstice-sdk = { path = "crates/interstice-sdk" }
+interstice-sdk-core = { path = "crates/interstice-sdk-core" }
+interstice-sdk-macros = { path = "crates/interstice-sdk-macros" }
