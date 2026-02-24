@@ -1,0 +1,84 @@
+abi_version = 1
+name = "input"
+visibility = "Private"
+reducers = []
+queries = []
+subscriptions = []
+authorities = ["Input"]
+module_dependencies = []
+node_dependencies = []
+
+[version]
+major = 0
+minor = 1
+patch = 0
+
+[[tables]]
+name = "keystate"
+type_name = "KeyState"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Ephemeral"
+
+[[tables.fields]]
+name = "pressed"
+field_type = "Bool"
+
+[tables.primary_key]
+name = "code"
+field_type = "U32"
+
+[[tables]]
+name = "mousestate"
+type_name = "MouseState"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Ephemeral"
+
+[[tables.fields]]
+name = "position"
+
+[tables.fields.field_type]
+Tuple = ["F32", "F32"]
+
+[[tables.fields]]
+name = "wheel_delta"
+
+[tables.fields.field_type]
+Tuple = ["F32", "F32"]
+
+[tables.primary_key]
+name = "id"
+field_type = "U32"
+
+[type_definitions.KeyState.Struct]
+name = "KeyState"
+
+[[type_definitions.KeyState.Struct.fields]]
+name = "code"
+field_type = "U32"
+
+[[type_definitions.KeyState.Struct.fields]]
+name = "pressed"
+field_type = "Bool"
+
+[type_definitions.MouseState.Struct]
+name = "MouseState"
+
+[[type_definitions.MouseState.Struct.fields]]
+name = "id"
+field_type = "U32"
+
+[[type_definitions.MouseState.Struct.fields]]
+name = "position"
+
+[type_definitions.MouseState.Struct.fields.field_type]
+Tuple = ["F32", "F32"]
+
+[[type_definitions.MouseState.Struct.fields]]
+name = "wheel_delta"
+
+[type_definitions.MouseState.Struct.fields.field_type]
+Tuple = ["F32", "F32"]

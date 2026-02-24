@@ -1,7 +1,8 @@
 use interstice_abi::{
-    CallQueryRequest, CallQueryResponse, CallReducerRequest, CallReducerResponse, DeleteRowRequest,
-    DeleteRowResponse, DeterministicRandomRequest, DeterministicRandomResponse, HostCall, IndexKey,
-    IndexQuery, InsertRowRequest, InsertRowResponse, IntersticeValue, LogRequest, ModuleSelection,
+    CallQueryRequest, CallQueryResponse, CallReducerRequest, CallReducerResponse,
+    ClearTableRequest, ClearTableResponse, DeleteRowRequest, DeleteRowResponse,
+    DeterministicRandomRequest, DeterministicRandomResponse, HostCall, IndexKey, IndexQuery,
+    InsertRowRequest, InsertRowResponse, IntersticeValue, LogRequest, ModuleSelection,
     NodeSelection, Row, TableGetByPrimaryKeyRequest, TableGetByPrimaryKeyResponse,
     TableIndexScanRequest, TableIndexScanResponse, TableScanRequest, TableScanResponse,
     TimeRequest, TimeResponse, UpdateRowRequest, UpdateRowResponse,
@@ -130,6 +131,20 @@ pub fn delete_row(
     match response {
         DeleteRowResponse::Ok => Ok(()),
         DeleteRowResponse::Err(err) => Err(err),
+    }
+}
+
+pub fn clear_table(module_selection: ModuleSelection, table_name: String) -> Result<(), String> {
+    let call = HostCall::ClearTable(ClearTableRequest {
+        module_selection,
+        table_name,
+    });
+
+    let pack = host_call(call);
+    let response: ClearTableResponse = unpack(pack);
+    match response {
+        ClearTableResponse::Ok => Ok(()),
+        ClearTableResponse::Err(err) => Err(err),
     }
 }
 

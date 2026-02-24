@@ -1,6 +1,6 @@
 use crate::{
-    audio::AudioEngine,
     app::App,
+    audio::AudioEngine,
     error::IntersticeError,
     logger::{LogLevel, LogSource, Logger},
     network::{Network, NetworkHandle},
@@ -9,7 +9,7 @@ use crate::{
 };
 use interstice_abi::{ModuleSchema, NodeSchema};
 use std::sync::Arc;
-use std::{fs::File, path::Path, sync::Mutex, thread};
+use std::{collections::HashSet, fs::File, path::Path, sync::Mutex, thread};
 use tokio::sync::{
     Notify,
     mpsc::{self, UnboundedReceiver},
@@ -149,7 +149,8 @@ impl Node {
             gpu_call_receiver,
         );
 
-        // Load all modules
+        // Load all modules in dependency order
+        let mut modules_to_load = Vec::new();
         for entry in std::fs::read_dir(&modules_path).unwrap() {
             let entry = entry.unwrap();
             let path = entry.path();
@@ -166,7 +167,49 @@ impl Node {
             }
 
             let module = Module::from_file(runtime.clone(), &wasm_path).await?;
-            Runtime::load_module(runtime.clone(), module, false).await?;
+            modules_to_load.push((module.schema.name.clone(), module));
+        }
+
+        // Topologically sort modules so dependencies are loaded first
+        let mut remaining = modules_to_load;
+        let mut loaded = HashSet::new();
+        let all_names: HashSet<_> = remaining.iter().map(|(name, _)| name.clone()).collect();
+        while !remaining.is_empty() {
+            let mut progressed = false;
+            let mut next_remaining = Vec::new();
+
+            for (name, module) in remaining.into_iter() {
+                let deps = module
+                    .schema
+                    .module_dependencies
+                    .iter()
+                    .map(|d| d.module_name.clone())
+                    .collect::<Vec<_>>();
+
+                // Fail fast if a declared dependency is missing entirely from disk
+                if let Some(missing) = deps.iter().find(|d| !all_names.contains(*d)) {
+                    return Err(IntersticeError::ModuleNotFound(
+                        missing.clone(),
+                        format!("Required by '{}' on node startup", name),
+                    ));
+                }
+
+                if deps.iter().all(|d| loaded.contains(d)) {
+                    Runtime::load_module(runtime.clone(), module, false).await?;
+                    loaded.insert(name);
+                    progressed = true;
+                } else {
+                    next_remaining.push((name, module));
+                }
+            }
+
+            if !progressed {
+                return Err(IntersticeError::Internal(
+                    "Module dependency cycle detected while loading node modules".into(),
+                ));
+            }
+
+            remaining = next_remaining;
         }
 
         // Replay transaction logs to restore state once all modules are available

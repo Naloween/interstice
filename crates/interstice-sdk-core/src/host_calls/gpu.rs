@@ -42,6 +42,11 @@ pub fn begin_frame() -> Result<(), String> {
     expect_gpu_none(unpack_gpu_response(pack)?)
 }
 
+pub fn request_redraw() -> Result<(), String> {
+    let pack = host_call(HostCall::Gpu(GpuCall::RequestRedraw));
+    expect_gpu_none(unpack_gpu_response(pack)?)
+}
+
 pub fn get_surface_format() -> Result<TextureFormat, String> {
     let pack = host_call(HostCall::Gpu(GpuCall::GetSurfaceFormat));
     expect_gpu_texture_format(unpack_gpu_response(pack)?)
@@ -317,6 +322,10 @@ pub struct Texture(pub GpuId);
 pub struct Gpu;
 
 impl Gpu {
+    pub fn request_redraw(&self) -> Result<(), String> {
+        request_redraw()
+    }
+
     pub fn begin_frame(&self) -> Result<(), String> {
         begin_frame()
     }

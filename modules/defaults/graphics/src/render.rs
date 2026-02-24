@@ -1,7 +1,8 @@
+use font8x8::{BASIC_FONTS, UnicodeFonts};
 use interstice_sdk::*;
 use interstice_sdk::{
     BeginRenderPass, BufferUsage, ColorTargetState, ColorWrites, CreatePipelineLayout,
-    CreateRenderPipeline, CreateTextureView, FragmentState, FrontFace, Gpu, LoadOp,
+    CreateRenderPipeline, CreateTextureView, FragmentState, FrontFace, Gpu, IndexFormat, LoadOp,
     MultisampleState, PrimitiveState, PrimitiveTopology, RenderPassColorAttachment, StoreOp,
     TextureFormat, TextureViewDimension, VertexAttribute, VertexBufferLayout, VertexFormat,
     VertexState, VertexStepMode,
@@ -10,10 +11,14 @@ use std::collections::HashMap;
 
 use crate::helpers::clear_ephemeral_tables;
 use crate::tables::{
-    Draw2DCommand, HasComputeCommandEditHandle, HasDraw2DCommandEditHandle, HasLayerEditHandle,
+    Draw2DCommand, HasComputeCommandEditHandle, HasDraw2DCommandEditHandle, HasFrameTickEditHandle,
+    HasLayerEditHandle, HasMeshBindingEditHandle, HasPipelineBindingEditHandle,
     HasRenderPassCommandEditHandle, HasRendererCacheEditHandle, RendererCache,
 };
-use crate::types::{CircleCommand, Color, PolylineCommand, Vec2, color_to_array};
+use crate::types::{
+    CircleCommand, Color, MeshDrawCommand, PolylineCommand, RectCommand, TextCommand, Vec2,
+    color_to_array,
+};
 use crate::{DEFAULT_CLEAR, DEFAULT_SEGMENTS, GpuExt, MIN_SEGMENTS, RENDERER_CACHE_KEY};
 
 #[reducer(on = "render")]
@@ -21,7 +26,23 @@ pub fn render(ctx: ReducerContext) {
     if let Err(err) = render_inner(&ctx) {
         ctx.log(&format!("Render failed: {}", err));
     }
+    bump_frame_tick(&ctx);
     clear_ephemeral_tables(&ctx);
+}
+
+fn bump_frame_tick(ctx: &ReducerContext) {
+    if let Some(mut row) = ctx.current.tables.frametick().get(0) {
+        row.frame = row.frame.saturating_add(1);
+        let _ = ctx.current.tables.frametick().update(row);
+        ctx.log("graphics frame tick updated");
+    } else {
+        let _ = ctx
+            .current
+            .tables
+            .frametick()
+            .insert(crate::FrameTick { id: 0, frame: 1 });
+        ctx.log("graphics frame tick inserted");
+    }
 }
 
 fn render_inner(ctx: &ReducerContext) -> Result<(), String> {
@@ -97,6 +118,7 @@ fn render_inner(ctx: &ReducerContext) -> Result<(), String> {
 
                 if !layer_commands.is_empty() {
                     execute_draw_commands(
+                        ctx,
                         &gpu,
                         pass,
                         &pipeline,
@@ -133,6 +155,8 @@ fn render_inner(ctx: &ReducerContext) -> Result<(), String> {
         let _ = gpu.destroy_buffer(buffer);
     }
     gpu.present()?;
+    // Queue next frame so render continues
+    let _ = gpu.request_redraw();
 
     if let Ok(render_passes) = ctx.current.tables.renderpasscommand().scan() {
         if !render_passes.is_empty() {
@@ -197,8 +221,6 @@ fn ensure_immediate_pipeline(
         && cache.pipeline_layout.is_some()
     {
         return Ok(ImmediatePipeline {
-            shader: cache.shader_module.unwrap(),
-            layout: cache.pipeline_layout.unwrap(),
             pipeline: cache.pipeline_id.unwrap(),
         });
     }
@@ -270,39 +292,120 @@ fn ensure_immediate_pipeline(
         let _ = ctx.current.tables.renderercache().insert(cache.clone());
     }
 
-    Ok(ImmediatePipeline {
-        shader,
-        layout,
-        pipeline,
-    })
+    Ok(ImmediatePipeline { pipeline })
 }
 
 fn execute_draw_commands(
+    ctx: &ReducerContext,
     gpu: &Gpu,
     pass: u32,
-    pipeline: &ImmediatePipeline,
+    immediate_pipeline: &ImmediatePipeline,
     commands: Vec<Draw2DCommand>,
     created_buffers: &mut Vec<u32>,
     surface: SurfaceInfo,
 ) -> Result<(), String> {
-    gpu.set_render_pipeline(pass, pipeline.pipeline)?;
+    let mut using_immediate_pipeline = false;
+
     for command in commands {
         match command.command_type.as_str() {
             "circle" => {
                 if let Some(payload) = command.circle {
+                    if !using_immediate_pipeline {
+                        gpu.set_render_pipeline(pass, immediate_pipeline.pipeline)?;
+                        using_immediate_pipeline = true;
+                    }
                     let vertices = tessellate_circle(surface, &payload);
                     upload_and_draw(gpu, pass, vertices, created_buffers)?;
                 }
             }
             "polyline" => {
                 if let Some(payload) = command.polyline {
+                    if !using_immediate_pipeline {
+                        gpu.set_render_pipeline(pass, immediate_pipeline.pipeline)?;
+                        using_immediate_pipeline = true;
+                    }
                     let vertices = tessellate_polyline(surface, &payload);
+                    upload_and_draw(gpu, pass, vertices, created_buffers)?;
+                }
+            }
+            "rect" => {
+                if let Some(payload) = command.rect {
+                    if !using_immediate_pipeline {
+                        gpu.set_render_pipeline(pass, immediate_pipeline.pipeline)?;
+                        using_immediate_pipeline = true;
+                    }
+                    let vertices = tessellate_rect(surface, &payload);
+                    upload_and_draw(gpu, pass, vertices, created_buffers)?;
+                }
+            }
+            "mesh" => {
+                using_immediate_pipeline = false;
+                if let Some(payload) = command.mesh {
+                    draw_mesh_command(ctx, gpu, pass, &payload)?;
+                }
+            }
+            "image" => {
+                ctx.log(
+                    "draw_image is queued but texture sampling render path is not implemented yet",
+                );
+            }
+            "text" => {
+                if let Some(payload) = command.text {
+                    if !using_immediate_pipeline {
+                        gpu.set_render_pipeline(pass, immediate_pipeline.pipeline)?;
+                        using_immediate_pipeline = true;
+                    }
+                    let vertices = tessellate_text(surface, &payload);
                     upload_and_draw(gpu, pass, vertices, created_buffers)?;
                 }
             }
             _ => continue,
         }
     }
+    Ok(())
+}
+
+fn draw_mesh_command(
+    ctx: &ReducerContext,
+    gpu: &Gpu,
+    pass: u32,
+    payload: &MeshDrawCommand,
+) -> Result<(), String> {
+    let mesh_key = (
+        payload.mesh.owner_node_id.clone(),
+        payload.mesh.local_id.clone(),
+    );
+    let pipeline_key = (
+        payload.pipeline.owner_node_id.clone(),
+        payload.pipeline.local_id.clone(),
+    );
+
+    let Some(mesh) = ctx.current.tables.meshbinding().get(mesh_key) else {
+        ctx.log("Skipping mesh draw: mesh binding not found");
+        return Ok(());
+    };
+
+    let Some(pipeline_binding) = ctx.current.tables.pipelinebinding().get(pipeline_key) else {
+        ctx.log("Skipping mesh draw: pipeline binding not found");
+        return Ok(());
+    };
+
+    let Some(pipeline_id) = pipeline_binding.pipeline_id else {
+        ctx.log("Skipping mesh draw: pipeline was not compiled");
+        return Ok(());
+    };
+
+    gpu.set_render_pipeline(pass, pipeline_id)?;
+    gpu.set_vertex_buffer(pass, mesh.vertex_buffer, 0, 0, None)?;
+
+    let instances = payload.instances.max(1);
+    if let Some(index_buffer) = mesh.index_buffer {
+        gpu.set_index_buffer(pass, index_buffer, 0, IndexFormat::Uint32, None)?;
+        gpu.draw_indexed(pass, mesh.index_count, instances)?;
+    } else {
+        gpu.draw(pass, mesh.vertex_count, instances)?;
+    }
+
     Ok(())
 }
 
@@ -329,8 +432,6 @@ fn upload_and_draw(
 }
 
 struct ImmediatePipeline {
-    shader: u32,
-    layout: u32,
     pipeline: u32,
 }
 
@@ -503,6 +604,182 @@ fn triangulate_polygon(
         });
     }
     vertices
+}
+
+fn tessellate_rect(surface: SurfaceInfo, cmd: &RectCommand) -> Vec<ImmediateVertexBytes> {
+    if cmd.rect.w <= 0.0 || cmd.rect.h <= 0.0 {
+        return Vec::new();
+    }
+
+    if cmd.filled {
+        let color = color_to_array(&cmd.color);
+        let x0 = cmd.rect.x;
+        let y0 = cmd.rect.y;
+        let x1 = cmd.rect.x + cmd.rect.w;
+        let y1 = cmd.rect.y + cmd.rect.h;
+
+        return vec![
+            ImmediateVertexBytes {
+                position: to_clip(surface, x0, y0),
+                color,
+            },
+            ImmediateVertexBytes {
+                position: to_clip(surface, x1, y0),
+                color,
+            },
+            ImmediateVertexBytes {
+                position: to_clip(surface, x0, y1),
+                color,
+            },
+            ImmediateVertexBytes {
+                position: to_clip(surface, x0, y1),
+                color,
+            },
+            ImmediateVertexBytes {
+                position: to_clip(surface, x1, y0),
+                color,
+            },
+            ImmediateVertexBytes {
+                position: to_clip(surface, x1, y1),
+                color,
+            },
+        ];
+    }
+
+    let stroke = cmd.stroke_width.max(0.0001);
+    let x0 = cmd.rect.x;
+    let y0 = cmd.rect.y;
+    let x1 = cmd.rect.x + cmd.rect.w;
+    let y1 = cmd.rect.y + cmd.rect.h;
+    let color = cmd.color.clone();
+
+    let mut vertices = Vec::new();
+    vertices.extend(tessellate_polyline(
+        surface,
+        &PolylineCommand {
+            points: vec![
+                Vec2 { x: x0, y: y0 },
+                Vec2 { x: x1, y: y0 },
+                Vec2 { x: x1, y: y1 },
+                Vec2 { x: x0, y: y1 },
+            ],
+            color,
+            width: stroke,
+            closed: true,
+            filled: false,
+        },
+    ));
+    vertices
+}
+
+fn tessellate_text(surface: SurfaceInfo, cmd: &TextCommand) -> Vec<ImmediateVertexBytes> {
+    const BASE_GLYPH_SIZE: f32 = 8.0;
+    const MAX_GLYPHS: usize = 8_192;
+    const TAB_SPACES: u32 = 4;
+
+    if cmd.size <= 0.0 {
+        return Vec::new();
+    }
+
+    let scale = (cmd.size / BASE_GLYPH_SIZE).max(0.125);
+    let glyph_advance = BASE_GLYPH_SIZE * scale + scale;
+    let line_height = (BASE_GLYPH_SIZE + 2.0) * scale;
+
+    let mut pen_x = cmd.position.x;
+    let mut pen_y = cmd.position.y;
+    let base_x = cmd.position.x;
+    let color = color_to_array(&cmd.color);
+
+    let mut vertices = Vec::new();
+    let mut glyph_count = 0usize;
+
+    for ch in cmd.content.chars() {
+        if glyph_count >= MAX_GLYPHS {
+            break;
+        }
+
+        match ch {
+            '\n' => {
+                pen_x = base_x;
+                pen_y += line_height;
+                continue;
+            }
+            '\t' => {
+                pen_x += glyph_advance * TAB_SPACES as f32;
+                continue;
+            }
+            _ => {}
+        }
+
+        let glyph = glyph_bitmap(ch).or_else(|| glyph_bitmap('?'));
+        let Some(glyph) = glyph else {
+            pen_x += glyph_advance;
+            continue;
+        };
+
+        for (row, bits) in glyph.iter().enumerate() {
+            for col in 0..8 {
+                if (bits & (1u8 << col)) == 0 {
+                    continue;
+                }
+
+                let x = pen_x + (col as f32) * scale;
+                let y = pen_y + (row as f32) * scale;
+                let w = scale;
+                let h = scale;
+
+                push_quad(&mut vertices, surface, x, y, w, h, color);
+            }
+        }
+
+        pen_x += glyph_advance;
+        glyph_count += 1;
+    }
+
+    vertices
+}
+
+fn push_quad(
+    vertices: &mut Vec<ImmediateVertexBytes>,
+    surface: SurfaceInfo,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    color: [f32; 4],
+) {
+    let x1 = x + w;
+    let y1 = y + h;
+
+    vertices.push(ImmediateVertexBytes {
+        position: to_clip(surface, x, y),
+        color,
+    });
+    vertices.push(ImmediateVertexBytes {
+        position: to_clip(surface, x1, y),
+        color,
+    });
+    vertices.push(ImmediateVertexBytes {
+        position: to_clip(surface, x, y1),
+        color,
+    });
+
+    vertices.push(ImmediateVertexBytes {
+        position: to_clip(surface, x, y1),
+        color,
+    });
+    vertices.push(ImmediateVertexBytes {
+        position: to_clip(surface, x1, y),
+        color,
+    });
+    vertices.push(ImmediateVertexBytes {
+        position: to_clip(surface, x1, y1),
+        color,
+    });
+}
+
+fn glyph_bitmap(ch: char) -> Option<[u8; 8]> {
+    BASIC_FONTS.get(ch)
 }
 
 fn polar(cmd: &CircleCommand, radius: f32, angle: f32) -> (f32, f32) {

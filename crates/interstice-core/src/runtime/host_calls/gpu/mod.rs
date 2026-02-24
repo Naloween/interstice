@@ -30,6 +30,7 @@ pub struct GpuCallRequest {
 }
 
 pub struct GpuState {
+    window: Arc<Window>,
     next_id: GpuId,
 
     surface: wgpu::Surface<'static>,
@@ -132,6 +133,7 @@ impl GpuState {
         surface.configure(&device, &config);
 
         Self {
+            window,
             surface,
             device,
             queue,
@@ -150,6 +152,10 @@ impl GpuState {
             encoders: HashMap::new(),
             surface_texture_id: None,
         }
+    }
+
+    pub fn request_redraw(&self) {
+        self.window.request_redraw();
     }
 
     fn alloc_id(&mut self) -> GpuId {

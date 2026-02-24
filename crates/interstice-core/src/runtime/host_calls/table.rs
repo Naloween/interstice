@@ -3,10 +3,10 @@ use crate::{
     runtime::{Runtime, reducer::CallFrameKind},
 };
 use interstice_abi::{
-    DeleteRowRequest, DeleteRowResponse, InsertRowRequest, InsertRowResponse, ModuleSchema,
-    TableGetByPrimaryKeyRequest, TableGetByPrimaryKeyResponse, TableIndexScanRequest,
-    TableIndexScanResponse, TableScanRequest, TableScanResponse, UpdateRowRequest,
-    UpdateRowResponse,
+    ClearTableRequest, ClearTableResponse, DeleteRowRequest, DeleteRowResponse, InsertRowRequest,
+    InsertRowResponse, ModuleSchema, TableGetByPrimaryKeyRequest, TableGetByPrimaryKeyResponse,
+    TableIndexScanRequest, TableIndexScanResponse, TableScanRequest, TableScanResponse,
+    UpdateRowRequest, UpdateRowResponse,
 };
 
 impl Runtime {
@@ -157,6 +157,36 @@ impl Runtime {
             deleted_row_id: delete_row_request.primary_key,
         });
         DeleteRowResponse::Ok
+    }
+
+    pub(crate) fn handle_clear_table(
+        &self,
+        caller_module_name: String,
+        request: ClearTableRequest,
+    ) -> ClearTableResponse {
+        {
+            let modules = self.modules.lock().unwrap();
+            let module = match modules.get(&self.call_stack.lock().unwrap().last().unwrap().module)
+            {
+                Some(module) => module,
+                None => return ClearTableResponse::Err("Module not found".into()),
+            };
+            let tables = module.tables.lock().unwrap();
+            if !tables.contains_key(&request.table_name) {
+                return ClearTableResponse::Err("Table not found".into());
+            }
+        }
+
+        let mut reducer_frame = self.call_stack.lock().unwrap();
+        let reducer_frame = reducer_frame.last_mut().unwrap();
+        if reducer_frame.kind == CallFrameKind::Query {
+            return ClearTableResponse::Err("Clear not allowed in query context".into());
+        }
+        reducer_frame.transactions.push(Transaction::Clear {
+            module_name: caller_module_name,
+            table_name: request.table_name,
+        });
+        ClearTableResponse::Ok
     }
     pub(crate) fn handle_table_scan(
         &self,

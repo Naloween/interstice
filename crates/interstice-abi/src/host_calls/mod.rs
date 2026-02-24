@@ -23,6 +23,7 @@ pub enum HostCall {
     InsertRow(InsertRowRequest),
     UpdateRow(UpdateRowRequest),
     DeleteRow(DeleteRowRequest),
+    ClearTable(ClearTableRequest),
     TableScan(TableScanRequest),
     TableGetByPrimaryKey(TableGetByPrimaryKeyRequest),
     TableIndexScan(TableIndexScanRequest),
@@ -131,6 +132,18 @@ pub struct DeleteRowRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum DeleteRowResponse {
+    Ok,
+    Err(String),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ClearTableRequest {
+    pub module_selection: ModuleSelection,
+    pub table_name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum ClearTableResponse {
     Ok,
     Err(String),
 }

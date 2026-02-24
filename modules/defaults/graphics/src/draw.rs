@@ -4,16 +4,13 @@ use interstice_sdk::*;
 
 use crate::helpers::{enqueue_draw_command, ensure_layer_exists, namespaced_key};
 use crate::tables::{
-    ComputeCommand,
-    Draw2DCommand,
-    HasComputeCommandEditHandle,
-    HasRenderPassCommandEditHandle,
-    HasTextureBindingEditHandle,
+    ComputeCommand, Draw2DCommand, HasComputeCommandEditHandle, HasMeshBindingEditHandle,
+    HasPipelineBindingEditHandle, HasRenderPassCommandEditHandle, HasTextureBindingEditHandle,
     RenderPassCommand,
 };
 use crate::types::{
-    CircleCommand, Color, ComputeSubmission, ImageCommand, PolylineCommand, Rect,
-    RenderPassSubmission, ResourceAddress, TextCommand, Vec2,
+    CircleCommand, Color, ComputeSubmission, ImageCommand, MeshDrawCommand, PolylineCommand, Rect,
+    RectCommand, RenderPassSubmission, ResourceAddress, TextCommand, Vec2,
 };
 
 #[reducer]
@@ -45,8 +42,10 @@ pub fn draw_circle(
             stroke_width,
         }),
         polyline: None,
+        rect: None,
         image: None,
         text: None,
+        mesh: None,
     };
     enqueue_draw_command(&ctx, command);
 }
@@ -80,8 +79,45 @@ pub fn draw_polyline(
             closed,
             filled,
         }),
+        rect: None,
         image: None,
         text: None,
+        mesh: None,
+    };
+    enqueue_draw_command(&ctx, command);
+}
+
+#[reducer]
+pub fn draw_rect(
+    ctx: ReducerContext,
+    layer: String,
+    rect: Rect,
+    color: Color,
+    filled: bool,
+    stroke_width: f32,
+) {
+    if !ensure_layer_exists(&ctx, &layer) {
+        return;
+    }
+    if rect.w <= 0.0 || rect.h <= 0.0 {
+        ctx.log("Rect width and height must be positive");
+        return;
+    }
+    let command = Draw2DCommand {
+        id: 0,
+        layer,
+        command_type: "rect".into(),
+        circle: None,
+        polyline: None,
+        rect: Some(RectCommand {
+            rect,
+            color,
+            filled,
+            stroke_width,
+        }),
+        image: None,
+        text: None,
+        mesh: None,
     };
     enqueue_draw_command(&ctx, command);
 }
@@ -117,6 +153,7 @@ pub fn draw_image(
         command_type: "image".into(),
         circle: None,
         polyline: None,
+        rect: None,
         image: Some(ImageCommand {
             texture: ResourceAddress {
                 owner_node_id: key.0.clone(),
@@ -126,6 +163,7 @@ pub fn draw_image(
             tint,
         }),
         text: None,
+        mesh: None,
     };
     enqueue_draw_command(&ctx, command);
 }
@@ -146,12 +184,17 @@ pub fn draw_text(
     if content.is_empty() {
         return;
     }
+    if size <= 0.0 {
+        ctx.log("Text size must be positive");
+        return;
+    }
     let command = Draw2DCommand {
         id: 0,
         layer,
         command_type: "text".into(),
         circle: None,
         polyline: None,
+        rect: None,
         image: None,
         text: Some(TextCommand {
             content,
@@ -159,6 +202,79 @@ pub fn draw_text(
             size,
             color,
             font,
+        }),
+        mesh: None,
+    };
+    enqueue_draw_command(&ctx, command);
+}
+
+#[reducer]
+pub fn draw_mesh(
+    ctx: ReducerContext,
+    layer: String,
+    mesh_local_id: String,
+    pipeline_local_id: String,
+    instances: u32,
+) {
+    if !ensure_layer_exists(&ctx, &layer) {
+        return;
+    }
+
+    let mesh_key = namespaced_key(&ctx, &mesh_local_id);
+    if ctx
+        .current
+        .tables
+        .meshbinding()
+        .get(mesh_key.clone())
+        .is_none()
+    {
+        ctx.log(&format!("Mesh '{}' not found for draw_mesh", mesh_local_id));
+        return;
+    }
+
+    let pipeline_key = namespaced_key(&ctx, &pipeline_local_id);
+    let pipeline = match ctx
+        .current
+        .tables
+        .pipelinebinding()
+        .get(pipeline_key.clone())
+    {
+        Some(value) => value,
+        None => {
+            ctx.log(&format!(
+                "Pipeline '{}' not found for draw_mesh",
+                pipeline_local_id
+            ));
+            return;
+        }
+    };
+    if pipeline.pipeline_id.is_none() {
+        ctx.log(&format!(
+            "Pipeline '{}' is not compiled yet",
+            pipeline_local_id
+        ));
+        return;
+    }
+
+    let command = Draw2DCommand {
+        id: 0,
+        layer,
+        command_type: "mesh".into(),
+        circle: None,
+        polyline: None,
+        rect: None,
+        image: None,
+        text: None,
+        mesh: Some(MeshDrawCommand {
+            mesh: ResourceAddress {
+                owner_node_id: mesh_key.0,
+                local_id: mesh_key.1,
+            },
+            pipeline: ResourceAddress {
+                owner_node_id: pipeline_key.0,
+                local_id: pipeline_key.1,
+            },
+            instances: instances.max(1),
         }),
     };
     enqueue_draw_command(&ctx, command);

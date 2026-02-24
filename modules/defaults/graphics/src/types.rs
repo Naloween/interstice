@@ -36,6 +36,15 @@ pub struct Rect {
 
 #[interstice_type]
 #[derive(Debug, Clone)]
+pub struct RectCommand {
+    pub rect: Rect,
+    pub color: Color,
+    pub filled: bool,
+    pub stroke_width: f32,
+}
+
+#[interstice_type]
+#[derive(Debug, Clone)]
 pub struct ResourceAddress {
     pub owner_node_id: String,
     pub local_id: String,
@@ -77,6 +86,14 @@ pub struct TextCommand {
     pub size: f32,
     pub color: Color,
     pub font: Option<String>,
+}
+
+#[interstice_type]
+#[derive(Debug, Clone)]
+pub struct MeshDrawCommand {
+    pub mesh: ResourceAddress,
+    pub pipeline: ResourceAddress,
+    pub instances: u32,
 }
 
 #[interstice_type]

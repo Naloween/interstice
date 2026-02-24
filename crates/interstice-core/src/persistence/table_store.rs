@@ -36,6 +36,7 @@ pub enum LogOperation {
     Delete {
         primary_key: IndexKey,
     },
+    Clear,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -480,6 +481,9 @@ impl TableStore {
             }
             LogOperation::Delete { primary_key } => {
                 let _ = table.delete(primary_key)?;
+            }
+            LogOperation::Clear => {
+                table.clear();
             }
         }
         Ok(())

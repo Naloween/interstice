@@ -115,10 +115,35 @@ impl ModuleSchema {
             }
             if add_reducer {
                 reducers.push(reducer_schema.clone());
+
+                for field in &reducer_schema.arguments {
+                    if let IntersticeType::Named(type_name) = field.field_type.clone() {
+                        if !type_definitions.contains_key(&type_name) {
+                            let type_def = self.type_definitions.get(&type_name).unwrap().clone();
+                            type_definitions.insert(type_name, type_def);
+                        }
+                    }
+                }
             }
         }
 
         let queries = self.queries.clone();
+        for query_schema in &queries {
+            for field in &query_schema.arguments {
+                if let IntersticeType::Named(type_name) = field.field_type.clone() {
+                    if !type_definitions.contains_key(&type_name) {
+                        let type_def = self.type_definitions.get(&type_name).unwrap().clone();
+                        type_definitions.insert(type_name, type_def);
+                    }
+                }
+            }
+            if let IntersticeType::Named(type_name) = query_schema.return_type.clone() {
+                if !type_definitions.contains_key(&type_name) {
+                    let type_def = self.type_definitions.get(&type_name).unwrap().clone();
+                    type_definitions.insert(type_name, type_def);
+                }
+            }
+        }
 
         Self {
             abi_version: self.abi_version,

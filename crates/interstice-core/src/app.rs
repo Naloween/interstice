@@ -342,6 +342,10 @@ impl App {
                 let id = gpu.get_current_surface_texture();
                 Ok(GpuCallResult::I64(id as i64))
             }
+            interstice_abi::GpuCall::RequestRedraw => {
+                gpu.request_redraw();
+                Ok(GpuCallResult::None)
+            }
         }));
 
         match result {

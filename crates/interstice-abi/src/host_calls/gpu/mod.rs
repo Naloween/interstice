@@ -108,6 +108,7 @@ pub enum GpuCall {
     GetSurfaceSize,
     Present,
     BeginFrame,
+    RequestRedraw,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -65,7 +65,7 @@ pub async fn add_node_binding(
     })?;
     let file_name = sanitize_filename(&node_name);
     let out_path = bindings_dir.join(format!("node_{}.toml", file_name));
-    let contents = schema.to_toml_string().map_err(|err| {
+    let contents = schema.to_public().to_toml_string().map_err(|err| {
         IntersticeError::Internal(format!("Failed to serialize node schema: {err}"))
     })?;
     std::fs::write(&out_path, contents)

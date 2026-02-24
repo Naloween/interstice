@@ -2,8 +2,8 @@ use interstice_sdk::*;
 use std::str::FromStr;
 
 use crate::types::{
-    CircleCommand, ComputeSubmission, ImageCommand, PolylineCommand, RenderPassSubmission,
-    TextCommand,
+    BindGroupDescriptorInput, CircleCommand, ComputeSubmission, ImageCommand, MeshDrawCommand,
+    PipelineDescriptorInput, PolylineCommand, RectCommand, RenderPassSubmission, TextCommand,
 };
 
 #[table(stateful)]
@@ -44,7 +44,9 @@ pub struct MeshBinding {
 pub struct PipelineBinding {
     #[primary_key]
     pub key: (String, String),
-    pub descriptor: crate::types::PipelineDescriptorInput,
+    pub descriptor: PipelineDescriptorInput,
+    pub shader_module_id: Option<u32>,
+    pub pipeline_layout_id: Option<u32>,
     pub pipeline_id: Option<u32>,
 }
 
@@ -53,8 +55,16 @@ pub struct PipelineBinding {
 pub struct BindGroupBinding {
     #[primary_key]
     pub key: (String, String),
-    pub descriptor: crate::types::BindGroupDescriptorInput,
+    pub descriptor: BindGroupDescriptorInput,
     pub bind_group_id: Option<u32>,
+}
+
+#[table(public, stateful)]
+#[derive(Debug, Clone)]
+pub struct FrameTick {
+    #[primary_key]
+    pub id: u32,
+    pub frame: u64,
 }
 
 #[table(stateful)]
@@ -77,8 +87,10 @@ pub struct Draw2DCommand {
     pub command_type: String,
     pub circle: Option<CircleCommand>,
     pub polyline: Option<PolylineCommand>,
+    pub rect: Option<RectCommand>,
     pub image: Option<ImageCommand>,
     pub text: Option<TextCommand>,
+    pub mesh: Option<MeshDrawCommand>,
 }
 
 #[table(ephemeral)]

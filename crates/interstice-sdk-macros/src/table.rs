@@ -464,6 +464,13 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 )
             }
 
+            pub fn clear(&self) -> Result<(), String> {
+                interstice_sdk::host_calls::clear_table(
+                    interstice_sdk::ModuleSelection::Current,
+                    #table_name.to_string(),
+                )
+            }
+
             #read_table_imp
 
         }

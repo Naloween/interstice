@@ -1,7 +1,12 @@
 use std::str::FromStr;
 
 use interstice_sdk::*;
-use interstice_sdk::{BufferUsage, CopyBufferToTexture, CreateTexture, TextureDimension, TextureFormat, TextureUsage};
+use interstice_sdk::{
+    BufferUsage, ColorTargetState, ColorWrites, CopyBufferToTexture, CreatePipelineLayout,
+    CreateRenderPipeline, CreateTexture, FragmentState, FrontFace, MultisampleState,
+    PrimitiveState, PrimitiveTopology, TextureDimension, TextureFormat, TextureUsage,
+    VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode,
+};
 
 use crate::helpers::namespaced_key;
 use crate::tables::{
@@ -104,15 +109,22 @@ pub fn create_pipeline(ctx: ReducerContext, local_id: String, descriptor: Pipeli
         ctx.log(&format!("Pipeline '{}' already exists", local_id));
         return;
     }
-    let row = PipelineBinding {
-        key,
-        descriptor,
-        pipeline_id: None,
-    };
-    if let Err(err) = ctx.current.tables.pipelinebinding().insert(row) {
-        ctx.log(&format!("Failed to store pipeline descriptor: {}", err));
-    } else {
-        ctx.log("Stored pipeline descriptor (GPU compilation not implemented yet)");
+    match allocate_render_pipeline(&ctx, &descriptor) {
+        Ok((shader_module_id, pipeline_layout_id, pipeline_id)) => {
+            let row = PipelineBinding {
+                key,
+                descriptor,
+                shader_module_id: Some(shader_module_id),
+                pipeline_layout_id: Some(pipeline_layout_id),
+                pipeline_id: Some(pipeline_id),
+            };
+            if let Err(err) = ctx.current.tables.pipelinebinding().insert(row) {
+                ctx.log(&format!("Failed to store pipeline binding: {}", err));
+            }
+        }
+        Err(err) => {
+            ctx.log(&format!("Pipeline creation failed: {}", err));
+        }
     }
 }
 
@@ -300,9 +312,24 @@ fn try_destroy_pipeline(ctx: &ReducerContext, key: &(String, String)) -> Option<
     if let Err(err) = ctx.current.tables.pipelinebinding().delete(key.clone()) {
         ctx.log(&format!("Failed to delete pipeline descriptor: {}", err));
     }
-    if row.pipeline_id.is_some() {
-        ctx.log("Destroying GPU pipelines is not implemented yet");
+
+    let gpu = ctx.gpu();
+    if let Some(id) = row.pipeline_id {
+        if let Err(err) = gpu.destroy_render_pipeline(id) {
+            ctx.log(&format!("Failed to destroy render pipeline: {}", err));
+        }
     }
+    if let Some(id) = row.pipeline_layout_id {
+        if let Err(err) = gpu.destroy_pipeline_layout(id) {
+            ctx.log(&format!("Failed to destroy pipeline layout: {}", err));
+        }
+    }
+    if let Some(id) = row.shader_module_id {
+        if let Err(err) = gpu.destroy_shader_module(id) {
+            ctx.log(&format!("Failed to destroy shader module: {}", err));
+        }
+    }
+
     Some(())
 }
 
@@ -386,4 +413,69 @@ fn encode_mesh_vertices(vertices: &[MeshVertex]) -> Vec<u8> {
         bytes.extend_from_slice(&packed.uv[1].to_le_bytes());
     }
     bytes
+}
+
+fn allocate_render_pipeline(
+    ctx: &ReducerContext,
+    descriptor: &PipelineDescriptorInput,
+) -> Result<(u32, u32, u32), String> {
+    let gpu = ctx.gpu();
+    let shader_module_id = gpu.create_shader_module(descriptor.shader_source.clone())?;
+    let pipeline_layout_id = gpu.create_pipeline_layout(CreatePipelineLayout {
+        bind_group_layouts: vec![],
+    })?;
+    let surface_format = gpu.get_surface_format()?;
+
+    let pipeline_id = gpu.create_render_pipeline(CreateRenderPipeline {
+        label: descriptor.label.clone(),
+        layout: pipeline_layout_id,
+        vertex: VertexState {
+            module: shader_module_id,
+            entry_point: descriptor.vertex_entry.clone(),
+            buffers: vec![VertexBufferLayout {
+                array_stride: std::mem::size_of::<MeshVertexBytes>() as u64,
+                step_mode: VertexStepMode::Vertex,
+                attributes: vec![
+                    VertexAttribute {
+                        format: VertexFormat::Float32x3,
+                        offset: 0,
+                        shader_location: 0,
+                    },
+                    VertexAttribute {
+                        format: VertexFormat::Float32x4,
+                        offset: 12,
+                        shader_location: 1,
+                    },
+                    VertexAttribute {
+                        format: VertexFormat::Float32x2,
+                        offset: 28,
+                        shader_location: 2,
+                    },
+                ],
+            }],
+        },
+        fragment: descriptor.fragment_entry.clone().map(|entry_point| FragmentState {
+            module: shader_module_id,
+            entry_point,
+            targets: vec![ColorTargetState {
+                format: surface_format,
+                blend: None,
+                write_mask: ColorWrites::ALL,
+            }],
+        }),
+        primitive: PrimitiveState {
+            topology: PrimitiveTopology::TriangleList,
+            cull_mode: None,
+            front_face: FrontFace::Ccw,
+        },
+        depth_stencil: None,
+        multisample: MultisampleState {
+            count: 1,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        multiview: None,
+    })?;
+
+    Ok((shader_module_id, pipeline_layout_id, pipeline_id))
 }

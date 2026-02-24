@@ -1,0 +1,478 @@
+abi_version = 1
+name = "graphics"
+visibility = "Public"
+queries = []
+subscriptions = []
+authorities = ["Gpu"]
+module_dependencies = []
+node_dependencies = []
+
+[version]
+major = 0
+minor = 1
+patch = 0
+
+[[reducers]]
+name = "create_mesh"
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "mesh"
+
+[reducers.arguments.field_type]
+Named = "MeshDescriptor"
+
+[[reducers]]
+name = "create_texture"
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "desc"
+
+[reducers.arguments.field_type]
+Named = "TextureDescriptorInput"
+
+[[reducers.arguments]]
+name = "bytes"
+
+[reducers.arguments.field_type]
+Vec = "U8"
+
+[[reducers]]
+name = "create_pipeline"
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "descriptor"
+
+[reducers.arguments.field_type]
+Named = "PipelineDescriptorInput"
+
+[[reducers]]
+name = "destroy_resource"
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers]]
+name = "create_bind_group"
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "descriptor"
+
+[reducers.arguments.field_type]
+Named = "BindGroupDescriptorInput"
+
+[[reducers]]
+name = "draw_mesh"
+
+[[reducers.arguments]]
+name = "layer"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "mesh_local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "pipeline_local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "instances"
+field_type = "U32"
+
+[[reducers]]
+name = "draw_rect"
+
+[[reducers.arguments]]
+name = "layer"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "rect"
+
+[reducers.arguments.field_type]
+Named = "Rect"
+
+[[reducers.arguments]]
+name = "color"
+
+[reducers.arguments.field_type]
+Named = "Color"
+
+[[reducers.arguments]]
+name = "filled"
+field_type = "Bool"
+
+[[reducers.arguments]]
+name = "stroke_width"
+field_type = "F32"
+
+[[reducers]]
+name = "draw_text"
+
+[[reducers.arguments]]
+name = "layer"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "content"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "position"
+
+[reducers.arguments.field_type]
+Named = "Vec2"
+
+[[reducers.arguments]]
+name = "size"
+field_type = "F32"
+
+[[reducers.arguments]]
+name = "color"
+
+[reducers.arguments.field_type]
+Named = "Color"
+
+[[reducers.arguments]]
+name = "font"
+
+[reducers.arguments.field_type]
+Option = "String"
+
+[[reducers]]
+name = "draw_image"
+
+[[reducers.arguments]]
+name = "layer"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "texture_local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "rect"
+
+[reducers.arguments.field_type]
+Named = "Rect"
+
+[[reducers.arguments]]
+name = "tint"
+
+[reducers.arguments.field_type]
+Named = "Color"
+
+[[reducers]]
+name = "draw_circle"
+
+[[reducers.arguments]]
+name = "layer"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "center"
+
+[reducers.arguments.field_type]
+Named = "Vec2"
+
+[[reducers.arguments]]
+name = "radius"
+field_type = "F32"
+
+[[reducers.arguments]]
+name = "color"
+
+[reducers.arguments.field_type]
+Named = "Color"
+
+[[reducers.arguments]]
+name = "filled"
+field_type = "Bool"
+
+[[reducers.arguments]]
+name = "stroke_width"
+field_type = "F32"
+
+[[reducers]]
+name = "draw_polyline"
+
+[[reducers.arguments]]
+name = "layer"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "points"
+
+[reducers.arguments.field_type.Vec]
+Named = "Vec2"
+
+[[reducers.arguments]]
+name = "width"
+field_type = "F32"
+
+[[reducers.arguments]]
+name = "color"
+
+[reducers.arguments.field_type]
+Named = "Color"
+
+[[reducers.arguments]]
+name = "closed"
+field_type = "Bool"
+
+[[reducers.arguments]]
+name = "filled"
+field_type = "Bool"
+
+[[reducers]]
+name = "submit_compute"
+
+[[reducers.arguments]]
+name = "submission"
+
+[reducers.arguments.field_type]
+Named = "ComputeSubmission"
+
+[[reducers]]
+name = "submit_render_pass"
+
+[[reducers.arguments]]
+name = "submission"
+
+[reducers.arguments.field_type]
+Named = "RenderPassSubmission"
+
+[[reducers]]
+name = "set_layer_z"
+
+[[reducers.arguments]]
+name = "name"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "z"
+field_type = "I32"
+
+[[reducers]]
+name = "create_layer"
+
+[[reducers.arguments]]
+name = "name"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "z"
+field_type = "I32"
+
+[[reducers.arguments]]
+name = "clear"
+field_type = "Bool"
+
+[[reducers]]
+name = "destroy_layer"
+
+[[reducers.arguments]]
+name = "name"
+field_type = "String"
+
+[[reducers]]
+name = "set_layer_clear"
+
+[[reducers.arguments]]
+name = "name"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "clear"
+field_type = "Bool"
+
+[[tables]]
+name = "frametick"
+type_name = "FrameTick"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Stateful"
+
+[[tables.fields]]
+name = "frame"
+field_type = "U64"
+
+[tables.primary_key]
+name = "id"
+field_type = "U32"
+
+[type_definitions.FrameTick.Struct]
+name = "FrameTick"
+
+[[type_definitions.FrameTick.Struct.fields]]
+name = "id"
+field_type = "U32"
+
+[[type_definitions.FrameTick.Struct.fields]]
+name = "frame"
+field_type = "U64"
+
+[type_definitions.MeshDescriptor.Struct]
+name = "MeshDescriptor"
+
+[[type_definitions.MeshDescriptor.Struct.fields]]
+name = "vertices"
+
+[type_definitions.MeshDescriptor.Struct.fields.field_type.Vec]
+Named = "MeshVertex"
+
+[[type_definitions.MeshDescriptor.Struct.fields]]
+name = "indices"
+
+[type_definitions.MeshDescriptor.Struct.fields.field_type.Option]
+Vec = "U32"
+
+[type_definitions.PipelineDescriptorInput.Struct]
+name = "PipelineDescriptorInput"
+
+[[type_definitions.PipelineDescriptorInput.Struct.fields]]
+name = "label"
+
+[type_definitions.PipelineDescriptorInput.Struct.fields.field_type]
+Option = "String"
+
+[[type_definitions.PipelineDescriptorInput.Struct.fields]]
+name = "shader_source"
+field_type = "String"
+
+[[type_definitions.PipelineDescriptorInput.Struct.fields]]
+name = "vertex_entry"
+field_type = "String"
+
+[[type_definitions.PipelineDescriptorInput.Struct.fields]]
+name = "fragment_entry"
+
+[type_definitions.PipelineDescriptorInput.Struct.fields.field_type]
+Option = "String"
+
+[type_definitions.Rect.Struct]
+name = "Rect"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "x"
+field_type = "F32"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "y"
+field_type = "F32"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "w"
+field_type = "F32"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "h"
+field_type = "F32"
+
+[type_definitions.TextureDescriptorInput.Struct]
+name = "TextureDescriptorInput"
+
+[[type_definitions.TextureDescriptorInput.Struct.fields]]
+name = "width"
+field_type = "U32"
+
+[[type_definitions.TextureDescriptorInput.Struct.fields]]
+name = "height"
+field_type = "U32"
+
+[[type_definitions.TextureDescriptorInput.Struct.fields]]
+name = "format"
+field_type = "String"
+
+[[type_definitions.TextureDescriptorInput.Struct.fields]]
+name = "mip_levels"
+field_type = "U32"
+
+[[type_definitions.TextureDescriptorInput.Struct.fields]]
+name = "sample_count"
+field_type = "U32"
+
+[[type_definitions.TextureDescriptorInput.Struct.fields]]
+name = "usage"
+
+[type_definitions.TextureDescriptorInput.Struct.fields.field_type]
+Named = "TextureUsageFlags"
+
+[type_definitions.Vec2.Struct]
+name = "Vec2"
+
+[[type_definitions.Vec2.Struct.fields]]
+name = "x"
+field_type = "F32"
+
+[[type_definitions.Vec2.Struct.fields]]
+name = "y"
+field_type = "F32"
+
+[type_definitions.BindGroupDescriptorInput.Struct]
+name = "BindGroupDescriptorInput"
+
+[[type_definitions.BindGroupDescriptorInput.Struct.fields]]
+name = "label"
+
+[type_definitions.BindGroupDescriptorInput.Struct.fields.field_type]
+Option = "String"
+
+[type_definitions.Color.Struct]
+name = "Color"
+
+[[type_definitions.Color.Struct.fields]]
+name = "r"
+field_type = "F32"
+
+[[type_definitions.Color.Struct.fields]]
+name = "g"
+field_type = "F32"
+
+[[type_definitions.Color.Struct.fields]]
+name = "b"
+field_type = "F32"
+
+[[type_definitions.Color.Struct.fields]]
+name = "a"
+field_type = "F32"
+
+[type_definitions.ComputeSubmission.Struct]
+name = "ComputeSubmission"
+
+[[type_definitions.ComputeSubmission.Struct.fields]]
+name = "debug_label"
+
+[type_definitions.ComputeSubmission.Struct.fields.field_type]
+Option = "String"
+
+[type_definitions.RenderPassSubmission.Struct]
+name = "RenderPassSubmission"
+
+[[type_definitions.RenderPassSubmission.Struct.fields]]
+name = "layer"
+field_type = "String"
+
+[[type_definitions.RenderPassSubmission.Struct.fields]]
+name = "debug_label"
+
+[type_definitions.RenderPassSubmission.Struct.fields.field_type]
+Option = "String"

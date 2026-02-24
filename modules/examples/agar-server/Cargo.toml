@@ -1,0 +1,13 @@
+[package]
+name = "agar-server"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+interstice-sdk = "0.3.0"
+
+[build-dependencies]
+interstice-sdk = "0.3.0"

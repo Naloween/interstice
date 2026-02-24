@@ -75,6 +75,12 @@ impl Runtime {
                 let result = self.send_data_to_module(response, memory, caller).await;
                 Ok(Some(result))
             }
+            HostCall::ClearTable(clear_table_request) => {
+                let response =
+                    self.handle_clear_table(caller_module_schema.name.clone(), clear_table_request);
+                let result = self.send_data_to_module(response, memory, caller).await;
+                Ok(Some(result))
+            }
             HostCall::TableScan(table_scan_request) => {
                 let response = self.handle_table_scan(table_scan_request);
                 let result = self.send_data_to_module(response, memory, caller).await;

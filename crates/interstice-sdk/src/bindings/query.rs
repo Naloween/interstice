@@ -5,12 +5,18 @@ pub fn get_query_code(
     query_schema: QuerySchema,
     node_selection: &NodeSelection,
 ) -> String {
-    let mut arguments_str = String::new();
-    let mut arguments_values_str = String::new();
-    for arg in query_schema.arguments {
-        arguments_str += &(arg.name.clone() + ": " + &arg.field_type.to_string());
-        arguments_values_str += &(arg.name.clone() + ".into()");
-    }
+    let arguments: Vec<String> = query_schema
+        .arguments
+        .iter()
+        .map(|arg| arg.name.clone() + ": " + &arg.field_type.to_string())
+        .collect();
+    let arguments_str = arguments.join(", ");
+    let arguments_values: Vec<String> = query_schema
+        .arguments
+        .iter()
+        .map(|arg| arg.name.clone() + ".into()")
+        .collect();
+    let arguments_values_str = arguments_values.join(", ");
     let node_selection = match node_selection {
         NodeSelection::Current => "interstice_sdk::NodeSelection::Current".to_string(),
         NodeSelection::Other(node_name) => {

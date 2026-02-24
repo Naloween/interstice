@@ -220,6 +220,11 @@ impl Table {
         }
     }
 
+    pub fn clear(&mut self) {
+        let schema = self.schema.clone();
+        *self = Table::new(schema);
+    }
+
     pub fn get_by_primary_key(&self, primary_key_value: &IndexKey) -> Option<&Row> {
         self.primary_key_index
             .get(primary_key_value)

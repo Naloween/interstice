@@ -25,6 +25,10 @@ pub enum Transaction {
         table_name: String,
         deleted_row_id: IndexKey,
     },
+    Clear {
+        module_name: String,
+        table_name: String,
+    },
 }
 
 impl Runtime {
@@ -230,6 +234,67 @@ impl Runtime {
                         log_operation = Some(LogOperation::Delete {
                             primary_key: deleted_row_id.clone(),
                         });
+                    }
+
+                    match persistence_kind {
+                        PersistenceKind::Logged => {
+                            if let Some(plan) = self.persistence.record_logged_operation(
+                                &module_name_for_persistence,
+                                &table_name_for_persistence,
+                                log_operation
+                                    .as_ref()
+                                    .cloned()
+                                    .expect("logged operation missing"),
+                            )? {
+                                logged_snapshot_rows = Some(table.snapshot_rows());
+                                logged_snapshot_plan = Some(plan);
+                            }
+                        }
+                        PersistenceKind::Stateful => {
+                            stateful_rows = Some(table.snapshot_rows());
+                        }
+                        PersistenceKind::Ephemeral => {}
+                    }
+                }
+            }
+
+            Transaction::Clear {
+                module_name,
+                table_name,
+            } => {
+                module_name_for_persistence = module_name.clone();
+                table_name_for_persistence = table_name.clone();
+
+                let mut modules = self.modules.lock().unwrap();
+                let module = modules.get_mut(&module_name).ok_or_else(|| {
+                    IntersticeError::ModuleNotFound(
+                        module_name.clone(),
+                        format!("When trying to clear table '{}' from '{}'", table_name, module_name),
+                    )
+                })?;
+                let mut tables = module.tables.lock().unwrap();
+                let table = tables
+                    .get_mut(&table_name)
+                    .ok_or_else(|| IntersticeError::TableNotFound {
+                        module_name: module_name.clone(),
+                        table_name: table_name.clone(),
+                    })?;
+                persistence_kind = table.schema.persistence.clone();
+
+                let deleted_rows = table.snapshot_rows();
+                table.clear();
+
+                for deleted_row in deleted_rows {
+                    events.push(EventInstance::TableDeleteEvent {
+                        module_name: module_name.clone(),
+                        table_name: table_name.clone(),
+                        deleted_row,
+                    });
+                }
+
+                if log_transaction {
+                    if persistence_kind != PersistenceKind::Ephemeral {
+                        log_operation = Some(LogOperation::Clear);
                     }
 
                     match persistence_kind {

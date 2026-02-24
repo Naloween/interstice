@@ -272,16 +272,16 @@ impl Runtime {
                 wasm_binary,
                 source_node_id,
             } => {
+                let module = Module::from_bytes(runtime.clone(), &wasm_binary)
+                    .await
+                    .unwrap();
+                let module_name = module.schema.name.clone();
                 if runtime
                     .authority_modules
                     .lock()
                     .unwrap()
                     .contains_key(&Authority::Module)
                 {
-                    let module_name = Module::from_bytes(runtime.clone(), &wasm_binary)
-                        .await
-                        .map(|m| m.schema.name.clone())
-                        .unwrap_or_else(|_| "unknown".into());
                     let _ = runtime.event_sender.send(EventInstance::Module(
                         ModuleEvent::PublishRequest {
                             node_id: source_node_id.to_string(),
@@ -290,15 +290,12 @@ impl Runtime {
                         },
                     ));
                 } else {
-                    Runtime::load_module(
-                        runtime.clone(),
-                        Module::from_bytes(runtime.clone(), &wasm_binary)
-                            .await
-                            .unwrap(),
-                        true,
-                    )
-                    .await
-                    .unwrap();
+                    if runtime.modules.lock().unwrap().contains_key(&module_name) {
+                        Runtime::remove_module(runtime.clone(), &module_name);
+                    }
+                    Runtime::load_module(runtime.clone(), module, true)
+                        .await
+                        .unwrap();
                 }
             }
             EventInstance::RemoveModule {
@@ -326,7 +323,7 @@ impl Runtime {
                 request_id,
                 node_name,
             } => {
-                let schema = runtime.build_node_schema(node_name).to_public();
+                let schema = runtime.build_node_schema(node_name);
                 runtime.network_handle.send_packet(
                     requesting_node_id,
                     crate::network::protocol::NetworkPacket::SchemaResponse { request_id, schema },

@@ -1,6 +1,6 @@
 interstice_module!();
 
-use crate::bindings::*;
+use crate::bindings::{example_8080::*, *};
 use interstice_sdk::*;
 
 #[reducer(on = "init")]

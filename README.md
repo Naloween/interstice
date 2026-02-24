@@ -53,12 +53,6 @@ interstice --help
 
 If `interstice` is not found, ensure the destination folder is on your PATH.
 
-From source (via Cargo):
-
-```bash
-cargo install --git https://github.com/Naloween/interstice --bin interstice
-```
-
 From crates.io:
 
 ```bash
@@ -87,22 +81,16 @@ cargo build -p graphics
 cargo build -p audio
 ```
 
-Go to the CLI crate:
+Start the hello example:
 
 ```bash
-cd crates/interstice-cli
+cargo run -p interstice-cli example hello
 ```
 
-Start the hello example (port 8080):
+Start the caller example to simulate remote interactions:
 
 ```bash
-cargo run example hello
-```
-
-Start the caller example (port 8081) to simulate remote interactions:
-
-```bash
-cargo run example caller
+cargo run -p interstice-cli example caller
 ```
 
 ---
@@ -283,7 +271,7 @@ Reproduce
 
 1. Start the hello example (`interstice example hello`).
 2. Start the caller example (`interstice example caller`) so it can call hello.
-3. Start the graphics or audio example to exercise those modules.
+3. Start graphics or audio with `interstice example graphics` or `interstice example audio`.
 
 ---
 
@@ -304,7 +292,7 @@ There is no manual way to publish to an already running node. See the CLI flow b
 
 ## CLI flow
 
-- `interstice publish <node-address> <module-rust-project-path>` — build, upload, validate, and install a module on a running node. The node verifies schema compatibility and requested capabilities.
+- `interstice publish <node> <module-rust-project-path>` — build, upload, validate, and install a module on a running node. The node verifies schema compatibility and requested capabilities.
 
 # CLI usage
 
@@ -317,7 +305,7 @@ There is no manual way to publish to an already running node. See the CLI flow b
 ## Node management
 
 - `interstice node add <name> <address>`
-- `interstice node create <name> <port> [--elusive]`
+- `interstice node create <name> <port>`
 - `interstice node list`
 - `interstice node remove <name|id>`
 - `interstice node rename <old> <new>`
@@ -326,7 +314,10 @@ There is no manual way to publish to an already running node. See the CLI flow b
 - `interstice node ping <name|id>`
 - `interstice node schema <name|id> [out]`
 
-The `--elusive` flag starts a node without any persistence: no node directory, no transaction log, no module files, and no log file. All state is kept in memory for that session only.
+## Example command
+
+- `interstice example <hello|caller|graphics|audio>`
+- Built-in ports are fixed by example name: `hello=8080`, `caller=8081`, `graphics=8082`, `audio=8083`.
 
 ## Bindings helpers
 
@@ -383,7 +374,7 @@ Authorities are typed tokens granting modules access to privileged host function
 ## Determinism and concurrency
 
 - Deterministic replay is a design goal: given the same inputs, module versions, and initial state, execution is reproducible.
-- The core may parallelize execution when it can prove no conflicting writes will occur.
+- Reducers are currently processed through a serialized queue in the runtime event loop.
 
 ---
 
@@ -429,4 +420,3 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 # License
 
 This repository is licensed under the MIT License. See `LICENSE` for details.
-
