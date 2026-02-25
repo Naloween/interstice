@@ -83,27 +83,85 @@ impl ModuleSchema {
 
     pub fn to_public(self) -> Self {
         let mut type_definitions = HashMap::new();
+
+        // Helper to extract all Named type references from an IntersticeType
+        fn extract_named_types(it: &IntersticeType, names: &mut Vec<String>) {
+            match it {
+                IntersticeType::Named(name) => names.push(name.clone()),
+                IntersticeType::Vec(inner) | IntersticeType::Option(inner) => {
+                    extract_named_types(inner, names);
+                }
+                IntersticeType::Tuple(types) => {
+                    for ty in types {
+                        extract_named_types(ty, names);
+                    }
+                }
+                _ => {} // Primitive types
+            }
+        }
+
+        // Recursive helper to collect a type and all its nested dependencies
+        let collect_type_recursively =
+            |type_name: &str,
+             collected: &mut HashMap<String, IntersticeTypeDef>,
+             all_types: &HashMap<String, IntersticeTypeDef>| {
+                let mut stack = vec![type_name.to_string()];
+
+                while let Some(current_name) = stack.pop() {
+                    // Skip if already collected
+                    if collected.contains_key(&current_name) {
+                        continue;
+                    }
+
+                    // Get the type definition
+                    if let Some(type_def) = all_types.get(&current_name) {
+                        collected.insert(current_name.clone(), type_def.clone());
+
+                        // Extract nested type names from this type
+                        if let IntersticeTypeDef::Struct { fields, .. } = type_def {
+                            for field in fields {
+                                let mut nested_names = Vec::new();
+                                extract_named_types(&field.field_type, &mut nested_names);
+                                for nested_name in nested_names {
+                                    if !collected.contains_key(&nested_name) {
+                                        stack.push(nested_name);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+
+        // Collect types from public tables
         let mut tables = Vec::new();
         for table_schema in &self.tables {
             if table_schema.visibility == TableVisibility::Public {
                 tables.push(table_schema.clone());
+
+                // Collect table type and all its dependencies
+                collect_type_recursively(
+                    &table_schema.type_name,
+                    &mut type_definitions,
+                    &self.type_definitions,
+                );
+
+                // Collect field types and their dependencies
                 for field in &table_schema.fields {
-                    if let IntersticeType::Named(type_name) = field.field_type.clone() {
-                        if !type_definitions.contains_key(&type_name) {
-                            let type_def = self.type_definitions.get(&type_name).unwrap().clone();
-                            type_definitions.insert(type_name, type_def);
-                        }
+                    let mut nested_names = Vec::new();
+                    extract_named_types(&field.field_type, &mut nested_names);
+                    for type_name in nested_names {
+                        collect_type_recursively(
+                            &type_name,
+                            &mut type_definitions,
+                            &self.type_definitions,
+                        );
                     }
                 }
-                type_definitions.insert(
-                    table_schema.type_name.clone(),
-                    self.type_definitions
-                        .get(&table_schema.type_name)
-                        .unwrap()
-                        .clone(),
-                );
             }
         }
+
+        // Collect types from public reducers
         let mut reducers = Vec::new();
         for reducer_schema in &self.reducers {
             let mut add_reducer = true;
@@ -116,32 +174,42 @@ impl ModuleSchema {
             if add_reducer {
                 reducers.push(reducer_schema.clone());
 
-                for field in &reducer_schema.arguments {
-                    if let IntersticeType::Named(type_name) = field.field_type.clone() {
-                        if !type_definitions.contains_key(&type_name) {
-                            let type_def = self.type_definitions.get(&type_name).unwrap().clone();
-                            type_definitions.insert(type_name, type_def);
-                        }
+                // Collect types from reducer arguments and their dependencies
+                for arg in &reducer_schema.arguments {
+                    let mut nested_names = Vec::new();
+                    extract_named_types(&arg.field_type, &mut nested_names);
+                    for type_name in nested_names {
+                        collect_type_recursively(
+                            &type_name,
+                            &mut type_definitions,
+                            &self.type_definitions,
+                        );
                     }
                 }
             }
         }
 
+        // Collect types from queries
         let queries = self.queries.clone();
         for query_schema in &queries {
-            for field in &query_schema.arguments {
-                if let IntersticeType::Named(type_name) = field.field_type.clone() {
-                    if !type_definitions.contains_key(&type_name) {
-                        let type_def = self.type_definitions.get(&type_name).unwrap().clone();
-                        type_definitions.insert(type_name, type_def);
-                    }
+            // Collect types from query arguments and their dependencies
+            for arg in &query_schema.arguments {
+                let mut nested_names = Vec::new();
+                extract_named_types(&arg.field_type, &mut nested_names);
+                for type_name in nested_names {
+                    collect_type_recursively(
+                        &type_name,
+                        &mut type_definitions,
+                        &self.type_definitions,
+                    );
                 }
             }
-            if let IntersticeType::Named(type_name) = query_schema.return_type.clone() {
-                if !type_definitions.contains_key(&type_name) {
-                    let type_def = self.type_definitions.get(&type_name).unwrap().clone();
-                    type_definitions.insert(type_name, type_def);
-                }
+
+            // Collect type from query return type and its dependencies
+            let mut nested_names = Vec::new();
+            extract_named_types(&query_schema.return_type, &mut nested_names);
+            for type_name in nested_names {
+                collect_type_recursively(&type_name, &mut type_definitions, &self.type_definitions);
             }
         }
 

@@ -1,5 +1,6 @@
 use crate::bindings::{
-    agar_server::{Snapshot, Vec2 as AgarVec2},
+    agar_server::HasAgarServerModuleHandle,
+    agar_server::agar_server::{Snapshot, Vec2 as AgarVec2},
     graphics::*,
     input::*,
     *,

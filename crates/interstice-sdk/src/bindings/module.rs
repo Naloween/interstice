@@ -5,32 +5,18 @@ use crate::{
         query::get_query_code, reducer::get_reducer_code, table::get_table_code,
         type_definition::get_type_definition_code,
     },
-    to_camel_case, to_snake_case,
+    snake_to_camel_case, to_snake_case,
 };
 
-pub struct ModuleCodeOutput {
-    pub module_content: String,
-    pub trait_definition: String,
-}
-
 pub fn get_module_code(module_schema: ModuleSchema, node_selection: NodeSelection) -> String {
-    let output = get_module_code_parts(module_schema, node_selection);
-    output.module_content + &output.trait_definition
-}
-
-pub fn get_module_code_parts(
-    module_schema: ModuleSchema,
-    node_selection: NodeSelection,
-) -> ModuleCodeOutput {
     let module_name = module_schema.name;
     let snake_module_name = to_snake_case(&module_name);
-    let camel_module_name = to_camel_case(&snake_module_name);
-    let module_context_name = camel_module_name.clone() + "Context";
-    let module_query_context_name = camel_module_name.clone() + "QueryContext";
+    let camel_module_name = snake_to_camel_case(&snake_module_name);
+    let module_handle_name = camel_module_name.clone() + "ModuleHandle";
     let module_tables_name = camel_module_name.clone() + "Tables";
     let module_reducers_name = camel_module_name.clone() + "Reducers";
     let module_queries_name = camel_module_name.clone() + "Queries";
-    let has_module_handle_trait_name = "Has".to_string() + &module_context_name;
+    let has_module_handle_trait_name = "Has".to_string() + &module_handle_name;
 
     let mut reducers_def_str = String::new();
     for reducer_schema in module_schema.reducers {
@@ -49,67 +35,98 @@ pub fn get_module_code_parts(
 
     let struct_handle_reducer_module_name = match &node_selection {
         NodeSelection::Current => "interstice_sdk::ReducerContext".to_string(),
-        NodeSelection::Other(node_name) => {
-            let node_snake = to_snake_case(&node_name);
-            format!("{}::{}", node_snake, to_camel_case(&node_snake))
-        }
+        NodeSelection::Other(node_name) => snake_to_camel_case(&to_snake_case(&node_name)),
     };
 
     let mut module_content = String::new();
-    let mut trait_definition = String::new();
 
-    module_content += &type_definitions;
+    // For node modules, wrap in an inner module. For local modules, don't wrap
+    // (get_current_node_code already wraps them)
+    let needs_inner_module = matches!(node_selection, NodeSelection::Other(_));
 
-    module_content += &("\npub struct ".to_string()
-        + &module_context_name
-        + "\n{\n    pub tables: "
-        + &module_tables_name
-        + ",\n    pub reducers: "
-        + &module_reducers_name
-        + ",\n    pub queries: "
-        + &module_queries_name
-        + ",\n}\npub struct "
-        + &module_query_context_name
-        + "\n{\n    pub tables: "
-        + &module_tables_name
-        + ",\n    pub queries: "
-        + &module_queries_name
-        + ",\n}\npub struct "
-        + &module_tables_name
-        + "{}\npub struct "
-        + &module_reducers_name
-        + "{}\npub struct "
-        + &module_queries_name
-        + "{}\nimpl "
-        + &module_reducers_name
-        + "{\n"
-        + &reducers_def_str
-        + "\n}\nimpl "
-        + &module_queries_name
-        + "{\n"
-        + &queries_def_str
-        + "\n}\n\n");
-
-    for table in module_schema.tables {
-        module_content += &get_table_code(table, &module_tables_name);
+    if needs_inner_module {
+        module_content += &("pub mod ".to_string() + &snake_module_name + " {\n");
     }
 
-    // Generate trait definition at top level
-    let module_path_prefix = match &node_selection {
-        NodeSelection::Current => snake_module_name.clone() + "::",
-        NodeSelection::Other(node_name) => {
-            let node_snake = to_snake_case(&node_name);
-            format!("{}::{}::", node_snake, snake_module_name)
+    let indent = if needs_inner_module { "    " } else { "" };
+
+    // Add type definitions with appropriate indentation
+    for line in type_definitions.lines() {
+        module_content += indent;
+        module_content += line;
+        module_content += "\n";
+    }
+
+    module_content += &format!(
+        "\n{}pub struct {}\n{}{{\n{}    pub tables: {},\n{}    pub reducers: {},\n{}    pub queries: {},\n{}}}\n",
+        indent,
+        module_handle_name,
+        indent,
+        indent,
+        module_tables_name,
+        indent,
+        module_reducers_name,
+        indent,
+        module_queries_name,
+        indent
+    );
+
+    module_content += &format!("{}pub struct {}{{}}\n", indent, module_tables_name);
+    module_content += &format!("{}pub struct {}{{}}\n", indent, module_reducers_name);
+    module_content += &format!("{}pub struct {}{{}}\n", indent, module_queries_name);
+    module_content += &format!("{}impl {}{{\n", indent, module_reducers_name);
+
+    // Indent reducers
+    for line in reducers_def_str.lines() {
+        module_content += indent;
+        module_content += "    ";
+        module_content += line;
+        module_content += "\n";
+    }
+
+    module_content += indent;
+    module_content += "}\n";
+    module_content += &format!("{}impl {}{{\n", indent, module_queries_name);
+
+    // Indent queries
+    for line in queries_def_str.lines() {
+        module_content += indent;
+        module_content += "    ";
+        module_content += line;
+        module_content += "\n";
+    }
+
+    module_content += indent;
+    module_content += "}\n\n";
+
+    // Indent tables
+    for table in module_schema.tables {
+        let table_code = get_table_code(table, &module_tables_name);
+        for line in table_code.lines() {
+            module_content += indent;
+            module_content += line;
+            module_content += "\n";
         }
+    }
+
+    if needs_inner_module {
+        module_content += "}\n\n";
+    }
+
+    // Trait paths depend on whether we have inner module
+    let module_path_prefix = if needs_inner_module {
+        format!("{}::", snake_module_name)
+    } else {
+        String::new()
     };
 
-    trait_definition += &("pub trait ".to_string()
+    module_content += &("pub trait ".to_string()
         + &has_module_handle_trait_name
         + " {\n    fn "
         + &snake_module_name
         + "(&self) -> "
         + &module_path_prefix
-        + &module_context_name
+        + &module_handle_name
         + ";\n}\n\nimpl "
         + &has_module_handle_trait_name
         + " for "
@@ -118,23 +135,20 @@ pub fn get_module_code_parts(
         + &snake_module_name
         + "(&self) -> "
         + &module_path_prefix
-        + &module_context_name
+        + &module_handle_name
         + " {\n        return "
         + &module_path_prefix
-        + &module_context_name
+        + &module_handle_name
         + " {\n                tables: "
         + &module_path_prefix
         + &module_tables_name
-        + "{},\n reducers: "
+        + "{},\n                reducers: "
         + &module_path_prefix
         + &module_reducers_name
-        + "{},\n queries: "
+        + "{},\n                queries: "
         + &module_path_prefix
         + &module_queries_name
-        + "{},\n}\n    }\n}\n\n");
+        + "{},\n        }\n    }\n}\n\n");
 
-    return ModuleCodeOutput {
-        module_content,
-        trait_definition,
-    };
+    module_content
 }

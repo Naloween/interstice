@@ -11,7 +11,7 @@ pub fn to_snake_case(name: &str) -> String {
     name.trim().to_lowercase().replace("-", "_")
 }
 
-pub fn to_camel_case(name: &str) -> String {
+pub fn snake_to_camel_case(name: &str) -> String {
     let node_type_str =
         name.chars().nth(0).unwrap().to_uppercase().to_string() + &name[1..name.len()];
     // Remove "_" and add uppercase to the following character
