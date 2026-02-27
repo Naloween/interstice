@@ -280,6 +280,12 @@ fn my_callback(ctx: ReducerContext) {
 
 The `ctx.schedule(reducer_name, delay_ms)` host call adds an entry to the runtime's schedule queue. When the delay elapses, the runtime invokes the named reducer with no arguments.
 
+Rules:
+
+- `reducer_name` must belong to the current module.
+- Scheduled reducers must have no extra arguments (signature: `fn x(ctx: ReducerContext)`).
+- Scheduling with `delay_ms = 0` is allowed and enqueues the reducer for immediate async execution.
+
 ### Bindings
 
 Bindings live in `src/bindings/`.
@@ -440,7 +446,6 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 
 ## Runtime and data model
 
-- Schedule system
 - Table migrations and schema evolution without data loss
 - Default system modules (ModuleManager, Graphics, Inputs)
 - Audio authority and host calls

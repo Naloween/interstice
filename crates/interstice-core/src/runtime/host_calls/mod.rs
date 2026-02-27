@@ -8,5 +8,6 @@ mod module;
 mod query;
 mod random;
 mod reducer;
+mod schedule;
 mod table;
 mod time;

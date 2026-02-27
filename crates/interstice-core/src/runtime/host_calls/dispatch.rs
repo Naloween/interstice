@@ -33,6 +33,12 @@ impl Runtime {
                 let result = self.send_data_to_module(response, memory, caller).await;
                 Ok(Some(result))
             }
+            HostCall::Schedule(schedule_request) => {
+                let response =
+                    self.handle_schedule(caller_module_schema.name.clone(), schedule_request);
+                let result = self.send_data_to_module(response, memory, caller).await;
+                Ok(Some(result))
+            }
             HostCall::CallQuery(call_query_request) => {
                 let response = match self
                     .handle_call_query(&caller_module_schema.name.clone(), call_query_request)

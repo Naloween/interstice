@@ -3,9 +3,9 @@ use interstice_abi::{
     ClearTableRequest, ClearTableResponse, DeleteRowRequest, DeleteRowResponse,
     DeterministicRandomRequest, DeterministicRandomResponse, HostCall, IndexKey, IndexQuery,
     InsertRowRequest, InsertRowResponse, IntersticeValue, LogRequest, ModuleSelection,
-    NodeSelection, Row, TableGetByPrimaryKeyRequest, TableGetByPrimaryKeyResponse,
-    TableIndexScanRequest, TableIndexScanResponse, TableScanRequest, TableScanResponse,
-    TimeRequest, TimeResponse, UpdateRowRequest, UpdateRowResponse,
+    NodeSelection, Row, ScheduleRequest, ScheduleResponse, TableGetByPrimaryKeyRequest,
+    TableGetByPrimaryKeyResponse, TableIndexScanRequest, TableIndexScanResponse, TableScanRequest,
+    TableScanResponse, TimeRequest, TimeResponse, UpdateRowRequest, UpdateRowResponse,
 };
 
 pub fn log(message: &str) {
@@ -33,6 +33,20 @@ pub fn call_reducer(
     match response {
         CallReducerResponse::Ok => Ok(()),
         CallReducerResponse::Err(err) => Err(err),
+    }
+}
+
+pub fn schedule(reducer_name: String, delay_ms: u64) -> Result<(), String> {
+    let call = HostCall::Schedule(ScheduleRequest {
+        reducer_name,
+        delay_ms,
+    });
+
+    let pack = host_call(call);
+    let response: ScheduleResponse = unpack(pack);
+    match response {
+        ScheduleResponse::Ok => Ok(()),
+        ScheduleResponse::Err(err) => Err(err),
     }
 }
 
@@ -218,6 +232,10 @@ pub trait HostDeterministicRandom {
     fn deterministic_random_u64(&self) -> Result<u64, String>;
 }
 
+pub trait HostSchedule {
+    fn schedule(&self, reducer_name: &str, delay_ms: u64) -> Result<(), String>;
+}
+
 impl HostLog for ReducerContext {
     fn log(&self, message: &str) {
         log(message);
@@ -251,5 +269,11 @@ impl HostDeterministicRandom for ReducerContext {
 impl HostDeterministicRandom for QueryContext {
     fn deterministic_random_u64(&self) -> Result<u64, String> {
         deterministic_random_u64()
+    }
+}
+
+impl HostSchedule for ReducerContext {
+    fn schedule(&self, reducer_name: &str, delay_ms: u64) -> Result<(), String> {
+        schedule(reducer_name.to_string(), delay_ms)
     }
 }

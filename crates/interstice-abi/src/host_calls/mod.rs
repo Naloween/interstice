@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize, Serialize)]
 pub enum HostCall {
     CallReducer(CallReducerRequest),
+    Schedule(ScheduleRequest),
     CallQuery(CallQueryRequest),
     DeterministicRandom(DeterministicRandomRequest),
     Time(TimeRequest),
@@ -44,6 +45,18 @@ pub enum NodeSelection {
 pub enum ModuleSelection {
     Current,
     Other(String),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ScheduleRequest {
+    pub reducer_name: String,
+    pub delay_ms: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ScheduleResponse {
+    Ok,
+    Err(String),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
