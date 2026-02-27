@@ -219,6 +219,31 @@ Here `<module>` is the module name you want to subscribe to. For the current mod
 `<table_event>` can be `insert`, `update` or `delete`.
 When subscribing to an event, it requires specific arguments for the reducer. For example, an insert event requires a single additional argument of the table type that receives the inserted row.
 
+#### Core subscription events
+
+The runtime also exposes core events through `#[reducer(on = "...")]`:
+
+- `init` → reducer signature: `fn x(ctx: ReducerContext)`
+- `load` → reducer signature: `fn x(ctx: ReducerContext)`
+- `connect` → reducer signature: `fn x(ctx: ReducerContext, node_id: String)`
+- `disconnect` → reducer signature: `fn x(ctx: ReducerContext, node_id: String)`
+
+`node_id` is the UUID string of the peer node that just connected or disconnected.
+
+Example:
+
+```rust
+#[reducer(on = "connect")]
+fn on_node_connected(_ctx: ReducerContext, node_id: String) {
+  host_calls::log(&format!("peer connected: {}", node_id));
+}
+
+#[reducer(on = "disconnect")]
+fn on_node_disconnected(_ctx: ReducerContext, node_id: String) {
+  host_calls::log(&format!("peer disconnected: {}", node_id));
+}
+```
+
 ### Query
 
 Apart from reducers you may also want to define queries. Similar to reducers, they are defined through the `#[query]` marker on top of functions:
@@ -231,6 +256,29 @@ fn my_query(ctx: QueryContext, my_arg1: u32, my_arg2: MyCustomenum) -> MyCustomS
 ```
 
 Contrary to reducers, queries can return values but are read-only and cannot mutate any tables. They can call other queries but cannot call reducers. They also cannot subscribe to events, since they cannot affect the current state.
+
+### Schedule system
+
+The schedule system provides general-purpose time-based reducer invocation. Instead of relying on window render events or external triggers, modules can schedule reducers to run at specific future times. The runtime maintains a schedule queue and dispatches reducers when their scheduled time arrives.
+
+Schedule a reducer to run after a delay:
+
+```rust
+#[reducer]
+fn start_timer(ctx: ReducerContext) {
+    // Schedule my_callback to run in 1000ms
+    ctx.schedule("my_callback", 1000);
+}
+
+#[reducer]
+fn my_callback(ctx: ReducerContext) {
+    // This runs 1000ms after start_timer scheduled it
+    // Can reschedule itself for periodic behavior
+    ctx.schedule("my_callback", 1000);
+}
+```
+
+The `ctx.schedule(reducer_name, delay_ms)` host call adds an entry to the runtime's schedule queue. When the delay elapses, the runtime invokes the named reducer with no arguments.
 
 ### Bindings
 
@@ -392,6 +440,7 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 
 ## Runtime and data model
 
+- Schedule system
 - Table migrations and schema evolution without data loss
 - Default system modules (ModuleManager, Graphics, Inputs)
 - Audio authority and host calls

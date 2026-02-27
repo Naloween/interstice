@@ -76,6 +76,12 @@ pub enum EventInstance {
         request_id: String,
         node_name: String,
     },
+    NodeConnect {
+        node_id: NodeId,
+    },
+    NodeDisconnect {
+        node_id: NodeId,
+    },
 }
 
 impl EventInstance {
@@ -189,6 +195,20 @@ impl EventInstance {
                 (ModuleEvent::RemoveRequest { .. }, SubscriptionEventSchema::ModuleRemove) => true,
                 _ => false,
             },
+            EventInstance::NodeConnect { .. } => {
+                if let SubscriptionEventSchema::Connect = event_schema {
+                    true
+                } else {
+                    false
+                }
+            }
+            EventInstance::NodeDisconnect { .. } => {
+                if let SubscriptionEventSchema::Disconnect = event_schema {
+                    true
+                } else {
+                    false
+                }
+            }
             _ => false,
         }
     }
@@ -361,6 +381,10 @@ impl Runtime {
                     EventInstance::Module(module_event) => {
                         IntersticeValue::Vec(vec![module_event.into()])
                     }
+                    EventInstance::NodeConnect { node_id }
+                    | EventInstance::NodeDisconnect { node_id } => {
+                        IntersticeValue::Vec(vec![node_id.to_string().into()])
+                    }
                     _ => IntersticeValue::Vec(vec![]),
                 };
                 let _ = self.reducer_sender.send(crate::runtime::ReducerJob {
@@ -402,7 +426,11 @@ impl Runtime {
                         table_name,
                         deleted_row,
                     }),
-                    EventInstance::File(_) | EventInstance::Input(_) | EventInstance::Module(_) => {
+                    EventInstance::File(_)
+                    | EventInstance::Input(_)
+                    | EventInstance::Module(_)
+                    | EventInstance::NodeConnect { .. }
+                    | EventInstance::NodeDisconnect { .. } => {
                         return Ok(());
                     }
                     event => {

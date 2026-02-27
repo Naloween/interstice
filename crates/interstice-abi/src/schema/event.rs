@@ -30,4 +30,6 @@ pub enum SubscriptionEventSchema {
     },
     ModulePublish,
     ModuleRemove,
+    Connect,
+    Disconnect,
 }

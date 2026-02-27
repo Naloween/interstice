@@ -42,6 +42,7 @@ pub struct NetworkHandle {
     peers: Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
     peer_tokens: Arc<Mutex<PeerTokenStore>>,
     packet_sender: mpsc::Sender<(NodeId, NetworkPacket)>,
+    runtime_event_sender: mpsc::UnboundedSender<EventInstance>,
     logger: Logger,
 }
 
@@ -84,6 +85,7 @@ impl NetworkHandle {
             stream,
             &mut cloned_peers,
             packet_sender,
+            self.runtime_event_sender.clone(),
             self.logger.clone(),
             self.peer_tokens.clone(),
             false,
@@ -109,6 +111,9 @@ impl NetworkHandle {
                 LogSource::Network,
                 LogLevel::Info,
             );
+            let _ = self
+                .runtime_event_sender
+                .send(EventInstance::NodeDisconnect { node_id });
         } else {
             self.logger.log(
                 &format!("Attempted to disconnect unknown peer {}", node_id),
@@ -181,6 +186,7 @@ impl Network {
             peers: self.peers.clone(),
             peer_tokens: self.peer_tokens.clone(),
             packet_sender: self.packet_sender.clone(),
+            runtime_event_sender: self.runtime_event_sender.clone(),
             logger: self.logger.clone(),
         }
     }
@@ -188,6 +194,7 @@ impl Network {
     pub fn listen(&mut self) -> Result<(), IntersticeError> {
         let peers = self.peers.clone();
         let sender = self.packet_sender.clone();
+        let event_sender = self.runtime_event_sender.clone();
         let peer_tokens = self.peer_tokens.clone();
         let my_address = self.address.clone();
         let my_node_id = self.node_id.clone();
@@ -207,6 +214,7 @@ impl Network {
                     Ok((stream, _)) => {
                         let mut cloned_peers = peers.clone();
                         let cloned_sender = sender.clone();
+                        let event_sender = event_sender.clone();
                         let my_address = my_address.clone();
                         let logger = logger.clone();
                         let peer_tokens = peer_tokens.clone();
@@ -217,6 +225,7 @@ impl Network {
                                 stream,
                                 &mut cloned_peers,
                                 cloned_sender,
+                                event_sender.clone(),
                                 logger.clone(),
                                 peer_tokens.clone(),
                                 true,
@@ -410,6 +419,9 @@ impl Network {
                 LogSource::Network,
                 LogLevel::Info,
             );
+            let _ = self
+                .runtime_event_sender
+                .send(EventInstance::NodeDisconnect { node_id });
         } else {
             self.logger.log(
                 &format!("Received close from unknown peer {}", node_id),
@@ -537,6 +549,7 @@ async fn handshake_incoming(
     mut stream: TcpStream,
     peers: &mut Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
     packet_sender: mpsc::Sender<(NodeId, NetworkPacket)>,
+    runtime_event_sender: mpsc::UnboundedSender<EventInstance>,
     logger: Logger,
     peer_tokens: Arc<Mutex<PeerTokenStore>>,
     send_handshake_response: bool,
@@ -627,6 +640,7 @@ async fn handshake_incoming(
         LogSource::Network,
         LogLevel::Info,
     );
+    let _ = runtime_event_sender.send(EventInstance::NodeConnect { node_id: peer_id });
 
     Ok(())
 }
