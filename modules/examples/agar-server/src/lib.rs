@@ -1,12 +1,19 @@
+mod food;
+mod player;
+mod snapshot;
+
 use interstice_sdk::*;
+
+use crate::{
+    food::{HasFoodEditHandle, spawn_missing_foods},
+    player::{BASE_SPEED, HasPlayerEditHandle},
+};
 
 interstice_module!(visibility: Public);
 
 const WORLD_SIZE: f32 = 2_000.0;
-const BASE_SPEED: f32 = 240.0;
-const FOOD_RADIUS: f32 = 6.0;
-const START_RADIUS: f32 = 18.0;
-const TARGET_FOOD: usize = 180;
+
+const DT_MS: u64 = 50;
 
 #[interstice_type]
 #[derive(Debug, Clone)]
@@ -15,78 +22,16 @@ pub struct Vec2 {
     pub y: f32,
 }
 
-#[table(public, stateful)]
-#[derive(Debug, Clone)]
-pub struct Player {
-    #[primary_key]
-    pub id: String,
-    pub name: String,
-    pub pos: Vec2,
-    pub dir: Vec2,
-    pub radius: f32,
-}
-
-#[table(public, stateful)]
-#[derive(Debug, Clone)]
-pub struct Food {
-    #[primary_key(auto_inc)]
-    pub id: u64,
-    pub pos: Vec2,
-    pub radius: f32,
-}
-
-#[interstice_type]
-#[derive(Debug, Clone)]
-pub struct Snapshot {
-    pub players: Vec<Player>,
-    pub foods: Vec<Food>,
-}
-
-#[reducer(on = "init")]
+#[reducer(on = "load")]
 pub fn init(ctx: ReducerContext) {
     ctx.log("agar-server ready");
-    ensure_food(&ctx, TARGET_FOOD);
+    spawn_missing_foods(&ctx);
+    ctx.schedule("tick", DT_MS).expect("Couldn't schedule tick");
 }
 
 #[reducer]
-pub fn join(ctx: ReducerContext, id: String, name: String) {
-    if ctx.current.tables.player().get(id.clone()).is_some() {
-        return;
-    }
-
-    let pos = rand_pos(&ctx);
-    let player = Player {
-        id: id.clone(),
-        name,
-        pos,
-        dir: Vec2 { x: 0.0, y: 0.0 },
-        radius: START_RADIUS,
-    };
-    let _ = ctx.current.tables.player().insert(player);
-    ensure_food(&ctx, TARGET_FOOD);
-}
-
-#[reducer]
-pub fn set_direction(ctx: ReducerContext, id: String, dx: f32, dy: f32) {
-    let Some(mut p) = ctx.current.tables.player().get(id) else {
-        return;
-    };
-    let len = (dx * dx + dy * dy).sqrt();
-    if len > 0.001 {
-        p.dir = Vec2 {
-            x: dx / len,
-            y: dy / len,
-        };
-    } else {
-        p.dir = Vec2 { x: 0.0, y: 0.0 };
-    }
-    let _ = ctx.current.tables.player().update(p);
-}
-
-#[reducer]
-pub fn tick(ctx: ReducerContext, dt_ms: Option<u64>) {
-    let dt = dt_ms.unwrap_or(16) as f32 / 1000.0;
-
+pub fn tick(ctx: ReducerContext) {
+    let dt = DT_MS as f32 / 1000.0;
     let mut players = ctx.current.tables.player().scan().unwrap_or_default();
 
     // Move players
@@ -153,35 +98,17 @@ pub fn tick(ctx: ReducerContext, dt_ms: Option<u64>) {
         let _ = ctx.current.tables.food().insert(f);
     }
 
-    ensure_food(&ctx, TARGET_FOOD);
+    spawn_missing_foods(&ctx);
+
+    ctx.schedule("tick", DT_MS).expect("Couldn't schedule tick");
 }
 
-#[query]
-pub fn snapshot(ctx: QueryContext) -> Snapshot {
-    let players = ctx.current.tables.player().scan().unwrap_or_default();
-    let foods = ctx.current.tables.food().scan().unwrap_or_default();
-    Snapshot { players, foods }
-}
-
-fn rand_pos(ctx: &ReducerContext) -> Vec2 {
+fn rand_pos() -> Vec2 {
     let rx = deterministic_random_u64().unwrap_or(0) as f32 / u64::MAX as f32;
     let ry = deterministic_random_u64().unwrap_or(0) as f32 / u64::MAX as f32;
     Vec2 {
         x: (rx * 2.0 - 1.0) * WORLD_SIZE,
         y: (ry * 2.0 - 1.0) * WORLD_SIZE,
-    }
-}
-
-fn ensure_food(ctx: &ReducerContext, target: usize) {
-    let mut count = ctx.current.tables.food().scan().unwrap_or_default().len();
-    while count < target {
-        let pos = rand_pos(ctx);
-        let _ = ctx.current.tables.food().insert(Food {
-            id: 0,
-            pos,
-            radius: FOOD_RADIUS,
-        });
-        count += 1;
     }
 }
 

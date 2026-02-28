@@ -5,6 +5,7 @@ pub mod gpu;
 pub mod input;
 mod log;
 mod module;
+mod node;
 mod query;
 mod random;
 mod reducer;

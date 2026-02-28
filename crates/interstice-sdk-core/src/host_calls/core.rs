@@ -8,11 +8,20 @@ use interstice_abi::{
     TableScanResponse, TimeRequest, TimeResponse, UpdateRowRequest, UpdateRowResponse,
 };
 
+pub type NodeId = String;
+
 pub fn log(message: &str) {
     let call = HostCall::Log(LogRequest {
         message: message.to_string(),
     });
     host_call(call);
+}
+
+pub fn current_node_id() -> NodeId {
+    let call = HostCall::CurrentNodeId;
+    let pack = host_call(call);
+    let response: NodeId = unpack(pack);
+    return response;
 }
 
 pub fn call_reducer(
@@ -224,6 +233,10 @@ pub trait HostLog {
     fn log(&self, message: &str);
 }
 
+pub trait HostCurrentNodeId {
+    fn current_node_id(&self) -> NodeId;
+}
+
 pub trait HostTime {
     fn time_now_ms(&self) -> Result<u64, String>;
 }
@@ -245,6 +258,18 @@ impl HostLog for ReducerContext {
 impl HostLog for QueryContext {
     fn log(&self, message: &str) {
         log(message);
+    }
+}
+
+impl HostCurrentNodeId for ReducerContext {
+    fn current_node_id(&self) -> NodeId {
+        current_node_id()
+    }
+}
+
+impl HostCurrentNodeId for QueryContext {
+    fn current_node_id(&self) -> NodeId {
+        current_node_id()
     }
 }
 

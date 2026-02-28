@@ -22,6 +22,12 @@ impl Runtime {
         })?;
 
         return match host_call {
+            HostCall::CurrentNodeId => {
+                let node_id = self.handle_current_node_id();
+                let response = node_id;
+                let result = self.send_data_to_module(response, memory, caller).await;
+                Ok(Some(result))
+            }
             HostCall::CallReducer(call_reducer_request) => {
                 let response = match self
                     .handle_call_reducer(&caller_module_schema.name.clone(), call_reducer_request)
@@ -160,7 +166,6 @@ impl Runtime {
                 let result = self.send_data_to_module(response, memory, caller).await;
                 Ok(Some(result))
             }
-            HostCall::Input => todo!(),
             HostCall::File(file_call) => {
                 let file_auth_module = {
                     let auth_modules = self.authority_modules.lock().unwrap();

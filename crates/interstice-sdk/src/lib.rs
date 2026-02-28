@@ -7,6 +7,8 @@ pub use interstice_sdk_core::*;
 pub use interstice_sdk_macros::*;
 pub use wee_alloc;
 
+pub use std::str::FromStr;
+
 pub fn to_snake_case(name: &str) -> String {
     name.trim().to_lowercase().replace("-", "_")
 }

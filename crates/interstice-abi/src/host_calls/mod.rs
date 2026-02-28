@@ -30,9 +30,9 @@ pub enum HostCall {
     TableIndexScan(TableIndexScanRequest),
     Gpu(GpuCall),
     Audio(AudioCall),
-    Input,
     File(FileCall),
     Module(ModuleCall),
+    CurrentNodeId,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]

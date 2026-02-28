@@ -13,37 +13,26 @@ const LAYER: &str = "agar.world";
 const CAMERA_W: f32 = 1280.0;
 const CAMERA_H: f32 = 720.0;
 
-#[table(stateful)]
-#[derive(Debug, Clone)]
-pub struct Identity {
-    #[primary_key]
-    pub key: u8,
-    pub id: String,
-    pub name: String,
-}
-
-#[reducer(on = "init")]
+#[reducer(on = "load")]
 pub fn init(ctx: ReducerContext) {
-    ensure_identity(&ctx);
     prime_layer(&ctx);
 }
 
 #[reducer(on = "graphics.frametick.update")]
 pub fn on_frame(ctx: ReducerContext, _prev: FrameTick, _tick: FrameTick) {
-    let me = ensure_identity(&ctx);
     prime_layer(&ctx);
 
     let server = ctx.agar_server().agar_server();
-    if let Err(err) = server.reducers.join(me.id.clone(), me.name.clone()) {
+    if let Err(err) = server.reducers.join("TestPlayer".to_string()) {
         ctx.log(&format!("join failed: {}", err));
     }
 
     let (dx, dy) = input_dir(&ctx);
-    if let Err(err) = server.reducers.set_direction(me.id.clone(), dx, dy) {
+    if let Err(err) = server.reducers.set_direction(dx, dy) {
         ctx.log(&format!("set_direction failed: {}", err));
     }
 
-    let _ = server.reducers.tick(Some(16));
+    let _ = server.reducers.tick();
 
     let snapshot = match server.queries.snapshot() {
         Ok(s) => s,
@@ -53,24 +42,7 @@ pub fn on_frame(ctx: ReducerContext, _prev: FrameTick, _tick: FrameTick) {
         }
     };
 
-    render_world(&ctx, &me.id, &snapshot);
-}
-
-fn ensure_identity(ctx: &ReducerContext) -> Identity {
-    if let Some(row) = ctx.current.tables.identity().get(0) {
-        return row;
-    }
-    let id = deterministic_random_u64()
-        .unwrap_or(0)
-        .saturating_add(time_now_ms().unwrap_or(0))
-        .to_string();
-    let identity = Identity {
-        key: 0,
-        id,
-        name: "player".into(),
-    };
-    let _ = ctx.current.tables.identity().insert(identity.clone());
-    identity
+    render_world(&ctx, &snapshot);
 }
 
 fn input_dir(ctx: &ReducerContext) -> (f32, f32) {
@@ -131,12 +103,12 @@ fn prime_layer(ctx: &ReducerContext) {
     let _ = graphics.reducers.set_layer_clear(LAYER.to_string(), true);
 }
 
-fn render_world(ctx: &ReducerContext, me: &str, snapshot: &Snapshot) {
+fn render_world(ctx: &ReducerContext, snapshot: &Snapshot) {
     let graphics = ctx.graphics();
     let camera = snapshot
         .players
         .iter()
-        .find(|p| p.id == me)
+        .find(|p| p.id == ctx.current_node_id())
         .map(|p| &p.pos)
         .unwrap_or(&AgarVec2 { x: 0.0, y: 0.0 });
 

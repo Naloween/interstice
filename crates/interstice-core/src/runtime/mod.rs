@@ -46,6 +46,7 @@ use tokio::sync::{
 use wasmtime::{Config, Engine, Linker};
 
 pub struct Runtime {
+    pub(crate) node_id: NodeId,
     pub(crate) gpu: Arc<Mutex<Option<GpuState>>>,
     pub(crate) audio_state: Arc<Mutex<AudioState>>,
     pub(crate) modules: Arc<Mutex<HashMap<String, Arc<Module>>>>,
@@ -73,6 +74,7 @@ pub struct Runtime {
 
 impl Runtime {
     pub fn new(
+        node_id: NodeId,
         modules_path: Option<PathBuf>,
         table_store: TableStore,
         event_sender: UnboundedSender<EventInstance>,
@@ -93,6 +95,7 @@ impl Runtime {
             IntersticeError::Internal(format!("Couldn't add host calls to the linker: {}", err))
         })?;
         Ok(Self {
+            node_id,
             gpu,
             audio_state,
             modules: Arc::new(Mutex::new(HashMap::new())),

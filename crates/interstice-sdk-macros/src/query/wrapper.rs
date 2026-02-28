@@ -26,7 +26,7 @@ pub fn get_wrapper_function(query_ident: Ident, arg_count: usize) -> proc_macro2
             let res: interstice_sdk::IntersticeValue = #query_ident(query_context, #(#args),*).into();
 
             let bytes = interstice_sdk::encode(&res).unwrap();
-            let out_ptr = alloc(bytes.len() as i32);
+            let out_ptr = crate::alloc(bytes.len() as i32);
             unsafe {
                 std::slice::from_raw_parts_mut(out_ptr as *mut u8, bytes.len()).copy_from_slice(&bytes);
             }

@@ -1,4 +1,4 @@
-name = "agar-server"
+name = "agar_server"
 address = "127.0.0.1:8080"
 
 [[modules]]
@@ -16,31 +16,18 @@ minor = 1
 patch = 0
 
 [[modules.reducers]]
-name = "join"
+name = "tick"
+arguments = []
 
-[[modules.reducers.arguments]]
-name = "id"
-field_type = "String"
+[[modules.reducers]]
+name = "join"
 
 [[modules.reducers.arguments]]
 name = "name"
 field_type = "String"
 
 [[modules.reducers]]
-name = "tick"
-
-[[modules.reducers.arguments]]
-name = "dt_ms"
-
-[modules.reducers.arguments.field_type]
-Option = "U64"
-
-[[modules.reducers]]
 name = "set_direction"
-
-[[modules.reducers.arguments]]
-name = "id"
-field_type = "String"
 
 [[modules.reducers.arguments]]
 name = "dx"
@@ -111,6 +98,32 @@ field_type = "F32"
 name = "id"
 field_type = "String"
 
+[modules.type_definitions.Vec2.Struct]
+name = "Vec2"
+
+[[modules.type_definitions.Vec2.Struct.fields]]
+name = "x"
+field_type = "F32"
+
+[[modules.type_definitions.Vec2.Struct.fields]]
+name = "y"
+field_type = "F32"
+
+[modules.type_definitions.Snapshot.Struct]
+name = "Snapshot"
+
+[[modules.type_definitions.Snapshot.Struct.fields]]
+name = "players"
+
+[modules.type_definitions.Snapshot.Struct.fields.field_type.Vec]
+Named = "Player"
+
+[[modules.type_definitions.Snapshot.Struct.fields]]
+name = "foods"
+
+[modules.type_definitions.Snapshot.Struct.fields.field_type.Vec]
+Named = "Food"
+
 [modules.type_definitions.Food.Struct]
 name = "Food"
 
@@ -153,30 +166,4 @@ Named = "Vec2"
 
 [[modules.type_definitions.Player.Struct.fields]]
 name = "radius"
-field_type = "F32"
-
-[modules.type_definitions.Snapshot.Struct]
-name = "Snapshot"
-
-[[modules.type_definitions.Snapshot.Struct.fields]]
-name = "players"
-
-[modules.type_definitions.Snapshot.Struct.fields.field_type.Vec]
-Named = "Player"
-
-[[modules.type_definitions.Snapshot.Struct.fields]]
-name = "foods"
-
-[modules.type_definitions.Snapshot.Struct.fields.field_type.Vec]
-Named = "Food"
-
-[modules.type_definitions.Vec2.Struct]
-name = "Vec2"
-
-[[modules.type_definitions.Vec2.Struct.fields]]
-name = "x"
-field_type = "F32"
-
-[[modules.type_definitions.Vec2.Struct.fields]]
-name = "y"
 field_type = "F32"

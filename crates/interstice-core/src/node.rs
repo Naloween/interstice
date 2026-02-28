@@ -65,6 +65,7 @@ impl Node {
         ));
         let run_app_notify = Arc::new(Notify::new());
         let runtime = Arc::new(Runtime::new(
+            id,
             Some(modules_path),
             table_store,
             event_sender.clone(),
@@ -131,6 +132,7 @@ impl Node {
         ));
         let run_app_notify = Arc::new(Notify::new());
         let runtime = Arc::new(Runtime::new(
+            id,
             Some(modules_path.clone()),
             table_store,
             event_sender.clone(),
