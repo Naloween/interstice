@@ -24,6 +24,24 @@ pub struct TestCustomType {
 #[reducer(on = "init")]
 pub fn init(ctx: ReducerContext) {
     ctx.log("Hello world !");
+
+    ctx.schedule("scheduled", 1000)
+        .expect("Couldn't schedule reducer");
+}
+
+#[reducer(on = "connect")]
+pub fn on_connect(ctx: ReducerContext, node_id: String) {
+    ctx.log(&format!("Node connected: {}", node_id));
+}
+
+#[reducer(on = "disconnect")]
+pub fn on_disconnect(ctx: ReducerContext, node_id: String) {
+    ctx.log(&format!("Node disconnected: {}", node_id));
+}
+
+#[reducer]
+pub fn scheduled(ctx: ReducerContext) {
+    ctx.log("Scheduled reducer called");
 }
 
 #[reducer]
