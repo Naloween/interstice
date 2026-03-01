@@ -21,7 +21,7 @@ pub fn create_layer(ctx: ReducerContext, name: String, z: i32, clear: bool) {
         name,
         z,
         clear,
-        owner_node_id: ctx.caller_node_id.clone(),
+        owner_module_name: ctx.caller_node_id.clone(),
     };
 
     if let Err(err) = ctx.current.tables.layer().insert(layer) {

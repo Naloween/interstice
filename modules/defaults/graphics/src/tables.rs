@@ -6,17 +6,17 @@ use crate::types::{
     PipelineDescriptorInput, PolylineCommand, RectCommand, RenderPassSubmission, TextCommand,
 };
 
-#[table(stateful)]
+#[table(ephemeral)]
 #[derive(Debug, Clone)]
 pub struct Layer {
     #[primary_key]
     pub name: String,
     pub z: i32,
     pub clear: bool,
-    pub owner_node_id: String,
+    pub owner_module_name: String,
 }
 
-#[table(stateful)]
+#[table(ephemeral)]
 #[derive(Debug, Clone)]
 pub struct TextureBinding {
     #[primary_key]
@@ -27,7 +27,7 @@ pub struct TextureBinding {
     pub format: String,
 }
 
-#[table(stateful)]
+#[table(ephemeral)]
 #[derive(Debug, Clone)]
 pub struct MeshBinding {
     #[primary_key]
@@ -39,7 +39,7 @@ pub struct MeshBinding {
     pub index_count: u32,
 }
 
-#[table(stateful)]
+#[table(ephemeral)]
 #[derive(Debug, Clone)]
 pub struct PipelineBinding {
     #[primary_key]
@@ -50,7 +50,7 @@ pub struct PipelineBinding {
     pub pipeline_id: Option<u32>,
 }
 
-#[table(stateful)]
+#[table(ephemeral)]
 #[derive(Debug, Clone)]
 pub struct BindGroupBinding {
     #[primary_key]
@@ -59,7 +59,7 @@ pub struct BindGroupBinding {
     pub bind_group_id: Option<u32>,
 }
 
-#[table(public, stateful)]
+#[table(public, ephemeral)]
 #[derive(Debug, Clone)]
 pub struct FrameTick {
     #[primary_key]
@@ -67,7 +67,7 @@ pub struct FrameTick {
     pub frame: u64,
 }
 
-#[table(stateful)]
+#[table(ephemeral)]
 #[derive(Debug, Clone)]
 pub struct RendererCache {
     #[primary_key]

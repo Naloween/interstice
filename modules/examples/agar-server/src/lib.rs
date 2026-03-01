@@ -31,6 +31,10 @@ pub fn init(ctx: ReducerContext) {
 
 #[reducer]
 pub fn tick(ctx: ReducerContext) {
+    if ctx.caller_node_id != ctx.current_node_id() {
+        ctx.log("tick can only be called by the server itself");
+        return;
+    }
     let dt = DT_MS as f32 / 1000.0;
     let mut players = ctx.current.tables.player().scan().unwrap_or_default();
 

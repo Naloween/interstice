@@ -15,24 +15,24 @@ const CAMERA_H: f32 = 720.0;
 
 #[reducer(on = "load")]
 pub fn init(ctx: ReducerContext) {
-    prime_layer(&ctx);
-}
-
-#[reducer(on = "graphics.frametick.update")]
-pub fn on_frame(ctx: ReducerContext, _prev: FrameTick, _tick: FrameTick) {
-    prime_layer(&ctx);
+    let graphics = ctx.graphics();
+    let _ = graphics.reducers.create_layer(LAYER.to_string(), 0, true);
+    let _ = graphics.reducers.set_layer_clear(LAYER.to_string(), true);
 
     let server = ctx.agar_server().agar_server();
     if let Err(err) = server.reducers.join("TestPlayer".to_string()) {
         ctx.log(&format!("join failed: {}", err));
     }
+}
+
+#[reducer(on = "graphics.frametick.update")]
+pub fn on_frame(ctx: ReducerContext, _prev: FrameTick, _tick: FrameTick) {
+    let server = ctx.agar_server().agar_server();
 
     let (dx, dy) = input_dir(&ctx);
     if let Err(err) = server.reducers.set_direction(dx, dy) {
         ctx.log(&format!("set_direction failed: {}", err));
     }
-
-    let _ = server.reducers.tick();
 
     let snapshot = match server.queries.snapshot() {
         Ok(s) => s,
@@ -95,12 +95,6 @@ fn input_dir(ctx: &ReducerContext) -> (f32, f32) {
     } else {
         (0.0, 0.0)
     }
-}
-
-fn prime_layer(ctx: &ReducerContext) {
-    let graphics = ctx.graphics();
-    let _ = graphics.reducers.create_layer(LAYER.to_string(), 0, true);
-    let _ = graphics.reducers.set_layer_clear(LAYER.to_string(), true);
 }
 
 fn render_world(ctx: &ReducerContext, snapshot: &Snapshot) {

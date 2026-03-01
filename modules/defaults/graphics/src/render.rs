@@ -9,7 +9,7 @@ use interstice_sdk::{
 };
 use std::collections::HashMap;
 
-use crate::helpers::clear_ephemeral_tables;
+use crate::helpers::clear_commands_tables;
 use crate::tables::{
     Draw2DCommand, HasComputeCommandEditHandle, HasDraw2DCommandEditHandle, HasFrameTickEditHandle,
     HasLayerEditHandle, HasMeshBindingEditHandle, HasPipelineBindingEditHandle,
@@ -27,22 +27,13 @@ pub fn render(ctx: ReducerContext) {
         ctx.log(&format!("Render failed: {}", err));
     }
     bump_frame_tick(&ctx);
-    clear_ephemeral_tables(&ctx);
+    clear_commands_tables(&ctx);
 }
 
 fn bump_frame_tick(ctx: &ReducerContext) {
-    if let Some(mut row) = ctx.current.tables.frametick().get(0) {
-        row.frame = row.frame.saturating_add(1);
-        let _ = ctx.current.tables.frametick().update(row);
-        ctx.log("graphics frame tick updated");
-    } else {
-        let _ = ctx
-            .current
-            .tables
-            .frametick()
-            .insert(crate::FrameTick { id: 0, frame: 1 });
-        ctx.log("graphics frame tick inserted");
-    }
+    let mut row = ctx.current.tables.frametick().get(0).unwrap();
+    row.frame = row.frame.saturating_add(1);
+    let _ = ctx.current.tables.frametick().update(row);
 }
 
 fn render_inner(ctx: &ReducerContext) -> Result<(), String> {

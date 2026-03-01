@@ -19,7 +19,6 @@ struct MouseState {
 
 #[reducer(on = "load")]
 fn on_load(ctx: ReducerContext) {
-    ctx.log("Input module loaded");
     let res = ctx.current.tables.mousestate().insert(MouseState {
         id: 0,
         position: (0.0, 0.0),

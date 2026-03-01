@@ -1,17 +1,12 @@
 use interstice_sdk::*;
 
 use crate::tables::{
-    Draw2DCommand,
-    HasComputeCommandEditHandle,
-    HasDraw2DCommandEditHandle,
-    HasLayerEditHandle,
-    HasRenderPassCommandEditHandle,
-    Layer,
+    Draw2DCommand, HasComputeCommandEditHandle, HasDraw2DCommandEditHandle, HasLayerEditHandle,
+    HasRenderPassCommandEditHandle, Layer,
 };
-use crate::MAX_DRAW_COMMANDS;
 
 pub(crate) fn owns_layer(ctx: &ReducerContext, layer: &Layer) -> bool {
-    layer.owner_node_id == ctx.caller_node_id
+    layer.owner_module_name == ctx.caller_node_id
 }
 
 pub(crate) fn ensure_layer_exists(ctx: &ReducerContext, name: &str) -> bool {
@@ -31,13 +26,6 @@ pub(crate) fn purge_layer_draws(ctx: &ReducerContext, layer: &str) {
 }
 
 pub(crate) fn enqueue_draw_command(ctx: &ReducerContext, command: Draw2DCommand) {
-    if let Ok(existing) = ctx.current.tables.draw2dcommand().scan() {
-        if existing.len() >= MAX_DRAW_COMMANDS {
-            ctx.log("Draw command queue is full");
-            return;
-        }
-    }
-
     if let Err(err) = ctx.current.tables.draw2dcommand().insert(command) {
         ctx.log(&format!("Failed to store draw command: {}", err));
     }
@@ -47,7 +35,7 @@ pub(crate) fn namespaced_key(ctx: &ReducerContext, local_id: &str) -> (String, S
     (ctx.caller_node_id.clone(), local_id.to_string())
 }
 
-pub(crate) fn clear_ephemeral_tables(ctx: &ReducerContext) {
+pub(crate) fn clear_commands_tables(ctx: &ReducerContext) {
     if let Ok(rows) = ctx.current.tables.draw2dcommand().scan() {
         for row in rows {
             let _ = ctx.current.tables.draw2dcommand().delete(row.id);
