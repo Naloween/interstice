@@ -1850,6 +1850,9 @@ dependencies = [
  "interstice-abi",
  "interstice-sdk-core",
  "interstice-sdk-macros",
+ "proc-macro2",
+ "quote",
+ "syn",
  "wee_alloc",
 ]
 

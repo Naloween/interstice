@@ -6,6 +6,13 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
+pub struct ReplicatedTableSchema {
+    pub node_name: String,
+    pub module_name: String,
+    pub table_name: String,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub enum ModuleVisibility {
     // Visible to all other nodes
@@ -28,6 +35,7 @@ pub struct ModuleSchema {
     pub authorities: Vec<Authority>,
     pub module_dependencies: Vec<ModuleDependency>,
     pub node_dependencies: Vec<NodeDependency>,
+    pub replicated_tables: Vec<ReplicatedTableSchema>,
 }
 
 impl ModuleSchema {
@@ -49,6 +57,7 @@ impl ModuleSchema {
             authorities: Vec::new(),
             module_dependencies: Vec::new(),
             node_dependencies: Vec::new(),
+            replicated_tables: Vec::new(),
         }
     }
 
@@ -64,6 +73,7 @@ impl ModuleSchema {
         authorities: Vec<Authority>,
         module_dependencies: Vec<ModuleDependency>,
         node_dependencies: Vec<NodeDependency>,
+        replicated_tables: Vec<ReplicatedTableSchema>,
     ) -> Self {
         Self {
             abi_version: ABI_VERSION,
@@ -78,6 +88,7 @@ impl ModuleSchema {
             authorities,
             module_dependencies,
             node_dependencies,
+            replicated_tables,
         }
     }
 
@@ -226,6 +237,7 @@ impl ModuleSchema {
             authorities: self.authorities,
             module_dependencies: self.module_dependencies,
             node_dependencies: self.node_dependencies,
+            replicated_tables: self.replicated_tables,
         }
     }
 

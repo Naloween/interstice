@@ -18,6 +18,11 @@ pub enum SubscriptionEventSchema {
         module_name: String,
         table_name: String,
     },
+    ReplicaSync {
+        node_name: String,
+        module_name: String,
+        table_name: String,
+    },
     Init,
     Load,
     Input,

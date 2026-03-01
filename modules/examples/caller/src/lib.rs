@@ -1,14 +1,22 @@
-interstice_module!();
+interstice_module!(replicated_tables: [
+    "hello-example.hello-example.greetings",
+]);
 
-use crate::bindings::{example_8080::hello::*, example_8080::*, *};
+use crate::bindings::{
+    HasHelloExampleHandle,
+    hello_example::{
+        hello_example::{Greetings, HasGreetingsHandle},
+        *,
+    },
+};
 use interstice_sdk::*;
 
 #[reducer(on = "init")]
 fn caller(ctx: ReducerContext) {
     ctx.log("Calling remote hello...");
     if let Err(err) = ctx
-        .example_8080()
-        .hello()
+        .hello_example()
+        .hello_example()
         .reducers
         .hello("Client !".to_string())
     {
@@ -16,27 +24,23 @@ fn caller(ctx: ReducerContext) {
         return;
     }
     ctx.log("hello remote called !");
-
-    // ctx.log("Calling local hello...");
-    // ctx.hello().reducers.hello("called from caller".to_string());
-    // ctx.log("hello local called !");
-
-    // ctx.log(&format!(
-    //     "Caller received all greetings: {:?}",
-    //     ctx.mynode()
-    //         .hello()
-    //         .queries
-    //         .get_greetings()
-    //         .into_iter()
-    //         .map(|f| f.greeting)
-    //         .collect::<Vec<_>>()
-    // ));
 }
 
-#[reducer(on = "example_8080.hello.greetings.insert")]
+#[reducer(on = "hello-example.hello-example.greetings.insert")]
 fn on_insert_greetings(ctx: ReducerContext, inserted_row: Greetings) {
     ctx.log(&format!(
         "Caller received new greeting: {:?}",
         inserted_row.greeting
     ));
+
+    for greeting in ctx
+        .hello_example()
+        .hello_example()
+        .tables
+        .greetings()
+        .scan()
+        .unwrap()
+    {
+        ctx.log(&format!("All hello greetings: {}", greeting.greeting));
+    }
 }

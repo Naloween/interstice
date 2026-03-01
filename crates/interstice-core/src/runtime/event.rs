@@ -11,20 +11,28 @@ use interstice_abi::{
 #[derive(Debug, Clone)]
 pub enum EventInstance {
     TableInsertEvent {
+        source_node_id: Option<NodeId>,
         module_name: String,
         table_name: String,
         inserted_row: Row,
     },
     TableUpdateEvent {
+        source_node_id: Option<NodeId>,
         module_name: String,
         table_name: String,
         old_row: Row,
         new_row: Row,
     },
     TableDeleteEvent {
+        source_node_id: Option<NodeId>,
         module_name: String,
         table_name: String,
         deleted_row: Row,
+    },
+    ReplicaTableSynced {
+        node_name: String,
+        module_name: String,
+        table_name: String,
     },
     Init {
         module_name: String,
@@ -62,6 +70,10 @@ pub enum EventInstance {
     RemoteQueryResponse {
         request_id: String,
         result: IntersticeValue,
+    },
+    RemoteSchemaResponse {
+        request_id: String,
+        schema: interstice_abi::NodeSchema,
     },
     PublishModule {
         wasm_binary: Vec<u8>,
@@ -133,6 +145,24 @@ impl EventInstance {
                     return module_name == module_name_schema && table_name == table_name_schema;
                 } else {
                     return false;
+                }
+            }
+            EventInstance::ReplicaTableSynced {
+                node_name,
+                module_name,
+                table_name,
+            } => {
+                if let SubscriptionEventSchema::ReplicaSync {
+                    node_name: event_node_name,
+                    module_name: event_module_name,
+                    table_name: event_table_name,
+                } = event_schema
+                {
+                    node_name == event_node_name
+                        && module_name == event_module_name
+                        && table_name == event_table_name
+                } else {
+                    false
                 }
             }
             EventInstance::Init { .. } => {
@@ -354,17 +384,20 @@ impl Runtime {
             SubscriptionTarget::Local { module, reducer } => {
                 let args = match event {
                     EventInstance::TableInsertEvent {
+                        source_node_id: _,
                         module_name: _,
                         table_name: _,
                         inserted_row,
                     } => IntersticeValue::Vec(vec![inserted_row.into()]),
                     EventInstance::TableUpdateEvent {
+                        source_node_id: _,
                         module_name: _,
                         table_name: _,
                         old_row,
                         new_row,
                     } => IntersticeValue::Vec(vec![old_row.into(), new_row.into()]),
                     EventInstance::TableDeleteEvent {
+                        source_node_id: _,
                         module_name: _,
                         table_name: _,
                         deleted_row,
@@ -398,6 +431,7 @@ impl Runtime {
             SubscriptionTarget::Remote(uuid) => {
                 let packet = match event {
                     EventInstance::TableInsertEvent {
+                        source_node_id: _,
                         module_name,
                         table_name,
                         inserted_row,
@@ -407,6 +441,7 @@ impl Runtime {
                         inserted_row,
                     }),
                     EventInstance::TableUpdateEvent {
+                        source_node_id: _,
                         module_name,
                         table_name,
                         old_row,
@@ -418,6 +453,7 @@ impl Runtime {
                         new_row,
                     }),
                     EventInstance::TableDeleteEvent {
+                        source_node_id: _,
                         module_name,
                         table_name,
                         deleted_row,

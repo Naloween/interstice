@@ -1,5 +1,6 @@
 use interstice_abi::{
-    IntersticeTypeDef, QuerySchema, ReducerSchema, SubscriptionSchema, TableSchema,
+    IntersticeTypeDef, QuerySchema, ReducerSchema, ReplicatedTableSchema, SubscriptionSchema,
+    TableSchema,
 };
 use std::{
     collections::HashMap,
@@ -23,6 +24,7 @@ pub type ReducerSchemaFn = fn() -> ReducerSchema;
 pub type QuerySchemaFn = fn() -> QuerySchema;
 pub type SubscriptionSchemaFn = fn() -> SubscriptionSchema;
 pub type IntersticeTypeDefFn = fn() -> IntersticeTypeDef;
+pub type ReplicatedTableSchemaFn = fn() -> Vec<ReplicatedTableSchema>;
 
 lazy_static::lazy_static! {
     pub static ref TABLE_REGISTRY: Arc<Mutex<Vec<TableSchemaFn>>> = Arc::new(Mutex::new(Vec::new()));
@@ -30,6 +32,7 @@ lazy_static::lazy_static! {
     pub static ref QUERY_REGISTRY: Arc<Mutex<Vec<QuerySchemaFn>>> = Arc::new(Mutex::new(Vec::new()));
     pub static ref SUBSCRIPTION_REGISTRY: Arc<Mutex<Vec<SubscriptionSchemaFn>>> = Arc::new(Mutex::new(Vec::new()));
     pub static ref INTERSTICE_TYPE_DEFINITION_REGISTRY: Arc<Mutex<Vec<IntersticeTypeDefFn>>> = Arc::new(Mutex::new(Vec::new()));
+    pub static ref REPLICATED_TABLE_REGISTRY: Arc<Mutex<Vec<ReplicatedTableSchemaFn>>> = Arc::new(Mutex::new(Vec::new()));
 }
 
 /// Called by each `#[table]` macro to register its schema function
@@ -55,6 +58,10 @@ pub fn register_subscription(s: SubscriptionSchemaFn) {
 /// Called by each `#[derive(IntersticeType)]` macro to register its TypeDef function
 pub fn register_type_def(s: IntersticeTypeDefFn) {
     INTERSTICE_TYPE_DEFINITION_REGISTRY.lock().unwrap().push(s);
+}
+
+pub fn register_replicated_tables(s: ReplicatedTableSchemaFn) {
+    REPLICATED_TABLE_REGISTRY.lock().unwrap().push(s);
 }
 
 pub fn collect_tables() -> Vec<TableSchema> {
@@ -90,4 +97,13 @@ pub fn collect_type_definitions() -> HashMap<String, IntersticeTypeDef> {
         result.insert(interstice_type_def.get_name().clone(), interstice_type_def);
     }
     return result;
+}
+
+pub fn collect_replicated_tables() -> Vec<ReplicatedTableSchema> {
+    REPLICATED_TABLE_REGISTRY
+        .lock()
+        .unwrap()
+        .iter()
+        .flat_map(|f| f())
+        .collect()
 }

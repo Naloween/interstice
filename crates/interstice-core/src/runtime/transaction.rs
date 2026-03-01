@@ -78,6 +78,7 @@ impl Runtime {
 
                 table.insert(new_row.clone())?;
                 events.push(EventInstance::TableInsertEvent {
+                    source_node_id: None,
                     module_name,
                     table_name,
                     inserted_row: new_row.clone(),
@@ -150,6 +151,7 @@ impl Runtime {
 
                 let old_row = table.update(update_row.clone())?;
                 events.push(EventInstance::TableUpdateEvent {
+                    source_node_id: None,
                     module_name,
                     table_name,
                     old_row,
@@ -223,6 +225,7 @@ impl Runtime {
 
                 if let Ok(deleted_row) = table.delete(&deleted_row_id) {
                     events.push(EventInstance::TableDeleteEvent {
+                        source_node_id: None,
                         module_name,
                         table_name,
                         deleted_row,
@@ -286,6 +289,7 @@ impl Runtime {
 
                 for deleted_row in deleted_rows {
                     events.push(EventInstance::TableDeleteEvent {
+                        source_node_id: None,
                         module_name: module_name.clone(),
                         table_name: table_name.clone(),
                         deleted_row,

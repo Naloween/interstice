@@ -62,13 +62,13 @@ fn input_dir(ctx: &ReducerContext) -> (f32, f32) {
             .tables
             .keystate()
             .scan()
-            .unwrap_or_default()
+            .unwrap()
             .iter()
             .any(|k| k.code == (code.clone() as u32) && k.pressed)
     };
 
-    let mut dx = 0.0;
-    let mut dy = 0.0;
+    let mut dx: f32 = 0.0;
+    let mut dy: f32 = 0.0;
     if pressed(KeyCode::KeyA) || pressed(KeyCode::ArrowLeft) {
         dx -= 1.0; // A or Left
     }
@@ -82,22 +82,7 @@ fn input_dir(ctx: &ReducerContext) -> (f32, f32) {
         dy += 1.0; // S or Down
     }
 
-    // Mouse motion accumulates; use it as a gentle nudge toward cursor position.
-    let mouse_opt = input
-        .tables
-        .mousestate()
-        .scan()
-        .unwrap_or_default()
-        .into_iter()
-        .find(|m| m.id == 0);
-    if let Some(MouseState { position, .. }) = mouse_opt {
-        if position.0.abs() > 1.0 || position.1.abs() > 1.0 {
-            dx += position.0.signum() * 0.3;
-            dy += position.1.signum() * 0.3;
-        }
-    }
-
-    let len = (dx * dx + dy * dy).sqrt();
+    let len: f32 = (dx * dx + dy * dy).sqrt();
     if len > 0.0001 {
         (dx / len, dy / len)
     } else {

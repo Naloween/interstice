@@ -11,17 +11,21 @@ use crate::{
     },
 };
 use interstice_abi::{
-    ABI_VERSION, Authority, FileEvent, IntersticeValue, ModuleSchema, NodeSelection, QueryContext,
-    ReducerContext, SubscriptionEventSchema, get_query_wrapper_name, get_reducer_wrapper_name,
+    ABI_VERSION, Authority, FileEvent, IndexKey, IntersticeValue, ModuleSchema, NodeSchema,
+    NodeSelection, QueryContext, ReducerContext, SubscriptionEventSchema, TableVisibility,
+    get_query_wrapper_name, get_reducer_wrapper_name,
 };
 use notify::{RecursiveMode, Watcher};
 use serde::Serialize;
+use std::convert::TryInto;
 use std::{
     collections::HashMap,
     path::Path,
     sync::{Arc, Mutex},
 };
 use tokio::sync::Mutex as TokioMutex;
+use tokio::time::{Duration, timeout};
+use uuid::Uuid;
 use wasmtime::{Module as wasmtimeModule, Store};
 
 pub struct Module {
@@ -247,6 +251,14 @@ impl Runtime {
             network
                 .connect_to_peer(node_dependency.address.clone())
                 .await;
+
+            if let Ok(node_id) = network.get_node_id_from_adress(&node_dependency.address) {
+                runtime
+                    .node_names_by_id
+                    .lock()
+                    .unwrap()
+                    .insert(node_id, node_dependency.name.clone());
+            }
         }
 
         // Send subscription requests to remote subscriptions
@@ -296,6 +308,113 @@ impl Runtime {
             }
         }
 
+        // Configure explicit replicated remote public tables
+        let mut remote_node_schemas: HashMap<String, NodeSchema> = HashMap::new();
+        for replicated in &module_schema.replicated_tables {
+            let node_dependency = module_schema
+                .node_dependencies
+                .iter()
+                .find(|n| n.name == replicated.node_name)
+                .ok_or_else(|| {
+                    IntersticeError::Internal(format!(
+                        "Replicated table '{}.{}.{}' requires node '{}' in dependencies",
+                        replicated.node_name,
+                        replicated.module_name,
+                        replicated.table_name,
+                        replicated.node_name
+                    ))
+                })?;
+
+            let node_id = runtime
+                .network_handle
+                .get_node_id_from_adress(&node_dependency.address)
+                .map_err(|_| {
+                    IntersticeError::Internal(format!(
+                        "Couldn't resolve node id for node dependency '{}' while setting replicas",
+                        replicated.node_name
+                    ))
+                })?;
+
+            let node_schema = if let Some(schema) = remote_node_schemas.get(&replicated.node_name) {
+                schema.clone()
+            } else {
+                let schema = runtime
+                    .request_node_schema(node_id, replicated.node_name.clone())
+                    .await?;
+                remote_node_schemas.insert(replicated.node_name.clone(), schema.clone());
+                schema
+            };
+
+            let remote_module = node_schema
+                .modules
+                .iter()
+                .find(|m| m.name == replicated.module_name)
+                .ok_or_else(|| {
+                    IntersticeError::ModuleNotFound(
+                        replicated.module_name.clone(),
+                        format!(
+                            "Remote module '{}' not found on node '{}' while configuring table replica",
+                            replicated.module_name, replicated.node_name
+                        ),
+                    )
+                })?;
+
+            let remote_table = remote_module
+                .tables
+                .iter()
+                .find(|t| t.name == replicated.table_name)
+                .ok_or_else(|| IntersticeError::TableNotFound {
+                    module_name: replicated.module_name.clone(),
+                    table_name: replicated.table_name.clone(),
+                })?;
+
+            if remote_table.visibility != TableVisibility::Public {
+                return Err(IntersticeError::Internal(format!(
+                    "Cannot replicate non-public table '{}.{}.{}'",
+                    replicated.node_name, replicated.module_name, replicated.table_name
+                )));
+            }
+
+            let local_table_name = format!(
+                "__replica__{}__{}__{}",
+                replicated.node_name.replace('-', "_").replace('.', "_"),
+                replicated.module_name.replace('-', "_").replace('.', "_"),
+                replicated.table_name.replace('-', "_").replace('.', "_"),
+            );
+
+            let mut local_schema = remote_table.clone();
+            local_schema.name = local_table_name.clone();
+            module
+                .tables
+                .lock()
+                .unwrap()
+                .insert(local_table_name.clone(), Table::new(local_schema));
+
+            runtime
+                .replica_bindings
+                .lock()
+                .unwrap()
+                .push(crate::runtime::ReplicaBinding {
+                    owner_module_name: module_schema.name.clone(),
+                    source_node_id: node_id,
+                    source_node_name: replicated.node_name.clone(),
+                    source_module_name: replicated.module_name.clone(),
+                    source_table_name: replicated.table_name.clone(),
+                    local_table_name,
+                });
+
+            for event in [TableEvent::Insert, TableEvent::Update, TableEvent::Delete] {
+                runtime.network_handle.send_packet(
+                    node_id,
+                    NetworkPacket::RequestSubscription(RequestSubscription {
+                        module_name: replicated.module_name.clone(),
+                        table_name: replicated.table_name.clone(),
+                        event,
+                    }),
+                );
+            }
+        }
+
         // save module
         if let Some(modules_path) = &runtime.modules_path {
             let module_dir = modules_path.join(&module_schema.name);
@@ -341,8 +460,206 @@ impl Runtime {
         return Ok(module_schema.as_ref().clone());
     }
 
+    pub(crate) async fn request_node_schema(
+        &self,
+        node_id: crate::node::NodeId,
+        node_name: String,
+    ) -> Result<NodeSchema, IntersticeError> {
+        let request_id = Uuid::new_v4().to_string();
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        self.pending_schema_responses
+            .lock()
+            .unwrap()
+            .insert(request_id.clone(), sender);
+
+        self.network_handle.send_packet(
+            node_id,
+            NetworkPacket::SchemaRequest {
+                request_id: request_id.clone(),
+                node_name,
+            },
+        );
+
+        match timeout(Duration::from_secs(10), receiver).await {
+            Ok(Ok(schema)) => Ok(schema),
+            Ok(Err(_)) => Err(IntersticeError::Internal(
+                "Schema request channel closed unexpectedly".into(),
+            )),
+            Err(_) => {
+                self.pending_schema_responses
+                    .lock()
+                    .unwrap()
+                    .remove(&request_id);
+                Err(IntersticeError::Internal(
+                    "Timed out while waiting for remote schema response".into(),
+                ))
+            }
+        }
+    }
+
+    pub(crate) fn apply_replica_insert(
+        &self,
+        source_node_id: crate::node::NodeId,
+        source_module_name: &str,
+        source_table_name: &str,
+        inserted_row: interstice_abi::Row,
+    ) {
+        let bindings = self
+            .replica_bindings
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|binding| {
+                binding.source_node_id == source_node_id
+                    && binding.source_module_name == source_module_name
+                    && binding.source_table_name == source_table_name
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for binding in bindings {
+            let insert_result = self.apply_transaction(
+                crate::runtime::transaction::Transaction::Insert {
+                    module_name: binding.owner_module_name.clone(),
+                    table_name: binding.local_table_name.clone(),
+                    new_row: inserted_row.clone(),
+                },
+                false,
+            );
+
+            if insert_result.is_err() {
+                let _ = self.apply_transaction(
+                    crate::runtime::transaction::Transaction::Update {
+                        module_name: binding.owner_module_name.clone(),
+                        table_name: binding.local_table_name.clone(),
+                        update_row: inserted_row.clone(),
+                    },
+                    false,
+                );
+            }
+
+            self.emit_replica_sync_event_if_needed(&binding);
+        }
+    }
+
+    pub(crate) fn apply_replica_update(
+        &self,
+        source_node_id: crate::node::NodeId,
+        source_module_name: &str,
+        source_table_name: &str,
+        _old_row: interstice_abi::Row,
+        new_row: interstice_abi::Row,
+    ) {
+        let bindings = self
+            .replica_bindings
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|binding| {
+                binding.source_node_id == source_node_id
+                    && binding.source_module_name == source_module_name
+                    && binding.source_table_name == source_table_name
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for binding in bindings {
+            let update_result = self.apply_transaction(
+                crate::runtime::transaction::Transaction::Update {
+                    module_name: binding.owner_module_name.clone(),
+                    table_name: binding.local_table_name.clone(),
+                    update_row: new_row.clone(),
+                },
+                false,
+            );
+
+            if let Err(IntersticeError::RowNotFound { .. }) = update_result {
+                let _ = self.apply_transaction(
+                    crate::runtime::transaction::Transaction::Insert {
+                        module_name: binding.owner_module_name.clone(),
+                        table_name: binding.local_table_name.clone(),
+                        new_row: new_row.clone(),
+                    },
+                    false,
+                );
+            }
+
+            self.emit_replica_sync_event_if_needed(&binding);
+        }
+    }
+
+    pub(crate) fn apply_replica_delete(
+        &self,
+        source_node_id: crate::node::NodeId,
+        source_module_name: &str,
+        source_table_name: &str,
+        deleted_row: interstice_abi::Row,
+    ) {
+        let bindings = self
+            .replica_bindings
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|binding| {
+                binding.source_node_id == source_node_id
+                    && binding.source_module_name == source_module_name
+                    && binding.source_table_name == source_table_name
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for binding in bindings {
+            if let Ok(primary_key) = TryInto::<IndexKey>::try_into(deleted_row.primary_key.clone()) {
+                let _ = self.apply_transaction(
+                    crate::runtime::transaction::Transaction::Delete {
+                        module_name: binding.owner_module_name.clone(),
+                        table_name: binding.local_table_name.clone(),
+                        deleted_row_id: primary_key,
+                    },
+                    false,
+                );
+            }
+
+            self.emit_replica_sync_event_if_needed(&binding);
+        }
+    }
+
+    fn emit_replica_sync_event_if_needed(&self, binding: &crate::runtime::ReplicaBinding) {
+        let key = format!(
+            "{}|{}|{}|{}",
+            binding.owner_module_name,
+            binding.source_node_name,
+            binding.source_module_name,
+            binding.source_table_name
+        );
+
+        let should_emit = self
+            .emitted_replica_sync_events
+            .lock()
+            .unwrap()
+            .insert(key);
+
+        if should_emit {
+            let _ = self.event_sender.send(EventInstance::ReplicaTableSynced {
+                node_name: binding.source_node_name.clone(),
+                module_name: binding.source_module_name.clone(),
+                table_name: binding.source_table_name.clone(),
+            });
+        }
+    }
+
     pub fn remove_module(runtime: Arc<Runtime>, module_name: &str) {
         runtime.modules.lock().unwrap().remove(module_name);
+        runtime
+            .replica_bindings
+            .lock()
+            .unwrap()
+            .retain(|binding| binding.owner_module_name != module_name);
+        runtime
+            .emitted_replica_sync_events
+            .lock()
+            .unwrap()
+            .retain(|key| !key.starts_with(&format!("{}|", module_name)));
         if let Some(modules_path) = &runtime.modules_path {
             let module_dir = modules_path.join(module_name);
             if module_dir.exists() {

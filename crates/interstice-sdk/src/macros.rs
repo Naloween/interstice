@@ -2,21 +2,77 @@ use interstice_abi::{
     Authority, ModuleDependency, ModuleVisibility, NodeDependency, encode, pack_ptr_len,
 };
 
+pub const fn validate_replicated_table_literal(value: &str) {
+    let bytes = value.as_bytes();
+    if bytes.is_empty() {
+        panic!("Replicated table path cannot be empty");
+    }
+
+    let mut dot_count = 0;
+    let mut segment_len = 0;
+    let mut index = 0;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+
+        if byte == b'.' {
+            if segment_len == 0 {
+                panic!("Replicated table path must not contain empty segments");
+            }
+            dot_count += 1;
+            segment_len = 0;
+        } else {
+            let is_valid_char = (byte >= b'a' && byte <= b'z')
+                || (byte >= b'A' && byte <= b'Z')
+                || (byte >= b'0' && byte <= b'9')
+                || byte == b'_'
+                || byte == b'-';
+
+            if !is_valid_char {
+                panic!("Replicated table path contains unsupported characters");
+            }
+            segment_len += 1;
+        }
+
+        index += 1;
+    }
+
+    if dot_count != 2 || segment_len == 0 {
+        panic!("Replicated table path must use 'node.module.table'");
+    }
+}
+
 #[macro_export]
 macro_rules! interstice_module {
     () => {
-        interstice_module!(visibility: Private, authorities: []);
+        interstice_module!(visibility: Private, authorities: [], replicated_tables: []);
     };
 
     (visibility: $vis:ident) => {
-        interstice_module!(visibility: $vis, authorities: []);
+        interstice_module!(visibility: $vis, authorities: [], replicated_tables: []);
     };
 
     (authorities: [$($auth:ident),* $(,)?]) => {
-        interstice_module!(visibility: Private, authorities: [$($auth),*]);
+        interstice_module!(visibility: Private, authorities: [$($auth),*], replicated_tables: []);
+    };
+
+    (replicated_tables: [$($rep:literal),* $(,)?]) => {
+        interstice_module!(visibility: Private, authorities: [], replicated_tables: [$($rep),*]);
     };
 
     (visibility: $vis:ident, authorities: [$($auth:ident),* $(,)?]) => {
+        interstice_module!(visibility: $vis, authorities: [$($auth),*], replicated_tables: []);
+    };
+
+    (visibility: $vis:ident, replicated_tables: [$($rep:literal),* $(,)?]) => {
+        interstice_module!(visibility: $vis, authorities: [], replicated_tables: [$($rep),*]);
+    };
+
+    (authorities: [$($auth:ident),* $(,)?], replicated_tables: [$($rep:literal),* $(,)?]) => {
+        interstice_module!(visibility: Private, authorities: [$($auth),*], replicated_tables: [$($rep),*]);
+    };
+
+    (visibility: $vis:ident, authorities: [$($auth:ident),* $(,)?], replicated_tables: [$($rep:literal),* $(,)?]) => {
         $(
             interstice_module!(@impl_authority $auth);
         )*
@@ -74,13 +130,40 @@ macro_rules! interstice_module {
 
         #[unsafe(no_mangle)]
         pub extern "C" fn interstice_describe() -> i64 {
+            let __interstice_replicated_tables: Vec<interstice_sdk::ReplicatedTableSchema> = vec![
+                $(
+                    {
+                        const _: () = interstice_sdk::macros::validate_replicated_table_literal($rep);
+                        let parts: Vec<&str> = $rep.split('.').collect();
+                        interstice_sdk::ReplicatedTableSchema {
+                            node_name: parts[0].to_string(),
+                            module_name: parts[1].to_string(),
+                            table_name: parts[2].to_string(),
+                        }
+                    }
+                ),*
+            ];
+
+            let __interstice_node_dependencies = bindings::__GET_INTERSTICE_NODE_DEPENDENCIES();
+            for table in &__interstice_replicated_tables {
+                if let Err(error) = bindings::__INTERSTICE_VALIDATE_REPLICATED_TABLE(
+                    &table.node_name,
+                    &table.module_name,
+                    &table.table_name,
+                    &__interstice_node_dependencies,
+                ) {
+                    panic!("{}", error);
+                }
+            }
+
             interstice_sdk::macros::describe_module(
                 __INTERSTICE_MODULE_NAME,
                 __INTERSTICE_MODULE_VERSION,
                 __INTERSTICE_VISIBILITY,
                 __INTERSTICE_AUTHORITIES,
                 bindings::__GET_INTERSTICE_MODULE_DEPENDENCIES(),
-                bindings::__GET_INTERSTICE_NODE_DEPENDENCIES()
+                __interstice_node_dependencies,
+                __interstice_replicated_tables,
             )
         }
 
@@ -146,6 +229,7 @@ pub fn describe_module(
     authorities: &'static [Authority],
     module_dependencies: Vec<ModuleDependency>,
     node_dependencies: Vec<NodeDependency>,
+    replicated_tables: Vec<interstice_abi::ReplicatedTableSchema>,
 ) -> i64 {
     let reducers = interstice_sdk_core::registry::collect_reducers();
     let queries = interstice_sdk_core::registry::collect_queries();
@@ -166,6 +250,7 @@ pub fn describe_module(
         authorities: authorities.to_vec(),
         module_dependencies,
         node_dependencies,
+        replicated_tables,
     };
 
     let bytes = encode(&schema).unwrap();

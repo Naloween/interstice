@@ -15,3 +15,6 @@ interstice-abi = { path = "../interstice-abi", version = "0.3.0" }
 interstice-sdk-core = { path = "../interstice-sdk-core", version = "0.3.0" }
 interstice-sdk-macros = { path = "../interstice-sdk-macros", version = "0.3.0" }
 wee_alloc = "0.4"
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"

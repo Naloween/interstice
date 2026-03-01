@@ -333,6 +333,7 @@ impl Network {
                                     table_name,
                                     inserted_row,
                                 } => EventInstance::TableInsertEvent {
+                                    source_node_id: Some(node_id),
                                     module_name,
                                     table_name,
                                     inserted_row,
@@ -343,6 +344,7 @@ impl Network {
                                     old_row,
                                     new_row,
                                 } => EventInstance::TableUpdateEvent {
+                                    source_node_id: Some(node_id),
                                     module_name,
                                     table_name,
                                     old_row,
@@ -353,6 +355,7 @@ impl Network {
                                     table_name,
                                     deleted_row,
                                 } => EventInstance::TableDeleteEvent {
+                                    source_node_id: Some(node_id),
                                     module_name,
                                     table_name,
                                     deleted_row,
@@ -397,12 +400,10 @@ impl Network {
                             })
                             .unwrap();
                     }
-                    NetworkPacket::SchemaResponse { .. } => {
-                        self.logger.log(
-                            "Received unexpected schema response",
-                            LogSource::Network,
-                            LogLevel::Warning,
-                        );
+                    NetworkPacket::SchemaResponse { request_id, schema } => {
+                        self.runtime_event_sender
+                            .send(EventInstance::RemoteSchemaResponse { request_id, schema })
+                            .unwrap();
                     }
                 }
             }

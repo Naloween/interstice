@@ -104,9 +104,28 @@ pub fn get_register_subscription_function(
                                                     }
                                                 }
                                             }) }
+                                "sync" | "table_sync" => {
+                                    if segments.len() != 4 {
+                                        let msg = "Replica sync event must use '[node].[module].[table].sync'";
+                                        return Some(syn::Error::new_spanned(event_name, msg).to_compile_error());
+                                    }
+                                    let node_name = segments[0];
+                                    return Some(
+                                        quote! {
+                                            interstice_sdk::SubscriptionSchema {
+                                                reducer_name: stringify!(#reducer_ident).to_string(),
+                                                event: interstice_sdk::SubscriptionEventSchema::ReplicaSync {
+                                                    node_name: #node_name.to_string(),
+                                                    module_name: #module_name.to_string(),
+                                                    table_name: #table_name.to_string(),
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
                                 other => {
                                     let msg = format!(
-                                        "Event name not recognized. Expected 'insert', 'update' or 'delete'. Got '{}'",
+                                        "Event name not recognized. Expected 'insert', 'update', 'delete' or 'sync'. Got '{}'",
                                         other
                                     );
                                     return Some(syn::Error::new_spanned(event_name, msg).to_compile_error());

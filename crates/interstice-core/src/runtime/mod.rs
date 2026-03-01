@@ -34,7 +34,7 @@ use interstice_abi::{
 use notify::RecommendedWatcher;
 use std::sync::atomic::AtomicU64;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{Arc, Mutex, mpsc},
 };
@@ -62,14 +62,28 @@ pub struct Runtime {
     pub(crate) app_initialized: Arc<Mutex<bool>>,
     pub(crate) pending_query_responses:
         Arc<Mutex<HashMap<String, oneshot::Sender<IntersticeValue>>>>,
+    pub(crate) pending_schema_responses: Arc<Mutex<HashMap<String, oneshot::Sender<NodeSchema>>>>,
     pub(crate) reducer_sender: UnboundedSender<ReducerJob>,
     reducer_receiver: Mutex<Option<UnboundedReceiver<ReducerJob>>>,
     pub(crate) gpu_call_sender: mpsc::Sender<GpuCallRequest>,
     gpu_call_receiver: Mutex<Option<mpsc::Receiver<GpuCallRequest>>>,
     pub(crate) modules_path: Option<PathBuf>,
     node_subscriptions: Arc<Mutex<HashMap<NodeId, Vec<SubscriptionEventSchema>>>>,
+    pub(crate) node_names_by_id: Arc<Mutex<HashMap<NodeId, String>>>,
+    pub(crate) replica_bindings: Arc<Mutex<Vec<ReplicaBinding>>>,
+    pub(crate) emitted_replica_sync_events: Arc<Mutex<HashSet<String>>>,
     pub(crate) file_watchers: Arc<Mutex<Vec<RecommendedWatcher>>>,
     pub(crate) call_sequence: AtomicU64,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ReplicaBinding {
+    pub owner_module_name: String,
+    pub source_node_id: NodeId,
+    pub source_node_name: String,
+    pub source_module_name: String,
+    pub source_table_name: String,
+    pub local_table_name: String,
 }
 
 impl Runtime {
@@ -108,6 +122,7 @@ impl Runtime {
             persistence: Arc::new(table_store),
             app_initialized: Arc::new(Mutex::new(false)),
             pending_query_responses: Arc::new(Mutex::new(HashMap::new())),
+            pending_schema_responses: Arc::new(Mutex::new(HashMap::new())),
             reducer_sender,
             reducer_receiver: Mutex::new(Some(reducer_receiver)),
             gpu_call_sender,
@@ -115,6 +130,9 @@ impl Runtime {
             modules_path,
             run_app_notify,
             node_subscriptions: Arc::new(Mutex::new(HashMap::new())),
+            node_names_by_id: Arc::new(Mutex::new(HashMap::new())),
+            replica_bindings: Arc::new(Mutex::new(Vec::new())),
+            emitted_replica_sync_events: Arc::new(Mutex::new(HashSet::new())),
             logger,
             file_watchers: Arc::new(Mutex::new(Vec::new())),
             call_sequence: AtomicU64::new(0),
@@ -259,6 +277,16 @@ impl Runtime {
                     let _ = sender.send(result);
                 }
             }
+            EventInstance::RemoteSchemaResponse { request_id, schema } => {
+                if let Some(sender) = runtime
+                    .pending_schema_responses
+                    .lock()
+                    .unwrap()
+                    .remove(&request_id)
+                {
+                    let _ = sender.send(schema);
+                }
+            }
             EventInstance::RequestSubscription {
                 requesting_node_id,
                 event,
@@ -331,6 +359,87 @@ impl Runtime {
                     requesting_node_id,
                     crate::network::protocol::NetworkPacket::SchemaResponse { request_id, schema },
                 );
+            }
+            EventInstance::TableInsertEvent {
+                source_node_id,
+                module_name,
+                table_name,
+                inserted_row,
+            } => {
+                if let Some(source_node_id) = source_node_id {
+                    runtime.apply_replica_insert(
+                        source_node_id,
+                        &module_name,
+                        &table_name,
+                        inserted_row.clone(),
+                    );
+                }
+
+                let event = EventInstance::TableInsertEvent {
+                    source_node_id,
+                    module_name,
+                    table_name,
+                    inserted_row,
+                };
+                let triggered = runtime.find_subscriptions(&event).unwrap();
+                for sub in triggered {
+                    let _ = runtime.invoke_subscription(sub, event.clone());
+                }
+            }
+            EventInstance::TableUpdateEvent {
+                source_node_id,
+                module_name,
+                table_name,
+                old_row,
+                new_row,
+            } => {
+                if let Some(source_node_id) = source_node_id {
+                    runtime.apply_replica_update(
+                        source_node_id,
+                        &module_name,
+                        &table_name,
+                        old_row.clone(),
+                        new_row.clone(),
+                    );
+                }
+
+                let event = EventInstance::TableUpdateEvent {
+                    source_node_id,
+                    module_name,
+                    table_name,
+                    old_row,
+                    new_row,
+                };
+                let triggered = runtime.find_subscriptions(&event).unwrap();
+                for sub in triggered {
+                    let _ = runtime.invoke_subscription(sub, event.clone());
+                }
+            }
+            EventInstance::TableDeleteEvent {
+                source_node_id,
+                module_name,
+                table_name,
+                deleted_row,
+            } => {
+                if let Some(source_node_id) = source_node_id {
+                    runtime.apply_replica_delete(
+                        source_node_id,
+                        &module_name,
+                        &table_name,
+                        deleted_row.clone(),
+                    );
+                }
+
+                let event = EventInstance::TableDeleteEvent {
+                    source_node_id,
+                    module_name,
+                    table_name,
+                    deleted_row,
+                };
+                let triggered = runtime.find_subscriptions(&event).unwrap();
+                for sub in triggered {
+                    let _ = runtime.invoke_subscription(sub, event.clone());
+                }
             }
             event => {
                 let triggered = runtime.find_subscriptions(&event).unwrap();

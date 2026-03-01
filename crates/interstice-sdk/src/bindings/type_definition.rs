@@ -1,50 +1,56 @@
 use interstice_abi::IntersticeTypeDef;
+use proc_macro2::Span;
+use quote::quote;
+use syn::{Ident, Type};
 
 pub fn get_type_definition_code(type_def: &IntersticeTypeDef) -> String {
-    match type_def {
+    let span = Span::call_site();
+    let tokens = match type_def {
         IntersticeTypeDef::Struct { name, fields } => {
-            let mut result =
-                "#[derive(interstice_sdk::interstice_abi_macros::IntersticeType)]\npub struct "
-                    .to_string()
-                    + &name
-                    + "{\n";
-            for field in fields {
-                result += &("   pub ".to_string()
-                    + &field.name
-                    + ": "
-                    + &field.field_type.to_string()
-                    + ",\n");
-            }
-            result += "}\n";
-            return result;
-        }
-        IntersticeTypeDef::Enum { name, variants } => {
-            let mut result =
-                "#[derive(interstice_sdk::interstice_abi_macros::IntersticeType)]\npub enum "
-                    .to_string()
-                    + &name
-                    + "{\n";
-            for variant in variants {
-                match &variant.field_type {
-                    interstice_abi::IntersticeType::Void => {
-                        result += &(variant.name.clone() + ",\n");
-                    }
-                    interstice_abi::IntersticeType::Tuple(interstice_types) => {
-                        let mut inners = String::new();
-                        for field_type in interstice_types {
-                            inners += &(field_type.to_string() + ", ");
-                        }
+            let name_ident = Ident::new(name, span);
+            let field_defs = fields.iter().map(|field| {
+                let field_ident = Ident::new(&field.name, span);
+                let field_type: Type = syn::parse_str(&field.field_type.to_string())
+                    .expect("Failed to parse struct field type");
+                quote! { pub #field_ident: #field_type }
+            });
 
-                        result += &(variant.name.clone() + "(" + &inners + ")" + ",\n");
-                    }
-                    field_type => {
-                        result +=
-                            &(variant.name.clone() + "(" + &field_type.to_string() + ")" + ",\n");
-                    }
+            quote! {
+                #[derive(interstice_sdk::interstice_abi_macros::IntersticeType)]
+                pub struct #name_ident {
+                    #(#field_defs,)*
                 }
             }
-            result += "}\n";
-            return result;
+        }
+        IntersticeTypeDef::Enum { name, variants } => {
+            let name_ident = Ident::new(name, span);
+            let variant_defs = variants.iter().map(|variant| {
+                let variant_ident = Ident::new(&variant.name, span);
+                match &variant.field_type {
+                    interstice_abi::IntersticeType::Void => quote! { #variant_ident },
+                    interstice_abi::IntersticeType::Tuple(interstice_types) => {
+                        let tuple_types = interstice_types.iter().map(|t| {
+                            syn::parse_str::<Type>(&t.to_string())
+                                .expect("Failed to parse tuple variant type")
+                        });
+                        quote! { #variant_ident(#(#tuple_types),*) }
+                    }
+                    field_type => {
+                        let inner_type: Type = syn::parse_str(&field_type.to_string())
+                            .expect("Failed to parse enum variant type");
+                        quote! { #variant_ident(#inner_type) }
+                    }
+                }
+            });
+
+            quote! {
+                #[derive(interstice_sdk::interstice_abi_macros::IntersticeType)]
+                pub enum #name_ident {
+                    #(#variant_defs,)*
+                }
+            }
         }
     };
+
+    tokens.to_string()
 }

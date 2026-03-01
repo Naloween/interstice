@@ -1,79 +1,74 @@
 use interstice_abi::{ModuleSchema, NodeSchema, NodeSelection};
+use proc_macro2::{Span, TokenStream};
+use quote::quote;
+use syn::Ident;
 
 use crate::{bindings::module::get_module_code, snake_to_camel_case, to_snake_case};
 
 pub fn get_node_code(node_schema: NodeSchema) -> String {
-    let mut result = String::new();
+    let span = Span::call_site();
     let node_name = to_snake_case(&node_schema.name);
     let node_type_str = snake_to_camel_case(&node_name);
     let original_node_name = node_schema.name.clone();
+    let node_mod_ident = Ident::new(&node_name, span);
+    let node_type_ident = Ident::new(&node_type_str, span);
+    let node_method_ident = Ident::new(&node_name, span);
+    let trait_handle_ident = Ident::new(&("Has".to_string() + &node_type_str + "Handle"), span);
 
-    // Start node module
-    result += &format!("pub mod {} {{\n", node_name);
-    result += &("    pub struct ".to_string() + &node_type_str + "{}\n\n");
+    let module_tokens: Vec<TokenStream> = node_schema
+        .modules
+        .into_iter()
+        .map(|module_schema| {
+            get_module_code(
+                module_schema,
+                NodeSelection::Other(original_node_name.clone()),
+            )
+            .parse::<TokenStream>()
+            .expect("Failed to parse generated module tokens")
+        })
+        .collect();
 
-    for module_schema in node_schema.modules {
-        let module_output = get_module_code(
-            module_schema,
-            NodeSelection::Other(original_node_name.clone()),
-        );
-        // Indent the module content
-        for line in module_output.lines() {
-            result += "    ";
-            result += line;
-            result += "\n";
+    let tokens = quote! {
+        pub mod #node_mod_ident {
+            pub struct #node_type_ident {}
+
+            #(#module_tokens)*
         }
-    }
 
-    // End node module
-    result += "}\n\n";
+        pub trait #trait_handle_ident {
+            fn #node_method_ident(&self) -> #node_mod_ident::#node_type_ident;
+        }
 
-    // Trait at top level for node handle access
-    let trait_handle_name = "Has".to_string() + &node_type_str + "Handle";
-    result += &("pub trait ".to_string()
-        + &trait_handle_name
-        + " {\n    fn "
-        + &node_name
-        + "(&self) -> "
-        + &node_name
-        + "::"
-        + &node_type_str
-        + ";\n}\n\nimpl "
-        + &trait_handle_name
-        + " for interstice_sdk::ReducerContext{\n    fn "
-        + &node_name
-        + "(&self) -> "
-        + &node_name
-        + "::"
-        + &node_type_str
-        + "{\n        return "
-        + &node_name
-        + "::"
-        + &node_type_str
-        + "{};\n    }\n}\n\n");
+        impl #trait_handle_ident for interstice_sdk::ReducerContext {
+            fn #node_method_ident(&self) -> #node_mod_ident::#node_type_ident {
+                #node_mod_ident::#node_type_ident {}
+            }
+        }
+    };
 
-    return result;
+    tokens.to_string()
 }
 
 pub fn get_current_node_code(module_schemas: Vec<ModuleSchema>) -> String {
-    let mut result = String::new();
+    let span = Span::call_site();
+    let module_tokens: Vec<TokenStream> = module_schemas
+        .into_iter()
+        .map(|module_schema| {
+            let module_name = crate::to_snake_case(&module_schema.name);
+            let module_ident = Ident::new(&module_name, span);
+            let module_content = get_module_code(module_schema, NodeSelection::Current)
+                .parse::<TokenStream>()
+                .expect("Failed to parse generated current module tokens");
+            quote! {
+                pub mod #module_ident {
+                    #module_content
+                }
+            }
+        })
+        .collect();
 
-    for module_schema in module_schemas {
-        let module_name = crate::to_snake_case(&module_schema.name);
-        // Start module
-        result += &format!("pub mod {} {{\n", module_name);
-
-        let module_content = get_module_code(module_schema, NodeSelection::Current);
-        // Indent the module content
-        for line in module_content.lines() {
-            result += "    ";
-            result += line;
-            result += "\n";
-        }
-
-        // End module
-        result += "}\n\n";
+    quote! {
+        #(#module_tokens)*
     }
-
-    return result;
+    .to_string()
 }
