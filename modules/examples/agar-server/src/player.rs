@@ -40,6 +40,7 @@ pub fn join(ctx: ReducerContext, name: String) {
 
 #[reducer]
 pub fn set_direction(ctx: ReducerContext, dx: f32, dy: f32) {
+    ctx.log(&format!("set direction: dx={}, dy={}", dx, dy));
     let Some(mut p) = ctx.current.tables.player().get(ctx.caller_node_id) else {
         return;
     };

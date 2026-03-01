@@ -63,7 +63,6 @@ pub fn tick(ctx: ReducerContext) {
     });
 
     // Player vs player
-    let mut alive = Vec::new();
     for i in 0..players.len() {
         let mut dead = false;
         for j in 0..players.len() {
@@ -86,14 +85,15 @@ pub fn tick(ctx: ReducerContext) {
                 break;
             }
         }
-        if !dead {
-            alive.push(players[i].clone());
+        if dead {
+            ctx.current
+                .tables
+                .player()
+                .delete(players[i].id.clone())
+                .ok();
+        } else {
+            ctx.current.tables.player().update(players[i].clone()).ok();
         }
-    }
-
-    // Persist players
-    for row in alive.into_iter() {
-        let _ = ctx.current.tables.player().update(row.clone());
     }
 
     // Persist foods (rewrite table)

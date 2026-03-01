@@ -1,4 +1,4 @@
-use interstice_sdk::*;
+use interstice_sdk::{key_code::KeyCode, *};
 
 interstice_module!(visibility: Private, authorities: [Input]);
 
@@ -26,6 +26,20 @@ fn on_load(ctx: ReducerContext) {
     });
     if let Err(err) = res {
         ctx.log(&format!("Failed to initialize mouse state: {}", err));
+    }
+
+    // Insert all keys in unpressed state to ensure they exist in the table for easy querying
+    for code in KeyCode::iter() {
+        let res = ctx.current.tables.keystate().insert(KeyState {
+            code: code.clone() as u32,
+            pressed: false,
+        });
+        if let Err(err) = res {
+            ctx.log(&format!(
+                "Failed to initialize key state for code {}: {}",
+                code as u32, err
+            ));
+        }
     }
 }
 
@@ -73,6 +87,7 @@ fn on_input(ctx: ReducerContext, event: InputEvent) {
             state,
             ..
         } => {
+            ctx.log(&format!("Key event: {:?} is now {:?}", physical_key, state));
             let code = match physical_key {
                 PhysicalKey::Code(key_code) => key_code as u32,
                 PhysicalKey::Unidentified(code) => code,

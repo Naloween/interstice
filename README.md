@@ -440,6 +440,7 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 
 ## Security and data access
 
+- SDK access row by index
 - Have access to a copy of subscribed tables as read only
 - Table views and row-level security: allow modules to filter rows based on runtime state and requesting node id
 - Time travel host call: should beable to time travel some table, creating timelines and branches (reason: very cool and allow easy time-related effects in games and apps in general). There should be several kind of travels changing the behavior of branching, what is saved and what not etc...
