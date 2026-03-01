@@ -1,6 +1,6 @@
 abi_version = 1
 name = "graphics"
-visibility = "Public"
+visibility = "Private"
 queries = []
 subscriptions = []
 authorities = ["Gpu"]
@@ -309,7 +309,7 @@ type_name = "FrameTick"
 visibility = "Public"
 primary_key_auto_inc = false
 indexes = []
-persistence = "Stateful"
+persistence = "Ephemeral"
 
 [[tables.fields]]
 name = "frame"
@@ -318,183 +318,6 @@ field_type = "U64"
 [tables.primary_key]
 name = "id"
 field_type = "U32"
-
-[type_definitions.MeshDescriptor.Struct]
-name = "MeshDescriptor"
-
-[[type_definitions.MeshDescriptor.Struct.fields]]
-name = "vertices"
-
-[type_definitions.MeshDescriptor.Struct.fields.field_type.Vec]
-Named = "MeshVertex"
-
-[[type_definitions.MeshDescriptor.Struct.fields]]
-name = "indices"
-
-[type_definitions.MeshDescriptor.Struct.fields.field_type.Option]
-Vec = "U32"
-
-[type_definitions.ComputeSubmission.Struct]
-name = "ComputeSubmission"
-
-[[type_definitions.ComputeSubmission.Struct.fields]]
-name = "debug_label"
-
-[type_definitions.ComputeSubmission.Struct.fields.field_type]
-Option = "String"
-
-[type_definitions.MeshVertex.Struct]
-name = "MeshVertex"
-
-[[type_definitions.MeshVertex.Struct.fields]]
-name = "position"
-
-[type_definitions.MeshVertex.Struct.fields.field_type]
-Named = "Vec3"
-
-[[type_definitions.MeshVertex.Struct.fields]]
-name = "color"
-
-[type_definitions.MeshVertex.Struct.fields.field_type]
-Named = "Color"
-
-[[type_definitions.MeshVertex.Struct.fields]]
-name = "uv"
-
-[type_definitions.MeshVertex.Struct.fields.field_type]
-Named = "Vec2"
-
-[type_definitions.TextureUsageFlags.Struct]
-name = "TextureUsageFlags"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "copy_src"
-field_type = "Bool"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "copy_dst"
-field_type = "Bool"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "texture_binding"
-field_type = "Bool"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "storage_binding"
-field_type = "Bool"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "render_attachment"
-field_type = "Bool"
-
-[type_definitions.RenderPassSubmission.Struct]
-name = "RenderPassSubmission"
-
-[[type_definitions.RenderPassSubmission.Struct.fields]]
-name = "layer"
-field_type = "String"
-
-[[type_definitions.RenderPassSubmission.Struct.fields]]
-name = "debug_label"
-
-[type_definitions.RenderPassSubmission.Struct.fields.field_type]
-Option = "String"
-
-[type_definitions.FrameTick.Struct]
-name = "FrameTick"
-
-[[type_definitions.FrameTick.Struct.fields]]
-name = "id"
-field_type = "U32"
-
-[[type_definitions.FrameTick.Struct.fields]]
-name = "frame"
-field_type = "U64"
-
-[type_definitions.Vec3.Struct]
-name = "Vec3"
-
-[[type_definitions.Vec3.Struct.fields]]
-name = "x"
-field_type = "F32"
-
-[[type_definitions.Vec3.Struct.fields]]
-name = "y"
-field_type = "F32"
-
-[[type_definitions.Vec3.Struct.fields]]
-name = "z"
-field_type = "F32"
-
-[type_definitions.PipelineDescriptorInput.Struct]
-name = "PipelineDescriptorInput"
-
-[[type_definitions.PipelineDescriptorInput.Struct.fields]]
-name = "label"
-
-[type_definitions.PipelineDescriptorInput.Struct.fields.field_type]
-Option = "String"
-
-[[type_definitions.PipelineDescriptorInput.Struct.fields]]
-name = "shader_source"
-field_type = "String"
-
-[[type_definitions.PipelineDescriptorInput.Struct.fields]]
-name = "vertex_entry"
-field_type = "String"
-
-[[type_definitions.PipelineDescriptorInput.Struct.fields]]
-name = "fragment_entry"
-
-[type_definitions.PipelineDescriptorInput.Struct.fields.field_type]
-Option = "String"
-
-[type_definitions.Color.Struct]
-name = "Color"
-
-[[type_definitions.Color.Struct.fields]]
-name = "r"
-field_type = "F32"
-
-[[type_definitions.Color.Struct.fields]]
-name = "g"
-field_type = "F32"
-
-[[type_definitions.Color.Struct.fields]]
-name = "b"
-field_type = "F32"
-
-[[type_definitions.Color.Struct.fields]]
-name = "a"
-field_type = "F32"
-
-[type_definitions.BindGroupDescriptorInput.Struct]
-name = "BindGroupDescriptorInput"
-
-[[type_definitions.BindGroupDescriptorInput.Struct.fields]]
-name = "label"
-
-[type_definitions.BindGroupDescriptorInput.Struct.fields.field_type]
-Option = "String"
-
-[type_definitions.Rect.Struct]
-name = "Rect"
-
-[[type_definitions.Rect.Struct.fields]]
-name = "x"
-field_type = "F32"
-
-[[type_definitions.Rect.Struct.fields]]
-name = "y"
-field_type = "F32"
-
-[[type_definitions.Rect.Struct.fields]]
-name = "w"
-field_type = "F32"
-
-[[type_definitions.Rect.Struct.fields]]
-name = "h"
-field_type = "F32"
 
 [type_definitions.TextureDescriptorInput.Struct]
 name = "TextureDescriptorInput"
@@ -525,6 +348,168 @@ name = "usage"
 [type_definitions.TextureDescriptorInput.Struct.fields.field_type]
 Named = "TextureUsageFlags"
 
+[type_definitions.Rect.Struct]
+name = "Rect"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "x"
+field_type = "F32"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "y"
+field_type = "F32"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "w"
+field_type = "F32"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "h"
+field_type = "F32"
+
+[type_definitions.TextureUsageFlags.Struct]
+name = "TextureUsageFlags"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "copy_src"
+field_type = "Bool"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "copy_dst"
+field_type = "Bool"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "texture_binding"
+field_type = "Bool"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "storage_binding"
+field_type = "Bool"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "render_attachment"
+field_type = "Bool"
+
+[type_definitions.ComputeSubmission.Struct]
+name = "ComputeSubmission"
+
+[[type_definitions.ComputeSubmission.Struct.fields]]
+name = "debug_label"
+
+[type_definitions.ComputeSubmission.Struct.fields.field_type]
+Option = "String"
+
+[type_definitions.BindGroupDescriptorInput.Struct]
+name = "BindGroupDescriptorInput"
+
+[[type_definitions.BindGroupDescriptorInput.Struct.fields]]
+name = "label"
+
+[type_definitions.BindGroupDescriptorInput.Struct.fields.field_type]
+Option = "String"
+
+[type_definitions.RenderPassSubmission.Struct]
+name = "RenderPassSubmission"
+
+[[type_definitions.RenderPassSubmission.Struct.fields]]
+name = "layer"
+field_type = "String"
+
+[[type_definitions.RenderPassSubmission.Struct.fields]]
+name = "debug_label"
+
+[type_definitions.RenderPassSubmission.Struct.fields.field_type]
+Option = "String"
+
+[type_definitions.Color.Struct]
+name = "Color"
+
+[[type_definitions.Color.Struct.fields]]
+name = "r"
+field_type = "F32"
+
+[[type_definitions.Color.Struct.fields]]
+name = "g"
+field_type = "F32"
+
+[[type_definitions.Color.Struct.fields]]
+name = "b"
+field_type = "F32"
+
+[[type_definitions.Color.Struct.fields]]
+name = "a"
+field_type = "F32"
+
+[type_definitions.MeshDescriptor.Struct]
+name = "MeshDescriptor"
+
+[[type_definitions.MeshDescriptor.Struct.fields]]
+name = "vertices"
+
+[type_definitions.MeshDescriptor.Struct.fields.field_type.Vec]
+Named = "MeshVertex"
+
+[[type_definitions.MeshDescriptor.Struct.fields]]
+name = "indices"
+
+[type_definitions.MeshDescriptor.Struct.fields.field_type.Option]
+Vec = "U32"
+
+[type_definitions.MeshVertex.Struct]
+name = "MeshVertex"
+
+[[type_definitions.MeshVertex.Struct.fields]]
+name = "position"
+
+[type_definitions.MeshVertex.Struct.fields.field_type]
+Named = "Vec3"
+
+[[type_definitions.MeshVertex.Struct.fields]]
+name = "color"
+
+[type_definitions.MeshVertex.Struct.fields.field_type]
+Named = "Color"
+
+[[type_definitions.MeshVertex.Struct.fields]]
+name = "uv"
+
+[type_definitions.MeshVertex.Struct.fields.field_type]
+Named = "Vec2"
+
+[type_definitions.PipelineDescriptorInput.Struct]
+name = "PipelineDescriptorInput"
+
+[[type_definitions.PipelineDescriptorInput.Struct.fields]]
+name = "label"
+
+[type_definitions.PipelineDescriptorInput.Struct.fields.field_type]
+Option = "String"
+
+[[type_definitions.PipelineDescriptorInput.Struct.fields]]
+name = "shader_source"
+field_type = "String"
+
+[[type_definitions.PipelineDescriptorInput.Struct.fields]]
+name = "vertex_entry"
+field_type = "String"
+
+[[type_definitions.PipelineDescriptorInput.Struct.fields]]
+name = "fragment_entry"
+
+[type_definitions.PipelineDescriptorInput.Struct.fields.field_type]
+Option = "String"
+
+[type_definitions.FrameTick.Struct]
+name = "FrameTick"
+
+[[type_definitions.FrameTick.Struct.fields]]
+name = "id"
+field_type = "U32"
+
+[[type_definitions.FrameTick.Struct.fields]]
+name = "frame"
+field_type = "U64"
+
 [type_definitions.Vec2.Struct]
 name = "Vec2"
 
@@ -534,4 +519,19 @@ field_type = "F32"
 
 [[type_definitions.Vec2.Struct.fields]]
 name = "y"
+field_type = "F32"
+
+[type_definitions.Vec3.Struct]
+name = "Vec3"
+
+[[type_definitions.Vec3.Struct.fields]]
+name = "x"
+field_type = "F32"
+
+[[type_definitions.Vec3.Struct.fields]]
+name = "y"
+field_type = "F32"
+
+[[type_definitions.Vec3.Struct.fields]]
+name = "z"
 field_type = "F32"

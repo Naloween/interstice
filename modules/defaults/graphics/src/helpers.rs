@@ -36,19 +36,7 @@ pub(crate) fn namespaced_key(ctx: &ReducerContext, local_id: &str) -> (String, S
 }
 
 pub(crate) fn clear_commands_tables(ctx: &ReducerContext) {
-    if let Ok(rows) = ctx.current.tables.draw2dcommand().scan() {
-        for row in rows {
-            let _ = ctx.current.tables.draw2dcommand().delete(row.id);
-        }
-    }
-    if let Ok(rows) = ctx.current.tables.renderpasscommand().scan() {
-        for row in rows {
-            let _ = ctx.current.tables.renderpasscommand().delete(row.id);
-        }
-    }
-    if let Ok(rows) = ctx.current.tables.computecommand().scan() {
-        for row in rows {
-            let _ = ctx.current.tables.computecommand().delete(row.id);
-        }
-    }
+    let _ = ctx.current.tables.draw2dcommand().clear();
+    let _ = ctx.current.tables.renderpasscommand().clear();
+    let _ = ctx.current.tables.computecommand().clear();
 }

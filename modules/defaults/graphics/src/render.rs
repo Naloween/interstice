@@ -23,11 +23,13 @@ use crate::{DEFAULT_CLEAR, DEFAULT_SEGMENTS, GpuExt, MIN_SEGMENTS, RENDERER_CACH
 
 #[reducer(on = "render")]
 pub fn render(ctx: ReducerContext) {
+    ctx.log("Begin graphics render");
     if let Err(err) = render_inner(&ctx) {
         ctx.log(&format!("Render failed: {}", err));
     }
     bump_frame_tick(&ctx);
     clear_commands_tables(&ctx);
+    ctx.log("End graphics render");
 }
 
 fn bump_frame_tick(ctx: &ReducerContext) {
@@ -60,12 +62,15 @@ fn render_inner(ctx: &ReducerContext) -> Result<(), String> {
     let mut layers = ctx.current.tables.layer().scan().unwrap_or_default();
     layers.sort_by_key(|layer| layer.z);
 
+    ctx.log("scanning draw commands");
     let draw_rows = ctx
         .current
         .tables
         .draw2dcommand()
         .scan()
         .unwrap_or_default();
+
+    ctx.log("sorting draw commands");
     let mut commands_by_layer: HashMap<String, Vec<Draw2DCommand>> = HashMap::new();
     for row in draw_rows {
         commands_by_layer
@@ -108,6 +113,8 @@ fn render_inner(ctx: &ReducerContext) -> Result<(), String> {
                 })?;
 
                 if !layer_commands.is_empty() {
+                    ctx.log("executing draw commands");
+
                     execute_draw_commands(
                         ctx,
                         &gpu,
@@ -295,64 +302,66 @@ fn execute_draw_commands(
     created_buffers: &mut Vec<u32>,
     surface: SurfaceInfo,
 ) -> Result<(), String> {
-    let mut using_immediate_pipeline = false;
+    // Batch all immediate draw commands (circle, polyline, rect, text)
+    let mut immediate_vertices: Vec<ImmediateVertexBytes> = Vec::new();
 
-    for command in commands {
+    for command in &commands {
         match command.command_type.as_str() {
             "circle" => {
-                if let Some(payload) = command.circle {
-                    if !using_immediate_pipeline {
-                        gpu.set_render_pipeline(pass, immediate_pipeline.pipeline)?;
-                        using_immediate_pipeline = true;
-                    }
-                    let vertices = tessellate_circle(surface, &payload);
-                    upload_and_draw(gpu, pass, vertices, created_buffers)?;
+                if let Some(payload) = &command.circle {
+                    immediate_vertices.extend(tessellate_circle(surface, payload));
                 }
             }
             "polyline" => {
-                if let Some(payload) = command.polyline {
-                    if !using_immediate_pipeline {
-                        gpu.set_render_pipeline(pass, immediate_pipeline.pipeline)?;
-                        using_immediate_pipeline = true;
-                    }
-                    let vertices = tessellate_polyline(surface, &payload);
-                    upload_and_draw(gpu, pass, vertices, created_buffers)?;
+                if let Some(payload) = &command.polyline {
+                    immediate_vertices.extend(tessellate_polyline(surface, payload));
                 }
             }
             "rect" => {
-                if let Some(payload) = command.rect {
-                    if !using_immediate_pipeline {
-                        gpu.set_render_pipeline(pass, immediate_pipeline.pipeline)?;
-                        using_immediate_pipeline = true;
-                    }
-                    let vertices = tessellate_rect(surface, &payload);
-                    upload_and_draw(gpu, pass, vertices, created_buffers)?;
+                if let Some(payload) = &command.rect {
+                    immediate_vertices.extend(tessellate_rect(surface, payload));
                 }
-            }
-            "mesh" => {
-                using_immediate_pipeline = false;
-                if let Some(payload) = command.mesh {
-                    draw_mesh_command(ctx, gpu, pass, &payload)?;
-                }
-            }
-            "image" => {
-                ctx.log(
-                    "draw_image is queued but texture sampling render path is not implemented yet",
-                );
             }
             "text" => {
-                if let Some(payload) = command.text {
-                    if !using_immediate_pipeline {
-                        gpu.set_render_pipeline(pass, immediate_pipeline.pipeline)?;
-                        using_immediate_pipeline = true;
-                    }
-                    let vertices = tessellate_text(surface, &payload);
-                    upload_and_draw(gpu, pass, vertices, created_buffers)?;
+                if let Some(payload) = &command.text {
+                    immediate_vertices.extend(tessellate_text(surface, payload));
                 }
             }
-            _ => continue,
+            _ => {}
         }
     }
+
+    // Only one buffer and draw call for all immediate geometry
+    if !immediate_vertices.is_empty() {
+        gpu.set_render_pipeline(pass, immediate_pipeline.pipeline)?;
+        let data = encode_immediate_vertices(&immediate_vertices);
+        let buffer = gpu.create_buffer(
+            data.len() as u64,
+            BufferUsage::VERTEX | BufferUsage::COPY_DST,
+            false,
+        )?;
+        gpu.write_buffer(buffer, 0, data)?;
+        gpu.set_vertex_buffer(pass, buffer, 0, 0, None)?;
+        gpu.draw(pass, immediate_vertices.len() as u32, 1)?;
+        created_buffers.push(buffer);
+    }
+
+    // Mesh commands are still drawn individually
+    for command in &commands {
+        if command.command_type.as_str() == "mesh" {
+            if let Some(payload) = &command.mesh {
+                draw_mesh_command(ctx, gpu, pass, payload)?;
+            }
+        }
+    }
+
+    // Log for unimplemented image commands
+    for command in &commands {
+        if command.command_type.as_str() == "image" {
+            ctx.log("draw_image is queued but texture sampling render path is not implemented yet");
+        }
+    }
+
     Ok(())
 }
 

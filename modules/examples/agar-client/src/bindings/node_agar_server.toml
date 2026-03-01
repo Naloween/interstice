@@ -98,49 +98,6 @@ field_type = "F32"
 name = "id"
 field_type = "String"
 
-[modules.type_definitions.Vec2.Struct]
-name = "Vec2"
-
-[[modules.type_definitions.Vec2.Struct.fields]]
-name = "x"
-field_type = "F32"
-
-[[modules.type_definitions.Vec2.Struct.fields]]
-name = "y"
-field_type = "F32"
-
-[modules.type_definitions.Snapshot.Struct]
-name = "Snapshot"
-
-[[modules.type_definitions.Snapshot.Struct.fields]]
-name = "players"
-
-[modules.type_definitions.Snapshot.Struct.fields.field_type.Vec]
-Named = "Player"
-
-[[modules.type_definitions.Snapshot.Struct.fields]]
-name = "foods"
-
-[modules.type_definitions.Snapshot.Struct.fields.field_type.Vec]
-Named = "Food"
-
-[modules.type_definitions.Food.Struct]
-name = "Food"
-
-[[modules.type_definitions.Food.Struct.fields]]
-name = "id"
-field_type = "U64"
-
-[[modules.type_definitions.Food.Struct.fields]]
-name = "pos"
-
-[modules.type_definitions.Food.Struct.fields.field_type]
-Named = "Vec2"
-
-[[modules.type_definitions.Food.Struct.fields]]
-name = "radius"
-field_type = "F32"
-
 [modules.type_definitions.Player.Struct]
 name = "Player"
 
@@ -165,5 +122,48 @@ name = "dir"
 Named = "Vec2"
 
 [[modules.type_definitions.Player.Struct.fields]]
+name = "radius"
+field_type = "F32"
+
+[modules.type_definitions.Snapshot.Struct]
+name = "Snapshot"
+
+[[modules.type_definitions.Snapshot.Struct.fields]]
+name = "players"
+
+[modules.type_definitions.Snapshot.Struct.fields.field_type.Vec]
+Named = "Player"
+
+[[modules.type_definitions.Snapshot.Struct.fields]]
+name = "foods"
+
+[modules.type_definitions.Snapshot.Struct.fields.field_type.Vec]
+Named = "Food"
+
+[modules.type_definitions.Vec2.Struct]
+name = "Vec2"
+
+[[modules.type_definitions.Vec2.Struct.fields]]
+name = "x"
+field_type = "F32"
+
+[[modules.type_definitions.Vec2.Struct.fields]]
+name = "y"
+field_type = "F32"
+
+[modules.type_definitions.Food.Struct]
+name = "Food"
+
+[[modules.type_definitions.Food.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[modules.type_definitions.Food.Struct.fields]]
+name = "pos"
+
+[modules.type_definitions.Food.Struct.fields.field_type]
+Named = "Vec2"
+
+[[modules.type_definitions.Food.Struct.fields]]
 name = "radius"
 field_type = "F32"

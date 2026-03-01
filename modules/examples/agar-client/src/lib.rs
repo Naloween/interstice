@@ -5,7 +5,7 @@ use crate::bindings::{
     input::*,
     *,
 };
-use interstice_sdk::*;
+use interstice_sdk::{key_code::KeyCode, *};
 
 interstice_module!(visibility: Public);
 
@@ -29,10 +29,14 @@ pub fn init(ctx: ReducerContext) {
 pub fn on_frame(ctx: ReducerContext, _prev: FrameTick, _tick: FrameTick) {
     let server = ctx.agar_server().agar_server();
 
+    ctx.log("Begin agar frame");
+
     let (dx, dy) = input_dir(&ctx);
     if let Err(err) = server.reducers.set_direction(dx, dy) {
         ctx.log(&format!("set_direction failed: {}", err));
     }
+
+    ctx.log("Requesting snaptshot");
 
     let snapshot = match server.queries.snapshot() {
         Ok(s) => s,
@@ -42,35 +46,39 @@ pub fn on_frame(ctx: ReducerContext, _prev: FrameTick, _tick: FrameTick) {
         }
     };
 
+    ctx.log("Rendering world");
+
     render_world(&ctx, &snapshot);
+
+    ctx.log("End agar frame");
 }
 
 fn input_dir(ctx: &ReducerContext) -> (f32, f32) {
     let input = ctx.input();
 
     // Helper to check if a key is pressed
-    let pressed = |code: u32| {
+    let pressed = |code: KeyCode| {
         input
             .tables
             .keystate()
             .scan()
             .unwrap_or_default()
             .iter()
-            .any(|k| k.code == code && k.pressed)
+            .any(|k| k.code == (code.clone() as u32) && k.pressed)
     };
 
     let mut dx = 0.0;
     let mut dy = 0.0;
-    if pressed(4) || pressed(80) {
+    if pressed(KeyCode::KeyA) || pressed(KeyCode::ArrowLeft) {
         dx -= 1.0; // A or Left
     }
-    if pressed(7) || pressed(79) {
+    if pressed(KeyCode::KeyD) || pressed(KeyCode::ArrowRight) {
         dx += 1.0; // D or Right
     }
-    if pressed(26) || pressed(82) {
+    if pressed(KeyCode::KeyW) || pressed(KeyCode::ArrowUp) {
         dy -= 1.0; // W or Up
     }
-    if pressed(22) || pressed(81) {
+    if pressed(KeyCode::KeyS) || pressed(KeyCode::ArrowDown) {
         dy += 1.0; // S or Down
     }
 

@@ -4,7 +4,7 @@ interstice_module!(visibility: Private, authorities: [Gpu]);
 
 pub(crate) const RENDERER_CACHE_KEY: u32 = 0;
 pub(crate) const MIN_SEGMENTS: u32 = 12;
-pub(crate) const DEFAULT_SEGMENTS: u32 = 48;
+pub(crate) const DEFAULT_SEGMENTS: u32 = 16;
 pub(crate) const DEFAULT_CLEAR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
 mod draw;
