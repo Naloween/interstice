@@ -64,8 +64,5 @@ fn on_greeting_insert(ctx: ReducerContext, inserted_row: Greetings) {
 
 #[query]
 fn get_greetings(ctx: QueryContext) -> Vec<Greetings> {
-    ctx.current.tables.greetings().scan().unwrap_or_else(|err| {
-        ctx.log(&format!("Failed to scan greetings: {}", err));
-        vec![]
-    })
+    ctx.current.tables.greetings().scan()
 }

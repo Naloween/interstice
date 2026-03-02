@@ -26,6 +26,16 @@ pub enum NetworkPacket {
         result: IntersticeValue,
     },
     RequestSubscription(RequestSubscription),
+    RequestUnsubscription(RequestSubscription),
+    RequestTableSync {
+        module_name: String,
+        table_name: String,
+    },
+    TableSyncResponse {
+        module_name: String,
+        table_name: String,
+        rows: Vec<Row>,
+    },
     TableEvent(TableEventInstance),
     ModuleEvent(ModuleEventInstance),
     SchemaRequest {

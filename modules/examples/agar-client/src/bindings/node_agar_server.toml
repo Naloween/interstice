@@ -1,14 +1,16 @@
-name = "agar_server"
+name = "agar-server"
 address = "127.0.0.1:8080"
 
 [[modules]]
 abi_version = 1
 name = "agar-server"
 visibility = "Public"
+queries = []
 subscriptions = []
 authorities = []
 module_dependencies = []
 node_dependencies = []
+replicated_tables = []
 
 [modules.version]
 major = 0
@@ -36,13 +38,6 @@ field_type = "F32"
 [[modules.reducers.arguments]]
 name = "dy"
 field_type = "F32"
-
-[[modules.queries]]
-name = "snapshot"
-arguments = []
-
-[modules.queries.return_type]
-Named = "Snapshot"
 
 [[modules.tables]]
 name = "food"
@@ -98,6 +93,34 @@ field_type = "F32"
 name = "id"
 field_type = "String"
 
+[modules.type_definitions.Food.Struct]
+name = "Food"
+
+[[modules.type_definitions.Food.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[modules.type_definitions.Food.Struct.fields]]
+name = "pos"
+
+[modules.type_definitions.Food.Struct.fields.field_type]
+Named = "Vec2"
+
+[[modules.type_definitions.Food.Struct.fields]]
+name = "radius"
+field_type = "F32"
+
+[modules.type_definitions.Vec2.Struct]
+name = "Vec2"
+
+[[modules.type_definitions.Vec2.Struct.fields]]
+name = "x"
+field_type = "F32"
+
+[[modules.type_definitions.Vec2.Struct.fields]]
+name = "y"
+field_type = "F32"
+
 [modules.type_definitions.Player.Struct]
 name = "Player"
 
@@ -122,48 +145,5 @@ name = "dir"
 Named = "Vec2"
 
 [[modules.type_definitions.Player.Struct.fields]]
-name = "radius"
-field_type = "F32"
-
-[modules.type_definitions.Snapshot.Struct]
-name = "Snapshot"
-
-[[modules.type_definitions.Snapshot.Struct.fields]]
-name = "players"
-
-[modules.type_definitions.Snapshot.Struct.fields.field_type.Vec]
-Named = "Player"
-
-[[modules.type_definitions.Snapshot.Struct.fields]]
-name = "foods"
-
-[modules.type_definitions.Snapshot.Struct.fields.field_type.Vec]
-Named = "Food"
-
-[modules.type_definitions.Vec2.Struct]
-name = "Vec2"
-
-[[modules.type_definitions.Vec2.Struct.fields]]
-name = "x"
-field_type = "F32"
-
-[[modules.type_definitions.Vec2.Struct.fields]]
-name = "y"
-field_type = "F32"
-
-[modules.type_definitions.Food.Struct]
-name = "Food"
-
-[[modules.type_definitions.Food.Struct.fields]]
-name = "id"
-field_type = "U64"
-
-[[modules.type_definitions.Food.Struct.fields]]
-name = "pos"
-
-[modules.type_definitions.Food.Struct.fields.field_type]
-Named = "Vec2"
-
-[[modules.type_definitions.Food.Struct.fields]]
 name = "radius"
 field_type = "F32"

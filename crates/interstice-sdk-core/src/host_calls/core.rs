@@ -101,12 +101,10 @@ pub fn time_now_ms() -> Result<u64, String> {
 }
 
 pub fn insert_row(
-    module_selection: ModuleSelection,
     table_name: String,
     row: Row,
 ) -> Result<Row, String> {
     let call = HostCall::InsertRow(InsertRowRequest {
-        module_selection,
         table_name,
         row,
     });
@@ -120,12 +118,10 @@ pub fn insert_row(
 }
 
 pub fn update_row(
-    module_selection: ModuleSelection,
     table_name: String,
     row: Row,
 ) -> Result<(), String> {
     let call = HostCall::UpdateRow(UpdateRowRequest {
-        module_selection,
         table_name,
         row,
     });
@@ -139,12 +135,10 @@ pub fn update_row(
 }
 
 pub fn delete_row(
-    module_selection: ModuleSelection,
     table_name: String,
     primary_key: IndexKey,
 ) -> Result<(), String> {
     let call = HostCall::DeleteRow(DeleteRowRequest {
-        module_selection,
         table_name,
         primary_key,
     });

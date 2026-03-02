@@ -7,6 +7,7 @@ subscriptions = []
 authorities = ["Input"]
 module_dependencies = []
 node_dependencies = []
+replicated_tables = []
 
 [version]
 major = 0
@@ -53,17 +54,6 @@ Tuple = ["F32", "F32"]
 name = "id"
 field_type = "U32"
 
-[type_definitions.KeyState.Struct]
-name = "KeyState"
-
-[[type_definitions.KeyState.Struct.fields]]
-name = "code"
-field_type = "U32"
-
-[[type_definitions.KeyState.Struct.fields]]
-name = "pressed"
-field_type = "Bool"
-
 [type_definitions.MouseState.Struct]
 name = "MouseState"
 
@@ -82,3 +72,14 @@ name = "wheel_delta"
 
 [type_definitions.MouseState.Struct.fields.field_type]
 Tuple = ["F32", "F32"]
+
+[type_definitions.KeyState.Struct]
+name = "KeyState"
+
+[[type_definitions.KeyState.Struct.fields]]
+name = "code"
+field_type = "U32"
+
+[[type_definitions.KeyState.Struct.fields]]
+name = "pressed"
+field_type = "Bool"

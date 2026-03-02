@@ -86,6 +86,7 @@ pub struct Draw2DCommand {
     pub layer: String,
     pub command_type: String,
     pub circle: Option<CircleCommand>,
+    pub circles: Option<Vec<CircleCommand>>,
     pub polyline: Option<PolylineCommand>,
     pub rect: Option<RectCommand>,
     pub image: Option<ImageCommand>,

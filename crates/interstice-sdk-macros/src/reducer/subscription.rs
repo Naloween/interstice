@@ -53,7 +53,6 @@ pub fn get_register_subscription_function(
                         let segments: Vec<_> = content.split('.').collect();
 
                         if segments.len() == 3 || segments.len() == 4 {
-                            use_table_subscription = true;
 
                             let (node_selection, module_name, table_name, event_name) = if segments.len() == 3 {
                                 let node_selection = quote! {interstice_sdk::NodeSelection::Current};
@@ -71,7 +70,9 @@ pub fn get_register_subscription_function(
                             };
 
                             match event_name.to_string().as_str() {
-                                "insert" => { return Some(
+                                "insert" => {
+                                    use_table_subscription = true;
+                                    return Some(
                                             quote! {
                                                 interstice_sdk::SubscriptionSchema {
                                                     reducer_name: stringify!(#reducer_ident).to_string(),
@@ -81,8 +82,11 @@ pub fn get_register_subscription_function(
                                                         table_name: #table_name.to_string(),
                                                     }
                                                 }
-                                            })}
-                                "update" => { return Some(
+                                            })
+                                }
+                                "update" => {
+                                    use_table_subscription = true;
+                                    return Some(
                                             quote! {
                                                 interstice_sdk::SubscriptionSchema {
                                                     reducer_name: stringify!(#reducer_ident).to_string(),
@@ -92,8 +96,11 @@ pub fn get_register_subscription_function(
                                                         table_name: #table_name.to_string(),
                                                     }
                                                 }
-                                            }) }
-                                "delete" => { return Some(
+                                            })
+                                }
+                                "delete" => {
+                                    use_table_subscription = true;
+                                    return Some(
                                             quote! {
                                                 interstice_sdk::SubscriptionSchema {
                                                     reducer_name: stringify!(#reducer_ident).to_string(),
@@ -103,7 +110,8 @@ pub fn get_register_subscription_function(
                                                         table_name: #table_name.to_string(),
                                                     }
                                                 }
-                                            }) }
+                                            })
+                                }
                                 "sync" | "table_sync" => {
                                     if segments.len() != 4 {
                                         let msg = "Replica sync event must use '[node].[module].[table].sync'";

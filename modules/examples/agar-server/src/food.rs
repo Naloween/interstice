@@ -14,7 +14,7 @@ pub struct Food {
 }
 
 pub fn spawn_missing_foods(ctx: &ReducerContext) {
-    let mut count = ctx.current.tables.food().scan().unwrap_or_default().len();
+    let mut count = ctx.current.tables.food().scan().len();
     while count < TARGET_FOOD {
         let pos = rand_pos();
         let _ = ctx.current.tables.food().insert(Food {

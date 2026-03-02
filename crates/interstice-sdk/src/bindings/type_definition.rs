@@ -3,7 +3,7 @@ use proc_macro2::Span;
 use quote::quote;
 use syn::{Ident, Type};
 
-pub fn get_type_definition_code(type_def: &IntersticeTypeDef) -> String {
+pub fn get_type_definition_code(type_def: &IntersticeTypeDef) -> proc_macro2::TokenStream {
     let span = Span::call_site();
     let tokens = match type_def {
         IntersticeTypeDef::Struct { name, fields } => {
@@ -52,5 +52,5 @@ pub fn get_type_definition_code(type_def: &IntersticeTypeDef) -> String {
         }
     };
 
-    tokens.to_string()
+    tokens
 }

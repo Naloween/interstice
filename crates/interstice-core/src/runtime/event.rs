@@ -54,6 +54,21 @@ pub enum EventInstance {
         requesting_node_id: NodeId,
         event: SubscriptionEventSchema,
     },
+    RequestUnsubscription {
+        requesting_node_id: NodeId,
+        event: SubscriptionEventSchema,
+    },
+    RequestTableSync {
+        requesting_node_id: NodeId,
+        module_name: String,
+        table_name: String,
+    },
+    RemoteTableSync {
+        source_node_id: NodeId,
+        module_name: String,
+        table_name: String,
+        rows: Vec<Row>,
+    },
     RemoteReducerCall {
         requesting_node_id: NodeId,
         module_name: String,

@@ -112,7 +112,6 @@ pub struct LogRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct InsertRowRequest {
-    pub module_selection: ModuleSelection,
     pub table_name: String,
     pub row: Row,
 }
@@ -125,7 +124,6 @@ pub enum InsertRowResponse {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct UpdateRowRequest {
-    pub module_selection: ModuleSelection,
     pub table_name: String,
     pub row: Row,
 }
@@ -138,7 +136,6 @@ pub enum UpdateRowResponse {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DeleteRowRequest {
-    pub module_selection: ModuleSelection,
     pub table_name: String,
     pub primary_key: IndexKey,
 }

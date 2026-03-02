@@ -18,10 +18,15 @@ pub(crate) fn ensure_layer_exists(ctx: &ReducerContext, name: &str) -> bool {
 }
 
 pub(crate) fn purge_layer_draws(ctx: &ReducerContext, layer: &str) {
-    if let Ok(rows) = ctx.current.tables.draw2dcommand().scan() {
-        for row in rows.into_iter().filter(|row| row.layer == layer) {
-            let _ = ctx.current.tables.draw2dcommand().delete(row.id);
-        }
+    for row in ctx
+        .current
+        .tables
+        .draw2dcommand()
+        .scan()
+        .into_iter()
+        .filter(|row| row.layer == layer)
+    {
+        let _ = ctx.current.tables.draw2dcommand().delete(row.id);
     }
 }
 

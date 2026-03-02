@@ -69,11 +69,7 @@ pub fn generate_bindings() {
                                 }
                             });
 
-                            generated_items.push(
-                                get_node_code(node_schema)
-                                    .parse::<TokenStream>()
-                                    .expect("Failed to parse generated node bindings tokens"),
-                            );
+                            generated_items.push(get_node_code(node_schema));
                         }
                         Err(node_err) => {
                             println!(
@@ -87,11 +83,7 @@ pub fn generate_bindings() {
             }
         }
 
-        generated_items.push(
-            get_current_node_code(modules_schema)
-                .parse::<TokenStream>()
-                .expect("Failed to parse generated current-node bindings tokens"),
-        );
+        generated_items.push(get_current_node_code(modules_schema));
     }
 
     let generated_tokens = quote! {
@@ -123,7 +115,7 @@ pub fn generate_bindings() {
                     node_name, module_name, table_name
                 )),
                 None => {
-                    let known_schema_nodes = vec![#(#known_schema_node_names.to_string()),*];
+                    let known_schema_nodes: Vec<String> = vec![#(#known_schema_node_names.to_string()),*];
                     if !known_schema_nodes.iter().any(|name| name == node_name) {
                         Err(format!(
                             "Replicated table '{}.{}.{}' cannot be validated: no node schema found for '{}'. Add a node schema TOML under src/bindings",
@@ -155,11 +147,15 @@ pub fn generate_bindings() {
     };
 
     let out_dir = std::env::var("OUT_DIR").unwrap();
+    let generated_file = syn::parse2::<syn::File>(generated_tokens)
+        .expect("Failed to parse generated bindings into a Rust file for formatting");
+    let generated_source = prettyplease::unparse(&generated_file);
+
     fs::write(
         format!("{out_dir}/interstice_bindings.rs"),
         format!(
             "// This is automatically generated interstice rust bindings\n\n{}",
-            generated_tokens
+            generated_source
         ),
     )
     .expect("Couldn't write bindings");

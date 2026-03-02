@@ -23,13 +23,11 @@ use crate::{DEFAULT_CLEAR, DEFAULT_SEGMENTS, GpuExt, MIN_SEGMENTS, RENDERER_CACH
 
 #[reducer(on = "render")]
 pub fn render(ctx: ReducerContext) {
-    ctx.log("Begin graphics render");
     if let Err(err) = render_inner(&ctx) {
         ctx.log(&format!("Render failed: {}", err));
     }
     bump_frame_tick(&ctx);
     clear_commands_tables(&ctx);
-    ctx.log("End graphics render");
 }
 
 fn bump_frame_tick(ctx: &ReducerContext) {
@@ -59,18 +57,11 @@ fn render_inner(ctx: &ReducerContext) -> Result<(), String> {
     })?;
     let surface_view = SurfaceViewGuard::new(ctx.gpu(), surface_view_id);
 
-    let mut layers = ctx.current.tables.layer().scan().unwrap_or_default();
+    let mut layers = ctx.current.tables.layer().scan();
     layers.sort_by_key(|layer| layer.z);
 
-    ctx.log("scanning draw commands");
-    let draw_rows = ctx
-        .current
-        .tables
-        .draw2dcommand()
-        .scan()
-        .unwrap_or_default();
+    let draw_rows = ctx.current.tables.draw2dcommand().scan();
 
-    ctx.log("sorting draw commands");
     let mut commands_by_layer: HashMap<String, Vec<Draw2DCommand>> = HashMap::new();
     for row in draw_rows {
         commands_by_layer
@@ -113,8 +104,6 @@ fn render_inner(ctx: &ReducerContext) -> Result<(), String> {
                 })?;
 
                 if !layer_commands.is_empty() {
-                    ctx.log("executing draw commands");
-
                     execute_draw_commands(
                         ctx,
                         &gpu,
@@ -156,15 +145,13 @@ fn render_inner(ctx: &ReducerContext) -> Result<(), String> {
     // Queue next frame so render continues
     let _ = gpu.request_redraw();
 
-    if let Ok(render_passes) = ctx.current.tables.renderpasscommand().scan() {
-        if !render_passes.is_empty() {
-            ctx.log("Render pass submissions are queued but not executed yet");
-        }
+    let render_passes = ctx.current.tables.renderpasscommand().scan();
+    if !render_passes.is_empty() {
+        ctx.log("Render pass submissions are queued but not executed yet");
     }
-    if let Ok(compute_passes) = ctx.current.tables.computecommand().scan() {
-        if !compute_passes.is_empty() {
-            ctx.log("Compute submissions are queued but not executed yet");
-        }
+    let compute_passes = ctx.current.tables.computecommand().scan();
+    if !compute_passes.is_empty() {
+        ctx.log("Compute submissions are queued but not executed yet");
     }
 
     Ok(())
@@ -310,6 +297,13 @@ fn execute_draw_commands(
             "circle" => {
                 if let Some(payload) = &command.circle {
                     immediate_vertices.extend(tessellate_circle(surface, payload));
+                }
+            }
+            "circles" => {
+                if let Some(batch) = &command.circles {
+                    for payload in batch {
+                        immediate_vertices.extend(tessellate_circle(surface, payload));
+                    }
                 }
             }
             "polyline" => {

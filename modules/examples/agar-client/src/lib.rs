@@ -1,13 +1,21 @@
 use crate::bindings::{
-    agar_server::HasAgarServerModuleHandle,
-    agar_server::agar_server::{Snapshot, Vec2 as AgarVec2},
+    agar_server::{
+        HasAgarServerModuleHandle,
+        agar_server::{HasFoodHandle, HasPlayerHandle, Vec2 as AgarVec2},
+    },
     graphics::*,
     input::*,
     *,
 };
 use interstice_sdk::{key_code::KeyCode, *};
 
-interstice_module!(visibility: Public);
+interstice_module!(
+    visibility: Public,
+    replicated_tables: [
+        "agar-server.agar-server.player",
+        "agar-server.agar-server.food",
+    ]
+);
 
 const LAYER: &str = "agar.world";
 const CAMERA_W: f32 = 1280.0;
@@ -25,44 +33,80 @@ pub fn init(ctx: ReducerContext) {
     }
 }
 
+#[reducer(on = "agar-server.agar-server.player.sync")]
+pub fn on_player_sync(ctx: ReducerContext) {
+    ctx.log("Player table synced");
+}
+
 #[reducer(on = "graphics.frametick.update")]
-pub fn on_frame(ctx: ReducerContext, _prev: FrameTick, _tick: FrameTick) {
+pub fn on_frame(ctx: ReducerContext, _prev: FrameTick, tick: FrameTick) {
     let server = ctx.agar_server().agar_server();
+    let profile = tick.frame % 60 == 0;
+    let frame_start = if profile {
+        ctx.time_now_ms().ok()
+    } else {
+        None
+    };
 
-    ctx.log("Begin agar frame");
-
+    let input_start = if profile {
+        ctx.time_now_ms().ok()
+    } else {
+        None
+    };
     let (dx, dy) = input_dir(&ctx);
+    let input_end = if profile {
+        ctx.time_now_ms().ok()
+    } else {
+        None
+    };
+
+    let set_dir_start = if profile {
+        ctx.time_now_ms().ok()
+    } else {
+        None
+    };
     if let Err(err) = server.reducers.set_direction(dx, dy) {
         ctx.log(&format!("set_direction failed: {}", err));
     }
-
-    ctx.log("Requesting snaptshot");
-
-    let snapshot = match server.queries.snapshot() {
-        Ok(s) => s,
-        Err(err) => {
-            ctx.log(&format!("snapshot failed: {}", err));
-            return;
-        }
+    let set_dir_end = if profile {
+        ctx.time_now_ms().ok()
+    } else {
+        None
     };
 
-    ctx.log("Rendering world");
+    let render_start = if profile {
+        ctx.time_now_ms().ok()
+    } else {
+        None
+    };
+    let (player_count, food_count, draw_calls, graphics_api_calls) = render_world(&ctx);
+    let render_end = if profile {
+        ctx.time_now_ms().ok()
+    } else {
+        None
+    };
 
-    render_world(&ctx, &snapshot);
+    if profile {
+        let frame_end = ctx.time_now_ms().ok();
+        let input_ms = elapsed_ms(input_start, input_end);
+        let set_dir_ms = elapsed_ms(set_dir_start, set_dir_end);
+        let render_ms = elapsed_ms(render_start, render_end);
+        let total_ms = elapsed_ms(frame_start, frame_end);
 
-    ctx.log("End agar frame");
+        ctx.log(&format!(
+            "perf frame={} total={}ms input={}ms set_dir={}ms render={}ms players={} foods={} draws={} gfx_calls={}",
+            tick.frame, total_ms, input_ms, set_dir_ms, render_ms, player_count, food_count, draw_calls, graphics_api_calls
+        ));
+    }
 }
 
 fn input_dir(ctx: &ReducerContext) -> (f32, f32) {
     let input = ctx.input();
+    let key_states = input.tables.keystate().scan();
 
     // Helper to check if a key is pressed
     let pressed = |code: KeyCode| {
-        input
-            .tables
-            .keystate()
-            .scan()
-            .unwrap()
+        key_states
             .iter()
             .any(|k| k.code == (code.clone() as u32) && k.pressed)
     };
@@ -90,21 +134,35 @@ fn input_dir(ctx: &ReducerContext) -> (f32, f32) {
     }
 }
 
-fn render_world(ctx: &ReducerContext, snapshot: &Snapshot) {
+fn render_world(ctx: &ReducerContext) -> (usize, usize, usize, usize) {
+    let server = ctx.agar_server().agar_server();
+    let players = server.tables.player().scan();
+    let foods = server.tables.food().scan();
+    let mut draw_calls = 0usize;
+    let mut graphics_api_calls = 0usize;
+
     let graphics = ctx.graphics();
-    let camera = snapshot
-        .players
+    let camera = players
         .iter()
         .find(|p| p.id == ctx.current_node_id())
-        .map(|p| &p.pos)
-        .unwrap_or(&AgarVec2 { x: 0.0, y: 0.0 });
+        .map(|p| AgarVec2 {
+            x: p.pos.x,
+            y: p.pos.y,
+        })
+        .unwrap_or(AgarVec2 { x: 0.0, y: 0.0 });
 
-    for food in &snapshot.foods {
-        let pos = world_to_screen(&food.pos, camera);
-        let _ = graphics.reducers.draw_circle(
+    let mut food_centers = Vec::with_capacity(foods.len());
+    let mut food_radii = Vec::with_capacity(foods.len());
+    for food in &foods {
+        food_centers.push(world_to_screen(&food.pos, &camera));
+        food_radii.push(food.radius);
+        draw_calls += 1;
+    }
+    if !food_centers.is_empty() {
+        let _ = graphics.reducers.draw_circles(
             LAYER.to_string(),
-            pos,
-            food.radius,
+            food_centers,
+            food_radii,
             Color {
                 r: 0.3,
                 g: 0.85,
@@ -114,10 +172,11 @@ fn render_world(ctx: &ReducerContext, snapshot: &Snapshot) {
             true,
             0.0,
         );
+        graphics_api_calls += 1;
     }
 
-    for player in &snapshot.players {
-        let pos = world_to_screen(&player.pos, camera);
+    for player in &players {
+        let pos = world_to_screen(&player.pos, &camera);
         let color = color_from_id(&player.id);
         let _ = graphics.reducers.draw_circle(
             LAYER.to_string(),
@@ -127,6 +186,8 @@ fn render_world(ctx: &ReducerContext, snapshot: &Snapshot) {
             true,
             2.0,
         );
+        graphics_api_calls += 1;
+        draw_calls += 1;
 
         let text_pos = Vec2 {
             x: pos.x - player.radius,
@@ -145,6 +206,17 @@ fn render_world(ctx: &ReducerContext, snapshot: &Snapshot) {
             },
             None,
         );
+        graphics_api_calls += 1;
+        draw_calls += 1;
+    }
+
+    (players.len(), foods.len(), draw_calls, graphics_api_calls)
+}
+
+fn elapsed_ms(start: Option<u64>, end: Option<u64>) -> u64 {
+    match (start, end) {
+        (Some(start), Some(end)) if end >= start => end - start,
+        _ => 0,
     }
 }
 

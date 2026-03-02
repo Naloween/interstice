@@ -51,7 +51,14 @@ pub fn get_query_code(
                 #query_name_lit.to_string(),
                 interstice_sdk::IntersticeValue::Vec(vec![#(#argument_values),*]),
             )?;
-            Ok(res.try_into().unwrap())
+            res.try_into().map_err(|err| {
+                format!(
+                    "Failed to decode query response for '{}.{}': {}",
+                    #module_name_lit,
+                    #query_name_lit,
+                    err
+                )
+            })
         }
     }
 }

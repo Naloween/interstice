@@ -5,7 +5,7 @@ use syn::Ident;
 
 use crate::{bindings::module::get_module_code, snake_to_camel_case, to_snake_case};
 
-pub fn get_node_code(node_schema: NodeSchema) -> String {
+pub fn get_node_code(node_schema: NodeSchema) -> TokenStream {
     let span = Span::call_site();
     let node_name = to_snake_case(&node_schema.name);
     let node_type_str = snake_to_camel_case(&node_name);
@@ -23,8 +23,6 @@ pub fn get_node_code(node_schema: NodeSchema) -> String {
                 module_schema,
                 NodeSelection::Other(original_node_name.clone()),
             )
-            .parse::<TokenStream>()
-            .expect("Failed to parse generated module tokens")
         })
         .collect();
 
@@ -46,19 +44,17 @@ pub fn get_node_code(node_schema: NodeSchema) -> String {
         }
     };
 
-    tokens.to_string()
+    tokens
 }
 
-pub fn get_current_node_code(module_schemas: Vec<ModuleSchema>) -> String {
+pub fn get_current_node_code(module_schemas: Vec<ModuleSchema>) -> TokenStream {
     let span = Span::call_site();
     let module_tokens: Vec<TokenStream> = module_schemas
         .into_iter()
         .map(|module_schema| {
             let module_name = crate::to_snake_case(&module_schema.name);
             let module_ident = Ident::new(&module_name, span);
-            let module_content = get_module_code(module_schema, NodeSelection::Current)
-                .parse::<TokenStream>()
-                .expect("Failed to parse generated current module tokens");
+            let module_content = get_module_code(module_schema, NodeSelection::Current);
             quote! {
                 pub mod #module_ident {
                     #module_content
@@ -70,5 +66,4 @@ pub fn get_current_node_code(module_schemas: Vec<ModuleSchema>) -> String {
     quote! {
         #(#module_tokens)*
     }
-    .to_string()
 }

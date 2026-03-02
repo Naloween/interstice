@@ -29,7 +29,7 @@ use crate::{
     },
 };
 use interstice_abi::{
-    Authority, IntersticeValue, ModuleEvent, NodeSchema, SubscriptionEventSchema,
+    Authority, IntersticeValue, ModuleEvent, NodeSchema, SubscriptionEventSchema, TableVisibility,
 };
 use notify::RecommendedWatcher;
 use std::sync::atomic::AtomicU64;
@@ -178,11 +178,11 @@ impl Runtime {
     async fn handle_event(
         runtime: Arc<Runtime>,
         event: EventInstance,
-        event_receiver: &mut UnboundedReceiver<EventInstance>,
+        _event_receiver: &mut UnboundedReceiver<EventInstance>,
     ) {
         match event {
             EventInstance::RequestAppInitialization => {
-                let mut app_initialized = runtime.app_initialized.lock().unwrap();
+                let app_initialized = runtime.app_initialized.lock().unwrap();
                 if *app_initialized {
                     runtime.logger.log(
                         "Received duplicate app initialization request",
@@ -196,40 +196,22 @@ impl Runtime {
                         LogLevel::Info,
                     );
                     runtime.run_app_notify.notify_one();
-                    // Wait for app initialization to complete
-                    let mut pending_events = Vec::new();
-                    while let Some(event) = event_receiver.recv().await {
-                        if let EventInstance::AppInitialized = event {
-                            *app_initialized = true;
-                            runtime.logger.log(
-                                "App initialized",
-                                LogSource::Runtime,
-                                LogLevel::Info,
-                            );
-
-                            // process pending events
-                            for event in pending_events.into_iter() {
-                                Box::pin(Runtime::handle_event(
-                                    runtime.clone(),
-                                    event,
-                                    event_receiver,
-                                ))
-                                .await;
-                            }
-
-                            break;
-                        } else {
-                            pending_events.push(event);
-                        }
-                    }
                 }
             }
             EventInstance::AppInitialized => {
-                runtime.logger.log(
-                    "Unexpected App initialized event",
-                    LogSource::Runtime,
-                    LogLevel::Warning,
-                );
+                let mut app_initialized = runtime.app_initialized.lock().unwrap();
+                if *app_initialized {
+                    runtime.logger.log(
+                        "Received duplicate App initialized event",
+                        LogSource::Runtime,
+                        LogLevel::Warning,
+                    );
+                } else {
+                    *app_initialized = true;
+                    runtime
+                        .logger
+                        .log("App initialized", LogSource::Runtime, LogLevel::Info);
+                }
             }
             EventInstance::RemoteReducerCall {
                 module_name,
@@ -291,28 +273,138 @@ impl Runtime {
                 requesting_node_id,
                 event,
             } => {
-                runtime
-                    .node_subscriptions
-                    .lock()
-                    .unwrap()
+                let mut subscriptions_by_node = runtime.node_subscriptions.lock().unwrap();
+                let subscriptions = subscriptions_by_node
                     .entry(requesting_node_id)
-                    .or_insert(Vec::new())
-                    .push(event);
+                    .or_insert(Vec::new());
+                if !subscriptions.contains(&event) {
+                    subscriptions.push(event);
+                }
+            }
+            EventInstance::RequestUnsubscription {
+                requesting_node_id,
+                event,
+            } => {
+                let mut subscriptions_by_node = runtime.node_subscriptions.lock().unwrap();
+                if let Some(subscriptions) = subscriptions_by_node.get_mut(&requesting_node_id) {
+                    subscriptions.retain(|existing| existing != &event);
+                    if subscriptions.is_empty() {
+                        subscriptions_by_node.remove(&requesting_node_id);
+                    }
+                }
+            }
+            EventInstance::RequestTableSync {
+                requesting_node_id,
+                module_name,
+                table_name,
+            } => {
+                runtime.logger.log(
+                    &format!(
+                        "Received table sync request from {} for '{}.{}'",
+                        requesting_node_id, module_name, table_name
+                    ),
+                    LogSource::Runtime,
+                    LogLevel::Info,
+                );
+                let rows_result = {
+                    let modules = runtime.modules.lock().unwrap();
+                    let module = modules.get(&module_name).ok_or_else(|| {
+                        IntersticeError::ModuleNotFound(
+                            module_name.clone(),
+                            "When handling table sync request".to_string(),
+                        )
+                    });
+
+                    module.and_then(|module| {
+                        let table_schema = module
+                            .schema
+                            .tables
+                            .iter()
+                            .find(|table| table.name == table_name)
+                            .ok_or_else(|| IntersticeError::TableNotFound {
+                                module_name: module_name.clone(),
+                                table_name: table_name.clone(),
+                            })?;
+
+                        if table_schema.visibility != TableVisibility::Public {
+                            return Err(IntersticeError::Internal(format!(
+                                "Table sync denied for non-public table '{}.{}'",
+                                module_name, table_name
+                            )));
+                        }
+
+                        let tables = module.tables.lock().unwrap();
+                        let table = tables.get(&table_name).ok_or_else(|| {
+                            IntersticeError::TableNotFound {
+                                module_name: module_name.clone(),
+                                table_name: table_name.clone(),
+                            }
+                        })?;
+
+                        Ok(table.scan().to_vec())
+                    })
+                };
+
+                match rows_result {
+                    Ok(rows) => runtime.network_handle.send_packet(
+                        requesting_node_id,
+                        crate::network::protocol::NetworkPacket::TableSyncResponse {
+                            module_name,
+                            table_name,
+                            rows,
+                        },
+                    ),
+                    Err(err) => runtime.network_handle.send_packet(
+                        requesting_node_id,
+                        crate::network::protocol::NetworkPacket::Error(err.to_string()),
+                    ),
+                }
+            }
+            EventInstance::RemoteTableSync {
+                source_node_id,
+                module_name,
+                table_name,
+                rows,
+            } => {
+                runtime.logger.log(
+                    &format!(
+                        "Received table sync response from {} for '{}.{}' ({} rows)",
+                        source_node_id,
+                        module_name,
+                        table_name,
+                        rows.len()
+                    ),
+                    LogSource::Runtime,
+                    LogLevel::Info,
+                );
+                runtime.apply_replica_full_sync(source_node_id, &module_name, &table_name, rows);
             }
             EventInstance::PublishModule {
                 wasm_binary,
                 source_node_id,
             } => {
-                let module = Module::from_bytes(runtime.clone(), &wasm_binary)
-                    .await
-                    .unwrap();
-                let module_name = module.schema.name.clone();
                 if runtime
                     .authority_modules
                     .lock()
                     .unwrap()
                     .contains_key(&Authority::Module)
                 {
+                    let module_name = match Module::from_bytes(runtime.clone(), &wasm_binary).await
+                    {
+                        Ok(module) => module.schema.name.clone(),
+                        Err(err) => {
+                            runtime.logger.log(
+                                &format!(
+                                    "Failed to decode published module before forwarding to module authority: {}",
+                                    err
+                                ),
+                                LogSource::Runtime,
+                                LogLevel::Error,
+                            );
+                            return;
+                        }
+                    };
+
                     let _ = runtime.event_sender.send(EventInstance::Module(
                         ModuleEvent::PublishRequest {
                             node_id: source_node_id.to_string(),
@@ -321,12 +413,45 @@ impl Runtime {
                         },
                     ));
                 } else {
-                    if runtime.modules.lock().unwrap().contains_key(&module_name) {
-                        Runtime::remove_module(runtime.clone(), &module_name);
-                    }
-                    Runtime::load_module(runtime.clone(), module, true)
-                        .await
-                        .unwrap();
+                    let runtime_cloned = runtime.clone();
+                    tokio::task::spawn_local(async move {
+                        let module = match Module::from_bytes(runtime_cloned.clone(), &wasm_binary)
+                            .await
+                        {
+                            Ok(module) => module,
+                            Err(err) => {
+                                runtime_cloned.logger.log(
+                                    &format!("Failed to decode published module bytes: {}", err),
+                                    LogSource::Runtime,
+                                    LogLevel::Error,
+                                );
+                                return;
+                            }
+                        };
+
+                        let module_name = module.schema.name.clone();
+                        if runtime_cloned
+                            .modules
+                            .lock()
+                            .unwrap()
+                            .contains_key(&module_name)
+                        {
+                            Runtime::remove_module(runtime_cloned.clone(), &module_name);
+                        }
+
+                        if let Err(err) =
+                            Runtime::load_module(runtime_cloned.clone(), module, true).await
+                        {
+                            runtime_cloned.logger.log(
+                                &format!(
+                                    "Failed to load published module '{}': {}",
+                                    module_name, err
+                                ),
+                                LogSource::Runtime,
+                                LogLevel::Error,
+                            );
+                        }
+                    });
                 }
             }
             EventInstance::RemoveModule {

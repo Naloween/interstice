@@ -304,19 +304,15 @@ pub fn remove_panel(ctx: ReducerContext, scope: String, id: String) {
 
 #[reducer]
 pub fn clear_scope(ctx: ReducerContext, scope: String) {
-    if let Ok(rows) = ctx.current.tables.uilabel().scan() {
-        for row in rows {
-            if row.key.0 == scope {
-                let _ = ctx.current.tables.uilabel().delete(row.key);
-            }
+    for row in ctx.current.tables.uilabel().scan() {
+        if row.key.0 == scope {
+            let _ = ctx.current.tables.uilabel().delete(row.key);
         }
     }
 
-    if let Ok(rows) = ctx.current.tables.uipanel().scan() {
-        for row in rows {
-            if row.key.0 == scope {
-                let _ = ctx.current.tables.uipanel().delete(row.key);
-            }
+    for row in ctx.current.tables.uipanel().scan() {
+        if row.key.0 == scope {
+            let _ = ctx.current.tables.uipanel().delete(row.key);
         }
     }
 }
@@ -324,12 +320,7 @@ pub fn clear_scope(ctx: ReducerContext, scope: String) {
 #[reducer(on = "graphics.frametick.update")]
 pub fn render(ctx: ReducerContext, _prev: FrameTick, tick: FrameTick) {
     ctx.log(&format!("ui render tick {}", tick.frame));
-    let layer_rows = ctx
-        .current
-        .tables
-        .uilayerconfig()
-        .scan()
-        .unwrap_or_default();
+    let layer_rows = ctx.current.tables.uilayerconfig().scan();
     let graphics = ctx.graphics();
 
     for layer in layer_rows.into_iter().filter(|item| item.enabled) {
@@ -357,7 +348,7 @@ fn render_panels_for_scope(
     scope: &str,
     layer_name: &str,
 ) {
-    let rows = ctx.current.tables.uipanel().scan().unwrap_or_default();
+    let rows = ctx.current.tables.uipanel().scan();
     for panel in rows
         .into_iter()
         .filter(|item| item.key.0 == scope && item.visible)
@@ -414,7 +405,7 @@ fn render_labels_for_scope(
     scope: &str,
     layer_name: &str,
 ) {
-    let rows = ctx.current.tables.uilabel().scan().unwrap_or_default();
+    let rows = ctx.current.tables.uilabel().scan();
     for label in rows
         .into_iter()
         .filter(|item| item.key.0 == scope && item.visible)

@@ -120,13 +120,7 @@ pub fn render(ctx: ReducerContext) {
     let gpu = ctx.gpu();
 
     // Get pipeline from table
-    let pipeline_rows = match ctx.current.tables.pipelinetable().scan() {
-        Ok(rows) => rows,
-        Err(err) => {
-            ctx.log(&format!("Failed to scan pipeline table: {}", err));
-            return;
-        }
-    };
+    let pipeline_rows = ctx.current.tables.pipelinetable().scan();
     let pipeline = match pipeline_rows.get(0) {
         Some(p) => p.pipeline_id,
         None => return,

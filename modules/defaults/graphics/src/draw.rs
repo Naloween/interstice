@@ -41,6 +41,62 @@ pub fn draw_circle(
             filled,
             stroke_width,
         }),
+        circles: None,
+        polyline: None,
+        rect: None,
+        image: None,
+        text: None,
+        mesh: None,
+    };
+    enqueue_draw_command(&ctx, command);
+}
+
+#[reducer]
+pub fn draw_circles(
+    ctx: ReducerContext,
+    layer: String,
+    centers: Vec<Vec2>,
+    radii: Vec<f32>,
+    color: Color,
+    filled: bool,
+    stroke_width: f32,
+) {
+    if !ensure_layer_exists(&ctx, &layer) {
+        return;
+    }
+    if centers.len() != radii.len() {
+        ctx.log("draw_circles: centers and radii length mismatch");
+        return;
+    }
+
+    let circles = centers
+        .into_iter()
+        .zip(radii.into_iter())
+        .filter_map(|(center, radius)| {
+            if radius <= 0.0 {
+                None
+            } else {
+                Some(CircleCommand {
+                    center,
+                    radius,
+                    color: color.clone(),
+                    filled,
+                    stroke_width,
+                })
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if circles.is_empty() {
+        return;
+    }
+
+    let command = Draw2DCommand {
+        id: 0,
+        layer,
+        command_type: "circles".into(),
+        circle: None,
+        circles: Some(circles),
         polyline: None,
         rect: None,
         image: None,
@@ -72,6 +128,7 @@ pub fn draw_polyline(
         layer,
         command_type: "polyline".into(),
         circle: None,
+        circles: None,
         polyline: Some(PolylineCommand {
             points,
             color,
@@ -108,6 +165,7 @@ pub fn draw_rect(
         layer,
         command_type: "rect".into(),
         circle: None,
+        circles: None,
         polyline: None,
         rect: Some(RectCommand {
             rect,
@@ -152,6 +210,7 @@ pub fn draw_image(
         layer,
         command_type: "image".into(),
         circle: None,
+        circles: None,
         polyline: None,
         rect: None,
         image: Some(ImageCommand {
@@ -193,6 +252,7 @@ pub fn draw_text(
         layer,
         command_type: "text".into(),
         circle: None,
+        circles: None,
         polyline: None,
         rect: None,
         image: None,
@@ -261,6 +321,7 @@ pub fn draw_mesh(
         layer,
         command_type: "mesh".into(),
         circle: None,
+        circles: None,
         polyline: None,
         rect: None,
         image: None,

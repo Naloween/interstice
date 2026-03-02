@@ -5,7 +5,7 @@ use crate::{
     runtime::{
         Runtime,
         authority::AuthorityEntry,
-        event::EventInstance,
+        event::{EventInstance, SubscriptionTarget},
         table::Table,
         wasm::{StoreState, instance::WasmInstance},
     },
@@ -137,6 +137,17 @@ impl Runtime {
         fire_init: bool,
     ) -> Result<ModuleSchema, IntersticeError> {
         let module_schema = module.schema.clone();
+
+        runtime.logger.log(
+            &format!(
+                "Loading module '{}' (replicated_tables={}, subscriptions={})",
+                module_schema.name,
+                module_schema.replicated_tables.len(),
+                module_schema.subscriptions.len()
+            ),
+            LogSource::Runtime,
+            LogLevel::Info,
+        );
 
         // If the module requires GPU authority and the app is not initialized yet, initialize it
         if module_schema
@@ -311,6 +322,18 @@ impl Runtime {
         // Configure explicit replicated remote public tables
         let mut remote_node_schemas: HashMap<String, NodeSchema> = HashMap::new();
         for replicated in &module_schema.replicated_tables {
+            runtime.logger.log(
+                &format!(
+                    "Configuring replica '{}.{}.{}' for module '{}'",
+                    replicated.node_name,
+                    replicated.module_name,
+                    replicated.table_name,
+                    module_schema.name
+                ),
+                LogSource::Runtime,
+                LogLevel::Info,
+            );
+
             let node_dependency = module_schema
                 .node_dependencies
                 .iter()
@@ -402,17 +425,6 @@ impl Runtime {
                     source_table_name: replicated.table_name.clone(),
                     local_table_name,
                 });
-
-            for event in [TableEvent::Insert, TableEvent::Update, TableEvent::Delete] {
-                runtime.network_handle.send_packet(
-                    node_id,
-                    NetworkPacket::RequestSubscription(RequestSubscription {
-                        module_name: replicated.module_name.clone(),
-                        table_name: replicated.table_name.clone(),
-                        event,
-                    }),
-                );
-            }
         }
 
         // save module
@@ -430,25 +442,81 @@ impl Runtime {
             .unwrap()
             .insert(module.schema.name.clone(), Arc::new(module));
 
-        setup_file_watches(runtime.clone(), &module_schema)?;
+        // Now that the module is registered, request remote replica subscriptions and full sync.
+        // Sending these earlier can race with network responses and drop initial sync before
+        // the module subscriptions are discoverable by the runtime.
+        let replica_bindings = runtime
+            .replica_bindings
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|binding| binding.owner_module_name == module_schema.name)
+            .cloned()
+            .collect::<Vec<_>>();
 
-        // Throw init event
-        if fire_init {
-            runtime
-                .event_sender
-                .send(EventInstance::Init {
-                    module_name: module_schema.name.clone(),
-                })
-                .unwrap();
+        for binding in replica_bindings {
+            for event in [TableEvent::Insert, TableEvent::Update, TableEvent::Delete] {
+                runtime.network_handle.send_packet(
+                    binding.source_node_id,
+                    NetworkPacket::RequestSubscription(RequestSubscription {
+                        module_name: binding.source_module_name.clone(),
+                        table_name: binding.source_table_name.clone(),
+                        event,
+                    }),
+                );
+
+                runtime.logger.log(
+                    &format!(
+                        "Requested remote subscription '{}' for '{}.{}' from node {}",
+                        match event {
+                            TableEvent::Insert => "insert",
+                            TableEvent::Update => "update",
+                            TableEvent::Delete => "delete",
+                        },
+                        binding.source_module_name,
+                        binding.source_table_name,
+                        binding.source_node_id
+                    ),
+                    LogSource::Runtime,
+                    LogLevel::Info,
+                );
+            }
+
+            runtime.network_handle.send_packet(
+                binding.source_node_id,
+                NetworkPacket::RequestTableSync {
+                    module_name: binding.source_module_name.clone(),
+                    table_name: binding.source_table_name.clone(),
+                },
+            );
+
+            runtime.logger.log(
+                &format!(
+                    "Requested table sync for '{}.{}' from node {}",
+                    binding.source_module_name, binding.source_table_name, binding.source_node_id
+                ),
+                LogSource::Runtime,
+                LogLevel::Info,
+            );
         }
 
-        // Throw load event
+        setup_file_watches(runtime.clone(), &module_schema)?;
+
+        // Run init/load subscriptions synchronously to guarantee module initialization
+        // before dependent modules start and before regular runtime events proceed.
+        if fire_init {
+            runtime
+                .run_startup_subscriptions(EventInstance::Init {
+                    module_name: module_schema.name.clone(),
+                })
+                .await?;
+        }
+
         runtime
-            .event_sender
-            .send(EventInstance::Load {
+            .run_startup_subscriptions(EventInstance::Load {
                 module_name: module_schema.name.clone(),
             })
-            .unwrap();
+            .await?;
 
         // Logging
         runtime.logger.log(
@@ -458,6 +526,30 @@ impl Runtime {
         );
 
         return Ok(module_schema.as_ref().clone());
+    }
+
+    async fn run_startup_subscriptions(&self, event: EventInstance) -> Result<(), IntersticeError> {
+        let triggered = self.find_subscriptions(&event)?;
+
+        for target in triggered {
+            match target {
+                SubscriptionTarget::Local { module, reducer } => {
+                    self.call_reducer(
+                        &module,
+                        &reducer,
+                        IntersticeValue::Vec(vec![]),
+                        self.network_handle.node_id,
+                    )
+                    .await?;
+                }
+                SubscriptionTarget::Remote(node_id) => {
+                    let _ = self
+                        .invoke_subscription(SubscriptionTarget::Remote(node_id), event.clone());
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub(crate) async fn request_node_schema(
@@ -609,7 +701,8 @@ impl Runtime {
             .collect::<Vec<_>>();
 
         for binding in bindings {
-            if let Ok(primary_key) = TryInto::<IndexKey>::try_into(deleted_row.primary_key.clone()) {
+            if let Ok(primary_key) = TryInto::<IndexKey>::try_into(deleted_row.primary_key.clone())
+            {
                 let _ = self.apply_transaction(
                     crate::runtime::transaction::Transaction::Delete {
                         module_name: binding.owner_module_name.clone(),
@@ -624,6 +717,68 @@ impl Runtime {
         }
     }
 
+    pub(crate) fn apply_replica_full_sync(
+        &self,
+        source_node_id: crate::node::NodeId,
+        source_module_name: &str,
+        source_table_name: &str,
+        rows: Vec<interstice_abi::Row>,
+    ) {
+        let bindings = self
+            .replica_bindings
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|binding| {
+                binding.source_node_id == source_node_id
+                    && binding.source_module_name == source_module_name
+                    && binding.source_table_name == source_table_name
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+
+        self.logger.log(
+            &format!(
+                "Applying replica full sync from {} for '{}.{}' ({} rows, {} bindings)",
+                source_node_id,
+                source_module_name,
+                source_table_name,
+                rows.len(),
+                bindings.len()
+            ),
+            LogSource::Runtime,
+            LogLevel::Info,
+        );
+
+        for binding in bindings {
+            let mut restored = false;
+            if let Some(module) = self.modules.lock().unwrap().get(&binding.owner_module_name) {
+                if let Some(table) = module
+                    .tables
+                    .lock()
+                    .unwrap()
+                    .get_mut(&binding.local_table_name)
+                {
+                    let _ = table.restore_from_rows(rows.clone());
+                    restored = true;
+                }
+            }
+
+            if restored {
+                self.emit_replica_sync_event_if_needed(&binding);
+            } else {
+                self.logger.log(
+                    &format!(
+                        "Replica full sync target missing for owner='{}' local_table='{}'",
+                        binding.owner_module_name, binding.local_table_name
+                    ),
+                    LogSource::Runtime,
+                    LogLevel::Warning,
+                );
+            }
+        }
+    }
+
     fn emit_replica_sync_event_if_needed(&self, binding: &crate::runtime::ReplicaBinding) {
         let key = format!(
             "{}|{}|{}|{}",
@@ -633,11 +788,7 @@ impl Runtime {
             binding.source_table_name
         );
 
-        let should_emit = self
-            .emitted_replica_sync_events
-            .lock()
-            .unwrap()
-            .insert(key);
+        let should_emit = self.emitted_replica_sync_events.lock().unwrap().insert(key);
 
         if should_emit {
             let _ = self.event_sender.send(EventInstance::ReplicaTableSynced {
@@ -649,6 +800,87 @@ impl Runtime {
     }
 
     pub fn remove_module(runtime: Arc<Runtime>, module_name: &str) {
+        let module_schema = runtime
+            .modules
+            .lock()
+            .unwrap()
+            .get(module_name)
+            .map(|module| module.schema.as_ref().clone());
+
+        if let Some(schema) = &module_schema {
+            for sub in &schema.subscriptions {
+                match &sub.event {
+                    SubscriptionEventSchema::Insert {
+                        node_selection: NodeSelection::Other(node_name),
+                        module_name: source_module_name,
+                        table_name: source_table_name,
+                    }
+                    | SubscriptionEventSchema::Update {
+                        node_selection: NodeSelection::Other(node_name),
+                        module_name: source_module_name,
+                        table_name: source_table_name,
+                    }
+                    | SubscriptionEventSchema::Delete {
+                        node_selection: NodeSelection::Other(node_name),
+                        module_name: source_module_name,
+                        table_name: source_table_name,
+                    } => {
+                        if let Some(node_dependency) = schema
+                            .node_dependencies
+                            .iter()
+                            .find(|dep| dep.name == *node_name)
+                        {
+                            if let Ok(node_id) = runtime
+                                .network_handle
+                                .get_node_id_from_adress(&node_dependency.address)
+                            {
+                                let event = match &sub.event {
+                                    SubscriptionEventSchema::Insert { .. } => TableEvent::Insert,
+                                    SubscriptionEventSchema::Update { .. } => TableEvent::Update,
+                                    SubscriptionEventSchema::Delete { .. } => TableEvent::Delete,
+                                    _ => unreachable!(),
+                                };
+
+                                runtime.network_handle.send_packet(
+                                    node_id,
+                                    NetworkPacket::RequestUnsubscription(RequestSubscription {
+                                        module_name: source_module_name.clone(),
+                                        table_name: source_table_name.clone(),
+                                        event,
+                                    }),
+                                );
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            for replicated in &schema.replicated_tables {
+                if let Some(node_dependency) = schema
+                    .node_dependencies
+                    .iter()
+                    .find(|dep| dep.name == replicated.node_name)
+                {
+                    if let Ok(node_id) = runtime
+                        .network_handle
+                        .get_node_id_from_adress(&node_dependency.address)
+                    {
+                        for event in [TableEvent::Insert, TableEvent::Update, TableEvent::Delete] {
+                            runtime.network_handle.send_packet(
+                                node_id,
+                                NetworkPacket::RequestUnsubscription(RequestSubscription {
+                                    module_name: replicated.module_name.clone(),
+                                    table_name: replicated.table_name.clone(),
+                                    event,
+                                }),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         runtime.modules.lock().unwrap().remove(module_name);
         runtime
             .replica_bindings
@@ -666,44 +898,6 @@ impl Runtime {
                 std::fs::remove_dir_all(module_dir).unwrap();
             }
         }
-        // Closing module network connections
-        let node_ids_to_disconnect = runtime
-            .network_handle
-            .connected_peers()
-            .into_iter()
-            .filter(|(node_id, _)| {
-                runtime
-                    .node_subscriptions
-                    .lock()
-                    .unwrap()
-                    .get(node_id)
-                    .map(|subs| {
-                        subs.iter().any(|sub| match sub {
-                            SubscriptionEventSchema::Insert {
-                                module_name: sub_module_name,
-                                ..
-                            }
-                            | SubscriptionEventSchema::Update {
-                                module_name: sub_module_name,
-                                ..
-                            }
-                            | SubscriptionEventSchema::Delete {
-                                module_name: sub_module_name,
-                                ..
-                            } => sub_module_name == module_name,
-                            _ => false,
-                        })
-                    })
-                    .unwrap_or(false)
-            })
-            .collect::<Vec<_>>();
-
-        for (node_id, _) in node_ids_to_disconnect {
-            let network_handle = runtime.network_handle.clone();
-            tokio::spawn(async move {
-                network_handle.disconnect_peer(node_id).await;
-            });
-        }
 
         // Removing module from authority modules if it has any authority
         let authorities_to_remove = runtime
@@ -717,8 +911,6 @@ impl Runtime {
         for authority in authorities_to_remove {
             runtime.authority_modules.lock().unwrap().remove(&authority);
         }
-
-        runtime.file_watchers.lock().unwrap().clear();
 
         runtime.logger.log(
             &format!("Removed module '{}'", module_name),

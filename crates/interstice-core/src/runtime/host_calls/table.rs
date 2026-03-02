@@ -4,23 +4,36 @@ use crate::{
 };
 use interstice_abi::{
     ClearTableRequest, ClearTableResponse, DeleteRowRequest, DeleteRowResponse, InsertRowRequest,
-    InsertRowResponse, ModuleSchema, TableGetByPrimaryKeyRequest, TableGetByPrimaryKeyResponse,
-    TableIndexScanRequest, TableIndexScanResponse, TableScanRequest, TableScanResponse,
-    UpdateRowRequest, UpdateRowResponse,
+    InsertRowResponse, ModuleSchema, ModuleSelection, TableGetByPrimaryKeyRequest,
+    TableGetByPrimaryKeyResponse, TableIndexScanRequest, TableIndexScanResponse, TableScanRequest,
+    TableScanResponse, UpdateRowRequest, UpdateRowResponse,
 };
 
 impl Runtime {
+    fn selected_module_name(&self, module_selection: &ModuleSelection) -> Result<String, String> {
+        match module_selection {
+            ModuleSelection::Current => self
+                .call_stack
+                .lock()
+                .unwrap()
+                .last()
+                .map(|frame| frame.module.clone())
+                .ok_or_else(|| "No active call frame".to_string()),
+            ModuleSelection::Other(name) => Ok(name.clone()),
+        }
+    }
+
     pub(crate) fn handle_insert_row(
         &self,
         caller_module_schema: &ModuleSchema,
         insert_row_request: InsertRowRequest,
     ) -> InsertRowResponse {
+        let module_name = caller_module_schema.name.clone();
         let mut row = insert_row_request.row;
 
         {
             let modules = self.modules.lock().unwrap();
-            let module = match modules.get(&self.call_stack.lock().unwrap().last().unwrap().module)
-            {
+            let module = match modules.get(&module_name) {
                 Some(module) => module,
                 None => return InsertRowResponse::Err("Module not found".into()),
             };
@@ -66,7 +79,7 @@ impl Runtime {
             return InsertRowResponse::Err("Insert not allowed in query context".into());
         }
         reducer_frame.transactions.push(Transaction::Insert {
-            module_name: caller_module_schema.name.clone(),
+            module_name,
             table_name: insert_row_request.table_name,
             new_row: row.clone(),
         });
@@ -78,6 +91,7 @@ impl Runtime {
         caller_module_schema: &ModuleSchema,
         update_row_request: UpdateRowRequest,
     ) -> UpdateRowResponse {
+        let module_name = caller_module_schema.name.clone();
         if let Some(table) = caller_module_schema
             .tables
             .iter()
@@ -97,8 +111,7 @@ impl Runtime {
 
         {
             let modules = self.modules.lock().unwrap();
-            let module = match modules.get(&self.call_stack.lock().unwrap().last().unwrap().module)
-            {
+            let module = match modules.get(&module_name) {
                 Some(module) => module,
                 None => return UpdateRowResponse::Err("Module not found".into()),
             };
@@ -118,7 +131,7 @@ impl Runtime {
             return UpdateRowResponse::Err("Update not allowed in query context".into());
         }
         reducer_frame.transactions.push(Transaction::Update {
-            module_name: caller_module_schema.name.clone(),
+            module_name,
             table_name: update_row_request.table_name,
             update_row: update_row_request.row,
         });
@@ -129,10 +142,10 @@ impl Runtime {
         caller_module_name: String,
         delete_row_request: DeleteRowRequest,
     ) -> DeleteRowResponse {
+        let module_name = caller_module_name;
         {
             let modules = self.modules.lock().unwrap();
-            let module = match modules.get(&self.call_stack.lock().unwrap().last().unwrap().module)
-            {
+            let module = match modules.get(&module_name) {
                 Some(module) => module,
                 None => return DeleteRowResponse::Err("Module not found".into()),
             };
@@ -152,7 +165,7 @@ impl Runtime {
             return DeleteRowResponse::Err("Delete not allowed in query context".into());
         }
         reducer_frame.transactions.push(Transaction::Delete {
-            module_name: caller_module_name,
+            module_name,
             table_name: delete_row_request.table_name,
             deleted_row_id: delete_row_request.primary_key,
         });
@@ -164,10 +177,16 @@ impl Runtime {
         caller_module_name: String,
         request: ClearTableRequest,
     ) -> ClearTableResponse {
+        if !matches!(request.module_selection, ModuleSelection::Current) {
+            return ClearTableResponse::Err(
+                "Cross-module table writes are not allowed; use ModuleSelection::Current"
+                    .to_string(),
+            );
+        }
+        let module_name = caller_module_name;
         {
             let modules = self.modules.lock().unwrap();
-            let module = match modules.get(&self.call_stack.lock().unwrap().last().unwrap().module)
-            {
+            let module = match modules.get(&module_name) {
                 Some(module) => module,
                 None => return ClearTableResponse::Err("Module not found".into()),
             };
@@ -183,7 +202,7 @@ impl Runtime {
             return ClearTableResponse::Err("Clear not allowed in query context".into());
         }
         reducer_frame.transactions.push(Transaction::Clear {
-            module_name: caller_module_name,
+            module_name,
             table_name: request.table_name,
         });
         ClearTableResponse::Ok
@@ -192,11 +211,9 @@ impl Runtime {
         &self,
         table_scan_request: TableScanRequest,
     ) -> TableScanResponse {
-        let module_name = match self.call_stack.lock().unwrap().last() {
-            Some(frame) => frame.module.clone(),
-            None => {
-                return TableScanResponse::Err("No active call frame".into());
-            }
+        let module_name = match self.selected_module_name(&table_scan_request.module_selection) {
+            Ok(module_name) => module_name,
+            Err(err) => return TableScanResponse::Err(err),
         };
 
         let modules = self.modules.lock().unwrap();
@@ -219,10 +236,13 @@ impl Runtime {
         &self,
         request: TableGetByPrimaryKeyRequest,
     ) -> TableGetByPrimaryKeyResponse {
+        let module_name = match self.selected_module_name(&request.module_selection) {
+            Ok(module_name) => module_name,
+            Err(err) => return TableGetByPrimaryKeyResponse::Err(err),
+        };
         let row = {
             let modules = self.modules.lock().unwrap();
-            let module = match modules.get(&self.call_stack.lock().unwrap().last().unwrap().module)
-            {
+            let module = match modules.get(&module_name) {
                 Some(module) => module,
                 None => return TableGetByPrimaryKeyResponse::Err("Module not found".into()),
             };
@@ -241,10 +261,13 @@ impl Runtime {
         &self,
         request: TableIndexScanRequest,
     ) -> TableIndexScanResponse {
+        let module_name = match self.selected_module_name(&request.module_selection) {
+            Ok(module_name) => module_name,
+            Err(err) => return TableIndexScanResponse::Err(err),
+        };
         let rows = {
             let modules = self.modules.lock().unwrap();
-            let module = match modules.get(&self.call_stack.lock().unwrap().last().unwrap().module)
-            {
+            let module = match modules.get(&module_name) {
                 Some(module) => module,
                 None => return TableIndexScanResponse::Err("Module not found".into()),
             };

@@ -11,7 +11,7 @@ use crate::{
     snake_to_camel_case, to_snake_case,
 };
 
-pub fn get_module_code(module_schema: ModuleSchema, node_selection: NodeSelection) -> String {
+pub fn get_module_code(module_schema: ModuleSchema, node_selection: NodeSelection) -> TokenStream {
     let span = Span::call_site();
     let module_name = module_schema.name;
     let snake_module_name = to_snake_case(&module_name);
@@ -42,11 +42,7 @@ pub fn get_module_code(module_schema: ModuleSchema, node_selection: NodeSelectio
     let type_definition_items: Vec<TokenStream> = module_schema
         .type_definitions
         .values()
-        .map(|type_def| {
-            get_type_definition_code(type_def)
-                .parse::<TokenStream>()
-                .expect("Failed to parse generated type definition tokens")
-        })
+        .map(get_type_definition_code)
         .collect();
 
     let module_tables_name = module_tables_ident.to_string();
@@ -168,5 +164,5 @@ pub fn get_module_code(module_schema: ModuleSchema, node_selection: NodeSelectio
         }
     };
 
-    tokens.to_string()
+    tokens
 }

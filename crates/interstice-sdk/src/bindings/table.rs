@@ -71,8 +71,8 @@ pub fn get_table_code(
 
             let unique_method = if index.unique {
                 quote! {
-                    pub fn #fn_get(&self, value: #index_type) -> Result<Option<#table_struct_name>, String> {
-                        self.#fn_eq(value).map(|rows| rows.into_iter().next())
+                    pub fn #fn_get(&self, value: #index_type) -> Option<#table_struct_name> {
+                        self.#fn_eq(value).into_iter().next()
                     }
                 }
             } else {
@@ -81,7 +81,7 @@ pub fn get_table_code(
 
             let btree_methods = if index.index_type == interstice_abi::IndexType::BTree {
                 quote! {
-                    pub fn #fn_lt(&self, value: #index_type) -> Result<Vec<#table_struct_name>, String> {
+                    pub fn #fn_lt(&self, value: #index_type) -> Vec<#table_struct_name> {
                         interstice_sdk::host_calls::scan_index(
                             #module_selection_tokens,
                             #table_name_lit.to_string(),
@@ -91,10 +91,13 @@ pub fn get_table_code(
                                     .expect("Failed to convert IntersticeValue to IndexKey"),
                             ),
                         )
-                        .map(|rows| rows.into_iter().map(|x| x.try_into().unwrap()).collect())
+                            .expect("Index scan failed")
+                            .into_iter()
+                            .map(|x| x.try_into().unwrap())
+                            .collect()
                     }
 
-                    pub fn #fn_lte(&self, value: #index_type) -> Result<Vec<#table_struct_name>, String> {
+                        pub fn #fn_lte(&self, value: #index_type) -> Vec<#table_struct_name> {
                         interstice_sdk::host_calls::scan_index(
                             #module_selection_tokens,
                             #table_name_lit.to_string(),
@@ -104,10 +107,13 @@ pub fn get_table_code(
                                     .expect("Failed to convert IntersticeValue to IndexKey"),
                             ),
                         )
-                        .map(|rows| rows.into_iter().map(|x| x.try_into().unwrap()).collect())
+                            .expect("Index scan failed")
+                            .into_iter()
+                            .map(|x| x.try_into().unwrap())
+                            .collect()
                     }
 
-                    pub fn #fn_gt(&self, value: #index_type) -> Result<Vec<#table_struct_name>, String> {
+                        pub fn #fn_gt(&self, value: #index_type) -> Vec<#table_struct_name> {
                         interstice_sdk::host_calls::scan_index(
                             #module_selection_tokens,
                             #table_name_lit.to_string(),
@@ -117,10 +123,13 @@ pub fn get_table_code(
                                     .expect("Failed to convert IntersticeValue to IndexKey"),
                             ),
                         )
-                        .map(|rows| rows.into_iter().map(|x| x.try_into().unwrap()).collect())
+                            .expect("Index scan failed")
+                            .into_iter()
+                            .map(|x| x.try_into().unwrap())
+                            .collect()
                     }
 
-                    pub fn #fn_gte(&self, value: #index_type) -> Result<Vec<#table_struct_name>, String> {
+                        pub fn #fn_gte(&self, value: #index_type) -> Vec<#table_struct_name> {
                         interstice_sdk::host_calls::scan_index(
                             #module_selection_tokens,
                             #table_name_lit.to_string(),
@@ -130,7 +139,10 @@ pub fn get_table_code(
                                     .expect("Failed to convert IntersticeValue to IndexKey"),
                             ),
                         )
-                        .map(|rows| rows.into_iter().map(|x| x.try_into().unwrap()).collect())
+                            .expect("Index scan failed")
+                            .into_iter()
+                            .map(|x| x.try_into().unwrap())
+                            .collect()
                     }
 
                     pub fn #fn_range(
@@ -139,7 +151,7 @@ pub fn get_table_code(
                         max: #index_type,
                         include_min: bool,
                         include_max: bool,
-                    ) -> Result<Vec<#table_struct_name>, String> {
+                    ) -> Vec<#table_struct_name> {
                         interstice_sdk::host_calls::scan_index(
                             #module_selection_tokens,
                             #table_name_lit.to_string(),
@@ -153,7 +165,10 @@ pub fn get_table_code(
                                 include_max,
                             },
                         )
-                        .map(|rows| rows.into_iter().map(|x| x.try_into().unwrap()).collect())
+                        .expect("Index scan failed")
+                        .into_iter()
+                        .map(|x| x.try_into().unwrap())
+                        .collect()
                     }
                 }
             } else {
@@ -161,7 +176,7 @@ pub fn get_table_code(
             };
 
             quote! {
-                pub fn #fn_eq(&self, value: #index_type) -> Result<Vec<#table_struct_name>, String> {
+                pub fn #fn_eq(&self, value: #index_type) -> Vec<#table_struct_name> {
                     interstice_sdk::host_calls::scan_index(
                         #module_selection_tokens,
                         #table_name_lit.to_string(),
@@ -171,7 +186,10 @@ pub fn get_table_code(
                                 .expect("Failed to convert IntersticeValue to IndexKey"),
                         ),
                     )
-                    .map(|rows| rows.into_iter().map(|x| x.try_into().unwrap()).collect())
+                    .expect("Index scan failed")
+                    .into_iter()
+                    .map(|x| x.try_into().unwrap())
+                    .collect()
                 }
 
                 #unique_method
@@ -205,12 +223,15 @@ pub fn get_table_code(
         }
 
         impl #table_handle_struct_name {
-            pub fn scan(&self) -> Result<Vec<#table_struct_name>, String> {
+            pub fn scan(&self) -> Vec<#table_struct_name> {
                 interstice_sdk::host_calls::scan(
                     #module_selection_tokens,
                     #table_name_lit.to_string(),
                 )
-                .map(|rows| rows.into_iter().map(|x| x.try_into().unwrap()).collect())
+                .expect("Table scan failed")
+                .into_iter()
+                .map(|x| x.try_into().unwrap())
+                .collect()
             }
 
             pub fn get(&self, primary_key: #primary_key_type) -> Option<#table_struct_name> {
@@ -220,8 +241,7 @@ pub fn get_table_code(
                     TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(primary_key))
                         .expect("Failed to convert IntersticeValue to IndexKey"),
                 )
-                .ok()
-                .and_then(|row| row)
+                .expect("Table get_by_primary_key failed")
                 .map(|row| row.try_into().unwrap())
             }
 

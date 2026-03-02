@@ -151,72 +151,6 @@ impl Node {
             gpu_call_receiver,
         );
 
-        // Load all modules in dependency order
-        let mut modules_to_load = Vec::new();
-        for entry in std::fs::read_dir(&modules_path).unwrap() {
-            let entry = entry.unwrap();
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-
-            std::fs::create_dir_all(path.join("logs")).unwrap();
-            std::fs::create_dir_all(path.join("snapshots")).unwrap();
-
-            let wasm_path = path.join("module.wasm");
-            if !wasm_path.exists() {
-                continue;
-            }
-
-            let module = Module::from_file(runtime.clone(), &wasm_path).await?;
-            modules_to_load.push((module.schema.name.clone(), module));
-        }
-
-        // Topologically sort modules so dependencies are loaded first
-        let mut remaining = modules_to_load;
-        let mut loaded = HashSet::new();
-        let all_names: HashSet<_> = remaining.iter().map(|(name, _)| name.clone()).collect();
-        while !remaining.is_empty() {
-            let mut progressed = false;
-            let mut next_remaining = Vec::new();
-
-            for (name, module) in remaining.into_iter() {
-                let deps = module
-                    .schema
-                    .module_dependencies
-                    .iter()
-                    .map(|d| d.module_name.clone())
-                    .collect::<Vec<_>>();
-
-                // Fail fast if a declared dependency is missing entirely from disk
-                if let Some(missing) = deps.iter().find(|d| !all_names.contains(*d)) {
-                    return Err(IntersticeError::ModuleNotFound(
-                        missing.clone(),
-                        format!("Required by '{}' on node startup", name),
-                    ));
-                }
-
-                if deps.iter().all(|d| loaded.contains(d)) {
-                    Runtime::load_module(runtime.clone(), module, false).await?;
-                    loaded.insert(name);
-                    progressed = true;
-                } else {
-                    next_remaining.push((name, module));
-                }
-            }
-
-            if !progressed {
-                return Err(IntersticeError::Internal(
-                    "Module dependency cycle detected while loading node modules".into(),
-                ));
-            }
-
-            remaining = next_remaining;
-        }
-
-        // Replay transaction logs to restore state once all modules are available
-        runtime.replay()?;
-
         let node = Self {
             id,
             runtime,
@@ -257,6 +191,8 @@ impl Node {
         network.listen()?;
         let _net_handle = network.run();
 
+        let runtime_for_thread = runtime.clone();
+
         thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -265,18 +201,21 @@ impl Node {
             let local = tokio::task::LocalSet::new();
             local.block_on(&rt, async move {
                 let audio_engine = AudioEngine::new(
-                    runtime.audio_state.clone(),
-                    runtime.authority_modules.clone(),
-                    runtime.event_sender.clone(),
+                    runtime_for_thread.audio_state.clone(),
+                    runtime_for_thread.authority_modules.clone(),
+                    runtime_for_thread.event_sender.clone(),
                 );
                 audio_engine.spawn();
-                Runtime::run(runtime, event_receiver).await;
+                Runtime::run(runtime_for_thread, event_receiver).await;
             });
         });
 
+        // Load persisted modules only after runtime loop is running so async schema
+        // responses required during module loading can be processed.
+        Node::load_modules_from_disk(runtime.clone()).await?;
+
         run_app_notify.notified().await;
         app.run();
-
         Ok(())
     }
 
@@ -324,5 +263,74 @@ impl Node {
             .unwrap()
             .parse()
             .unwrap()
+    }
+
+    async fn load_modules_from_disk(runtime: Arc<Runtime>) -> Result<(), IntersticeError> {
+        let Some(modules_path) = runtime.modules_path.clone() else {
+            return Ok(());
+        };
+
+        let mut modules_to_load = Vec::new();
+        for entry in std::fs::read_dir(&modules_path).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+
+            std::fs::create_dir_all(path.join("logs")).unwrap();
+            std::fs::create_dir_all(path.join("snapshots")).unwrap();
+
+            let wasm_path = path.join("module.wasm");
+            if !wasm_path.exists() {
+                continue;
+            }
+
+            let module = Module::from_file(runtime.clone(), &wasm_path).await?;
+            modules_to_load.push((module.schema.name.clone(), module));
+        }
+
+        let mut remaining = modules_to_load;
+        let mut loaded = HashSet::new();
+        let all_names: HashSet<_> = remaining.iter().map(|(name, _)| name.clone()).collect();
+        while !remaining.is_empty() {
+            let mut progressed = false;
+            let mut next_remaining = Vec::new();
+
+            for (name, module) in remaining.into_iter() {
+                let deps = module
+                    .schema
+                    .module_dependencies
+                    .iter()
+                    .map(|d| d.module_name.clone())
+                    .collect::<Vec<_>>();
+
+                if let Some(missing) = deps.iter().find(|d| !all_names.contains(*d)) {
+                    return Err(IntersticeError::ModuleNotFound(
+                        missing.clone(),
+                        format!("Required by '{}' on node startup", name),
+                    ));
+                }
+
+                if deps.iter().all(|d| loaded.contains(d)) {
+                    Runtime::load_module(runtime.clone(), module, false).await?;
+                    loaded.insert(name);
+                    progressed = true;
+                } else {
+                    next_remaining.push((name, module));
+                }
+            }
+
+            if !progressed {
+                return Err(IntersticeError::Internal(
+                    "Module dependency cycle detected while loading node modules".into(),
+                ));
+            }
+
+            remaining = next_remaining;
+        }
+
+        runtime.replay()?;
+        Ok(())
     }
 }

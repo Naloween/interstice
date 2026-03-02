@@ -39,7 +39,6 @@ fn on_insert_greetings(ctx: ReducerContext, inserted_row: Greetings) {
         .tables
         .greetings()
         .scan()
-        .unwrap()
     {
         ctx.log(&format!("All hello greetings: {}", greeting.greeting));
     }

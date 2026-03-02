@@ -5,13 +5,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use interstice_abi::{decode, encode, IndexKey, PersistenceKind, Row};
+use interstice_abi::{IndexKey, PersistenceKind, Row, decode, encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    error::IntersticeError,
-    runtime::table::Table,
-};
+use crate::{error::IntersticeError, runtime::table::Table};
 
 const SNAPSHOT_VERSION: u16 = 1;
 const SNAPSHOT_INTERVAL: u64 = 256;
@@ -169,14 +166,20 @@ impl TableStore {
         Ok(())
     }
 
-    pub fn restore_table(
-        &self,
-        module: &str,
-        table: &mut Table,
-    ) -> Result<(), IntersticeError> {
+    pub fn restore_table(&self, module: &str, table: &mut Table) -> Result<(), IntersticeError> {
         let Some(root) = &self.modules_root else {
             return Ok(());
         };
+
+        if table.schema.persistence == PersistenceKind::Ephemeral {
+            let state =
+                self.get_or_create_state(module, &table.schema.name, PersistenceKind::Ephemeral)?;
+            let mut guard = state.lock().unwrap();
+            guard.persistence = PersistenceKind::Ephemeral;
+            guard.last_snapshot_seq = 0;
+            guard.next_seq = 0;
+            return Ok(());
+        }
 
         let table_name = table.schema.name.clone();
         let module_paths = self.ensure_module_dirs(root, module)?;
@@ -197,7 +200,8 @@ impl TableStore {
             })?;
         }
 
-        let state = self.get_or_create_state(module, &table_name, table.schema.persistence.clone())?;
+        let state =
+            self.get_or_create_state(module, &table_name, table.schema.persistence.clone())?;
         let mut guard = state.lock().unwrap();
         guard.persistence = table.schema.persistence.clone();
         guard.last_snapshot_seq = last_seq;
@@ -303,7 +307,9 @@ impl TableStore {
     }
 
     fn log_path(&self, root: &Path, module: &str, table: &str) -> PathBuf {
-        root.join(module).join("logs").join(format!("{}.log", table))
+        root.join(module)
+            .join("logs")
+            .join(format!("{}.log", table))
     }
 
     fn append_log_entry(path: &Path, entry: &TableLogEntry) -> Result<(), IntersticeError> {
@@ -325,16 +331,12 @@ impl TableStore {
         file.write_all(&encoded).map_err(|err| {
             IntersticeError::Internal(format!("Failed to write log entry: {err}"))
         })?;
-        file.sync_data().map_err(|err| {
-            IntersticeError::Internal(format!("Failed to sync log file: {err}"))
-        })?;
+        file.sync_data()
+            .map_err(|err| IntersticeError::Internal(format!("Failed to sync log file: {err}")))?;
         Ok(())
     }
 
-    fn read_log_entries<F>(
-        path: &Path,
-        mut visitor: F,
-    ) -> Result<(), IntersticeError>
+    fn read_log_entries<F>(path: &Path, mut visitor: F) -> Result<(), IntersticeError>
     where
         F: FnMut(TableLogEntry) -> Result<(), IntersticeError>,
     {
@@ -345,9 +347,8 @@ impl TableStore {
         let mut file = File::open(path).map_err(|err| {
             IntersticeError::Internal(format!("Failed to open log file {:?}: {}", path, err))
         })?;
-        file.seek(SeekFrom::Start(0)).map_err(|err| {
-            IntersticeError::Internal(format!("Failed to seek log file: {err}"))
-        })?;
+        file.seek(SeekFrom::Start(0))
+            .map_err(|err| IntersticeError::Internal(format!("Failed to seek log file: {err}")))?;
 
         loop {
             let mut len_buf = [0u8; 4];
@@ -368,11 +369,7 @@ impl TableStore {
         Ok(())
     }
 
-    fn write_snapshot_file(
-        path: &Path,
-        seq: u64,
-        rows: &[Row],
-    ) -> Result<(), IntersticeError> {
+    fn write_snapshot_file(path: &Path, seq: u64, rows: &[Row]) -> Result<(), IntersticeError> {
         let snapshot = TableSnapshot {
             version: SNAPSHOT_VERSION,
             last_seq: seq,
@@ -397,10 +394,7 @@ impl TableStore {
             })?;
         }
         fs::rename(&tmp_path, path).map_err(|err| {
-            IntersticeError::Internal(format!(
-                "Failed to finalize snapshot {:?}: {}",
-                path, err
-            ))
+            IntersticeError::Internal(format!("Failed to finalize snapshot {:?}: {}", path, err))
         })?;
         Ok(())
     }
@@ -416,9 +410,8 @@ impl TableStore {
         let bytes = fs::read(path).map_err(|err| {
             IntersticeError::Internal(format!("Failed to read snapshot {:?}: {}", path, err))
         })?;
-        decode(&bytes).map_err(|err| {
-            IntersticeError::Internal(format!("Failed to decode snapshot: {err}"))
-        })
+        decode(&bytes)
+            .map_err(|err| IntersticeError::Internal(format!("Failed to decode snapshot: {err}")))
     }
 
     fn compact_log(path: &Path, keep_after_seq: u64) -> Result<(), IntersticeError> {

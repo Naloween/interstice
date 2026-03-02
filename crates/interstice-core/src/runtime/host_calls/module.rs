@@ -21,14 +21,32 @@ impl Runtime {
             } => match node_selection {
                 NodeSelection::Current => {
                     tokio::task::spawn_local(async move {
-                        let _ = Runtime::load_module(
-                            runtime.clone(),
-                            Module::from_bytes(runtime.clone(), &wasm_binary)
-                                .await
-                                .unwrap(),
-                            true,
-                        )
-                        .await;
+                        match Module::from_bytes(runtime.clone(), &wasm_binary).await {
+                            Ok(module) => {
+                                if let Err(err) =
+                                    Runtime::load_module(runtime.clone(), module, true).await
+                                {
+                                    runtime.logger.log(
+                                        &format!(
+                                            "Local publish failed while loading module: {}",
+                                            err
+                                        ),
+                                        crate::logger::LogSource::Runtime,
+                                        crate::logger::LogLevel::Error,
+                                    );
+                                }
+                            }
+                            Err(err) => {
+                                runtime.logger.log(
+                                    &format!(
+                                        "Local publish failed while instantiating module bytes: {}",
+                                        err
+                                    ),
+                                    crate::logger::LogSource::Runtime,
+                                    crate::logger::LogLevel::Error,
+                                );
+                            }
+                        }
                     });
                     ModuleCallResponse::Ok
                 }

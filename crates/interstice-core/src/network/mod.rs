@@ -325,6 +325,53 @@ impl Network {
                             },
                         })
                         .unwrap(),
+                    NetworkPacket::RequestUnsubscription(request_subscription) => self
+                        .runtime_event_sender
+                        .send(EventInstance::RequestUnsubscription {
+                            requesting_node_id: node_id,
+                            event: match request_subscription.event {
+                                protocol::TableEvent::Insert => SubscriptionEventSchema::Insert {
+                                    node_selection: NodeSelection::Current,
+                                    module_name: request_subscription.module_name,
+                                    table_name: request_subscription.table_name,
+                                },
+                                protocol::TableEvent::Update => SubscriptionEventSchema::Update {
+                                    node_selection: NodeSelection::Current,
+                                    module_name: request_subscription.module_name,
+                                    table_name: request_subscription.table_name,
+                                },
+                                protocol::TableEvent::Delete => SubscriptionEventSchema::Delete {
+                                    node_selection: NodeSelection::Current,
+                                    module_name: request_subscription.module_name,
+                                    table_name: request_subscription.table_name,
+                                },
+                            },
+                        })
+                        .unwrap(),
+                    NetworkPacket::RequestTableSync {
+                        module_name,
+                        table_name,
+                    } => self
+                        .runtime_event_sender
+                        .send(EventInstance::RequestTableSync {
+                            requesting_node_id: node_id,
+                            module_name,
+                            table_name,
+                        })
+                        .unwrap(),
+                    NetworkPacket::TableSyncResponse {
+                        module_name,
+                        table_name,
+                        rows,
+                    } => self
+                        .runtime_event_sender
+                        .send(EventInstance::RemoteTableSync {
+                            source_node_id: node_id,
+                            module_name,
+                            table_name,
+                            rows,
+                        })
+                        .unwrap(),
                     NetworkPacket::TableEvent(subscription_event) => {
                         self.runtime_event_sender
                             .send(match subscription_event {

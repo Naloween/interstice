@@ -1,6 +1,5 @@
 mod food;
 mod player;
-mod snapshot;
 
 use interstice_sdk::*;
 
@@ -13,7 +12,7 @@ interstice_module!(visibility: Public);
 
 const WORLD_SIZE: f32 = 2_000.0;
 
-const DT_MS: u64 = 50;
+const DT_MS: u64 = 16;
 
 #[interstice_type]
 #[derive(Debug, Clone)]
@@ -36,7 +35,7 @@ pub fn tick(ctx: ReducerContext) {
         return;
     }
     let dt = DT_MS as f32 / 1000.0;
-    let mut players = ctx.current.tables.player().scan().unwrap_or_default();
+    let mut players = ctx.current.tables.player().scan();
 
     // Move players
     for p in players.iter_mut() {
@@ -48,19 +47,18 @@ pub fn tick(ctx: ReducerContext) {
     }
 
     // Food collisions
-    let mut foods = ctx.current.tables.food().scan().unwrap_or_default();
-    foods.retain(|f| {
-        let mut eaten = false;
+    let foods = ctx.current.tables.food().scan();
+    let mut eaten_food_ids = Vec::new();
+    for food in &foods {
         for p in players.iter_mut() {
-            if collides(&p.pos, p.radius, &f.pos, f.radius) {
-                let added_area = std::f32::consts::PI * f.radius * f.radius;
+            if collides(&p.pos, p.radius, &food.pos, food.radius) {
+                let added_area = std::f32::consts::PI * food.radius * food.radius;
                 p.radius = grow_radius(p.radius, added_area);
-                eaten = true;
+                eaten_food_ids.push(food.id);
                 break;
             }
         }
-        !eaten
-    });
+    }
 
     // Player vs player
     for i in 0..players.len() {
@@ -96,10 +94,9 @@ pub fn tick(ctx: ReducerContext) {
         }
     }
 
-    // Persist foods (rewrite table)
-    let _ = ctx.current.tables.food().clear();
-    for f in foods {
-        let _ = ctx.current.tables.food().insert(f);
+    // Persist foods incrementally: remove only eaten foods.
+    for food_id in eaten_food_ids {
+        let _ = ctx.current.tables.food().delete(food_id);
     }
 
     spawn_missing_foods(&ctx);
