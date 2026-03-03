@@ -407,7 +407,9 @@ impl Runtime {
             .await
             .unwrap();
 
-        memory.write(&mut caller, ptr as usize, bytes).unwrap();
+        memory
+            .write(&mut caller, (ptr as u32) as usize, bytes)
+            .unwrap();
 
         (ptr, bytes.len() as i32)
     }

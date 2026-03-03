@@ -5,7 +5,7 @@ use crate::{
     runtime::{
         Runtime,
         authority::AuthorityEntry,
-        event::{EventInstance, SubscriptionTarget},
+        event::EventInstance,
         table::Table,
         wasm::{StoreState, instance::WasmInstance},
     },
@@ -137,17 +137,6 @@ impl Runtime {
         fire_init: bool,
     ) -> Result<ModuleSchema, IntersticeError> {
         let module_schema = module.schema.clone();
-
-        runtime.logger.log(
-            &format!(
-                "Loading module '{}' (replicated_tables={}, subscriptions={})",
-                module_schema.name,
-                module_schema.replicated_tables.len(),
-                module_schema.subscriptions.len()
-            ),
-            LogSource::Runtime,
-            LogLevel::Info,
-        );
 
         // If the module requires GPU authority and the app is not initialized yet, initialize it
         if module_schema
@@ -322,18 +311,6 @@ impl Runtime {
         // Configure explicit replicated remote public tables
         let mut remote_node_schemas: HashMap<String, NodeSchema> = HashMap::new();
         for replicated in &module_schema.replicated_tables {
-            runtime.logger.log(
-                &format!(
-                    "Configuring replica '{}.{}.{}' for module '{}'",
-                    replicated.node_name,
-                    replicated.module_name,
-                    replicated.table_name,
-                    module_schema.name
-                ),
-                LogSource::Runtime,
-                LogLevel::Info,
-            );
-
             let node_dependency = module_schema
                 .node_dependencies
                 .iter()
@@ -464,22 +441,6 @@ impl Runtime {
                         event,
                     }),
                 );
-
-                runtime.logger.log(
-                    &format!(
-                        "Requested remote subscription '{}' for '{}.{}' from node {}",
-                        match event {
-                            TableEvent::Insert => "insert",
-                            TableEvent::Update => "update",
-                            TableEvent::Delete => "delete",
-                        },
-                        binding.source_module_name,
-                        binding.source_table_name,
-                        binding.source_node_id
-                    ),
-                    LogSource::Runtime,
-                    LogLevel::Info,
-                );
             }
 
             runtime.network_handle.send_packet(
@@ -489,34 +450,29 @@ impl Runtime {
                     table_name: binding.source_table_name.clone(),
                 },
             );
-
-            runtime.logger.log(
-                &format!(
-                    "Requested table sync for '{}.{}' from node {}",
-                    binding.source_module_name, binding.source_table_name, binding.source_node_id
-                ),
-                LogSource::Runtime,
-                LogLevel::Info,
-            );
         }
 
         setup_file_watches(runtime.clone(), &module_schema)?;
 
-        // Run init/load subscriptions synchronously to guarantee module initialization
-        // before dependent modules start and before regular runtime events proceed.
+        // Trigger startup events asynchronously via the runtime event queue.
         if fire_init {
             runtime
-                .run_startup_subscriptions(EventInstance::Init {
+                .event_sender
+                .send(EventInstance::Init {
                     module_name: module_schema.name.clone(),
                 })
-                .await?;
+                .map_err(|err| {
+                    IntersticeError::Internal(format!("Failed to send Init event: {}", err))
+                })?;
         }
-
         runtime
-            .run_startup_subscriptions(EventInstance::Load {
+            .event_sender
+            .send(EventInstance::Load {
                 module_name: module_schema.name.clone(),
             })
-            .await?;
+            .map_err(|err| {
+                IntersticeError::Internal(format!("Failed to send Load event: {}", err))
+            })?;
 
         // Logging
         runtime.logger.log(
@@ -526,30 +482,6 @@ impl Runtime {
         );
 
         return Ok(module_schema.as_ref().clone());
-    }
-
-    async fn run_startup_subscriptions(&self, event: EventInstance) -> Result<(), IntersticeError> {
-        let triggered = self.find_subscriptions(&event)?;
-
-        for target in triggered {
-            match target {
-                SubscriptionTarget::Local { module, reducer } => {
-                    self.call_reducer(
-                        &module,
-                        &reducer,
-                        IntersticeValue::Vec(vec![]),
-                        self.network_handle.node_id,
-                    )
-                    .await?;
-                }
-                SubscriptionTarget::Remote(node_id) => {
-                    let _ = self
-                        .invoke_subscription(SubscriptionTarget::Remote(node_id), event.clone());
-                }
-            }
-        }
-
-        Ok(())
     }
 
     pub(crate) async fn request_node_schema(
@@ -737,19 +669,6 @@ impl Runtime {
             .cloned()
             .collect::<Vec<_>>();
 
-        self.logger.log(
-            &format!(
-                "Applying replica full sync from {} for '{}.{}' ({} rows, {} bindings)",
-                source_node_id,
-                source_module_name,
-                source_table_name,
-                rows.len(),
-                bindings.len()
-            ),
-            LogSource::Runtime,
-            LogLevel::Info,
-        );
-
         for binding in bindings {
             let mut restored = false;
             if let Some(module) = self.modules.lock().unwrap().get(&binding.owner_module_name) {
@@ -766,15 +685,6 @@ impl Runtime {
 
             if restored {
                 self.emit_replica_sync_event_if_needed(&binding);
-            } else {
-                self.logger.log(
-                    &format!(
-                        "Replica full sync target missing for owner='{}' local_table='{}'",
-                        binding.owner_module_name, binding.local_table_name
-                    ),
-                    LogSource::Runtime,
-                    LogLevel::Warning,
-                );
             }
         }
     }

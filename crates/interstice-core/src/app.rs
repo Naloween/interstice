@@ -15,9 +15,8 @@ use pollster::FutureExt;
 use std::{
     hash::{Hash, Hasher},
     sync::{Arc, Mutex, mpsc::Receiver},
-    time::Duration,
 };
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, DeviceId, WindowEvent},
@@ -101,7 +100,7 @@ impl ApplicationHandler for App {
                 };
 
                 if let Some((module_name, reducer_name)) = render_target {
-                    let (done_tx, done_rx) = std::sync::mpsc::channel();
+                    let (done_tx, done_rx) = oneshot::channel();
                     let send_result = self.runtime.reducer_sender.send(ReducerJob {
                         module_name,
                         reducer_name,
@@ -141,13 +140,13 @@ impl ApplicationHandler for App {
 }
 
 impl App {
-    fn wait_for_render_completion(&mut self, done_rx: std::sync::mpsc::Receiver<()>) {
+    fn wait_for_render_completion(&mut self, mut done_rx: oneshot::Receiver<()>) {
         loop {
             self.drain_gpu_calls();
-            match done_rx.recv_timeout(Duration::from_millis(1)) {
+            match done_rx.try_recv() {
                 Ok(()) => break,
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => continue,
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => break,
             }
         }
     }

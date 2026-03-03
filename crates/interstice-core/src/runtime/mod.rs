@@ -298,14 +298,6 @@ impl Runtime {
                 module_name,
                 table_name,
             } => {
-                runtime.logger.log(
-                    &format!(
-                        "Received table sync request from {} for '{}.{}'",
-                        requesting_node_id, module_name, table_name
-                    ),
-                    LogSource::Runtime,
-                    LogLevel::Info,
-                );
                 let rows_result = {
                     let modules = runtime.modules.lock().unwrap();
                     let module = modules.get(&module_name).ok_or_else(|| {
@@ -366,17 +358,6 @@ impl Runtime {
                 table_name,
                 rows,
             } => {
-                runtime.logger.log(
-                    &format!(
-                        "Received table sync response from {} for '{}.{}' ({} rows)",
-                        source_node_id,
-                        module_name,
-                        table_name,
-                        rows.len()
-                    ),
-                    LogSource::Runtime,
-                    LogLevel::Info,
-                );
                 runtime.apply_replica_full_sync(source_node_id, &module_name, &table_name, rows);
             }
             EventInstance::PublishModule {

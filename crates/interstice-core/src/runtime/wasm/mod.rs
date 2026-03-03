@@ -18,9 +18,13 @@ pub fn read_bytes(
     ptr: i32,
     len: i32,
 ) -> Result<Vec<u8>, IntersticeError> {
+    if len < 0 {
+        return Err(IntersticeError::MemoryRead);
+    }
+
     let mut out = vec![0u8; len as usize];
     memory
-        .read(caller, ptr as usize, &mut out)
+        .read(caller, (ptr as u32) as usize, &mut out)
         .map_err(|_| IntersticeError::MemoryRead)?;
     return Ok(out);
 }

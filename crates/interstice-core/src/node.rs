@@ -331,6 +331,7 @@ impl Node {
         }
 
         runtime.replay()?;
+
         Ok(())
     }
 }

@@ -87,7 +87,6 @@ fn on_input(ctx: ReducerContext, event: InputEvent) {
             state,
             ..
         } => {
-            ctx.log(&format!("Key event: {:?} is now {:?}", physical_key, state));
             let code = match physical_key {
                 PhysicalKey::Code(key_code) => key_code as u32,
                 PhysicalKey::Unidentified(code) => code,

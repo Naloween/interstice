@@ -53,9 +53,13 @@ impl WasmInstance {
         let ptr = (packed >> 32) as i32;
         let len = (packed & 0xffffffff) as i32;
 
+        if len < 0 {
+            return Err(IntersticeError::MemoryRead);
+        }
+
         let mut bytes = vec![0u8; len as usize];
         self.memory
-            .read(&mut self.store, ptr as usize, &mut bytes)
+            .read(&mut self.store, (ptr as u32) as usize, &mut bytes)
             .map_err(|_| IntersticeError::MemoryRead)?;
 
         // IMPORTANT: module owns allocation → module must free
@@ -107,7 +111,7 @@ impl WasmInstance {
 
         // write args
         self.memory
-            .write(&mut self.store, ptr as usize, &args_bytes)
+            .write(&mut self.store, (ptr as u32) as usize, &args_bytes)
             .map_err(|_| IntersticeError::MemoryWrite)?;
 
         // --- call reducer ---
@@ -161,7 +165,7 @@ impl WasmInstance {
 
         // write args
         self.memory
-            .write(&mut self.store, ptr as usize, &args_bytes)
+            .write(&mut self.store, (ptr as u32) as usize, &args_bytes)
             .map_err(|_| IntersticeError::MemoryWrite)?;
 
         // --- call query ---
@@ -180,9 +184,13 @@ impl WasmInstance {
         let res_ptr = (packed >> 32) as i32;
         let res_len = (packed & 0xffffffff) as i32;
 
+        if res_len < 0 {
+            return Err(IntersticeError::MemoryRead);
+        }
+
         let mut out = vec![0u8; res_len as usize];
         self.memory
-            .read(&mut self.store, res_ptr as usize, &mut out)
+            .read(&mut self.store, (res_ptr as u32) as usize, &mut out)
             .map_err(|_| IntersticeError::MemoryRead)?;
 
         // free output

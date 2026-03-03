@@ -34,70 +34,16 @@ pub fn init(ctx: ReducerContext) {
 }
 
 #[reducer(on = "agar-server.agar-server.player.sync")]
-pub fn on_player_sync(ctx: ReducerContext) {
-    ctx.log("Player table synced");
-}
+pub fn on_player_sync(_ctx: ReducerContext) {}
 
 #[reducer(on = "graphics.frametick.update")]
-pub fn on_frame(ctx: ReducerContext, _prev: FrameTick, tick: FrameTick) {
+pub fn on_frame(ctx: ReducerContext, _prev: FrameTick, _tick: FrameTick) {
     let server = ctx.agar_server().agar_server();
-    let profile = tick.frame % 60 == 0;
-    let frame_start = if profile {
-        ctx.time_now_ms().ok()
-    } else {
-        None
-    };
-
-    let input_start = if profile {
-        ctx.time_now_ms().ok()
-    } else {
-        None
-    };
     let (dx, dy) = input_dir(&ctx);
-    let input_end = if profile {
-        ctx.time_now_ms().ok()
-    } else {
-        None
-    };
-
-    let set_dir_start = if profile {
-        ctx.time_now_ms().ok()
-    } else {
-        None
-    };
     if let Err(err) = server.reducers.set_direction(dx, dy) {
         ctx.log(&format!("set_direction failed: {}", err));
     }
-    let set_dir_end = if profile {
-        ctx.time_now_ms().ok()
-    } else {
-        None
-    };
-
-    let render_start = if profile {
-        ctx.time_now_ms().ok()
-    } else {
-        None
-    };
-    let (player_count, food_count, draw_calls, graphics_api_calls) = render_world(&ctx);
-    let render_end = if profile {
-        ctx.time_now_ms().ok()
-    } else {
-        None
-    };
-
-    if profile {
-        let frame_end = ctx.time_now_ms().ok();
-        let input_ms = elapsed_ms(input_start, input_end);
-        let set_dir_ms = elapsed_ms(set_dir_start, set_dir_end);
-        let render_ms = elapsed_ms(render_start, render_end);
-        let total_ms = elapsed_ms(frame_start, frame_end);
-
-        ctx.log(&format!(
-            "perf frame={} total={}ms input={}ms set_dir={}ms render={}ms players={} foods={} draws={} gfx_calls={}",
-            tick.frame, total_ms, input_ms, set_dir_ms, render_ms, player_count, food_count, draw_calls, graphics_api_calls
-        ));
-    }
+    render_world(&ctx);
 }
 
 fn input_dir(ctx: &ReducerContext) -> (f32, f32) {
@@ -134,12 +80,10 @@ fn input_dir(ctx: &ReducerContext) -> (f32, f32) {
     }
 }
 
-fn render_world(ctx: &ReducerContext) -> (usize, usize, usize, usize) {
+fn render_world(ctx: &ReducerContext) {
     let server = ctx.agar_server().agar_server();
     let players = server.tables.player().scan();
     let foods = server.tables.food().scan();
-    let mut draw_calls = 0usize;
-    let mut graphics_api_calls = 0usize;
 
     let graphics = ctx.graphics();
     let camera = players
@@ -156,7 +100,6 @@ fn render_world(ctx: &ReducerContext) -> (usize, usize, usize, usize) {
     for food in &foods {
         food_centers.push(world_to_screen(&food.pos, &camera));
         food_radii.push(food.radius);
-        draw_calls += 1;
     }
     if !food_centers.is_empty() {
         let _ = graphics.reducers.draw_circles(
@@ -172,7 +115,6 @@ fn render_world(ctx: &ReducerContext) -> (usize, usize, usize, usize) {
             true,
             0.0,
         );
-        graphics_api_calls += 1;
     }
 
     for player in &players {
@@ -186,8 +128,6 @@ fn render_world(ctx: &ReducerContext) -> (usize, usize, usize, usize) {
             true,
             2.0,
         );
-        graphics_api_calls += 1;
-        draw_calls += 1;
 
         let text_pos = Vec2 {
             x: pos.x - player.radius,
@@ -206,17 +146,6 @@ fn render_world(ctx: &ReducerContext) -> (usize, usize, usize, usize) {
             },
             None,
         );
-        graphics_api_calls += 1;
-        draw_calls += 1;
-    }
-
-    (players.len(), foods.len(), draw_calls, graphics_api_calls)
-}
-
-fn elapsed_ms(start: Option<u64>, end: Option<u64>) -> u64 {
-    match (start, end) {
-        (Some(start), Some(end)) if end >= start => end - start,
-        _ => 0,
     }
 }
 

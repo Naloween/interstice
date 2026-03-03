@@ -6,15 +6,15 @@ use crate::{
 use interstice_abi::{IntersticeValue, ReducerContext};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::sync::mpsc;
+use tokio::sync::oneshot;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ReducerJob {
     pub module_name: String,
     pub reducer_name: String,
     pub input: IntersticeValue,
     pub caller_node_id: crate::node::NodeId,
-    pub completion: Option<mpsc::Sender<()>>,
+    pub completion: Option<oneshot::Sender<()>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,10 +44,10 @@ impl CallFrame {
     }
 }
 
-pub struct CompletionGuard(Option<mpsc::Sender<()>>);
+pub struct CompletionGuard(Option<oneshot::Sender<()>>);
 
 impl CompletionGuard {
-    pub fn new(sender: mpsc::Sender<()>) -> Self {
+    pub fn new(sender: oneshot::Sender<()>) -> Self {
         Self(Some(sender))
     }
 }
