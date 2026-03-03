@@ -445,6 +445,7 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 
 ## Runtime and data model
 
+- Bundles to ship nodes as a whole program
 - Table migrations and schema evolution without data loss
 - Better Default system modules (ModuleManager, Graphics, Inputs)
 - Audio authority and host calls
