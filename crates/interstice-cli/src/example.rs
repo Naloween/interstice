@@ -1,6 +1,7 @@
 use crate::{
     data_directory::nodes_dir,
     node_registry::{NodeRecord, NodeRegistry},
+    node_utils,
 };
 use interstice_core::{IntersticeError, Node};
 
@@ -20,10 +21,25 @@ const AUDIO_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/module_examples/audio_example.wasm"
 ));
+const AGAR_SERVER_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/module_examples/agar_server.wasm"
+));
+const AGAR_CLIENT_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/module_examples/agar_client.wasm"
+));
+const DEFAULT_GRAPHICS_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/module_defaults/graphics.wasm"
+));
+const DEFAULT_INPUT_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/module_defaults/input.wasm"
+));
 
 struct ExampleModule {
     bytes: &'static [u8],
-    public: bool,
 }
 
 struct ExampleConfig {
@@ -37,17 +53,13 @@ fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> 
         "hello" => Ok(ExampleConfig {
             name: "hello-example",
             port: 8080,
-            modules: vec![ExampleModule {
-                bytes: HELLO_BYTES,
-                public: false,
-            }],
+            modules: vec![ExampleModule { bytes: HELLO_BYTES }],
         }),
         "caller" => Ok(ExampleConfig {
             name: "caller-example",
             port: 8081,
             modules: vec![ExampleModule {
                 bytes: CALLER_BYTES,
-                public: true,
             }],
         }),
         "graphics" => Ok(ExampleConfig {
@@ -55,19 +67,37 @@ fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> 
             port: 8082,
             modules: vec![ExampleModule {
                 bytes: GRAPHICS_BYTES,
-                public: true,
             }],
         }),
         "audio" => Ok(ExampleConfig {
             name: "audio-example",
             port: 8083,
+            modules: vec![ExampleModule { bytes: AUDIO_BYTES }],
+        }),
+        "agar-server" => Ok(ExampleConfig {
+            name: "agar-server-example",
+            port: 8080,
             modules: vec![ExampleModule {
-                bytes: AUDIO_BYTES,
-                public: false,
+                bytes: AGAR_SERVER_BYTES,
             }],
         }),
+        "agar-client" => Ok(ExampleConfig {
+            name: "agar-client-example",
+            port: 8084,
+            modules: vec![
+                ExampleModule {
+                    bytes: DEFAULT_INPUT_BYTES,
+                },
+                ExampleModule {
+                    bytes: DEFAULT_GRAPHICS_BYTES,
+                },
+                ExampleModule {
+                    bytes: AGAR_CLIENT_BYTES,
+                },
+            ],
+        }),
         _ => Err(IntersticeError::Internal(format!(
-            "Unknown example '{example_name}'. Expected hello, caller, graphics, or audio."
+            "Unknown example '{example_name}'. Expected hello, caller, graphics, audio, agar-server, or agar-client."
         ))),
     }
 }
@@ -76,61 +106,36 @@ pub async fn example(example_name: &str) -> Result<(), IntersticeError> {
     let config = example_config(example_name)?;
     let mut registry = NodeRegistry::load()?;
     let name = config.name.to_string();
-    let (node, is_new) = if let Some(entry) = registry.get(&name) {
-        let node_id = entry
-            .node_id
-            .as_ref()
-            .ok_or_else(|| IntersticeError::Internal("Missing node id".into()))?;
-        let node_port = entry
-            .address
-            .split(':')
-            .last()
-            .ok_or_else(|| IntersticeError::Internal("Invalid address".into()))?
-            .parse()
-            .map_err(|_| IntersticeError::Internal("Invalid port".into()))?;
-        if node_port != config.port {
-            return Err(IntersticeError::Internal(format!(
-                "Example '{}' expects port {}, but registry has {}. Remove the existing entry to continue.",
-                config.name, config.port, node_port
-            )));
-        }
-        (
-            Node::load(&nodes_dir(), node_id.parse().unwrap(), node_port).await?,
-            false,
-        )
-    } else {
-        let node = Node::new(&nodes_dir(), config.port)?;
-        registry.add(NodeRecord {
-            name,
-            address: format!("127.0.0.1:{}", config.port),
-            node_id: Some(node.id.to_string()),
-            local: true,
-            last_seen: None,
-        })?;
-        (node, true)
-    };
 
-    let modules_path = nodes_dir().join(node.id.to_string()).join("modules");
-    let has_modules = std::fs::read_dir(&modules_path)
-        .map(|entries| {
-            entries.filter_map(|entry| entry.ok()).any(|entry| {
-                let path = entry.path();
-                path.is_dir() && path.join("module.wasm").exists()
-            })
-        })
-        .unwrap_or(false);
-
-    if is_new || !has_modules {
-        for module in &config.modules {
-            let schema = node.load_module_from_bytes(module.bytes).await?;
-            if module.public {
-                let _ = schema.to_public();
-            }
-        }
+    // Remove existing node if present to ensure clean state
+    if registry.get(&name).is_some() {
+        node_utils::remove_node_with_data(&mut registry, &name)?;
     }
 
-    let _node_schema = node.schema("MyNode".into()).await.to_public();
+    // Create new node
+    let node = Node::new(&nodes_dir(), config.port)?;
+    registry.add(NodeRecord {
+        name,
+        address: format!("127.0.0.1:{}", config.port),
+        node_id: Some(node.id.to_string()),
+        local: true,
+        last_seen: None,
+    })?;
 
+    // Write module bytes directly to disk (node.start() will load them)
+    let modules_path = nodes_dir().join(node.id.to_string()).join("modules");
+    for (idx, module_config) in config.modules.iter().enumerate() {
+        // Use a simple directory name (actual module name will be read from WASM)
+        let module_dir = modules_path.join(format!("module_{}", idx));
+        std::fs::create_dir_all(&module_dir).map_err(|err| {
+            IntersticeError::Internal(format!("Failed to create module directory: {err}"))
+        })?;
+        std::fs::write(module_dir.join("module.wasm"), module_config.bytes).map_err(|err| {
+            IntersticeError::Internal(format!("Failed to write module WASM: {err}"))
+        })?;
+    }
+
+    // Now start the node, which will load modules from disk
     node.start().await?;
     Ok(())
 }

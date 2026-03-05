@@ -7,5 +7,6 @@ pub mod init;
 pub mod module;
 pub mod node_client;
 pub mod node_registry;
+pub mod node_utils;
 pub mod start;
 pub mod update;

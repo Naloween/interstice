@@ -118,7 +118,7 @@ fn print_help() {
     println!("  bindings add module <node> <module> [project_path]  Add module binding");
     println!("  bindings add node <node> [project_path]            Add node binding");
     println!(
-        "  example <hello|caller|graphics|audio>  Start a named example (ports: hello=8080, caller=8081, graphics=8082, audio=8083)"
+        "  example <hello|caller|graphics|audio|agar-server|agar-client>  Start a named example (ports: hello=8080, caller=8081, graphics=8082, audio=8083, agar-server=8080, agar-client=8084)"
     );
     println!(
         "  init                                   Initialize a new interstice module project in the current directory"
@@ -195,20 +195,7 @@ async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError> {
                 print_help();
                 return Ok(());
             }
-            let removed = registry.remove(&args[3])?;
-            if removed.local {
-                if let Some(node_id) = removed.node_id {
-                    let node_path = nodes_dir().join(node_id);
-                    if node_path.exists() {
-                        std::fs::remove_dir_all(&node_path).map_err(|err| {
-                            IntersticeError::Internal(format!(
-                                "Failed to remove node data {}: {err}",
-                                node_path.display()
-                            ))
-                        })?;
-                    }
-                }
-            }
+            interstice_cli::node_utils::remove_node_with_data(&mut registry, &args[3])?;
             println!("Node removed.");
         }
         "rename" => {

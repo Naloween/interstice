@@ -51,13 +51,13 @@ Move-Item .\interstice.exe "$Env:USERPROFILE\AppData\Local\Microsoft\WindowsApps
 interstice --help
 ```
 
-If `interstice` is not found, ensure the destination folder is on your PATH.
-
 From crates.io:
 
 ```bash
 cargo install interstice-cli
 ```
+
+If `interstice` is not found, ensure the destination folder is on your PATH.
 
 ---
 
@@ -361,8 +361,10 @@ There is no manual way to publish to an already running node. See the CLI flow b
 
 ## Example command
 
-- `interstice example <hello|caller|graphics|audio>`
-- Built-in ports are fixed by example name: `hello=8080`, `caller=8081`, `graphics=8082`, `audio=8083`.
+- `interstice example <hello|caller|graphics|audio|agar-server|agar-client>`
+- Built-in ports are fixed by example name: `hello=8080`, `caller=8081`, `graphics=8082`, `audio=8083`, `agar-server=8080`, `agar-client=8084`.
+- Running the same example command multiple times recreates the example node (removes existing data and registry entry, then creates the node afresh with the example modules).
+- **Important**: Stop any running example instance (Ctrl+C) before running the command again to avoid conflicts.
 
 ## Bindings helpers
 
