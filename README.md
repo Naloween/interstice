@@ -63,7 +63,23 @@ cargo install interstice-cli
 
 # Quickstart
 
-Prerequisites
+Start the hello example:
+
+```bash
+interstice example hello
+```
+
+Start the caller example to simulate remote interactions:
+
+```bash
+interstice example caller
+```
+
+---
+
+# Module authoring
+
+## Prerequisites
 
 - Rust toolchain (stable) and `cargo`
 - Add the WASM target:
@@ -71,31 +87,6 @@ Prerequisites
 ```bash
 rustup target add wasm32-unknown-unknown
 ```
-
-Build example modules (from workspace root):
-
-```bash
-cargo build -p hello
-cargo build -p caller
-cargo build -p graphics
-cargo build -p audio
-```
-
-Start the hello example:
-
-```bash
-cargo run -p interstice-cli example hello
-```
-
-Start the caller example to simulate remote interactions:
-
-```bash
-cargo run -p interstice-cli example caller
-```
-
----
-
-# Module authoring
 
 ## Quickstart
 
@@ -108,7 +99,7 @@ interstice init
 ## Minimal layout
 
 - `Cargo.toml` — set `crate-type = ["cdylib"]` and depend on `interstice-sdk`.
-- `build.rs` — optional helper to produce the WASM artifact.
+- `build.rs` — generate module bindings.
 - `src/lib.rs` — module implementation.
 
 ## SDK macros & patterns
