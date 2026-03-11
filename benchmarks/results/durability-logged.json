@@ -1,0 +1,53 @@
+{
+  "name": "durability-logged",
+  "node": "benchmark-example",
+  "module_name": "benchmark-workload",
+  "reducer_name": "tx_insert_logged",
+  "transport": "persistent",
+  "warmup_ms": 5000,
+  "duration_ms": 20000,
+  "connections": 4,
+  "rate": null,
+  "sent_warmup": 2256137,
+  "sent_measured": 8935031,
+  "failed": 0,
+  "throughput_tps": 446751.55,
+  "write_latency_us_mean": 7.106041911774005,
+  "write_latency_us_p50": 4.051,
+  "write_latency_us_p95": 10.2,
+  "write_latency_us_p99": 16.896,
+  "write_latency_us_max": 244780.408,
+  "started_at_ms": 1772730165439,
+  "ended_at_ms": 1772730190499,
+  "worker_summaries": [
+    {
+      "worker_id": 0,
+      "client_id": "bench-client-0",
+      "attempted": 3082457,
+      "measured_sent": 2559415,
+      "last_seq": 3082456
+    },
+    {
+      "worker_id": 1,
+      "client_id": "bench-client-1",
+      "attempted": 2300634,
+      "measured_sent": 1899050,
+      "last_seq": 1002300633
+    },
+    {
+      "worker_id": 2,
+      "client_id": "bench-client-2",
+      "attempted": 3212702,
+      "measured_sent": 2502989,
+      "last_seq": 2003212701
+    },
+    {
+      "worker_id": 3,
+      "client_id": "bench-client-3",
+      "attempted": 2595375,
+      "measured_sent": 1973577,
+      "last_seq": 3002595374
+    }
+  ],
+  "verification": null
+}

@@ -1,0 +1,39 @@
+{
+  "name": "transport-reconnect",
+  "node": "benchmark-example",
+  "module_name": "benchmark-workload",
+  "reducer_name": "tx_insert_ephemeral",
+  "transport": "reconnect",
+  "warmup_ms": 5000,
+  "duration_ms": 20000,
+  "connections": 2,
+  "rate": null,
+  "sent_warmup": 13727,
+  "sent_measured": 53818,
+  "failed": 6653,
+  "throughput_tps": 2690.9,
+  "write_latency_us_mean": 667.6747594113493,
+  "write_latency_us_p50": 268.615,
+  "write_latency_us_p95": 618.056,
+  "write_latency_us_p99": 2634.877,
+  "write_latency_us_max": 173923.661,
+  "started_at_ms": 1772730219589,
+  "ended_at_ms": 1772730244589,
+  "worker_summaries": [
+    {
+      "worker_id": 0,
+      "client_id": "bench-client-0",
+      "attempted": 37031,
+      "measured_sent": 26838,
+      "last_seq": 37030
+    },
+    {
+      "worker_id": 1,
+      "client_id": "bench-client-1",
+      "attempted": 37167,
+      "measured_sent": 26980,
+      "last_seq": 1000037166
+    }
+  ],
+  "verification": null
+}

@@ -272,16 +272,20 @@ impl Runtime {
                 let module = modules.get_mut(&module_name).ok_or_else(|| {
                     IntersticeError::ModuleNotFound(
                         module_name.clone(),
-                        format!("When trying to clear table '{}' from '{}'", table_name, module_name),
+                        format!(
+                            "When trying to clear table '{}' from '{}'",
+                            table_name, module_name
+                        ),
                     )
                 })?;
                 let mut tables = module.tables.lock().unwrap();
-                let table = tables
-                    .get_mut(&table_name)
-                    .ok_or_else(|| IntersticeError::TableNotFound {
-                        module_name: module_name.clone(),
-                        table_name: table_name.clone(),
-                    })?;
+                let table =
+                    tables
+                        .get_mut(&table_name)
+                        .ok_or_else(|| IntersticeError::TableNotFound {
+                            module_name: module_name.clone(),
+                            table_name: table_name.clone(),
+                        })?;
                 persistence_kind = table.schema.persistence.clone();
 
                 let deleted_rows = table.snapshot_rows();

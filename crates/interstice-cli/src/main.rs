@@ -1,19 +1,17 @@
 // Interstice CLI - Command-line interface
 
 use interstice_cli::{
-    bindings::{add_module_binding, add_node_binding},
+    benchmark::handle_benchmark_command,
+    bindings::handle_bindings_command,
     call_query::call_query,
     call_reducer::call_reducer,
-    data_directory::nodes_dir,
     example::example,
     init::init,
     module::{publish, remove},
-    node_client::handshake_with_node,
-    node_registry::{NodeRecord, NodeRegistry},
-    start::start,
+    node_utils::handle_node_command,
     update::update,
 };
-use interstice_core::{IntersticeError, Node, interstice_abi::IntersticeValue};
+use interstice_core::{IntersticeError, interstice_abi::IntersticeValue};
 use std::path::Path;
 
 #[tokio::main]
@@ -44,7 +42,7 @@ async fn main() -> Result<(), IntersticeError> {
                 return Ok(());
             }
             let node_ref = args[2].clone();
-            let module_project_path = std::path::Path::new(&args[3]);
+            let module_project_path = Path::new(&args[3]);
             publish(node_ref, module_project_path).await
         }
         "update" => update(),
@@ -87,6 +85,7 @@ async fn main() -> Result<(), IntersticeError> {
             let input = IntersticeValue::Vec(input_vec);
             call_query(node_ref, module_name, query_name, input.into()).await
         }
+        "benchmark" => handle_benchmark_command(&args).await,
         "help" | "-h" | "--help" => {
             print_help();
             Ok(())
@@ -118,7 +117,7 @@ fn print_help() {
     println!("  bindings add module <node> <module> [project_path]  Add module binding");
     println!("  bindings add node <node> [project_path]            Add node binding");
     println!(
-        "  example <hello|caller|graphics|audio|agar-server|agar-client>  Start a named example (ports: hello=8080, caller=8081, graphics=8082, audio=8083, agar-server=8080, agar-client=8084)"
+        "  example <hello|caller|graphics|audio|agar-server|agar-client|benchmark>  Start a named example (ports: hello=8080, caller=8081, graphics=8082, audio=8083, agar-server=8080, agar-client=8084, benchmark=8085)"
     );
     println!(
         "  init                                   Initialize a new interstice module project in the current directory"
@@ -132,204 +131,9 @@ fn print_help() {
     println!(
         "  call_query <node> <module_name> <query_name>        Call a query of a module on a node"
     );
+    println!("  benchmark <...>                    Run benchmark workloads and scenarios");
     println!("  help                             Show this help message");
     println!();
     println!("OPTIONS:");
     println!("  No options available for now");
-}
-
-async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError> {
-    if args.len() < 3 {
-        print_help();
-        return Ok(());
-    }
-
-    let mut registry = NodeRegistry::load()?;
-    match args[2].as_str() {
-        "add" => {
-            if args.len() < 5 {
-                print_help();
-                return Ok(());
-            }
-            let name = args[3].clone();
-            let address = args[4].clone();
-            registry.add(NodeRecord {
-                name,
-                address,
-                node_id: None,
-                local: false,
-                last_seen: None,
-            })?;
-            println!("Node added.");
-        }
-        "create" => {
-            if args.len() < 5 {
-                print_help();
-                return Ok(());
-            }
-            let name = args[3].clone();
-            let port: u32 = args[4].trim().parse().expect("Failed to parse port");
-            let address = format!("127.0.0.1:{}", port);
-            let node = Node::new(&nodes_dir(), port)?;
-            registry.add(NodeRecord {
-                name,
-                address,
-                node_id: Some(node.id.to_string()),
-                local: true,
-                last_seen: None,
-            })?;
-            println!("Local node created.");
-        }
-        "list" => {
-            for node in registry.list_sorted() {
-                let id = node.node_id.clone().unwrap_or_else(|| "-".into());
-                let last_seen = node
-                    .last_seen
-                    .map(|t| t.to_string())
-                    .unwrap_or_else(|| "-".into());
-                println!("{} | {} | {} | {}", node.name, node.address, id, last_seen);
-            }
-        }
-        "remove" => {
-            if args.len() < 4 {
-                print_help();
-                return Ok(());
-            }
-            interstice_cli::node_utils::remove_node_with_data(&mut registry, &args[3])?;
-            println!("Node removed.");
-        }
-        "rename" => {
-            if args.len() < 5 {
-                print_help();
-                return Ok(());
-            }
-            registry.rename(&args[3], &args[4])?;
-            println!("Node renamed.");
-        }
-        "show" => {
-            if args.len() < 4 {
-                print_help();
-                return Ok(());
-            }
-            let node = registry
-                .get(&args[3])
-                .ok_or_else(|| IntersticeError::Internal("Node not found".into()))?;
-            println!("name: {}", node.name);
-            println!("address: {}", node.address);
-            println!(
-                "node_id: {}",
-                node.node_id.clone().unwrap_or_else(|| "-".into())
-            );
-            println!("local: {}", node.local);
-            println!(
-                "last_seen: {}",
-                node.last_seen
-                    .map(|t| t.to_string())
-                    .unwrap_or_else(|| "-".into())
-            );
-        }
-        "start" => {
-            if args.len() < 4 {
-                print_help();
-                return Ok(());
-            }
-            let node = registry
-                .get(&args[3])
-                .ok_or_else(|| IntersticeError::Internal("Node not found".into()))?;
-            let port = node
-                .address
-                .split(':')
-                .last()
-                .ok_or_else(|| IntersticeError::Internal("Invalid address".into()))?
-                .parse()
-                .map_err(|_| IntersticeError::Internal("Invalid port".into()))?;
-
-            let node_id = node
-                .node_id
-                .clone()
-                .ok_or_else(|| IntersticeError::Internal("Missing node id".into()))?;
-            start(node_id.parse().unwrap(), port).await?;
-        }
-        "ping" => {
-            if args.len() < 4 {
-                print_help();
-                return Ok(());
-            }
-            let address = registry
-                .resolve_address(&args[3])
-                .ok_or_else(|| IntersticeError::Internal("Unknown node".into()))?;
-            let (_stream, handshake) = handshake_with_node(&address).await?;
-            registry.set_last_seen(&args[3]);
-            registry.set_node_id(&args[3], handshake.node_id);
-            registry.save()?;
-            println!("Node reachable.");
-        }
-        "schema" => {
-            if args.len() < 4 {
-                print_help();
-                return Ok(());
-            }
-            let node_ref = &args[3];
-            let out_path = args
-                .get(4)
-                .map(Path::new)
-                .unwrap_or_else(|| Path::new("node_schema.toml"));
-            let address = registry
-                .resolve_address(node_ref)
-                .ok_or_else(|| IntersticeError::Internal("Unknown node".into()))?;
-            let node_name = registry
-                .get(node_ref)
-                .map(|n| n.name.clone())
-                .unwrap_or_else(|| node_ref.clone());
-            let (schema, handshake) =
-                interstice_cli::node_client::fetch_node_schema(&address, &node_name).await?;
-            registry.set_last_seen(node_ref);
-            registry.set_node_id(node_ref, handshake.node_id);
-            registry.save()?;
-            let contents = schema.to_toml_string().map_err(|err| {
-                IntersticeError::Internal(format!("Failed to serialize schema: {err}"))
-            })?;
-            std::fs::write(out_path, contents).map_err(|err| {
-                IntersticeError::Internal(format!("Failed to write schema: {err}"))
-            })?;
-            println!("Schema written to {}", out_path.display());
-        }
-        _ => print_help(),
-    }
-    Ok(())
-}
-
-async fn handle_bindings_command(args: &[String]) -> Result<(), IntersticeError> {
-    if args.len() < 4 {
-        print_help();
-        return Ok(());
-    }
-    match args[2].as_str() {
-        "add" => match args[3].as_str() {
-            "module" => {
-                if args.len() < 6 {
-                    print_help();
-                    return Ok(());
-                }
-                let node_ref = &args[4];
-                let module_name = &args[5];
-                let project_path = args.get(6).map(Path::new).unwrap_or_else(|| Path::new("."));
-                let out_path = add_module_binding(node_ref, module_name, project_path).await?;
-                println!("Binding written to {}", out_path.display());
-            }
-            "node" => {
-                if args.len() < 5 {
-                    print_help();
-                    return Ok(());
-                }
-                let node_ref = &args[4];
-                let project_path = args.get(5).map(Path::new).unwrap_or_else(|| Path::new("."));
-                let out_path = add_node_binding(node_ref, project_path).await?;
-                println!("Binding written to {}", out_path.display());
-            }
-            _ => print_help(),
-        },
-        _ => print_help(),
-    }
-    Ok(())
 }

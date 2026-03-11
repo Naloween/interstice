@@ -2,6 +2,49 @@ use crate::{node_client::fetch_node_schema, node_registry::NodeRegistry};
 use interstice_core::IntersticeError;
 use std::path::{Path, PathBuf};
 
+pub async fn handle_bindings_command(args: &[String]) -> Result<(), IntersticeError> {
+    if args.len() < 4 {
+        print_bindings_help();
+        return Ok(());
+    }
+
+    match args[2].as_str() {
+        "add" => match args[3].as_str() {
+            "module" => {
+                if args.len() < 6 {
+                    print_bindings_help();
+                    return Ok(());
+                }
+                let node_ref = &args[4];
+                let module_name = &args[5];
+                let project_path = args.get(6).map(Path::new).unwrap_or_else(|| Path::new("."));
+                let out_path = add_module_binding(node_ref, module_name, project_path).await?;
+                println!("Binding written to {}", out_path.display());
+            }
+            "node" => {
+                if args.len() < 5 {
+                    print_bindings_help();
+                    return Ok(());
+                }
+                let node_ref = &args[4];
+                let project_path = args.get(5).map(Path::new).unwrap_or_else(|| Path::new("."));
+                let out_path = add_node_binding(node_ref, project_path).await?;
+                println!("Binding written to {}", out_path.display());
+            }
+            _ => print_bindings_help(),
+        },
+        _ => print_bindings_help(),
+    }
+
+    Ok(())
+}
+
+fn print_bindings_help() {
+    println!("USAGE:");
+    println!("  interstice bindings add module <node> <module> [project_path]");
+    println!("  interstice bindings add node <node> [project_path]");
+}
+
 pub async fn add_module_binding(
     node_ref: &str,
     module_name: &str,

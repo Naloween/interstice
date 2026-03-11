@@ -1,0 +1,11 @@
+name = "fanout-emit"
+node = "benchmark-example"
+module_name = "benchmark-workload"
+reducer_name = "emit_event"
+duration_ms = 20000
+warmup_ms = 5000
+connections = 4
+transport = "persistent"
+args_json = ["$client", "$seq", 24, false]
+reset_before = true
+output = "benchmarks/results/fanout-emit.json"

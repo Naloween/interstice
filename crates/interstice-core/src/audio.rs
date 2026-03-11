@@ -43,9 +43,7 @@ impl AudioEngine {
                         .unwrap()
                         .get(&Authority::Audio)
                         .and_then(|entry| match entry {
-                            AuthorityEntry::Audio { output_reducer, .. } => {
-                                output_reducer.as_ref()
-                            }
+                            AuthorityEntry::Audio { output_reducer, .. } => output_reducer.as_ref(),
                             _ => None,
                         })
                         .is_some();

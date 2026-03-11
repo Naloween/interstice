@@ -21,7 +21,7 @@ pub struct TestCustomType {
 }
 
 // REDUCERS
-#[reducer(on = "init")]
+#[reducer(on = "load")]
 pub fn init(ctx: ReducerContext) {
     ctx.log("Hello world !");
 

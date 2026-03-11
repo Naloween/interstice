@@ -8,26 +8,17 @@ use interstice_sdk::{
     VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode,
 };
 
+use crate::GpuExt;
 use crate::helpers::namespaced_key;
 use crate::tables::{
-    BindGroupBinding,
-    HasBindGroupBindingEditHandle,
-    HasMeshBindingEditHandle,
-    HasPipelineBindingEditHandle,
-    HasTextureBindingEditHandle,
-    MeshBinding,
-    PipelineBinding,
+    BindGroupBinding, HasBindGroupBindingEditHandle, HasMeshBindingEditHandle,
+    HasPipelineBindingEditHandle, HasTextureBindingEditHandle, MeshBinding, PipelineBinding,
     TextureBinding,
 };
 use crate::types::{
-    BindGroupDescriptorInput,
-    MeshDescriptor,
-    MeshVertex,
-    PipelineDescriptorInput,
-    TextureDescriptorInput,
-    TextureUsageFlags,
+    BindGroupDescriptorInput, MeshDescriptor, MeshVertex, PipelineDescriptorInput,
+    TextureDescriptorInput, TextureUsageFlags,
 };
-use crate::GpuExt;
 
 #[reducer]
 pub fn create_texture(
@@ -454,15 +445,18 @@ fn allocate_render_pipeline(
                 ],
             }],
         },
-        fragment: descriptor.fragment_entry.clone().map(|entry_point| FragmentState {
-            module: shader_module_id,
-            entry_point,
-            targets: vec![ColorTargetState {
-                format: surface_format,
-                blend: None,
-                write_mask: ColorWrites::ALL,
-            }],
-        }),
+        fragment: descriptor
+            .fragment_entry
+            .clone()
+            .map(|entry_point| FragmentState {
+                module: shader_module_id,
+                entry_point,
+                targets: vec![ColorTargetState {
+                    format: surface_format,
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                }],
+            }),
         primitive: PrimitiveState {
             topology: PrimitiveTopology::TriangleList,
             cull_mode: None,

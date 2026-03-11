@@ -11,7 +11,7 @@ use crate::bindings::{
 };
 use interstice_sdk::*;
 
-#[reducer(on = "init")]
+#[reducer(on = "load")]
 fn caller(ctx: ReducerContext) {
     ctx.log("Calling remote hello...");
     if let Err(err) = ctx

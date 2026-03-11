@@ -100,14 +100,8 @@ pub fn time_now_ms() -> Result<u64, String> {
     }
 }
 
-pub fn insert_row(
-    table_name: String,
-    row: Row,
-) -> Result<Row, String> {
-    let call = HostCall::InsertRow(InsertRowRequest {
-        table_name,
-        row,
-    });
+pub fn insert_row(table_name: String, row: Row) -> Result<Row, String> {
+    let call = HostCall::InsertRow(InsertRowRequest { table_name, row });
 
     let pack = host_call(call);
     let response: InsertRowResponse = unpack(pack);
@@ -117,14 +111,8 @@ pub fn insert_row(
     }
 }
 
-pub fn update_row(
-    table_name: String,
-    row: Row,
-) -> Result<(), String> {
-    let call = HostCall::UpdateRow(UpdateRowRequest {
-        table_name,
-        row,
-    });
+pub fn update_row(table_name: String, row: Row) -> Result<(), String> {
+    let call = HostCall::UpdateRow(UpdateRowRequest { table_name, row });
 
     let pack = host_call(call);
     let response: UpdateRowResponse = unpack(pack);
@@ -134,10 +122,7 @@ pub fn update_row(
     }
 }
 
-pub fn delete_row(
-    table_name: String,
-    primary_key: IndexKey,
-) -> Result<(), String> {
+pub fn delete_row(table_name: String, primary_key: IndexKey) -> Result<(), String> {
     let call = HostCall::DeleteRow(DeleteRowRequest {
         table_name,
         primary_key,

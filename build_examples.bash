@@ -3,7 +3,7 @@ set -e
 
 # Build all example modules in release mode and copy to CLI module_examples folder
 
-MODULES=("audio-example" "caller-example" "graphics-example" "hello-example" "agar-server" "agar-client")
+MODULES=("audio-example" "caller-example" "graphics-example" "hello-example" "agar-server" "agar-client" "benchmark-workload")
 TARGET_DIR="target/wasm32-unknown-unknown/release"
 DEST_DIR="crates/interstice-cli/module_examples"
 

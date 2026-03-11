@@ -236,10 +236,23 @@ impl Runtime {
             } => {
                 let runtime = runtime.clone();
                 tokio::task::spawn_local(async move {
-                    let result = runtime
+                    let result = match runtime
                         .call_query(&module_name, &query_name, input, requesting_node_id)
                         .await
-                        .unwrap_or(IntersticeValue::Void);
+                    {
+                        Ok(value) => value,
+                        Err(err) => {
+                            runtime.logger.log(
+                                &format!(
+                                    "Remote query '{}' on module '{}' failed: {}",
+                                    query_name, module_name, err
+                                ),
+                                LogSource::Runtime,
+                                LogLevel::Error,
+                            );
+                            IntersticeValue::Void
+                        }
+                    };
                     runtime.network_handle.send_packet(
                         requesting_node_id,
                         crate::network::protocol::NetworkPacket::QueryResponse {

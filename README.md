@@ -18,7 +18,7 @@ Repository layout
 - The WASM ABI and types: [crates/interstice-abi](crates/interstice-abi)
 - The Rust SDK and macros: [crates/interstice-sdk\*](crates/interstice-sdk)
 - The CLI: [crates/interstice-cli](crates/interstice-cli)
-- Example modules: [modules/hello](modules/hello), [modules/caller](modules/caller), [modules/graphics](modules/graphics), [modules/audio](modules/audio)
+- Example modules: [modules/hello](modules/hello), [modules/caller](modules/caller), [modules/graphics](modules/graphics), [modules/audio](modules/audio), [modules/examples/benchmark-workload](modules/examples/benchmark-workload)
 
 ---
 
@@ -73,6 +73,12 @@ Start the caller example to simulate remote interactions:
 
 ```bash
 interstice example caller
+```
+
+Start the benchmark workload example:
+
+```bash
+interstice example benchmark
 ```
 
 ---
@@ -311,6 +317,8 @@ You can omit the target argument if the .cargo/config.toml is already well confi
   - Requests `Input` and `Gpu` authorities and renders a triangle; implements `init`, `render`, and `input` hooks.
 - `modules/audio`
   - Requests `Audio` authority and plays a tone while logging input buffers.
+- `modules/examples/benchmark-workload`
+  - Benchmark-oriented reducers/queries for noop, insert/update/delete/mix workloads across ephemeral/stateful/logged tables, event fanout, and scheduler pressure.
 
 Reproduce
 
@@ -361,8 +369,8 @@ There is no manual way to publish to an already running node. See the CLI flow b
 
 ## Example command
 
-- `interstice example <hello|caller|graphics|audio|agar-server|agar-client>`
-- Built-in ports are fixed by example name: `hello=8080`, `caller=8081`, `graphics=8082`, `audio=8083`, `agar-server=8080`, `agar-client=8084`.
+- `interstice example <hello|caller|graphics|audio|agar-server|agar-client|benchmark>`
+- Built-in ports are fixed by example name: `hello=8080`, `caller=8081`, `graphics=8082`, `audio=8083`, `agar-server=8080`, `agar-client=8084`, `benchmark=8085`.
 - Running the same example command multiple times recreates the example node (removes existing data and registry entry, then creates the node afresh with the example modules).
 - **Important**: Stop any running example instance (Ctrl+C) before running the command again to avoid conflicts.
 
@@ -379,7 +387,41 @@ These commands fetch **public** schemas from the target node and write TOML file
 - `interstice remove <node> <module_name>`
 - `interstice call_reducer <node> <module_name> <reducer_name> [args...]`
 - `interstice call_query <node> <module_name> <query_name> [args...]`
+- `interstice benchmark <...>`
 - `interstice update`
+
+## Benchmarking
+
+- List built-in benchmark profiles:
+
+```bash
+interstice benchmark list-profiles
+```
+
+- Run a built-in profile against a node (defaults to `benchmark-workload` module):
+
+```bash
+interstice benchmark profile durability benchmark-example
+```
+
+- Run a custom benchmark directly against any module reducer:
+
+```bash
+interstice benchmark run benchmark-example benchmark-workload tx_insert_logged \
+  --connections 8 \
+  --duration-ms 30000 \
+  --warmup-ms 5000 \
+  --args-json '["$client", "$seq", 64, false]' \
+  --output benchmarks/results/custom-run.json
+```
+
+- Run one or more scenarios from TOML:
+
+```bash
+interstice benchmark scenario benchmarks/scenarios/durability.toml
+```
+
+Template placeholders supported in JSON args include `$seq`, `$worker`, `$op`, `$client`, `$now_ms`, `$max_seq`, `$max_client`, `$total_sent`.
 
 # Security
 
@@ -441,12 +483,12 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 - Bundles to ship nodes as a whole program
 - Table migrations and schema evolution without data loss
 - Better Default system modules (ModuleManager, Graphics, Inputs)
-- Audio authority and host calls
+- Better Audio authority and host calls
 
 ## Robustness and correctness
 
 - Clean runtime, node and engines code (app, network, audio, file)
-- Rename the Input authority to be more xplicit (audio also has input subscription)
+- Rename the Input authority to be more explicit (audio also has input subscription)
 - Improve macro checks and error messages (subscription args and types)
 - Harden network reconnections and peer health handling
 - Expand function-level documentation across core and SDK

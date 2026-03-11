@@ -1,0 +1,11 @@
+name = "vm-noop"
+node = "benchmark-example"
+module_name = "benchmark-workload"
+reducer_name = "noop"
+duration_ms = 20000
+warmup_ms = 5000
+connections = 4
+transport = "persistent"
+args_json = []
+reset_before = true
+output = "benchmarks/results/vm-noop.json"
