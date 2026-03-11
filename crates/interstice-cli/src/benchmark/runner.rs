@@ -97,13 +97,13 @@ async fn run_single(mut config: BenchmarkRunConfig) -> Result<BenchmarkReport, I
                 &empty_template_context(),
                 "start",
             )
-                .await
-                .map_err(|err| {
-                    IntersticeError::Internal(format!(
-                        "Failed to read throughput start counter in query_delta mode: {}",
-                        err
-                    ))
-                })?,
+            .await
+            .map_err(|err| {
+                IntersticeError::Internal(format!(
+                    "Failed to read throughput start counter in query_delta mode: {}",
+                    err
+                ))
+            })?,
         )
     } else {
         None
@@ -151,44 +151,42 @@ async fn run_single(mut config: BenchmarkRunConfig) -> Result<BenchmarkReport, I
     let summary_context = summary_template_context(&summaries);
     let (throughput_kind, throughput_tps, throughput_counter_end, throughput_window_ms) =
         match config.throughput_mode {
-        ThroughputMode::DispatchSuccess => (
-            "dispatch_success".to_string(),
-            aggregate.measured_sent as f64 / (config.duration_ms as f64 / 1_000.0),
-            None,
-            None,
-        ),
-        ThroughputMode::QueryDelta => {
-            let (start_counter, start_snapshot_time) = throughput_snapshot_start.ok_or_else(|| {
-                IntersticeError::Internal(
-                    "query_delta throughput mode is missing a start counter snapshot".into(),
+            ThroughputMode::DispatchSuccess => (
+                "dispatch_success".to_string(),
+                aggregate.measured_sent as f64 / (config.duration_ms as f64 / 1_000.0),
+                None,
+                None,
+            ),
+            ThroughputMode::QueryDelta => {
+                let (start_counter, start_snapshot_time) =
+                    throughput_snapshot_start.ok_or_else(|| {
+                        IntersticeError::Internal(
+                            "query_delta throughput mode is missing a start counter snapshot"
+                                .into(),
+                        )
+                    })?;
+                let (end_counter, end_snapshot_time) =
+                    query_throughput_counter_with_retry(&address, &config, &summary_context, "end")
+                        .await
+                        .map_err(|err| {
+                            IntersticeError::Internal(format!(
+                                "Failed to read throughput end counter in query_delta mode: {}",
+                                err
+                            ))
+                        })?;
+                let delta = end_counter.saturating_sub(start_counter);
+                let window_ms = end_snapshot_time
+                    .saturating_duration_since(start_snapshot_time)
+                    .as_millis() as u64;
+                let elapsed_secs = (window_ms as f64 / 1_000.0).max(f64::EPSILON);
+                (
+                    "query_delta".to_string(),
+                    delta as f64 / elapsed_secs,
+                    Some(end_counter),
+                    Some(window_ms),
                 )
-            })?;
-            let (end_counter, end_snapshot_time) = query_throughput_counter_with_retry(
-                &address,
-                &config,
-                &summary_context,
-                "end",
-            )
-                .await
-                .map_err(|err| {
-                    IntersticeError::Internal(format!(
-                        "Failed to read throughput end counter in query_delta mode: {}",
-                        err
-                    ))
-                })?;
-            let delta = end_counter.saturating_sub(start_counter);
-            let window_ms = end_snapshot_time
-                .saturating_duration_since(start_snapshot_time)
-                .as_millis() as u64;
-            let elapsed_secs = (window_ms as f64 / 1_000.0).max(f64::EPSILON);
-            (
-                "query_delta".to_string(),
-                delta as f64 / elapsed_secs,
-                Some(end_counter),
-                Some(window_ms),
-            )
-        }
-    };
+            }
+        };
 
     let verification = run_verification(&address, &config, &summaries).await;
 

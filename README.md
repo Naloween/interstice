@@ -487,6 +487,9 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 
 ## Robustness and correctness
 
+- Fix init event not working anymore
+- Add doc or dependencies when installing interstice through cargo, check on generated bins
+- Fix agar-cleint example not working on WSL (no waylands)
 - Clean runtime, node and engines code (app, network, audio, file)
 - Rename the Input authority to be more explicit (audio also has input subscription)
 - Improve macro checks and error messages (subscription args and types)
