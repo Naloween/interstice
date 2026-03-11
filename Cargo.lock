@@ -1819,7 +1819,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-cli"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "directories",
  "interstice-core",
@@ -1833,7 +1833,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "colored_text",
@@ -1866,7 +1866,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-sdk-core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "interstice-abi",
  "lazy_static",
