@@ -79,11 +79,6 @@ macro_rules! interstice_module {
 
         // Global imports (for traits used in macros)
         use std::str::FromStr;
-        // Use wee_alloc as the global allocator.
-
-        #[global_allocator]
-        static ALLOC: interstice_sdk::wee_alloc::WeeAlloc =
-            interstice_sdk::wee_alloc::WeeAlloc::INIT;
 
         #[unsafe(no_mangle)]
         pub extern "C" fn alloc(size: i32) -> i32 {

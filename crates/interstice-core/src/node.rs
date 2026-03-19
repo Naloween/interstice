@@ -5,24 +5,31 @@ use crate::{
     logger::{LogLevel, LogSource, Logger},
     network::{Network, NetworkHandle},
     persistence::{PeerTokenStore, TableStore},
-    runtime::{Runtime, event::EventInstance, module::Module},
+    runtime::{Runtime, event::EventInstance, module::Module, reducer::{CompletionToken, ReducerJob}},
 };
 use interstice_abi::{ModuleSchema, NodeSchema};
+use parking_lot::Mutex;
 use std::sync::Arc;
-use std::{collections::HashSet, fs::File, path::Path, sync::Mutex, thread};
+use std::{collections::HashSet, fs::File, path::Path, thread};
 use tokio::sync::{
     Notify,
     mpsc::{self, UnboundedReceiver},
 };
+use crossbeam_channel;
 use uuid::Uuid;
 
 pub type NodeId = Uuid;
+
+/// Bounded reducer queue capacity. Limits how many remote reducer jobs can be
+/// queued before new ones are dropped, preventing OOM when clients dispatch
+/// faster than the WASM executor can process.
+const REDUCER_QUEUE_CAPACITY: usize = 8_192;
 
 pub struct Node {
     pub id: NodeId,
     pub(crate) network_handle: NetworkHandle,
     run_app_notify: Arc<Notify>,
-    event_receiver: UnboundedReceiver<EventInstance>,
+    event_receiver: UnboundedReceiver<(EventInstance, Option<CompletionToken>)>,
     network: Network,
     app: App,
     runtime: Arc<Runtime>,
@@ -49,10 +56,18 @@ impl Node {
         let peer_tokens = Arc::new(Mutex::new(PeerTokenStore::load_or_create(
             data_path.join("peer_tokens.toml"),
         )?));
+
+        // Create bounded reducer channel first so both Network and Runtime share the
+        // same sender — remote reducer calls go directly to the executor without
+        // passing through the unbounded event channel.
+        let (reducer_sender, reducer_receiver) =
+            crossbeam_channel::bounded::<ReducerJob>(REDUCER_QUEUE_CAPACITY);
+
         let network = Network::new(
             id,
             address.clone(),
             event_sender.clone(),
+            reducer_sender.clone(),
             peer_tokens,
             logger.clone(),
         );
@@ -74,6 +89,8 @@ impl Node {
             gpu,
             run_app_notify.clone(),
             logger.clone(),
+            reducer_sender,
+            reducer_receiver,
         )?);
         let gpu_call_receiver = runtime.take_gpu_call_receiver();
         let app = App::new(
@@ -116,10 +133,15 @@ impl Node {
         let peer_tokens = Arc::new(Mutex::new(PeerTokenStore::load_or_create(
             data_path.join("peer_tokens.toml"),
         )?));
+
+        let (reducer_sender, reducer_receiver) =
+            crossbeam_channel::bounded::<ReducerJob>(REDUCER_QUEUE_CAPACITY);
+
         let network = Network::new(
             id,
             address.clone(),
             event_sender.clone(),
+            reducer_sender.clone(),
             peer_tokens,
             logger.clone(),
         );
@@ -141,6 +163,8 @@ impl Node {
             gpu,
             run_app_notify.clone(),
             logger.clone(),
+            reducer_sender,
+            reducer_receiver,
         )?);
         let gpu_call_receiver = runtime.take_gpu_call_receiver();
         let app = App::new(
@@ -227,7 +251,7 @@ impl Node {
                 .runtime
                 .modules
                 .lock()
-                .unwrap()
+                
                 .values()
                 .map(|m| (*m.schema).clone())
                 .collect(),

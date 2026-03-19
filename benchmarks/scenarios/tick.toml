@@ -1,0 +1,41 @@
+# Phase 1: start the 0ms tick loop
+[[scenarios]]
+name = "tick-start"
+node = "benchmark-example"
+module_name = "benchmark-workload"
+reducer_name = "start_tick"
+duration_ms = 500
+warmup_ms = 0
+connections = 1
+rate = 2
+args_json = [0]
+reset_before = true
+
+# Phase 2: measure internal tick throughput via QueryDelta
+# The noop calls are just a heartbeat (1/s) so the connection stays alive;
+# the ticks fire on the server side without any network overhead.
+[[scenarios]]
+name = "vm-tick"
+node = "benchmark-example"
+module_name = "benchmark-workload"
+reducer_name = "noop"
+duration_ms = 10000
+warmup_ms = 0
+connections = 1
+rate = 1
+throughput_mode = "query_delta"
+throughput_query_name = "stats"
+throughput_query_args_json = [""]
+throughput_query_field = "tick_count"
+output = "benchmarks/results/vm-tick.json"
+
+# Phase 3: stop the tick loop
+[[scenarios]]
+name = "tick-stop"
+node = "benchmark-example"
+module_name = "benchmark-workload"
+reducer_name = "stop_tick"
+duration_ms = 500
+warmup_ms = 0
+connections = 1
+rate = 2

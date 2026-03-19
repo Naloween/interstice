@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{IntersticeTypeDef, Row, interstice_type_def::FieldDef, validate_value};
+use crate::{IntersticeTypeDef, Row, interstice_type_def::FieldDef, validate_value_detailed};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -47,22 +47,24 @@ impl TableSchema {
         &self,
         row: &Row,
         type_definitions: &HashMap<String, IntersticeTypeDef>,
-    ) -> bool {
-        if !validate_value(
-            &row.primary_key,
-            &self.primary_key.field_type,
-            type_definitions,
-        ) {
-            return false;
+    ) -> Result<(), String> {
+        // For auto-inc primary keys the host assigns the value, so the WASM sends a
+        // placeholder (Void). Skip primary key validation in that case.
+        if !self.primary_key_auto_inc {
+            validate_value_detailed(&row.primary_key, &self.primary_key.field_type, type_definitions)
+                .map_err(|e| format!("primary key '{}': {}", self.primary_key.name, e))?;
         }
         if row.entries.len() != self.fields.len() {
-            return false;
+            return Err(format!(
+                "field count mismatch: expected {}, got {}",
+                self.fields.len(),
+                row.entries.len()
+            ));
         }
         for (entry, ty) in row.entries.iter().zip(self.fields.iter()) {
-            if !validate_value(entry, &ty.field_type, type_definitions) {
-                return false;
-            }
+            validate_value_detailed(entry, &ty.field_type, type_definitions)
+                .map_err(|e| format!("field '{}': {}", ty.name, e))?;
         }
-        true
+        Ok(())
     }
 }

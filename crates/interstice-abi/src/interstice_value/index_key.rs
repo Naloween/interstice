@@ -112,7 +112,18 @@ impl TryFrom<IntersticeValue> for IndexKey {
     type Error = String;
 
     fn try_from(value: IntersticeValue) -> Result<Self, Self::Error> {
-        IndexKey::try_from(&value)
+        // For types that can be moved without cloning, do so to avoid an extra allocation.
+        match value {
+            IntersticeValue::U8(v) => Ok(IndexKey::U8(v)),
+            IntersticeValue::U32(v) => Ok(IndexKey::U32(v)),
+            IntersticeValue::U64(v) => Ok(IndexKey::U64(v)),
+            IntersticeValue::I32(v) => Ok(IndexKey::I32(v)),
+            IntersticeValue::I64(v) => Ok(IndexKey::I64(v)),
+            IntersticeValue::Bool(v) => Ok(IndexKey::Bool(v)),
+            // Move the String out instead of calling the &ref path which would clone it.
+            IntersticeValue::String(s) => Ok(IndexKey::String(s)),
+            other => IndexKey::try_from(&other),
+        }
     }
 }
 

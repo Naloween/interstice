@@ -1,5 +1,6 @@
 use crate::runtime::Runtime;
-use interstice_abi::{IntersticeValue, ScheduleRequest, ScheduleResponse};
+use crate::runtime::reducer::CALL_STACK;
+use interstice_abi::{ScheduleRequest, ScheduleResponse};
 
 impl Runtime {
     pub(crate) fn handle_schedule(
@@ -7,18 +8,23 @@ impl Runtime {
         module_name: String,
         request: ScheduleRequest,
     ) -> ScheduleResponse {
-        let reducer_exists = {
-            let modules = self.modules.lock().unwrap();
-            let Some(module) = modules.get(&module_name) else {
-                return ScheduleResponse::Err(format!("Module '{}' not found", module_name));
+        let reducer_exists = CALL_STACK.with(|s| {
+            let stack = s.borrow();
+            let frame = match stack.last() {
+                Some(f) => f,
+                None => return Err("No active call frame".to_string()),
             };
-
-            module
+            Ok(frame
+                .module_arc
                 .schema
                 .reducers
                 .iter()
                 .find(|reducer| reducer.name == request.reducer_name)
-                .map(|reducer| reducer.arguments.is_empty())
+                .map(|reducer| reducer.arguments.is_empty()))
+        });
+        let reducer_exists = match reducer_exists {
+            Err(msg) => return ScheduleResponse::Err(msg),
+            Ok(v) => v,
         };
 
         match reducer_exists {
@@ -37,21 +43,9 @@ impl Runtime {
             Some(true) => {}
         }
 
-        let reducer_sender = self.reducer_sender.clone();
         let reducer_name = request.reducer_name;
-        let caller_node_id = self.network_handle.node_id;
-
-        tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(request.delay_ms)).await;
-
-            let _ = reducer_sender.send(crate::runtime::ReducerJob {
-                module_name,
-                reducer_name,
-                input: IntersticeValue::Vec(vec![]),
-                caller_node_id,
-                completion: None,
-            });
-        });
+        let wake_at = std::time::Instant::now() + std::time::Duration::from_millis(request.delay_ms);
+        let _ = self.timer_tx.send((wake_at, module_name, reducer_name));
 
         ScheduleResponse::Ok
     }

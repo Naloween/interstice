@@ -1,0 +1,58 @@
+{
+  "name": "vm-noop",
+  "node": "bench-node",
+  "module_name": "benchmark-workload",
+  "reducer_name": "noop",
+  "transport": "persistent",
+  "warmup_ms": 2000,
+  "duration_ms": 10000,
+  "connections": 4,
+  "rate": null,
+  "output": "benchmarks/results/profile_vm_noop_vm-noop.json",
+  "sent_warmup": 4582747,
+  "sent_measured": 21151643,
+  "failed": 0,
+  "throughput_kind": "dispatch_rate",
+  "throughput_tps": 2115164.3,
+  "throughput_counter_start": null,
+  "throughput_counter_end": null,
+  "throughput_window_ms": null,
+  "write_latency_us_mean": 3.438267276462739,
+  "write_latency_us_p50": 1.578,
+  "write_latency_us_p95": 3.162,
+  "write_latency_us_p99": 4.113,
+  "write_latency_us_max": 73457.604,
+  "started_at_ms": 1773533493472,
+  "ended_at_ms": 1773533505477,
+  "worker_summaries": [
+    {
+      "worker_id": 0,
+      "client_id": "bench-worker-0-7c464b42-1977-40b2-9f50-ebf1f98003ba",
+      "attempted": 6847896,
+      "measured_sent": 5648035,
+      "last_seq": 6847896
+    },
+    {
+      "worker_id": 1,
+      "client_id": "bench-worker-1-d8810774-dc04-48ca-89fe-b1cba93b0d99",
+      "attempted": 6383347,
+      "measured_sent": 5273439,
+      "last_seq": 6383347
+    },
+    {
+      "worker_id": 2,
+      "client_id": "bench-worker-2-1a2f8c53-7c94-4cdc-9511-ebc6ca898442",
+      "attempted": 6410278,
+      "measured_sent": 5362432,
+      "last_seq": 6410278
+    },
+    {
+      "worker_id": 3,
+      "client_id": "bench-worker-3-d11157f4-a263-49c4-9dd9-73f3408c7ac2",
+      "attempted": 6092869,
+      "measured_sent": 4867737,
+      "last_seq": 6092869
+    }
+  ],
+  "verification": null
+}

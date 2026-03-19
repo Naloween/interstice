@@ -1,9 +1,5 @@
-use std::{
-    fmt::Display,
-    fs::File,
-    io::Write,
-    sync::{Arc, Mutex},
-};
+use parking_lot::Mutex;
+use std::{fmt::Display, fs::File, io::Write, sync::Arc};
 
 use colored_text::Colorize;
 
@@ -20,7 +16,7 @@ impl Logger {
     }
 
     pub fn log(&self, message: &str, source: LogSource, level: LogLevel) {
-        let mut file = self.log_sink.lock().unwrap();
+        let mut file = self.log_sink.lock();
         let message = format!("[{}] [{}] {}", source, level, message);
         writeln!(file, "{}", message).expect("Should be able to write to log file");
         let mut stdout = std::io::stdout();

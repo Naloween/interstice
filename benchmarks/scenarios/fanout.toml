@@ -1,3 +1,4 @@
+[[scenarios]]
 name = "fanout-emit"
 node = "benchmark-example"
 module_name = "benchmark-workload"
@@ -6,6 +7,8 @@ duration_ms = 20000
 warmup_ms = 5000
 connections = 4
 transport = "persistent"
-args_json = ["$client", "$seq", 24, false]
-reset_before = true
+args_json = ["$client", "$seq", 24, true]
+throughput_mode = "query_delta"
+throughput_query_name = "total_committed"
+throughput_query_args_json = []
 output = "benchmarks/results/fanout-emit.json"

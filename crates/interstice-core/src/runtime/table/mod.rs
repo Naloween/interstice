@@ -1,7 +1,7 @@
 mod auto_inc;
 mod index;
 
-pub(crate) use auto_inc::{AutoIncState, TableAutoIncSnapshot};
+pub(crate) use auto_inc::{AutoIncCounter, TableAutoIncSnapshot};
 
 use crate::IntersticeError;
 use index::*;
@@ -14,7 +14,7 @@ pub struct Table {
     primary_key_index: FastHashMap<IndexKey, usize>,
     indexes: Vec<TableIndex>,
     primary_key_auto_inc: bool,
-    primary_key_auto_inc_state: Option<AutoIncState>,
+    primary_key_auto_inc_counter: Option<AutoIncCounter>,
 }
 
 impl Table {
@@ -40,8 +40,8 @@ impl Table {
             })
             .collect();
         let primary_key_auto_inc = schema.primary_key_auto_inc;
-        let primary_key_auto_inc_state = if primary_key_auto_inc {
-            AutoIncState::from_type(&schema.primary_key.field_type)
+        let primary_key_auto_inc_counter = if primary_key_auto_inc {
+            AutoIncCounter::from_type(&schema.primary_key.field_type)
         } else {
             None
         };
@@ -52,15 +52,17 @@ impl Table {
             primary_key_index: FastHashMap::default(),
             indexes,
             primary_key_auto_inc,
-            primary_key_auto_inc_state,
+            primary_key_auto_inc_counter,
         }
     }
 
+    #[inline]
+    pub fn has_auto_inc(&self) -> bool {
+        self.primary_key_auto_inc || self.indexes.iter().any(|i| i.auto_inc)
+    }
+
     pub fn validate_insert(&self, row: &Row) -> Result<(), IntersticeError> {
-        let primary_key_value: IndexKey = row
-            .primary_key
-            .clone()
-            .try_into()
+        let primary_key_value: IndexKey = IndexKey::try_from(&row.primary_key)
             .map_err(|err| IntersticeError::Internal(err))?;
 
         if self.primary_key_index.contains_key(&primary_key_value) {
@@ -86,10 +88,7 @@ impl Table {
     }
 
     pub fn validate_update(&self, row: &Row) -> Result<(), IntersticeError> {
-        let primary_key_value: IndexKey = row
-            .primary_key
-            .clone()
-            .try_into()
+        let primary_key_value: IndexKey = IndexKey::try_from(&row.primary_key)
             .map_err(|err| IntersticeError::Internal(err))?;
 
         let current_index = *self
@@ -143,10 +142,7 @@ impl Table {
         self.sync_auto_inc_from_row(&row)?;
 
         let index = self.rows.len();
-        let primary_key_value: IndexKey = row
-            .primary_key
-            .clone()
-            .try_into()
+        let primary_key_value: IndexKey = IndexKey::try_from(&row.primary_key)
             .map_err(|err| IntersticeError::Internal(err))?;
 
         if self.primary_key_index.contains_key(&primary_key_value) {
@@ -166,11 +162,27 @@ impl Table {
         Ok(())
     }
 
+    /// Like `insert` but skips the primary key uniqueness check.
+    /// Caller must have already called `validate_insert` to ensure uniqueness.
+    pub fn insert_trusted(&mut self, row: Row) -> Result<(), IntersticeError> {
+        self.sync_auto_inc_from_row(&row)?;
+
+        let index = self.rows.len();
+        let primary_key_value: IndexKey = IndexKey::try_from(&row.primary_key)
+            .map_err(|err| IntersticeError::Internal(err))?;
+
+        for table_index in &mut self.indexes {
+            let key = table_index.key_from_row(&row)?;
+            table_index.insert(index, key, &self.schema.name)?;
+        }
+
+        self.primary_key_index.insert(primary_key_value, index);
+        self.rows.push(row);
+        Ok(())
+    }
+
     pub fn update(&mut self, row: Row) -> Result<Row, IntersticeError> {
-        let primary_key_value: IndexKey = row
-            .primary_key
-            .clone()
-            .try_into()
+        let primary_key_value: IndexKey = IndexKey::try_from(&row.primary_key)
             .map_err(|err| IntersticeError::Internal(err))?;
         if let Some(&index) = self.primary_key_index.get(&primary_key_value) {
             let old_row = std::mem::replace(&mut self.rows[index], row);
@@ -198,10 +210,7 @@ impl Table {
             // Update the swapped row's index in the primary key index
             if index < self.rows.len() {
                 let swapped_row = &self.rows[index];
-                let swapped_primary_key_value: IndexKey = swapped_row
-                    .primary_key
-                    .clone()
-                    .try_into()
+                let swapped_primary_key_value: IndexKey = IndexKey::try_from(&swapped_row.primary_key)
                     .map_err(|err| IntersticeError::Internal(err))?;
                 self.primary_key_index
                     .insert(swapped_primary_key_value, index);
@@ -221,8 +230,19 @@ impl Table {
     }
 
     pub fn clear(&mut self) {
-        let schema = self.schema.clone();
-        *self = Table::new(schema);
+        // Clear rows and indexes but PRESERVE auto_inc counters.
+        // Resetting counters would cause ID reuse: threads holding snapshots from
+        // before the clear share the same Arc<AtomicU64> — if we replaced it with
+        // a fresh Arc::new(0), those old snapshots would issue IDs that collide
+        // with new inserts once the new counter reaches the same values.
+        self.rows.clear();
+        self.primary_key_index.clear();
+        for index in &mut self.indexes {
+            match &mut index.index {
+                crate::runtime::table::auto_inc::IndexImpl::Hash(m) => m.clear(),
+                crate::runtime::table::auto_inc::IndexImpl::BTree(m) => m.clear(),
+            }
+        }
     }
 
     pub fn get_by_primary_key(&self, primary_key_value: &IndexKey) -> Option<&Row> {

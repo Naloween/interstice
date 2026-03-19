@@ -220,11 +220,7 @@ impl BenchmarkRunConfig {
                 "throughput_mode=query_delta requires --throughput-query or --verify-query".into(),
             ));
         }
-        if self.throughput_mode == ThroughputMode::QueryDelta && self.warmup_ms > 0 {
-            return Err(IntersticeError::Internal(
-                "throughput_mode=query_delta currently requires warmup_ms=0".into(),
-            ));
-        }
+        // QueryDelta now supports warmup: the start snapshot is taken after warmup completes.
         Ok(())
     }
 

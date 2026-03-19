@@ -15,7 +15,7 @@ pub struct Filestate {
 }
 
 impl Runtime {
-    pub async fn handle_file_call(
+    pub fn handle_file_call(
         &self,
         call: FileCall,
         memory: &Memory,
@@ -27,7 +27,7 @@ impl Runtime {
                     Ok(bytes) => ReadFileResponse::Ok(bytes),
                     Err(err) => ReadFileResponse::Err(err.to_string()),
                 };
-                self.send_data_to_module(response, memory, caller).await
+                self.send_data_to_module(response, memory, caller)
             }
             FileCall::WriteFile(req) => {
                 let result = if req.append {
@@ -43,7 +43,7 @@ impl Runtime {
                     Ok(()) => WriteFileResponse::Ok,
                     Err(err) => WriteFileResponse::Err(err.to_string()),
                 };
-                self.send_data_to_module(response, memory, caller).await
+                self.send_data_to_module(response, memory, caller)
             }
             FileCall::ListDir(req) => {
                 let response = match std::fs::read_dir(&req.path) {
@@ -68,7 +68,7 @@ impl Runtime {
                     }
                     Err(err) => ListDirResponse::Err(err.to_string()),
                 };
-                self.send_data_to_module(response, memory, caller).await
+                self.send_data_to_module(response, memory, caller)
             }
             FileCall::Metadata(req) => {
                 let response = match std::fs::metadata(&req.path) {
@@ -104,7 +104,7 @@ impl Runtime {
                     }
                     Err(err) => MetadataResponse::Err(err.to_string()),
                 };
-                self.send_data_to_module(response, memory, caller).await
+                self.send_data_to_module(response, memory, caller)
             }
             FileCall::CreateDir(req) => {
                 let result = if req.recursive {
@@ -116,14 +116,14 @@ impl Runtime {
                     Ok(()) => CreateDirResponse::Ok,
                     Err(err) => CreateDirResponse::Err(err.to_string()),
                 };
-                self.send_data_to_module(response, memory, caller).await
+                self.send_data_to_module(response, memory, caller)
             }
             FileCall::RemoveFile(req) => {
                 let response = match std::fs::remove_file(&req.path) {
                     Ok(()) => RemoveFileResponse::Ok,
                     Err(err) => RemoveFileResponse::Err(err.to_string()),
                 };
-                self.send_data_to_module(response, memory, caller).await
+                self.send_data_to_module(response, memory, caller)
             }
             FileCall::RemoveDir(req) => {
                 let result = if req.recursive {
@@ -135,14 +135,14 @@ impl Runtime {
                     Ok(()) => RemoveDirResponse::Ok,
                     Err(err) => RemoveDirResponse::Err(err.to_string()),
                 };
-                self.send_data_to_module(response, memory, caller).await
+                self.send_data_to_module(response, memory, caller)
             }
             FileCall::Rename(req) => {
                 let response = match std::fs::rename(&req.from, &req.to) {
                     Ok(()) => RenameResponse::Ok,
                     Err(err) => RenameResponse::Err(err.to_string()),
                 };
-                self.send_data_to_module(response, memory, caller).await
+                self.send_data_to_module(response, memory, caller)
             }
             FileCall::Copy(req) => {
                 let result = if req.recursive {
@@ -154,7 +154,7 @@ impl Runtime {
                     Ok(()) => CopyResponse::Ok,
                     Err(err) => CopyResponse::Err(err.to_string()),
                 };
-                self.send_data_to_module(response, memory, caller).await
+                self.send_data_to_module(response, memory, caller)
             }
         };
 

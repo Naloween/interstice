@@ -273,7 +273,7 @@ impl Runtime {
         let mut out = Vec::new();
 
         if let EventInstance::Init { module_name } = event {
-            let module = self.modules.lock().unwrap();
+            let module = self.modules.lock();
             let module = module.get(module_name).unwrap();
             for sub in &module.schema.subscriptions {
                 if event.has_schema(&sub.event) {
@@ -284,7 +284,7 @@ impl Runtime {
                 }
             }
         } else if let EventInstance::Load { module_name } = event {
-            let module = self.modules.lock().unwrap();
+            let module = self.modules.lock();
             let module = module.get(module_name).unwrap();
             for sub in &module.schema.subscriptions {
                 if event.has_schema(&sub.event) {
@@ -301,7 +301,7 @@ impl Runtime {
             }) = self
                 .authority_modules
                 .lock()
-                .unwrap()
+                
                 .get(&Authority::Input)
                 .cloned()
             {
@@ -318,7 +318,7 @@ impl Runtime {
             }) = self
                 .authority_modules
                 .lock()
-                .unwrap()
+                
                 .get(&Authority::Audio)
                 .cloned()
             {
@@ -335,7 +335,7 @@ impl Runtime {
             }) = self
                 .authority_modules
                 .lock()
-                .unwrap()
+                
                 .get(&Authority::Audio)
                 .cloned()
             {
@@ -345,7 +345,7 @@ impl Runtime {
                 });
             }
         } else if let EventInstance::File(_) = event {
-            for module in self.modules.lock().unwrap().values() {
+            for module in self.modules.lock().values() {
                 for sub in &module.schema.subscriptions {
                     if event.has_schema(&sub.event) {
                         out.push(SubscriptionTarget::Local {
@@ -356,7 +356,7 @@ impl Runtime {
                 }
             }
         } else if let EventInstance::Module(_) = event {
-            for module in self.modules.lock().unwrap().values() {
+            for module in self.modules.lock().values() {
                 for sub in &module.schema.subscriptions {
                     if event.has_schema(&sub.event) {
                         out.push(SubscriptionTarget::Local {
@@ -367,7 +367,7 @@ impl Runtime {
                 }
             }
         } else {
-            for module in self.modules.lock().unwrap().values() {
+            for module in self.modules.lock().values() {
                 for sub in &module.schema.subscriptions {
                     if event.has_schema(&sub.event) {
                         out.push(SubscriptionTarget::Local {
@@ -378,7 +378,7 @@ impl Runtime {
                 }
             }
 
-            for (node_id, subscriptions) in self.node_subscriptions.lock().unwrap().iter() {
+            for (node_id, subscriptions) in self.node_subscriptions.lock().iter() {
                 for sub in subscriptions {
                     if event.has_schema(&sub) {
                         out.push(SubscriptionTarget::Remote(*node_id));
@@ -394,6 +394,7 @@ impl Runtime {
         &self,
         target: SubscriptionTarget,
         event: EventInstance,
+        completion: Option<crate::runtime::reducer::CompletionToken>,
     ) -> Result<(), IntersticeError> {
         match target {
             SubscriptionTarget::Local { module, reducer } => {
@@ -435,12 +436,13 @@ impl Runtime {
                     }
                     _ => IntersticeValue::Vec(vec![]),
                 };
-                let _ = self.reducer_sender.send(crate::runtime::ReducerJob {
+                let _ = self.reducer_sender.try_send(crate::runtime::ReducerJob {
                     module_name: module,
                     reducer_name: reducer,
                     input: args,
                     caller_node_id: self.network_handle.node_id,
-                    completion: None,
+                    completion,
+                    queued_at: std::time::Instant::now(),
                 });
             }
             SubscriptionTarget::Remote(uuid) => {

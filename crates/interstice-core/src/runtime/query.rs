@@ -1,13 +1,13 @@
 use crate::{
     error::IntersticeError,
     runtime::Runtime,
-    runtime::reducer::{CallFrame, CallFrameKind},
+    runtime::reducer::{CallFrame, CallFrameKind, CALL_STACK},
 };
 use interstice_abi::{IntersticeValue, QueryContext};
 use serde::Serialize;
 
 impl Runtime {
-    pub(crate) async fn call_query(
+    pub(crate) fn call_query(
         &self,
         module_name: &str,
         query_name: &str,
@@ -15,9 +15,9 @@ impl Runtime {
         caller_node_id: crate::node::NodeId,
     ) -> Result<IntersticeValue, IntersticeError> {
         let module = {
-            let mut modules = self.modules.lock().unwrap();
+            let modules = self.modules.lock();
             modules
-                .get_mut(module_name)
+                .get(module_name)
                 .ok_or_else(|| {
                     IntersticeError::ModuleNotFound(
                         module_name.into(),
@@ -41,21 +41,20 @@ impl Runtime {
                 reducer: query_name.into(),
             })?;
 
-        // Detect cycles (no module already called before)
-        if self
-            .call_stack
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|f| f.module == module_name)
-        {
+        // Detect re-entrant query cycles — check the current thread's stack only.
+        let cycle = CALL_STACK.with(|s| {
+            s.borrow()
+                .iter()
+                .any(|f| f.module == module_name && f.kind == CallFrameKind::Query)
+        });
+        if cycle {
             return Err(IntersticeError::ReducerCycle {
                 module: module_name.into(),
                 reducer: query_name.into(),
             });
         }
 
-        // Push frame
+        // Push frame onto current thread's stack (no lock needed — TLS).
         let call_sequence = self
             .call_sequence
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -65,22 +64,20 @@ impl Runtime {
             query_name,
             CallFrameKind::Query,
             call_sequence,
-            &args,
-        )?;
+        );
 
-        self.call_stack.lock().unwrap().push(CallFrame::new(
-            module_name.into(),
-            CallFrameKind::Query,
-            rng_seed,
-        ));
+        CALL_STACK.with(|s| {
+            s.borrow_mut().push(CallFrame::new(
+                module_name.into(),
+                module.clone(),
+                CallFrameKind::Query,
+                rng_seed,
+            ));
+        });
 
-        // Call WASM function
         let query_context = QueryContext::new(caller_node_id.to_string());
-        let result = module.call_query(query_name, (query_context, args)).await?;
-
-        // Pop frame
-        let _ = self.call_stack.lock().unwrap().pop().unwrap();
-
-        Ok(result)
+        let result = module.call_query(query_name, (query_context, args));
+        CALL_STACK.with(|s| { s.borrow_mut().pop(); });
+        result
     }
 }

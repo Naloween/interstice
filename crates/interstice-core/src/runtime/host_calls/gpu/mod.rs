@@ -3,7 +3,6 @@ use interstice_abi::{
     Draw, DrawIndexed, GpuId, SetIndexBuffer, SetVertexBuffer,
 };
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::oneshot;
 use wgpu::{SurfaceTexture, TextureView};
 use winit::window::Window;
 
@@ -26,7 +25,7 @@ pub enum GpuCallResult {
 
 pub struct GpuCallRequest {
     pub call: interstice_abi::GpuCall,
-    pub respond_to: oneshot::Sender<Result<GpuCallResult, IntersticeError>>,
+    pub respond_to: std::sync::mpsc::Sender<Result<GpuCallResult, IntersticeError>>,
 }
 
 pub struct GpuState {

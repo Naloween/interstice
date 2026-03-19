@@ -8,45 +8,50 @@
   "duration_ms": 20000,
   "connections": 4,
   "rate": null,
-  "sent_warmup": 3484846,
-  "sent_measured": 9012536,
+  "output": "benchmarks/results/vm-noop.json",
+  "sent_warmup": 11792877,
+  "sent_measured": 45359279,
   "failed": 0,
-  "throughput_tps": 450626.8,
-  "write_latency_us_mean": 7.81255566269028,
-  "write_latency_us_p50": 2.659,
-  "write_latency_us_p95": 10.68,
-  "write_latency_us_p99": 16.832,
-  "write_latency_us_max": 490081.49,
-  "started_at_ms": 1772730060111,
-  "ended_at_ms": 1772730085450,
+  "throughput_kind": "dispatch_rate",
+  "throughput_tps": 2267963.95,
+  "throughput_counter_start": null,
+  "throughput_counter_end": null,
+  "throughput_window_ms": null,
+  "write_latency_us_mean": 1.4691544594884416,
+  "write_latency_us_p50": 1.489,
+  "write_latency_us_p95": 2.199,
+  "write_latency_us_p99": 2.563,
+  "write_latency_us_max": 50862.677,
+  "started_at_ms": 1773449738015,
+  "ended_at_ms": 1773449763022,
   "worker_summaries": [
     {
       "worker_id": 0,
-      "client_id": "bench-client-0",
-      "attempted": 3356157,
-      "measured_sent": 2411900,
-      "last_seq": 3356156
+      "client_id": "bench-worker-0-9e194ea9-d79d-428c-9607-f65f05068da6",
+      "attempted": 14775751,
+      "measured_sent": 11571709,
+      "last_seq": 14775751
     },
     {
       "worker_id": 1,
-      "client_id": "bench-client-1",
-      "attempted": 3257451,
-      "measured_sent": 2384493,
-      "last_seq": 1003257450
+      "client_id": "bench-worker-1-d168e3ef-607f-4a27-a89c-7065dfda32c7",
+      "attempted": 13030233,
+      "measured_sent": 10308949,
+      "last_seq": 13030233
     },
     {
       "worker_id": 2,
-      "client_id": "bench-client-2",
-      "attempted": 2779432,
-      "measured_sent": 1869342,
-      "last_seq": 2002779431
+      "client_id": "bench-worker-2-e27f1a79-fc67-48cb-9aaf-dc87a3968b27",
+      "attempted": 14838298,
+      "measured_sent": 11852652,
+      "last_seq": 14838298
     },
     {
       "worker_id": 3,
-      "client_id": "bench-client-3",
-      "attempted": 3104342,
-      "measured_sent": 2346801,
-      "last_seq": 3003104341
+      "client_id": "bench-worker-3-dacf1f7e-8d3c-4784-a639-0bf975f3d753",
+      "attempted": 14507874,
+      "measured_sent": 11625969,
+      "last_seq": 14507874
     }
   ],
   "verification": null

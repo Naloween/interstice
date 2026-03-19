@@ -400,7 +400,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         pub fn get(&self, primary_key: #pk_type_ident) -> Option<#struct_ident> {
             interstice_sdk::host_calls::get_by_primary_key(
                 interstice_sdk::ModuleSelection::Current,
-                #table_name.to_string(),
+                #table_name,
                 TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(primary_key)).expect("Failed to convert IntersticeValue to IndexKey"),
             )
             .expect("Table get_by_primary_key failed")
@@ -461,7 +461,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         impl #table_edit_handle_struct{
             pub fn insert(&self, row: #struct_ident) -> Result<#struct_ident, String>{
                 interstice_sdk::host_calls::insert_row(
-                    #table_name.to_string(),
+                    #table_name,
                     row.into(),
                 )
                 .map(|row| row.into())
@@ -469,14 +469,14 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
 
             pub fn update(&self, row: #struct_ident) -> Result<(), String>{
                 interstice_sdk::host_calls::update_row(
-                    #table_name.to_string(),
+                    #table_name,
                     row.into(),
                 )
             }
 
             pub fn delete(&self, primary_key: #pk_type_ident) -> Result<(), String>{
                 interstice_sdk::host_calls::delete_row(
-                    #table_name.to_string(),
+                    #table_name,
                     TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(primary_key)).expect("Failed to convert IntersticeValue to IndexKey"),
                 )
             }
@@ -484,7 +484,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             pub fn clear(&self) -> Result<(), String> {
                 interstice_sdk::host_calls::clear_table(
                     interstice_sdk::ModuleSelection::Current,
-                    #table_name.to_string(),
+                    #table_name,
                 )
             }
 

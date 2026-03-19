@@ -1,0 +1,37 @@
+{
+  "name": "vm-tick",
+  "node": "benchmark-example",
+  "module_name": "benchmark-workload",
+  "reducer_name": "noop",
+  "transport": "persistent",
+  "warmup_ms": 0,
+  "duration_ms": 10000,
+  "connections": 1,
+  "rate": 1,
+  "output": "benchmarks/results/vm-tick.json",
+  "sent_warmup": 0,
+  "sent_measured": 10,
+  "failed": 0,
+  "throughput_kind": "query_delta",
+  "throughput_tps": 367.58972308307506,
+  "throughput_counter_start": 14,
+  "throughput_counter_end": 3691,
+  "throughput_window_ms": 10003,
+  "write_latency_us_mean": 0.0,
+  "write_latency_us_p50": 0.0,
+  "write_latency_us_p95": 0.0,
+  "write_latency_us_p99": 0.0,
+  "write_latency_us_max": 0.0,
+  "started_at_ms": 1773451574145,
+  "ended_at_ms": 1773451584232,
+  "worker_summaries": [
+    {
+      "worker_id": 0,
+      "client_id": "bench-worker-0-380c7e4c-fddc-42e1-9f83-041deca7faed",
+      "attempted": 10,
+      "measured_sent": 10,
+      "last_seq": 10
+    }
+  ],
+  "verification": null
+}

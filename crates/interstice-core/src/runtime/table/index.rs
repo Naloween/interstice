@@ -1,6 +1,6 @@
 use crate::{
     IntersticeError,
-    runtime::table::auto_inc::{AutoIncState, IndexImpl},
+    runtime::table::auto_inc::{AutoIncCounter, IndexImpl},
 };
 use interstice_abi::{IndexKey, IndexQuery, IndexSchema, IndexType, IntersticeType, Row};
 use std::collections::BTreeMap;
@@ -11,7 +11,7 @@ pub struct TableIndex {
     pub field_index: usize,
     pub unique: bool,
     pub auto_inc: bool,
-    pub auto_inc_state: Option<AutoIncState>,
+    pub auto_inc_counter: Option<AutoIncCounter>,
     pub index: IndexImpl,
 }
 
@@ -21,8 +21,8 @@ impl TableIndex {
             IndexType::Hash => IndexImpl::Hash(FastHashMap::default()),
             IndexType::BTree => IndexImpl::BTree(BTreeMap::new()),
         };
-        let auto_inc_state = if schema.auto_inc {
-            AutoIncState::from_type(field_type)
+        let auto_inc_counter = if schema.auto_inc {
+            AutoIncCounter::from_type(field_type)
         } else {
             None
         };
@@ -31,7 +31,7 @@ impl TableIndex {
             field_index,
             unique: schema.unique || schema.auto_inc,
             auto_inc: schema.auto_inc,
-            auto_inc_state,
+            auto_inc_counter,
             index,
         }
     }
@@ -44,16 +44,16 @@ impl TableIndex {
     }
 
     pub fn sync_auto_inc_from_row(
-        &mut self,
+        &self,
         row: &Row,
         table_name: &str,
     ) -> Result<(), IntersticeError> {
         if !self.auto_inc {
             return Ok(());
         }
-        let state = self.auto_inc_state.as_mut().ok_or_else(|| {
+        let counter = self.auto_inc_counter.as_ref().ok_or_else(|| {
             IntersticeError::Internal(format!(
-                "auto_inc is not supported for field '{}' in table '{}'",
+                "auto_inc counter missing for field '{}' in table '{}'",
                 self.field_name, table_name
             ))
         })?;
@@ -61,7 +61,7 @@ impl TableIndex {
             .entries
             .get(self.field_index)
             .ok_or_else(|| IntersticeError::Internal("Index field out of bounds".to_string()))?;
-        state.sync_from_value(value)
+        counter.sync_from_value(value)
     }
 
     pub fn contains_key(&self, key: &IndexKey) -> bool {

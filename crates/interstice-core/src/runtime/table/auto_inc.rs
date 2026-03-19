@@ -1,21 +1,131 @@
 use crate::{IntersticeError, runtime::table::Table};
 use interstice_abi::{IndexKey, IntersticeType, IntersticeValue, Row};
 use std::collections::BTreeMap;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 use wgpu::naga::FastHashMap;
 
-#[derive(Clone, Debug)]
-pub enum AutoIncState {
-    U8(u8),
-    U32(u32),
-    U64(u64),
-    I32(i32),
-    I64(i64),
+/// The numeric type an auto-inc column was declared with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AutoIncKind {
+    U8,
+    U32,
+    U64,
+    I32,
+    I64,
 }
 
+/// Lock-free auto-increment counter.
+/// Cloning is cheap — the Arc inside means all clones share the same underlying counter,
+/// so concurrent threads calling `next_value()` each receive a unique ID.
+#[derive(Clone, Debug)]
+pub(crate) struct AutoIncCounter {
+    pub(crate) raw: Arc<AtomicU64>,
+    pub(crate) kind: AutoIncKind,
+}
+
+impl AutoIncCounter {
+    pub fn from_type(field_type: &IntersticeType) -> Option<Self> {
+        let kind = match field_type {
+            IntersticeType::U8 => AutoIncKind::U8,
+            IntersticeType::U32 => AutoIncKind::U32,
+            IntersticeType::U64 => AutoIncKind::U64,
+            IntersticeType::I32 => AutoIncKind::I32,
+            IntersticeType::I64 => AutoIncKind::I64,
+            _ => return None,
+        };
+        Some(Self { raw: Arc::new(AtomicU64::new(0)), kind })
+    }
+
+    /// Atomically reserve the next ID.  Each call on any clone of the same counter
+    /// returns a distinct value, making concurrent inserts collision-free.
+    pub fn next_value(&self) -> Result<IntersticeValue, IntersticeError> {
+        let id = self.raw.fetch_add(1, Ordering::Relaxed);
+        match self.kind {
+            AutoIncKind::U8 => {
+                if id > u8::MAX as u64 {
+                    return Err(IntersticeError::Internal("auto_inc overflow (U8)".into()));
+                }
+                Ok(IntersticeValue::U8(id as u8))
+            }
+            AutoIncKind::U32 => {
+                if id > u32::MAX as u64 {
+                    return Err(IntersticeError::Internal("auto_inc overflow (U32)".into()));
+                }
+                Ok(IntersticeValue::U32(id as u32))
+            }
+            AutoIncKind::U64 => Ok(IntersticeValue::U64(id)),
+            AutoIncKind::I32 => {
+                if id > i32::MAX as u64 {
+                    return Err(IntersticeError::Internal("auto_inc overflow (I32)".into()));
+                }
+                Ok(IntersticeValue::I32(id as i32))
+            }
+            AutoIncKind::I64 => {
+                if id > i64::MAX as u64 {
+                    return Err(IntersticeError::Internal("auto_inc overflow (I64)".into()));
+                }
+                Ok(IntersticeValue::I64(id as i64))
+            }
+        }
+    }
+
+    /// Advance the counter so its next issued value is strictly greater than `value`.
+    /// Used when loading persisted rows to restore the counter to the right position.
+    pub fn sync_from_value(&self, value: &IntersticeValue) -> Result<(), IntersticeError> {
+        let candidate: u64 = match (self.kind, value) {
+            (AutoIncKind::U8, IntersticeValue::U8(v)) => (*v as u64)
+                .checked_add(1)
+                .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))?,
+            (AutoIncKind::U32, IntersticeValue::U32(v)) => (*v as u64)
+                .checked_add(1)
+                .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))?,
+            (AutoIncKind::U64, IntersticeValue::U64(v)) => v
+                .checked_add(1)
+                .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))?,
+            (AutoIncKind::I32, IntersticeValue::I32(v)) => (*v as i64)
+                .checked_add(1)
+                .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))? as u64,
+            (AutoIncKind::I64, IntersticeValue::I64(v)) => v
+                .checked_add(1)
+                .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))? as u64,
+            _ => {
+                return Err(IntersticeError::Internal(
+                    "auto_inc value type mismatch".into(),
+                ))
+            }
+        };
+        // Advance atomically to max(current, candidate)
+        let mut current = self.raw.load(Ordering::Relaxed);
+        while candidate > current {
+            match self.raw.compare_exchange_weak(
+                current,
+                candidate,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(updated) => current = updated,
+            }
+        }
+        Ok(())
+    }
+
+    pub fn reset(&self) {
+        self.raw.store(0, Ordering::Relaxed);
+    }
+}
+
+/// A snapshot of a table's auto-inc counters for one reducer call.
+/// Holds Arc clones of the table's live atomic counters — calling `next_value()` on
+/// any snapshot (from any thread) atomically advances the shared counter, so no two
+/// concurrent reducer calls will ever receive the same ID.
 #[derive(Debug)]
 pub(crate) struct TableAutoIncSnapshot {
-    pub primary: Option<AutoIncState>,
-    pub indexes: Vec<Option<AutoIncState>>,
+    pub primary: Option<AutoIncCounter>,
+    pub indexes: Vec<Option<AutoIncCounter>>,
 }
 
 pub enum IndexImpl {
@@ -23,126 +133,17 @@ pub enum IndexImpl {
     BTree(BTreeMap<IndexKey, Vec<usize>>),
 }
 
-impl AutoIncState {
-    pub fn from_type(field_type: &IntersticeType) -> Option<Self> {
-        match field_type {
-            IntersticeType::U8 => Some(Self::U8(0)),
-            IntersticeType::U32 => Some(Self::U32(0)),
-            IntersticeType::U64 => Some(Self::U64(0)),
-            IntersticeType::I32 => Some(Self::I32(0)),
-            IntersticeType::I64 => Some(Self::I64(0)),
-            _ => None,
-        }
-    }
-
-    pub fn next_value(&mut self) -> Result<IntersticeValue, IntersticeError> {
-        match self {
-            AutoIncState::U8(value) => {
-                let current = *value;
-                *value = value
-                    .checked_add(1)
-                    .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))?;
-                Ok(IntersticeValue::U8(current))
-            }
-            AutoIncState::U32(value) => {
-                let current = *value;
-                *value = value
-                    .checked_add(1)
-                    .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))?;
-                Ok(IntersticeValue::U32(current))
-            }
-            AutoIncState::U64(value) => {
-                let current = *value;
-                *value = value
-                    .checked_add(1)
-                    .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))?;
-                Ok(IntersticeValue::U64(current))
-            }
-            AutoIncState::I32(value) => {
-                let current = *value;
-                *value = value
-                    .checked_add(1)
-                    .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))?;
-                Ok(IntersticeValue::I32(current))
-            }
-            AutoIncState::I64(value) => {
-                let current = *value;
-                *value = value
-                    .checked_add(1)
-                    .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))?;
-                Ok(IntersticeValue::I64(current))
-            }
-        }
-    }
-
-    pub fn sync_from_value(&mut self, value: &IntersticeValue) -> Result<(), IntersticeError> {
-        match (self, value) {
-            (AutoIncState::U8(next), IntersticeValue::U8(v)) => {
-                let candidate = v
-                    .checked_add(1)
-                    .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))?;
-                if candidate > *next {
-                    *next = candidate;
-                }
-                Ok(())
-            }
-            (AutoIncState::U32(next), IntersticeValue::U32(v)) => {
-                let candidate = v
-                    .checked_add(1)
-                    .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))?;
-                if candidate > *next {
-                    *next = candidate;
-                }
-                Ok(())
-            }
-            (AutoIncState::U64(next), IntersticeValue::U64(v)) => {
-                let candidate = v
-                    .checked_add(1)
-                    .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))?;
-                if candidate > *next {
-                    *next = candidate;
-                }
-                Ok(())
-            }
-            (AutoIncState::I32(next), IntersticeValue::I32(v)) => {
-                let candidate = v
-                    .checked_add(1)
-                    .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))?;
-                if candidate > *next {
-                    *next = candidate;
-                }
-                Ok(())
-            }
-            (AutoIncState::I64(next), IntersticeValue::I64(v)) => {
-                let candidate = v
-                    .checked_add(1)
-                    .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))?;
-                if candidate > *next {
-                    *next = candidate;
-                }
-                Ok(())
-            }
-            _ => Err(IntersticeError::Internal(
-                "auto_inc value type mismatch".into(),
-            )),
-        }
-    }
-}
-
 impl Table {
+    /// Return a snapshot of this table's auto-inc counters.
+    /// Because the snapshot shares the same Arc<AtomicU64> as the table, concurrent
+    /// threads all advance the *same* atomic and receive non-overlapping IDs.
     pub(crate) fn auto_inc_snapshot(&self) -> TableAutoIncSnapshot {
         TableAutoIncSnapshot {
-            primary: self.primary_key_auto_inc_state.clone(),
+            primary: self.primary_key_auto_inc_counter.clone(),
             indexes: self
                 .indexes
                 .iter()
-                .map(|index| {
-                    if index.auto_inc {
-                        index.auto_inc_state.clone()
-                    } else {
-                        None
-                    }
-                })
+                .map(|index| index.auto_inc_counter.clone())
                 .collect(),
         }
     }
@@ -150,33 +151,33 @@ impl Table {
     pub(crate) fn apply_auto_inc_from_snapshot(
         &self,
         row: &mut Row,
-        snapshot: &mut TableAutoIncSnapshot,
+        snapshot: &TableAutoIncSnapshot,
     ) -> Result<(), IntersticeError> {
         if self.primary_key_auto_inc {
-            let state = snapshot.primary.as_mut().ok_or_else(|| {
+            let counter = snapshot.primary.as_ref().ok_or_else(|| {
                 IntersticeError::Internal(format!(
-                    "auto_inc is not supported for primary key in table '{}'",
+                    "auto_inc counter missing for primary key in table '{}'",
                     self.schema.name
                 ))
             })?;
-            row.primary_key = state.next_value()?;
+            row.primary_key = counter.next_value()?;
         }
 
         for (index, table_index) in self.indexes.iter().enumerate() {
             if !table_index.auto_inc {
                 continue;
             }
-            let state = snapshot
+            let counter = snapshot
                 .indexes
-                .get_mut(index)
-                .and_then(|s| s.as_mut())
+                .get(index)
+                .and_then(|s| s.as_ref())
                 .ok_or_else(|| {
                     IntersticeError::Internal(format!(
-                        "auto_inc is not supported for field '{}' in table '{}'",
+                        "auto_inc counter missing for field '{}' in table '{}'",
                         table_index.field_name, self.schema.name
                     ))
                 })?;
-            let value = state.next_value()?;
+            let value = counter.next_value()?;
             if let Some(entry) = row.entries.get_mut(table_index.field_index) {
                 *entry = value;
             } else {
@@ -189,17 +190,17 @@ impl Table {
         Ok(())
     }
 
-    pub(crate) fn sync_auto_inc_from_row(&mut self, row: &Row) -> Result<(), IntersticeError> {
+    pub(crate) fn sync_auto_inc_from_row(&self, row: &Row) -> Result<(), IntersticeError> {
         if self.primary_key_auto_inc {
-            let state = self.primary_key_auto_inc_state.as_mut().ok_or_else(|| {
+            let counter = self.primary_key_auto_inc_counter.as_ref().ok_or_else(|| {
                 IntersticeError::Internal(format!(
-                    "auto_inc is not supported for primary key in table '{}'",
+                    "auto_inc counter missing for primary key in table '{}'",
                     self.schema.name
                 ))
             })?;
-            state.sync_from_value(&row.primary_key)?;
+            counter.sync_from_value(&row.primary_key)?;
         }
-        for table_index in &mut self.indexes {
+        for table_index in &self.indexes {
             table_index.sync_auto_inc_from_row(row, &self.schema.name)?;
         }
         Ok(())

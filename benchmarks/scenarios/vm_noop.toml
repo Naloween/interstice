@@ -1,3 +1,4 @@
+[[scenarios]]
 name = "vm-noop"
 node = "benchmark-example"
 module_name = "benchmark-workload"

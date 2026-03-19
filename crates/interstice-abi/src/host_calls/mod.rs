@@ -18,13 +18,6 @@ pub enum HostCall {
     CallReducer(CallReducerRequest),
     Schedule(ScheduleRequest),
     CallQuery(CallQueryRequest),
-    DeterministicRandom(DeterministicRandomRequest),
-    Time(TimeRequest),
-    Log(LogRequest),
-    InsertRow(InsertRowRequest),
-    UpdateRow(UpdateRowRequest),
-    DeleteRow(DeleteRowRequest),
-    ClearTable(ClearTableRequest),
     TableScan(TableScanRequest),
     TableGetByPrimaryKey(TableGetByPrimaryKeyRequest),
     TableIndexScan(TableIndexScanRequest),
@@ -116,9 +109,13 @@ pub struct InsertRowRequest {
     pub row: Row,
 }
 
+/// `Ok(None)` = row was inserted unchanged (no auto-inc fields); caller should use the row it
+/// already has.  `Ok(Some(row))` = auto-inc fields were filled in; caller must use the returned
+/// row.  This avoids serialising + deserialising the full row on the hot path for the common
+/// non-auto-inc case.
 #[derive(Debug, Deserialize, Serialize)]
 pub enum InsertRowResponse {
-    Ok(Row),
+    Ok(Option<Row>),
     Err(String),
 }
 

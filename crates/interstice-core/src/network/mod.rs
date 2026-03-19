@@ -5,11 +5,14 @@ use crate::network::protocol::NetworkPacket;
 use crate::node::NodeId;
 use crate::persistence::PeerTokenStore;
 use crate::runtime::event::EventInstance;
+use crate::runtime::reducer::ReducerJob;
 use interstice_abi::{NodeSelection, SubscriptionEventSchema};
 use packet::{read_packet, write_packet};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
+use crossbeam_channel::Sender as CbSender;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
@@ -25,7 +28,10 @@ pub struct Network {
     address: String,
     peers: Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
     peer_tokens: Arc<Mutex<PeerTokenStore>>,
-    runtime_event_sender: mpsc::UnboundedSender<EventInstance>,
+    runtime_event_sender: mpsc::UnboundedSender<(EventInstance, Option<crate::runtime::reducer::CompletionToken>)>,
+    /// Direct bounded channel to the reducer executor — bypasses the event channel
+    /// to prevent unbounded buffering of remote reducer calls.
+    reducer_sender: CbSender<ReducerJob>,
     logger: Logger,
 
     /// Packets coming *from* connection tasks
@@ -42,8 +48,12 @@ pub struct NetworkHandle {
     peers: Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
     peer_tokens: Arc<Mutex<PeerTokenStore>>,
     packet_sender: mpsc::Sender<(NodeId, NetworkPacket)>,
-    runtime_event_sender: mpsc::UnboundedSender<EventInstance>,
+    runtime_event_sender: mpsc::UnboundedSender<(EventInstance, Option<crate::runtime::reducer::CompletionToken>)>,
+    reducer_sender: CbSender<ReducerJob>,
     logger: Logger,
+    /// Stored at construction time (from async context) so that `send_packet` can
+    /// call `tokio::spawn` even when invoked from a non-tokio OS thread (e.g. wasm-reducer-*).
+    tokio_handle: tokio::runtime::Handle,
 }
 
 impl NetworkHandle {
@@ -65,7 +75,7 @@ impl NetworkHandle {
             .map_err(|_| IntersticeError::Internal("Failed to connect to node".into()))
             .unwrap();
 
-        let local_token = { self.peer_tokens.lock().unwrap().local_token() };
+        let local_token = { self.peer_tokens.lock().local_token() };
 
         // Send our handshake
         write_packet(
@@ -86,6 +96,7 @@ impl NetworkHandle {
             &mut cloned_peers,
             packet_sender,
             self.runtime_event_sender.clone(),
+            self.reducer_sender.clone(),
             self.logger.clone(),
             self.peer_tokens.clone(),
             false,
@@ -101,7 +112,7 @@ impl NetworkHandle {
     }
 
     pub async fn disconnect_peer(&self, node_id: NodeId) {
-        let peer = { self.peers.lock().unwrap().remove(&node_id) };
+        let peer = { self.peers.lock().remove(&node_id) };
 
         if let Some(peer) = peer {
             let _ = peer.send(NetworkPacket::Close).await;
@@ -113,7 +124,7 @@ impl NetworkHandle {
             );
             let _ = self
                 .runtime_event_sender
-                .send(EventInstance::NodeDisconnect { node_id });
+                .send((EventInstance::NodeDisconnect { node_id }, None));
         } else {
             self.logger.log(
                 &format!("Attempted to disconnect unknown peer {}", node_id),
@@ -125,9 +136,11 @@ impl NetworkHandle {
 
     pub fn send_packet(&self, node_id: NodeId, packet: NetworkPacket) {
         let peers = self.peers.clone();
-        tokio::spawn(async move {
+        // Use the stored handle so this works even when called from a non-tokio thread
+        // (e.g. wasm-reducer-* OS threads).
+        self.tokio_handle.spawn(async move {
             let peer = {
-                let peers = peers.lock().unwrap();
+                let peers = peers.lock();
                 peers.get(&node_id).cloned()
             };
             if let Some(peer) = peer {
@@ -137,20 +150,20 @@ impl NetworkHandle {
     }
 
     pub fn get_node_id_from_adress(&self, address: &String) -> Result<NodeId, IntersticeError> {
-        for node in self.peers.lock().unwrap().values() {
+        for node in self.peers.lock().values() {
             if &node.address == address {
                 return Ok(node.node_id);
             }
         }
         return Err(IntersticeError::Internal(format!(
             "Couldn't find node id with address {address}. Disponible peers: \n {:?}",
-            self.peers.lock().unwrap().values()
+            self.peers.lock().values()
         )));
     }
     pub fn connected_peers(&self) -> Vec<(NodeId, String)> {
         self.peers
             .lock()
-            .unwrap()
+            
             .values()
             .map(|peer| (peer.node_id, peer.address.clone()))
             .collect()
@@ -161,7 +174,8 @@ impl Network {
     pub fn new(
         node_id: Uuid,
         address: String,
-        event_sender: mpsc::UnboundedSender<EventInstance>,
+        event_sender: mpsc::UnboundedSender<(EventInstance, Option<crate::runtime::reducer::CompletionToken>)>,
+        reducer_sender: CbSender<ReducerJob>,
         peer_tokens: Arc<Mutex<PeerTokenStore>>,
         logger: Logger,
     ) -> Self {
@@ -175,6 +189,7 @@ impl Network {
             packet_receiver: receiver,
             packet_sender: sender,
             runtime_event_sender: event_sender,
+            reducer_sender,
             logger,
         }
     }
@@ -187,7 +202,9 @@ impl Network {
             peer_tokens: self.peer_tokens.clone(),
             packet_sender: self.packet_sender.clone(),
             runtime_event_sender: self.runtime_event_sender.clone(),
+            reducer_sender: self.reducer_sender.clone(),
             logger: self.logger.clone(),
+            tokio_handle: tokio::runtime::Handle::current(),
         }
     }
 
@@ -195,6 +212,7 @@ impl Network {
         let peers = self.peers.clone();
         let sender = self.packet_sender.clone();
         let event_sender = self.runtime_event_sender.clone();
+        let reducer_sender = self.reducer_sender.clone();
         let peer_tokens = self.peer_tokens.clone();
         let my_address = self.address.clone();
         let my_node_id = self.node_id.clone();
@@ -218,6 +236,7 @@ impl Network {
                         let my_address = my_address.clone();
                         let logger = logger.clone();
                         let peer_tokens = peer_tokens.clone();
+                        let reducer_sender = reducer_sender.clone();
                         tokio::spawn(async move {
                             if let Err(e) = handshake_incoming(
                                 my_node_id,
@@ -226,6 +245,7 @@ impl Network {
                                 &mut cloned_peers,
                                 cloned_sender,
                                 event_sender.clone(),
+                                reducer_sender,
                                 logger.clone(),
                                 peer_tokens.clone(),
                                 true,
@@ -270,19 +290,10 @@ impl Network {
                     NetworkPacket::Close => {
                         self.disconnect_peer_remote(node_id);
                     }
-                    NetworkPacket::ReducerCall {
-                        module_name,
-                        reducer_name,
-                        input,
-                    } => self
-                        .runtime_event_sender
-                        .send(EventInstance::RemoteReducerCall {
-                            requesting_node_id: node_id,
-                            module_name,
-                            reducer_name,
-                            input,
-                        })
-                        .unwrap(),
+                    NetworkPacket::ReducerCall { .. } => {
+                        // ReducerCall is now dispatched directly in connection_task's read_loop
+                        // (via reducer_sender) — this path should not be reached.
+                    }
                     NetworkPacket::QueryCall {
                         request_id,
                         module_name,
@@ -290,21 +301,21 @@ impl Network {
                         input,
                     } => self
                         .runtime_event_sender
-                        .send(EventInstance::RemoteQueryCall {
+                        .send((EventInstance::RemoteQueryCall {
                             requesting_node_id: node_id,
                             request_id,
                             module_name,
                             query_name,
                             input,
-                        })
+                        }, None))
                         .unwrap(),
                     NetworkPacket::QueryResponse { request_id, result } => self
                         .runtime_event_sender
-                        .send(EventInstance::RemoteQueryResponse { request_id, result })
+                        .send((EventInstance::RemoteQueryResponse { request_id, result }, None))
                         .unwrap(),
                     NetworkPacket::RequestSubscription(request_subscription) => self
                         .runtime_event_sender
-                        .send(EventInstance::RequestSubscription {
+                        .send((EventInstance::RequestSubscription {
                             requesting_node_id: node_id,
                             event: match request_subscription.event {
                                 protocol::TableEvent::Insert => SubscriptionEventSchema::Insert {
@@ -323,11 +334,11 @@ impl Network {
                                     table_name: request_subscription.table_name,
                                 },
                             },
-                        })
+                        }, None))
                         .unwrap(),
                     NetworkPacket::RequestUnsubscription(request_subscription) => self
                         .runtime_event_sender
-                        .send(EventInstance::RequestUnsubscription {
+                        .send((EventInstance::RequestUnsubscription {
                             requesting_node_id: node_id,
                             event: match request_subscription.event {
                                 protocol::TableEvent::Insert => SubscriptionEventSchema::Insert {
@@ -346,18 +357,18 @@ impl Network {
                                     table_name: request_subscription.table_name,
                                 },
                             },
-                        })
+                        }, None))
                         .unwrap(),
                     NetworkPacket::RequestTableSync {
                         module_name,
                         table_name,
                     } => self
                         .runtime_event_sender
-                        .send(EventInstance::RequestTableSync {
+                        .send((EventInstance::RequestTableSync {
                             requesting_node_id: node_id,
                             module_name,
                             table_name,
-                        })
+                        }, None))
                         .unwrap(),
                     NetworkPacket::TableSyncResponse {
                         module_name,
@@ -365,50 +376,49 @@ impl Network {
                         rows,
                     } => self
                         .runtime_event_sender
-                        .send(EventInstance::RemoteTableSync {
+                        .send((EventInstance::RemoteTableSync {
                             source_node_id: node_id,
                             module_name,
                             table_name,
                             rows,
-                        })
+                        }, None))
                         .unwrap(),
                     NetworkPacket::TableEvent(subscription_event) => {
-                        self.runtime_event_sender
-                            .send(match subscription_event {
-                                protocol::TableEventInstance::TableInsertEvent {
-                                    module_name,
-                                    table_name,
-                                    inserted_row,
-                                } => EventInstance::TableInsertEvent {
-                                    source_node_id: Some(node_id),
-                                    module_name,
-                                    table_name,
-                                    inserted_row,
-                                },
-                                protocol::TableEventInstance::TableUpdateEvent {
-                                    module_name,
-                                    table_name,
-                                    old_row,
-                                    new_row,
-                                } => EventInstance::TableUpdateEvent {
-                                    source_node_id: Some(node_id),
-                                    module_name,
-                                    table_name,
-                                    old_row,
-                                    new_row,
-                                },
-                                protocol::TableEventInstance::TableDeleteEvent {
-                                    module_name,
-                                    table_name,
-                                    deleted_row,
-                                } => EventInstance::TableDeleteEvent {
-                                    source_node_id: Some(node_id),
-                                    module_name,
-                                    table_name,
-                                    deleted_row,
-                                },
-                            })
-                            .unwrap();
+                        let event = match subscription_event {
+                            protocol::TableEventInstance::TableInsertEvent {
+                                module_name,
+                                table_name,
+                                inserted_row,
+                            } => EventInstance::TableInsertEvent {
+                                source_node_id: Some(node_id),
+                                module_name,
+                                table_name,
+                                inserted_row,
+                            },
+                            protocol::TableEventInstance::TableUpdateEvent {
+                                module_name,
+                                table_name,
+                                old_row,
+                                new_row,
+                            } => EventInstance::TableUpdateEvent {
+                                source_node_id: Some(node_id),
+                                module_name,
+                                table_name,
+                                old_row,
+                                new_row,
+                            },
+                            protocol::TableEventInstance::TableDeleteEvent {
+                                module_name,
+                                table_name,
+                                deleted_row,
+                            } => EventInstance::TableDeleteEvent {
+                                source_node_id: Some(node_id),
+                                module_name,
+                                table_name,
+                                deleted_row,
+                            },
+                        };
+                        self.runtime_event_sender.send((event, None)).unwrap();
                     }
                     NetworkPacket::Error(err) => {
                         self.logger.log(
@@ -421,17 +431,17 @@ impl Network {
                         match module_event_instance {
                             protocol::ModuleEventInstance::Publish { wasm_binary } => self
                                 .runtime_event_sender
-                                .send(EventInstance::PublishModule {
+                                .send((EventInstance::PublishModule {
                                     wasm_binary,
                                     source_node_id: node_id,
-                                })
+                                }, None))
                                 .unwrap(),
                             protocol::ModuleEventInstance::Remove { module_name } => self
                                 .runtime_event_sender
-                                .send(EventInstance::RemoveModule {
+                                .send((EventInstance::RemoveModule {
                                     module_name,
                                     source_node_id: node_id,
-                                })
+                                }, None))
                                 .unwrap(),
                         }
                     }
@@ -440,16 +450,16 @@ impl Network {
                         node_name,
                     } => {
                         self.runtime_event_sender
-                            .send(EventInstance::SchemaRequest {
+                            .send((EventInstance::SchemaRequest {
                                 requesting_node_id: node_id,
                                 request_id,
                                 node_name,
-                            })
+                            }, None))
                             .unwrap();
                     }
                     NetworkPacket::SchemaResponse { request_id, schema } => {
                         self.runtime_event_sender
-                            .send(EventInstance::RemoteSchemaResponse { request_id, schema })
+                            .send((EventInstance::RemoteSchemaResponse { request_id, schema }, None))
                             .unwrap();
                     }
                 }
@@ -458,7 +468,7 @@ impl Network {
     }
 
     fn disconnect_peer_remote(&self, node_id: NodeId) {
-        let peer = { self.peers.lock().unwrap().remove(&node_id) };
+        let peer = { self.peers.lock().remove(&node_id) };
 
         if let Some(peer) = peer {
             peer.close();
@@ -469,7 +479,7 @@ impl Network {
             );
             let _ = self
                 .runtime_event_sender
-                .send(EventInstance::NodeDisconnect { node_id });
+                .send((EventInstance::NodeDisconnect { node_id }, None));
         } else {
             self.logger.log(
                 &format!("Received close from unknown peer {}", node_id),
@@ -489,6 +499,7 @@ async fn connection_task(
     stream: TcpStream,
     mut receiver: mpsc::Receiver<NetworkPacket>,
     sender: mpsc::Sender<(NodeId, NetworkPacket)>,
+    reducer_sender: CbSender<ReducerJob>,
     close_receiver: watch::Receiver<bool>,
     logger: Logger,
 ) {
@@ -540,6 +551,18 @@ async fn connection_task(
                 }
                 packet = read_packet(&mut reader) => {
                     match packet {
+                        Ok(NetworkPacket::ReducerCall { module_name, reducer_name, input }) => {
+                            // Hot path: bypass the intermediate packet channel — dispatch
+                            // directly to the crossbeam reducer queue for zero-copy dispatch.
+                            let _ = reducer_sender.try_send(ReducerJob {
+                                module_name,
+                                reducer_name,
+                                input,
+                                caller_node_id: node_id,
+                                completion: None,
+                                queued_at: std::time::Instant::now(),
+                            });
+                        }
                         Ok(packet) => {
                             if read_sender.send((node_id, packet)).await.is_err() {
                                 break;
@@ -597,7 +620,8 @@ async fn handshake_incoming(
     mut stream: TcpStream,
     peers: &mut Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
     packet_sender: mpsc::Sender<(NodeId, NetworkPacket)>,
-    runtime_event_sender: mpsc::UnboundedSender<EventInstance>,
+    runtime_event_sender: mpsc::UnboundedSender<(EventInstance, Option<crate::runtime::reducer::CompletionToken>)>,
+    reducer_sender: CbSender<ReducerJob>,
     logger: Logger,
     peer_tokens: Arc<Mutex<PeerTokenStore>>,
     send_handshake_response: bool,
@@ -619,7 +643,7 @@ async fn handshake_incoming(
     let peer_id = NodeId::parse_str(&peer_id_str).expect("Couldn't parse node id");
 
     {
-        let mut store = peer_tokens.lock().unwrap();
+        let mut store = peer_tokens.lock();
         if let Some(existing) = store.get_peer_token(&peer_id) {
             if existing != peer_token {
                 return Err(IntersticeError::ProtocolError(format!(
@@ -633,7 +657,7 @@ async fn handshake_incoming(
     }
 
     if send_handshake_response {
-        let local_token = { peer_tokens.lock().unwrap().local_token() };
+        let local_token = { peer_tokens.lock().local_token() };
         // Reply with our handshake immediately so the remote side won't block
         // waiting for it (prevents their read from hitting EOF if we drop
         // the connection due to a duplicate).
@@ -648,7 +672,7 @@ async fn handshake_incoming(
         .await?;
     }
 
-    let mut peers = peers.lock().unwrap();
+    let mut peers = peers.lock();
 
     // If already connected, drop duplicate
     if peers.contains_key(&peer_id) {
@@ -679,6 +703,7 @@ async fn handshake_incoming(
         stream,
         receiver,
         packet_sender.clone(),
+        reducer_sender,
         close_receiver,
         logger.clone(),
     ));
@@ -688,7 +713,7 @@ async fn handshake_incoming(
         LogSource::Network,
         LogLevel::Info,
     );
-    let _ = runtime_event_sender.send(EventInstance::NodeConnect { node_id: peer_id });
+    let _ = runtime_event_sender.send((EventInstance::NodeConnect { node_id: peer_id }, None));
 
     Ok(())
 }

@@ -3,7 +3,8 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, SampleFormat, SampleRate, StreamConfig};
 use interstice_abi::{AudioCall, AudioResponse, AudioStreamConfig};
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex, mpsc};
+use parking_lot::Mutex;
+use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Duration;
 
@@ -55,14 +56,14 @@ impl AudioState {
     pub(crate) fn take_input_frames(&mut self) -> Option<(u64, Vec<Vec<f32>>)> {
         let (stream_id, stream) = self.input_streams.iter().find(|(_, stream)| {
             let needed = stream.config.frames_per_buffer as usize * stream.config.channels as usize;
-            let buffer = stream.buffer.lock().unwrap();
+            let buffer = stream.buffer.lock();
             buffer.len() >= needed
         })?;
 
         let frames = stream.config.frames_per_buffer as usize;
         let channels = stream.config.channels as usize;
         let samples_needed = frames * channels;
-        let mut buffer = stream.buffer.lock().unwrap();
+        let mut buffer = stream.buffer.lock();
         if buffer.len() < samples_needed {
             return None;
         }
@@ -191,7 +192,7 @@ fn build_output_stream(
         .build_output_stream(
             &stream_config,
             move |data: &mut [f32], _info| {
-                let mut guard = buffer_for_callback.lock().unwrap();
+                let mut guard = buffer_for_callback.lock();
                 for sample in data.iter_mut() {
                     *sample = guard.pop_front().unwrap_or(0.0);
                 }
@@ -261,7 +262,7 @@ fn build_input_stream(
         .build_input_stream(
             &stream_config,
             move |data: &[f32], _info| {
-                let mut guard = buffer_for_callback.lock().unwrap();
+                let mut guard = buffer_for_callback.lock();
                 for sample in data.iter() {
                     guard.push_back(*sample);
                 }
@@ -285,7 +286,7 @@ fn build_input_stream(
 
 impl Runtime {
     pub(crate) fn handle_audio_call(&self, call: AudioCall) -> AudioResponse {
-        let mut audio_state = self.audio_state.lock().unwrap();
+        let mut audio_state = self.audio_state.lock();
 
         match call {
             AudioCall::OpenOutputStream(config) => {
@@ -317,7 +318,7 @@ impl Runtime {
                     Err(_) => return AudioResponse::Err("Audio thread unavailable".into()),
                 };
 
-                let mut audio_state = self.audio_state.lock().unwrap();
+                let mut audio_state = self.audio_state.lock();
                 audio_state.output_streams.insert(
                     stream_id,
                     AudioStreamState {
@@ -356,7 +357,7 @@ impl Runtime {
                     Err(_) => return AudioResponse::Err("Audio thread unavailable".into()),
                 };
 
-                let mut audio_state = self.audio_state.lock().unwrap();
+                let mut audio_state = self.audio_state.lock();
                 audio_state.input_streams.insert(
                     stream_id,
                     AudioInputState {
@@ -420,7 +421,7 @@ impl Runtime {
                     .saturating_mul(config.channels as usize)
                     .saturating_mul(4);
 
-                let mut buffer = buffer.lock().unwrap();
+                let mut buffer = buffer.lock();
                 if buffer.len() + interleaved.len() > max_samples {
                     return AudioResponse::Err("Audio buffer overflow".into());
                 }

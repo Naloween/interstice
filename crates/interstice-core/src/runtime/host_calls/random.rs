@@ -1,5 +1,6 @@
 use crate::runtime::Runtime;
 use crate::runtime::deterministic_random::next_u64;
+use crate::runtime::reducer::CALL_STACK;
 use interstice_abi::{DeterministicRandomRequest, DeterministicRandomResponse};
 
 impl Runtime {
@@ -7,17 +8,16 @@ impl Runtime {
         &self,
         _request: DeterministicRandomRequest,
     ) -> DeterministicRandomResponse {
-        let mut call_stack = self.call_stack.lock().unwrap();
-        let frame = match call_stack.last_mut() {
-            Some(frame) => frame,
-            None => {
-                return DeterministicRandomResponse::Err(
+        CALL_STACK.with(|s| {
+            match s.borrow_mut().last_mut() {
+                Some(frame) => {
+                    let value = next_u64(&mut frame.rng_state);
+                    DeterministicRandomResponse::Ok(value)
+                }
+                None => DeterministicRandomResponse::Err(
                     "Deterministic random call outside of an active frame".into(),
-                );
+                ),
             }
-        };
-
-        let value = next_u64(&mut frame.rng_state);
-        DeterministicRandomResponse::Ok(value)
+        })
     }
 }

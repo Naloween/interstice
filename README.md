@@ -142,19 +142,25 @@ Rules:
 
 #### Persistence modes
 
-Tables default to **logged** persistence, meaning every mutation is appended to that table's log so the node can deterministically replay state. You can opt into other behaviors by annotating the table declaration:
+Tables default to **logged** persistence. You can opt into other behaviors:
 
 ```rust
 #[table(stateful)]
-struct Accounts { /* ... */ }
+struct AssetStore { /* ... */ }
 
 #[table(ephemeral)]
 struct DerivedCache { /* ... */ }
 ```
 
-- `Logged` (default) – write-ahead logging only. On restart the node rebuilds the table by replaying its log. Use when you want full transaction history.
-- `Stateful` – This does not save transaction logs, only the latest table state in a snapshot. Pick this for large tables that must persist across restarts without additional data usage.
-- `Ephemeral` – the table never hits disk: no log, no snapshot. Data lives strictly in-memory for the lifetime of the node process, which is ideal for caches or other derived views you can recompute.
+| Mode | Disk space | Restart behavior | Best for |
+|------|-----------|-----------------|----------|
+| **Logged** (default) | Grows with history (compacted at snapshots) | Replays WAL to rebuild exact state | Transactional data, audit trails, small–medium rows |
+| **Stateful** | ≈ current live data (one file per row) | Reads row files directly | Large assets (images, audio, video blobs), rows that update frequently and are large |
+| **Ephemeral** | Zero | Table starts empty | Caches, derived views, session state |
+
+- **Logged** — every mutation is appended to a write-ahead log (fsynced every ~10 ms in a background thread). Periodic snapshots compact the log. On restart the runtime replays the log from the last snapshot to reconstruct state exactly.
+- **Stateful** — each row lives in its own file (`<pk>.row`) inside a dedicated directory. Insert and update atomically replace the row file; delete removes it; clear removes all files. Disk usage equals exactly the sum of current row sizes — no history accumulates. On restart the runtime reads every row file to reconstruct the table.
+- **Ephemeral** — never written to disk. The table starts empty when the node starts. Ideal for caches or derived state you can recompute.
 
 Only one persistence keyword may be used per table. If you omit the keyword you get the default logged behavior.
 
@@ -427,6 +433,28 @@ Template placeholders supported in JSON args include `$seq`, `$worker`, `$op`, `
 
 - Publishing doesn't require any privilege by default, so anyone can publish and remove modules, even remotely.
 - To prevent this default behavior, the node should load a module with the Module authority. In this case, all requests are forwarded to this module, which can enforce custom policies for publish/remove and access.
+
+---
+
+# Benchmarks
+
+Measured on a single node running the `benchmark-workload` module, x86-64 Linux, `--release` build. Each scenario runs for 20 s with 5 s warmup on a freshly started isolated node. Connections = 4.
+
+## Durability
+
+| Mode | Throughput |
+|------|-----------|
+| Ephemeral | ~5 370 tx/s |
+| Stateful (per-row files, atomic rename) | ~4 540 tx/s |
+| Logged (async WAL, 10 ms batch fsync) | ~2 765 tx/s |
+
+*Logged throughput reflects batched fsyncs every ~10 ms — individual transactions are not individually synced to disk. Per-transaction fsync yields ~100 tx/s; the async WAL gives a ~28× improvement.*
+
+## Notes
+
+- `Ephemeral` is the baseline: pure in-memory reducer dispatch with no I/O.
+- `Stateful` writes one file per mutated row (atomic rename, O(1) per write). Throughput depends on row size; the overhead is a single rename syscall per changed row.
+- `Logged` appends to a WAL file without blocking the reducer loop, then batches `fsync` every ~10 ms in a background thread.
 
 ---
 

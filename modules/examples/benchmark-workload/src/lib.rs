@@ -5,6 +5,11 @@ interstice_module!(visibility: Public);
 const FANOUT_KEY: &str = "local";
 const TICK_STATE_KEY: &str = "scheduler";
 
+/// Maximum number of unique rows per client per table.
+/// After this many inserts, keys wrap around and duplicate-PK inserts
+/// become silent no-ops. This bounds memory usage and prevents OOM.
+const MAX_BENCH_ROWS: u64 = 100_000;
+
 #[interstice_type]
 #[derive(Debug, Clone)]
 pub struct BenchStats {
@@ -284,7 +289,7 @@ pub fn on_benchevent_insert(ctx: ReducerContext, inserted: BenchEvent) {
 
 #[reducer]
 pub fn start_tick(ctx: ReducerContext, tick_ms: u64) {
-    let interval = tick_ms.max(1);
+    let interval = tick_ms;
     let now = now_ms(&ctx);
 
     if let Some(mut state) = ctx
@@ -340,7 +345,7 @@ pub fn tick(ctx: ReducerContext) {
 
     state.ticks = state.ticks.saturating_add(1);
     state.last_tick_ms = now_ms(&ctx);
-    let next_tick_ms = state.tick_ms.max(1);
+    let next_tick_ms = state.tick_ms;
 
     let _ = ctx.current.tables.benchtickstate().update(state);
     let _ = ctx.schedule("tick", next_tick_ms);
@@ -675,7 +680,7 @@ fn record_progress(ctx: &ReducerContext, client_id: String, seq: u64) {
 }
 
 fn key(client_id: &str, seq: u64) -> String {
-    format!("{}:{}", client_id, seq)
+    format!("{}:{}", client_id, seq % MAX_BENCH_ROWS)
 }
 
 fn payload(payload_bytes: u64) -> String {

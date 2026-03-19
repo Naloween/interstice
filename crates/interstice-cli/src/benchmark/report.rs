@@ -30,14 +30,19 @@ pub(crate) fn render_report(report: &BenchmarkReport) {
     if let Some(window_ms) = report.throughput_window_ms {
         println!("  throughput_window_ms: {}", window_ms);
     }
+    let latency_label = if report.throughput_kind == "dispatch_rate" {
+        "dispatch_latency_us"
+    } else {
+        "write_latency_us"
+    };
     println!(
-        "  write_latency_us_mean: {:.2}",
-        report.write_latency_us_mean
+        "  {}_mean: {:.2}",
+        latency_label, report.write_latency_us_mean
     );
-    println!("  write_latency_us_p50: {:.2}", report.write_latency_us_p50);
-    println!("  write_latency_us_p95: {:.2}", report.write_latency_us_p95);
-    println!("  write_latency_us_p99: {:.2}", report.write_latency_us_p99);
-    println!("  write_latency_us_max: {:.2}", report.write_latency_us_max);
+    println!("  {}_p50: {:.2}", latency_label, report.write_latency_us_p50);
+    println!("  {}_p95: {:.2}", latency_label, report.write_latency_us_p95);
+    println!("  {}_p99: {:.2}", latency_label, report.write_latency_us_p99);
+    println!("  {}_max: {:.2}", latency_label, report.write_latency_us_max);
 
     if let Some(verification) = &report.verification {
         println!("  verification_mode: {:?}", verification.mode);
@@ -97,7 +102,7 @@ pub(crate) fn print_benchmark_help() {
     println!("      --rate <tps_total>");
     println!("      --latency-sample-stride <n> (default 64)");
     println!("      --throughput-mode <dispatch_success|query_delta> (default dispatch_success)");
-    println!("        note: query_delta currently requires --warmup-ms 0");
+    println!("        query_delta: measures real committed tx/s via server-side counter");
     println!("      --throughput-query <query_name>");
     println!("      --throughput-query-field <field_name>");
     println!("      --throughput-query-arg-json '<json>' (repeatable)");
@@ -117,7 +122,7 @@ pub(crate) fn print_benchmark_help() {
     println!("      --output <path/to/report.json>");
     println!("      --output-prefix <path/prefix>");
     println!("      --scenario-file <path.toml> (repeatable)");
-    println!("      --profile <vm-noop|durability|fanout>");
+    println!("      --profile <vm-noop|insert-ephemeral|durability|fanout>");
     println!();
     println!("  benchmark scenario <path.toml>");
     println!("    Runs all scenarios in a TOML file.");
@@ -130,7 +135,8 @@ pub(crate) fn print_benchmark_help() {
 
 pub(crate) fn print_profiles() {
     println!("Built-in benchmark profiles:");
-    println!("  vm-noop");
-    println!("  durability");
-    println!("  fanout");
+    println!("  vm-noop           — pure WASM call overhead (noop reducer, dispatch_success)");
+    println!("  insert-ephemeral  — ephemeral table insert throughput (query_delta)");
+    println!("  durability        — logged/persisted insert throughput (query_delta)");
+    println!("  fanout            — subscription fanout throughput");
 }

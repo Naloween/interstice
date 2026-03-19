@@ -7,16 +7,17 @@ use crate::{
             gpu::{GpuCallRequest, GpuCallResult, GpuState},
             input::from_winit::get_input_event_from_device_event,
         },
-        reducer::ReducerJob,
+        reducer::{CompletionToken, ReducerJob},
     },
 };
 use interstice_abi::{Authority, IntersticeValue};
 use pollster::FutureExt;
+use parking_lot::Mutex;
 use std::{
     hash::{Hash, Hasher},
-    sync::{Arc, Mutex, mpsc::Receiver},
+    sync::{Arc, mpsc::Receiver},
 };
-use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use tokio::sync::{mpsc::UnboundedSender, oneshot::Receiver as OneshotReceiver};
 use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, DeviceId, WindowEvent},
@@ -26,7 +27,7 @@ use winit::{
 
 pub struct App {
     node_id: NodeId,
-    event_sender: UnboundedSender<EventInstance>,
+    event_sender: UnboundedSender<(EventInstance, Option<crate::runtime::reducer::CompletionToken>)>,
     gpu: Arc<Mutex<Option<GpuState>>>,
     runtime: Arc<Runtime>,
     gpu_call_receiver: Receiver<GpuCallRequest>,
@@ -35,7 +36,7 @@ pub struct App {
 impl App {
     pub fn new(
         node_id: NodeId,
-        event_sender: UnboundedSender<EventInstance>,
+        event_sender: UnboundedSender<(EventInstance, Option<crate::runtime::reducer::CompletionToken>)>,
         gpu: Arc<Mutex<Option<GpuState>>>,
         runtime: Arc<Runtime>,
         gpu_call_receiver: Receiver<GpuCallRequest>,
@@ -69,9 +70,9 @@ impl ApplicationHandler for App {
         window.request_redraw();
         let window = Arc::new(window);
         let gpu = GpuState::new(window.clone()).block_on();
-        *self.gpu.lock().unwrap() = Some(gpu);
+        *self.gpu.lock() = Some(gpu);
         self.event_sender
-            .send(EventInstance::AppInitialized)
+            .send((EventInstance::AppInitialized, None))
             .expect("Failed to send AppInitialized event");
         window.request_redraw();
     }
@@ -87,7 +88,7 @@ impl ApplicationHandler for App {
                     self.runtime
                         .authority_modules
                         .lock()
-                        .unwrap()
+                        
                         .get(&Authority::Gpu)
                         .cloned()
                         .and_then(|entry| match entry {
@@ -100,20 +101,21 @@ impl ApplicationHandler for App {
                 };
 
                 if let Some((module_name, reducer_name)) = render_target {
-                    let (done_tx, done_rx) = oneshot::channel();
-                    let send_result = self.runtime.reducer_sender.send(ReducerJob {
+                    let (token, done_rx) = CompletionToken::new();
+                    let send_result = self.runtime.reducer_sender.try_send(ReducerJob {
                         module_name,
                         reducer_name,
                         input: IntersticeValue::Vec(vec![]),
                         caller_node_id: self.node_id,
-                        completion: Some(done_tx),
+                        completion: Some(token),
+                        queued_at: std::time::Instant::now(),
                     });
                     let _ = send_result;
                     self.wait_for_render_completion(done_rx);
                 }
             }
             WindowEvent::Resized(size) => {
-                let mut gpu = self.gpu.lock().unwrap();
+                let mut gpu = self.gpu.lock();
                 let gpu = gpu.as_mut().unwrap();
                 gpu.graphics_end_frame();
                 gpu.configure_surface(size.width.max(1), size.height.max(1));
@@ -134,13 +136,13 @@ impl ApplicationHandler for App {
         let device_id = hasher.finish() as u32;
         let input_event = get_input_event_from_device_event(device_id, event);
         self.event_sender
-            .send(EventInstance::Input(input_event))
+            .send((EventInstance::Input(input_event), None))
             .unwrap();
     }
 }
 
 impl App {
-    fn wait_for_render_completion(&mut self, mut done_rx: oneshot::Receiver<()>) {
+    fn wait_for_render_completion(&mut self, mut done_rx: OneshotReceiver<()>) {
         loop {
             self.drain_gpu_calls();
             match done_rx.try_recv() {
@@ -162,7 +164,7 @@ impl App {
         &mut self,
         call: interstice_abi::GpuCall,
     ) -> Result<GpuCallResult, crate::IntersticeError> {
-        let mut gpu = self.gpu.lock().unwrap();
+        let mut gpu = self.gpu.lock();
         let gpu = gpu
             .as_mut()
             .ok_or_else(|| crate::IntersticeError::Internal("GPU not initialized".into()))?;

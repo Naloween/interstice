@@ -1,22 +1,23 @@
 use crate::{
     error::IntersticeError,
     network::protocol::NetworkPacket,
-    runtime::{Runtime, reducer::CallFrameKind},
+    runtime::{Runtime, reducer::{CallFrameKind, CALL_STACK}},
 };
 use interstice_abi::{CallReducerRequest, ModuleSelection, NodeSelection};
 
 impl Runtime {
-    pub(crate) async fn handle_call_reducer(
+    pub(crate) fn handle_call_reducer(
         &self,
         caller_module_name: &String,
         call_reducer_request: CallReducerRequest,
     ) -> Result<(), IntersticeError> {
-        if let Some(frame) = self.call_stack.lock().unwrap().last() {
-            if frame.kind == CallFrameKind::Query {
-                return Err(IntersticeError::Internal(
-                    "Reducers cannot be called from a query context".into(),
-                ));
-            }
+        let in_query = CALL_STACK.with(|s| {
+            s.borrow().last().map_or(false, |f| f.kind == CallFrameKind::Query)
+        });
+        if in_query {
+            return Err(IntersticeError::Internal(
+                "Reducers cannot be called from a query context".into(),
+            ));
         }
         let module_name = match &call_reducer_request.module_selection {
             ModuleSelection::Current => caller_module_name,
@@ -29,12 +30,13 @@ impl Runtime {
                     &call_reducer_request.reducer_name,
                     call_reducer_request.input,
                     self.network_handle.node_id,
-                )
-                .await?;
+                    std::time::Instant::now(),
+                    0,
+                )?;
                 Ok(())
             }
             NodeSelection::Other(node_name) => {
-                let modules = self.modules.lock().unwrap();
+                let modules = self.modules.lock();
                 let module = modules.get(caller_module_name).ok_or_else(|| {
                     IntersticeError::ModuleNotFound(
                         caller_module_name.clone(),

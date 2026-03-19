@@ -237,7 +237,7 @@ pub fn get_table_code(
             pub fn get(&self, primary_key: #primary_key_type) -> Option<#table_struct_name> {
                 interstice_sdk::host_calls::get_by_primary_key(
                     #module_selection_tokens,
-                    #table_name_lit.to_string(),
+                    #table_name_lit,
                     TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(primary_key))
                         .expect("Failed to convert IntersticeValue to IndexKey"),
                 )

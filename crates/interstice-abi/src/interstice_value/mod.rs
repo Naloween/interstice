@@ -6,7 +6,7 @@ mod validate;
 use std::fmt::{Display, Write};
 
 pub use index_key::IndexKey;
-pub use validate::validate_value;
+pub use validate::{validate_value, validate_value_detailed};
 
 use serde::{Deserialize, Serialize};
 

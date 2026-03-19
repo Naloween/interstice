@@ -1,0 +1,757 @@
+name = "bench-node"
+address = "127.0.0.1:7001"
+
+[[modules]]
+abi_version = 2
+name = "benchmark-workload"
+visibility = "Public"
+authorities = []
+module_dependencies = []
+node_dependencies = []
+replicated_tables = []
+
+[modules.version]
+major = 0
+minor = 1
+patch = 0
+
+[[modules.reducers]]
+name = "load"
+arguments = []
+
+[[modules.reducers]]
+name = "noop"
+arguments = []
+
+[[modules.reducers]]
+name = "tick"
+arguments = []
+
+[[modules.reducers]]
+name = "reset"
+arguments = []
+
+[[modules.reducers]]
+name = "stop_tick"
+arguments = []
+
+[[modules.reducers]]
+name = "emit_event"
+
+[[modules.reducers.arguments]]
+name = "client_id"
+field_type = "String"
+
+[[modules.reducers.arguments]]
+name = "seq"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "payload_bytes"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "track_progress"
+field_type = "Bool"
+
+[[modules.reducers]]
+name = "start_tick"
+
+[[modules.reducers.arguments]]
+name = "tick_ms"
+field_type = "U64"
+
+[[modules.reducers]]
+name = "tx_mix_logged"
+
+[[modules.reducers.arguments]]
+name = "client_id"
+field_type = "String"
+
+[[modules.reducers.arguments]]
+name = "seq"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "payload_bytes"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "track_progress"
+field_type = "Bool"
+
+[[modules.reducers]]
+name = "tx_mix_stateful"
+
+[[modules.reducers.arguments]]
+name = "client_id"
+field_type = "String"
+
+[[modules.reducers.arguments]]
+name = "seq"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "payload_bytes"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "track_progress"
+field_type = "Bool"
+
+[[modules.reducers]]
+name = "tx_delete_logged"
+
+[[modules.reducers.arguments]]
+name = "client_id"
+field_type = "String"
+
+[[modules.reducers.arguments]]
+name = "seq"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "track_progress"
+field_type = "Bool"
+
+[[modules.reducers]]
+name = "tx_insert_logged"
+
+[[modules.reducers.arguments]]
+name = "client_id"
+field_type = "String"
+
+[[modules.reducers.arguments]]
+name = "seq"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "payload_bytes"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "track_progress"
+field_type = "Bool"
+
+[[modules.reducers]]
+name = "tx_mix_ephemeral"
+
+[[modules.reducers.arguments]]
+name = "client_id"
+field_type = "String"
+
+[[modules.reducers.arguments]]
+name = "seq"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "payload_bytes"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "track_progress"
+field_type = "Bool"
+
+[[modules.reducers]]
+name = "tx_update_logged"
+
+[[modules.reducers.arguments]]
+name = "client_id"
+field_type = "String"
+
+[[modules.reducers.arguments]]
+name = "seq"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "payload_bytes"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "track_progress"
+field_type = "Bool"
+
+[[modules.reducers]]
+name = "tx_delete_stateful"
+
+[[modules.reducers.arguments]]
+name = "client_id"
+field_type = "String"
+
+[[modules.reducers.arguments]]
+name = "seq"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "track_progress"
+field_type = "Bool"
+
+[[modules.reducers]]
+name = "tx_insert_stateful"
+
+[[modules.reducers.arguments]]
+name = "client_id"
+field_type = "String"
+
+[[modules.reducers.arguments]]
+name = "seq"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "payload_bytes"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "track_progress"
+field_type = "Bool"
+
+[[modules.reducers]]
+name = "tx_update_stateful"
+
+[[modules.reducers.arguments]]
+name = "client_id"
+field_type = "String"
+
+[[modules.reducers.arguments]]
+name = "seq"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "payload_bytes"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "track_progress"
+field_type = "Bool"
+
+[[modules.reducers]]
+name = "tx_delete_ephemeral"
+
+[[modules.reducers.arguments]]
+name = "client_id"
+field_type = "String"
+
+[[modules.reducers.arguments]]
+name = "seq"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "track_progress"
+field_type = "Bool"
+
+[[modules.reducers]]
+name = "tx_insert_ephemeral"
+
+[[modules.reducers.arguments]]
+name = "client_id"
+field_type = "String"
+
+[[modules.reducers.arguments]]
+name = "seq"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "payload_bytes"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "track_progress"
+field_type = "Bool"
+
+[[modules.reducers]]
+name = "tx_update_ephemeral"
+
+[[modules.reducers.arguments]]
+name = "client_id"
+field_type = "String"
+
+[[modules.reducers.arguments]]
+name = "seq"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "payload_bytes"
+field_type = "U64"
+
+[[modules.reducers.arguments]]
+name = "track_progress"
+field_type = "Bool"
+
+[[modules.reducers]]
+name = "on_benchevent_insert"
+
+[[modules.reducers.arguments]]
+name = "inserted"
+
+[modules.reducers.arguments.field_type]
+Named = "BenchEvent"
+
+[[modules.queries]]
+name = "stats"
+
+[[modules.queries.arguments]]
+name = "client_id"
+field_type = "String"
+
+[modules.queries.return_type]
+Named = "BenchStats"
+
+[[modules.queries]]
+name = "health"
+arguments = []
+return_type = "String"
+
+[[modules.queries]]
+name = "has_progress"
+return_type = "Bool"
+
+[[modules.queries.arguments]]
+name = "client_id"
+field_type = "String"
+
+[[modules.queries.arguments]]
+name = "min_seq"
+field_type = "U64"
+
+[[modules.queries]]
+name = "global_counts"
+arguments = []
+
+[modules.queries.return_type]
+Named = "BenchGlobalCounts"
+
+[[modules.queries]]
+name = "has_committed"
+return_type = "Bool"
+
+[[modules.queries.arguments]]
+name = "client_id"
+field_type = "String"
+
+[[modules.queries.arguments]]
+name = "min_committed"
+field_type = "U64"
+
+[[modules.queries]]
+name = "total_committed"
+arguments = []
+return_type = "U64"
+
+[[modules.tables]]
+name = "benchevent"
+type_name = "BenchEvent"
+visibility = "Public"
+primary_key_auto_inc = true
+indexes = []
+persistence = "Ephemeral"
+
+[[modules.tables.fields]]
+name = "client_id"
+field_type = "String"
+
+[[modules.tables.fields]]
+name = "seq"
+field_type = "U64"
+
+[[modules.tables.fields]]
+name = "payload"
+field_type = "String"
+
+[modules.tables.primary_key]
+name = "id"
+field_type = "U64"
+
+[[modules.tables]]
+name = "benchfanout"
+type_name = "BenchFanout"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Stateful"
+
+[[modules.tables.fields]]
+name = "seen"
+field_type = "U64"
+
+[[modules.tables.fields]]
+name = "last_client_id"
+field_type = "String"
+
+[[modules.tables.fields]]
+name = "last_seq"
+field_type = "U64"
+
+[[modules.tables.fields]]
+name = "updated_ms"
+field_type = "U64"
+
+[modules.tables.primary_key]
+name = "key"
+field_type = "String"
+
+[[modules.tables]]
+name = "benchlogged"
+type_name = "BenchLogged"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Logged"
+
+[[modules.tables.fields]]
+name = "client_id"
+field_type = "String"
+
+[[modules.tables.fields]]
+name = "seq"
+field_type = "U64"
+
+[[modules.tables.fields]]
+name = "payload"
+field_type = "String"
+
+[[modules.tables.fields]]
+name = "committed_ms"
+field_type = "U64"
+
+[modules.tables.primary_key]
+name = "key"
+field_type = "String"
+
+[[modules.tables]]
+name = "benchprogress"
+type_name = "BenchProgress"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Stateful"
+
+[[modules.tables.fields]]
+name = "last_seq"
+field_type = "U64"
+
+[[modules.tables.fields]]
+name = "committed"
+field_type = "U64"
+
+[[modules.tables.fields]]
+name = "updated_ms"
+field_type = "U64"
+
+[modules.tables.primary_key]
+name = "client_id"
+field_type = "String"
+
+[[modules.tables]]
+name = "benchstateful"
+type_name = "BenchStateful"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Stateful"
+
+[[modules.tables.fields]]
+name = "client_id"
+field_type = "String"
+
+[[modules.tables.fields]]
+name = "seq"
+field_type = "U64"
+
+[[modules.tables.fields]]
+name = "payload"
+field_type = "String"
+
+[[modules.tables.fields]]
+name = "committed_ms"
+field_type = "U64"
+
+[modules.tables.primary_key]
+name = "key"
+field_type = "String"
+
+[[modules.tables]]
+name = "benchephemeral"
+type_name = "BenchEphemeral"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Ephemeral"
+
+[[modules.tables.fields]]
+name = "client_id"
+field_type = "String"
+
+[[modules.tables.fields]]
+name = "seq"
+field_type = "U64"
+
+[[modules.tables.fields]]
+name = "payload"
+field_type = "String"
+
+[[modules.tables.fields]]
+name = "committed_ms"
+field_type = "U64"
+
+[modules.tables.primary_key]
+name = "key"
+field_type = "String"
+
+[[modules.tables]]
+name = "benchtickstate"
+type_name = "BenchTickState"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Stateful"
+
+[[modules.tables.fields]]
+name = "enabled"
+field_type = "Bool"
+
+[[modules.tables.fields]]
+name = "tick_ms"
+field_type = "U64"
+
+[[modules.tables.fields]]
+name = "ticks"
+field_type = "U64"
+
+[[modules.tables.fields]]
+name = "last_tick_ms"
+field_type = "U64"
+
+[modules.tables.primary_key]
+name = "key"
+field_type = "String"
+
+[[modules.subscriptions]]
+reducer_name = "load"
+event = "Load"
+
+[[modules.subscriptions]]
+reducer_name = "on_benchevent_insert"
+
+[modules.subscriptions.event.Insert]
+node_selection = "Current"
+module_name = "benchmark-workload"
+table_name = "benchevent"
+
+[modules.type_definitions.BenchGlobalCounts.Struct]
+name = "BenchGlobalCounts"
+
+[[modules.type_definitions.BenchGlobalCounts.Struct.fields]]
+name = "ephemeral_rows"
+field_type = "U64"
+
+[[modules.type_definitions.BenchGlobalCounts.Struct.fields]]
+name = "stateful_rows"
+field_type = "U64"
+
+[[modules.type_definitions.BenchGlobalCounts.Struct.fields]]
+name = "logged_rows"
+field_type = "U64"
+
+[[modules.type_definitions.BenchGlobalCounts.Struct.fields]]
+name = "progress_rows"
+field_type = "U64"
+
+[[modules.type_definitions.BenchGlobalCounts.Struct.fields]]
+name = "event_rows"
+field_type = "U64"
+
+[modules.type_definitions.BenchStateful.Struct]
+name = "BenchStateful"
+
+[[modules.type_definitions.BenchStateful.Struct.fields]]
+name = "key"
+field_type = "String"
+
+[[modules.type_definitions.BenchStateful.Struct.fields]]
+name = "client_id"
+field_type = "String"
+
+[[modules.type_definitions.BenchStateful.Struct.fields]]
+name = "seq"
+field_type = "U64"
+
+[[modules.type_definitions.BenchStateful.Struct.fields]]
+name = "payload"
+field_type = "String"
+
+[[modules.type_definitions.BenchStateful.Struct.fields]]
+name = "committed_ms"
+field_type = "U64"
+
+[modules.type_definitions.BenchLogged.Struct]
+name = "BenchLogged"
+
+[[modules.type_definitions.BenchLogged.Struct.fields]]
+name = "key"
+field_type = "String"
+
+[[modules.type_definitions.BenchLogged.Struct.fields]]
+name = "client_id"
+field_type = "String"
+
+[[modules.type_definitions.BenchLogged.Struct.fields]]
+name = "seq"
+field_type = "U64"
+
+[[modules.type_definitions.BenchLogged.Struct.fields]]
+name = "payload"
+field_type = "String"
+
+[[modules.type_definitions.BenchLogged.Struct.fields]]
+name = "committed_ms"
+field_type = "U64"
+
+[modules.type_definitions.BenchEphemeral.Struct]
+name = "BenchEphemeral"
+
+[[modules.type_definitions.BenchEphemeral.Struct.fields]]
+name = "key"
+field_type = "String"
+
+[[modules.type_definitions.BenchEphemeral.Struct.fields]]
+name = "client_id"
+field_type = "String"
+
+[[modules.type_definitions.BenchEphemeral.Struct.fields]]
+name = "seq"
+field_type = "U64"
+
+[[modules.type_definitions.BenchEphemeral.Struct.fields]]
+name = "payload"
+field_type = "String"
+
+[[modules.type_definitions.BenchEphemeral.Struct.fields]]
+name = "committed_ms"
+field_type = "U64"
+
+[modules.type_definitions.BenchEvent.Struct]
+name = "BenchEvent"
+
+[[modules.type_definitions.BenchEvent.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[modules.type_definitions.BenchEvent.Struct.fields]]
+name = "client_id"
+field_type = "String"
+
+[[modules.type_definitions.BenchEvent.Struct.fields]]
+name = "seq"
+field_type = "U64"
+
+[[modules.type_definitions.BenchEvent.Struct.fields]]
+name = "payload"
+field_type = "String"
+
+[modules.type_definitions.BenchProgress.Struct]
+name = "BenchProgress"
+
+[[modules.type_definitions.BenchProgress.Struct.fields]]
+name = "client_id"
+field_type = "String"
+
+[[modules.type_definitions.BenchProgress.Struct.fields]]
+name = "last_seq"
+field_type = "U64"
+
+[[modules.type_definitions.BenchProgress.Struct.fields]]
+name = "committed"
+field_type = "U64"
+
+[[modules.type_definitions.BenchProgress.Struct.fields]]
+name = "updated_ms"
+field_type = "U64"
+
+[modules.type_definitions.BenchTickState.Struct]
+name = "BenchTickState"
+
+[[modules.type_definitions.BenchTickState.Struct.fields]]
+name = "key"
+field_type = "String"
+
+[[modules.type_definitions.BenchTickState.Struct.fields]]
+name = "enabled"
+field_type = "Bool"
+
+[[modules.type_definitions.BenchTickState.Struct.fields]]
+name = "tick_ms"
+field_type = "U64"
+
+[[modules.type_definitions.BenchTickState.Struct.fields]]
+name = "ticks"
+field_type = "U64"
+
+[[modules.type_definitions.BenchTickState.Struct.fields]]
+name = "last_tick_ms"
+field_type = "U64"
+
+[modules.type_definitions.BenchStats.Struct]
+name = "BenchStats"
+
+[[modules.type_definitions.BenchStats.Struct.fields]]
+name = "ephemeral_rows"
+field_type = "U64"
+
+[[modules.type_definitions.BenchStats.Struct.fields]]
+name = "stateful_rows"
+field_type = "U64"
+
+[[modules.type_definitions.BenchStats.Struct.fields]]
+name = "logged_rows"
+field_type = "U64"
+
+[[modules.type_definitions.BenchStats.Struct.fields]]
+name = "progress_rows"
+field_type = "U64"
+
+[[modules.type_definitions.BenchStats.Struct.fields]]
+name = "fanout_seen"
+field_type = "U64"
+
+[[modules.type_definitions.BenchStats.Struct.fields]]
+name = "tick_enabled"
+field_type = "Bool"
+
+[[modules.type_definitions.BenchStats.Struct.fields]]
+name = "tick_interval_ms"
+field_type = "U64"
+
+[[modules.type_definitions.BenchStats.Struct.fields]]
+name = "tick_count"
+field_type = "U64"
+
+[[modules.type_definitions.BenchStats.Struct.fields]]
+name = "last_seq"
+field_type = "U64"
+
+[[modules.type_definitions.BenchStats.Struct.fields]]
+name = "committed"
+field_type = "U64"
+
+[modules.type_definitions.BenchFanout.Struct]
+name = "BenchFanout"
+
+[[modules.type_definitions.BenchFanout.Struct.fields]]
+name = "key"
+field_type = "String"
+
+[[modules.type_definitions.BenchFanout.Struct.fields]]
+name = "seen"
+field_type = "U64"
+
+[[modules.type_definitions.BenchFanout.Struct.fields]]
+name = "last_client_id"
+field_type = "String"
+
+[[modules.type_definitions.BenchFanout.Struct.fields]]
+name = "last_seq"
+field_type = "U64"
+
+[[modules.type_definitions.BenchFanout.Struct.fields]]
+name = "updated_ms"
+field_type = "U64"

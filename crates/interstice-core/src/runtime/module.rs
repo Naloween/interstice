@@ -18,40 +18,71 @@ use interstice_abi::{
 use notify::{RecursiveMode, Watcher};
 use serde::Serialize;
 use std::convert::TryInto;
+use parking_lot::Mutex;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::Path,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
-use tokio::sync::Mutex as TokioMutex;
 use tokio::time::{Duration, timeout};
 use uuid::Uuid;
 use wasmtime::{Module as wasmtimeModule, Store};
 
+/// Number of WASM instances kept in the reducer pool. More instances allow more concurrent
+/// reducer executions at the cost of extra WASM linear memory per module (TLB pressure).
+const REDUCER_POOL_SIZE: usize = 8;
+
 pub struct Module {
-    instance: Arc<TokioMutex<WasmInstance>>,
+    /// Pool of WASM instances for reducer execution. Multiple threads draw from this pool,
+    /// enabling parallel reducer execution for independent reducers.
+    instance_pool: Arc<(parking_lot::Mutex<Vec<WasmInstance>>, parking_lot::Condvar)>,
+    query_instance: Arc<Mutex<WasmInstance>>,
     wasm_bytes: Vec<u8>,
     pub schema: Arc<ModuleSchema>,
     pub tables: Arc<Mutex<HashMap<String, Table>>>,
+    pub reducer_names: HashSet<String>,
+}
+
+impl std::fmt::Debug for Module {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Module")
+            .field("schema", &self.schema.name)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Module {
     pub async fn from_file(runtime: Arc<Runtime>, path: &Path) -> Result<Self, IntersticeError> {
+        let wasm_bytes = std::fs::read(path).unwrap();
         let wasm_module = wasmtimeModule::from_file(&runtime.engine, path).unwrap();
-        let mut store = Store::new(
+
+        let mut instances = Vec::with_capacity(REDUCER_POOL_SIZE);
+        for _ in 0..REDUCER_POOL_SIZE {
+            let mut store = Store::new(
+                &runtime.engine,
+                StoreState {
+                    runtime: runtime.clone(),
+                    module_schema: ModuleSchema::empty(),
+                },
+            );
+            let raw = runtime.linker.instantiate(&mut store, &wasm_module).unwrap();
+            instances.push(WasmInstance::new(store, raw)?);
+        }
+
+        let mut query_store = Store::new(
             &runtime.engine,
             StoreState {
                 runtime: runtime.clone(),
                 module_schema: ModuleSchema::empty(),
             },
         );
-        let instance = runtime
+        let query_raw = runtime
             .linker
-            .instantiate_async(&mut store, &wasm_module)
-            .await
+            .instantiate(&mut query_store, &wasm_module)
             .unwrap();
-        let instance = WasmInstance::new(store, instance)?;
-        let module = Module::new(instance, std::fs::read(path).unwrap()).await?;
+        let query_instance = WasmInstance::new(query_store, query_raw)?;
+
+        let module = Module::new(instances, query_instance, wasm_bytes).await?;
         Ok(module)
     }
 
@@ -60,28 +91,44 @@ impl Module {
         wasm_binary: &[u8],
     ) -> Result<Self, IntersticeError> {
         let wasm_module = wasmtimeModule::new(&runtime.engine, wasm_binary).unwrap();
-        let mut store = Store::new(
+
+        let mut instances = Vec::with_capacity(REDUCER_POOL_SIZE);
+        for _ in 0..REDUCER_POOL_SIZE {
+            let mut store = Store::new(
+                &runtime.engine,
+                StoreState {
+                    runtime: runtime.clone(),
+                    module_schema: ModuleSchema::empty(),
+                },
+            );
+            let raw = runtime.linker.instantiate(&mut store, &wasm_module).unwrap();
+            instances.push(WasmInstance::new(store, raw)?);
+        }
+
+        let mut query_store = Store::new(
             &runtime.engine,
             StoreState {
                 runtime: runtime.clone(),
                 module_schema: ModuleSchema::empty(),
             },
         );
-        let instance = runtime
+        let query_raw = runtime
             .linker
-            .instantiate_async(&mut store, &wasm_module)
-            .await
+            .instantiate(&mut query_store, &wasm_module)
             .unwrap();
-        let instance = WasmInstance::new(store, instance)?;
-        let module = Module::new(instance, wasm_binary.to_vec()).await?;
+        let query_instance = WasmInstance::new(query_store, query_raw)?;
+
+        let module = Module::new(instances, query_instance, wasm_binary.to_vec()).await?;
         Ok(module)
     }
 
     pub async fn new(
-        mut instance: WasmInstance,
+        mut instances: Vec<WasmInstance>,
+        mut query_instance: WasmInstance,
         wasm_bytes: Vec<u8>,
     ) -> Result<Self, IntersticeError> {
-        let schema = instance.load_schema().await?;
+        assert!(!instances.is_empty(), "at least one reducer instance required");
+        let schema = instances[0].load_schema()?;
         if schema.abi_version != ABI_VERSION {
             return Err(IntersticeError::AbiVersionMismatch {
                 expected: ABI_VERSION,
@@ -95,38 +142,76 @@ impl Module {
             .map(|table_schema| (table_schema.name.clone(), Table::new(table_schema.clone())))
             .collect();
 
-        // Set module name in the store state
-        instance.store.data_mut().module_schema = schema.clone();
+        let reducer_names = schema.reducers.iter().map(|r| r.name.clone()).collect();
+
+        // Pre-cache func handles and allocate scratch buffers in every pool instance.
+        let reducer_func_names: Vec<String> = schema
+            .reducers
+            .iter()
+            .map(|r| get_reducer_wrapper_name(&r.name))
+            .collect();
+        for inst in &mut instances {
+            inst.store.data_mut().module_schema = schema.clone();
+            inst.preload_funcs(&reducer_func_names);
+            inst.init_scratch(4096).ok();
+        }
+
+        let query_func_names: Vec<String> = schema
+            .queries
+            .iter()
+            .map(|q| get_query_wrapper_name(&q.name))
+            .collect();
+        query_instance.store.data_mut().module_schema = schema.clone();
+        query_instance.preload_funcs(&query_func_names);
+        query_instance.init_scratch(4096).ok();
+
+        let instance_pool = Arc::new((
+            parking_lot::Mutex::new(instances),
+            parking_lot::Condvar::new(),
+        ));
 
         Ok(Self {
-            instance: Arc::new(TokioMutex::new(instance)),
+            instance_pool,
+            query_instance: Arc::new(Mutex::new(query_instance)),
             wasm_bytes,
             schema: Arc::new(schema),
             tables: Arc::new(Mutex::new(tables)),
+            reducer_names,
         })
     }
 
-    pub async fn call_reducer(
+    pub fn call_reducer(
         &self,
         reducer: &str,
         args: (ReducerContext, impl Serialize),
     ) -> Result<(), IntersticeError> {
-        let func_name = &get_reducer_wrapper_name(reducer);
-        return self
-            .instance
-            .lock()
-            .await
-            .call_reducer(func_name, args)
-            .await;
+        let func_name = get_reducer_wrapper_name(reducer);
+        // Borrow an instance from the pool; block if all are in use.
+        let (lock, cvar) = &*self.instance_pool;
+        let mut instance = {
+            let mut pool = lock.lock();
+            while pool.is_empty() {
+                cvar.wait(&mut pool);
+            }
+            pool.pop().unwrap()
+        };
+        let result = instance.call_reducer(&func_name, args);
+        // Return the instance to the pool and wake a waiting thread if any.
+        {
+            let mut pool = lock.lock();
+            pool.push(instance);
+            cvar.notify_one();
+        }
+        result
     }
 
-    pub async fn call_query(
+    pub fn call_query(
         &self,
         query: &str,
         args: (QueryContext, impl Serialize),
     ) -> Result<IntersticeValue, IntersticeError> {
-        let func_name = &get_query_wrapper_name(query);
-        return self.instance.lock().await.call_query(func_name, args).await;
+        let func_name = get_query_wrapper_name(query);
+        self.query_instance.lock().call_query(&func_name, args)
     }
 }
 
@@ -144,7 +229,7 @@ impl Runtime {
             .iter()
             .find(|a| *a == &Authority::Gpu)
             .is_some()
-            && !*runtime.app_initialized.lock().unwrap()
+            && !*runtime.app_initialized.lock()
         {
             runtime.logger.log(
                 &format!(
@@ -156,11 +241,11 @@ impl Runtime {
             );
             runtime
                 .event_sender
-                .send(EventInstance::RequestAppInitialization)
+                .send((EventInstance::RequestAppInitialization, None))
                 .expect("Couldn't send requets app initialization event");
         }
         for authority in &module_schema.authorities {
-            if let Some(other_entry) = runtime.authority_modules.lock().unwrap().get(authority) {
+            if let Some(other_entry) = runtime.authority_modules.lock().get(authority) {
                 return Err(IntersticeError::AuthorityAlreadyTaken(
                     module_schema.name.clone(),
                     authority.clone().into(),
@@ -204,7 +289,7 @@ impl Runtime {
                 runtime
                     .authority_modules
                     .lock()
-                    .unwrap()
+                    
                     .insert(authority.clone(), entry);
             }
         }
@@ -213,7 +298,7 @@ impl Runtime {
         if runtime
             .modules
             .lock()
-            .unwrap()
+            
             .contains_key(&module.schema.name)
         {
             return Err(IntersticeError::ModuleAlreadyExists(
@@ -224,7 +309,7 @@ impl Runtime {
         // Check dependencies
         for dependency in &module.schema.module_dependencies {
             if let Some(dependency_module) =
-                runtime.modules.lock().unwrap().get(&dependency.module_name)
+                runtime.modules.lock().get(&dependency.module_name)
             {
                 if dependency_module.schema.version != dependency.version {
                     return Err(IntersticeError::ModuleVersionMismatch(
@@ -256,7 +341,7 @@ impl Runtime {
                 runtime
                     .node_names_by_id
                     .lock()
-                    .unwrap()
+                    
                     .insert(node_id, node_dependency.name.clone());
             }
         }
@@ -387,13 +472,13 @@ impl Runtime {
             module
                 .tables
                 .lock()
-                .unwrap()
+                
                 .insert(local_table_name.clone(), Table::new(local_schema));
 
             runtime
                 .replica_bindings
                 .lock()
-                .unwrap()
+                
                 .push(crate::runtime::ReplicaBinding {
                     owner_module_name: module_schema.name.clone(),
                     source_node_id: node_id,
@@ -413,10 +498,27 @@ impl Runtime {
             std::fs::write(module_dir.join("module.wasm"), &module.wasm_bytes).unwrap();
         }
 
+        // Count table subscriptions (Insert/Update/Delete) and add to active_subscription_count
+        let table_sub_count = module_schema
+            .subscriptions
+            .iter()
+            .filter(|s| matches!(
+                s.event,
+                SubscriptionEventSchema::Insert { .. }
+                    | SubscriptionEventSchema::Update { .. }
+                    | SubscriptionEventSchema::Delete { .. }
+            ))
+            .count() as i32;
+        if table_sub_count > 0 {
+            runtime
+                .active_subscription_count
+                .fetch_add(table_sub_count, std::sync::atomic::Ordering::Relaxed);
+        }
+
         runtime
             .modules
             .lock()
-            .unwrap()
+            
             .insert(module.schema.name.clone(), Arc::new(module));
 
         // Now that the module is registered, request remote replica subscriptions and full sync.
@@ -425,7 +527,7 @@ impl Runtime {
         let replica_bindings = runtime
             .replica_bindings
             .lock()
-            .unwrap()
+            
             .iter()
             .filter(|binding| binding.owner_module_name == module_schema.name)
             .cloned()
@@ -458,18 +560,18 @@ impl Runtime {
         if fire_init {
             runtime
                 .event_sender
-                .send(EventInstance::Init {
+                .send((EventInstance::Init {
                     module_name: module_schema.name.clone(),
-                })
+                }, None))
                 .map_err(|err| {
                     IntersticeError::Internal(format!("Failed to send Init event: {}", err))
                 })?;
         }
         runtime
             .event_sender
-            .send(EventInstance::Load {
+            .send((EventInstance::Load {
                 module_name: module_schema.name.clone(),
-            })
+            }, None))
             .map_err(|err| {
                 IntersticeError::Internal(format!("Failed to send Load event: {}", err))
             })?;
@@ -493,7 +595,7 @@ impl Runtime {
         let (sender, receiver) = tokio::sync::oneshot::channel();
         self.pending_schema_responses
             .lock()
-            .unwrap()
+            
             .insert(request_id.clone(), sender);
 
         self.network_handle.send_packet(
@@ -512,7 +614,7 @@ impl Runtime {
             Err(_) => {
                 self.pending_schema_responses
                     .lock()
-                    .unwrap()
+                    
                     .remove(&request_id);
                 Err(IntersticeError::Internal(
                     "Timed out while waiting for remote schema response".into(),
@@ -531,7 +633,7 @@ impl Runtime {
         let bindings = self
             .replica_bindings
             .lock()
-            .unwrap()
+            
             .iter()
             .filter(|binding| {
                 binding.source_node_id == source_node_id
@@ -549,6 +651,7 @@ impl Runtime {
                     new_row: inserted_row.clone(),
                 },
                 false,
+                None,
             );
 
             if insert_result.is_err() {
@@ -559,6 +662,7 @@ impl Runtime {
                         update_row: inserted_row.clone(),
                     },
                     false,
+                    None,
                 );
             }
 
@@ -577,7 +681,7 @@ impl Runtime {
         let bindings = self
             .replica_bindings
             .lock()
-            .unwrap()
+            
             .iter()
             .filter(|binding| {
                 binding.source_node_id == source_node_id
@@ -595,6 +699,7 @@ impl Runtime {
                     update_row: new_row.clone(),
                 },
                 false,
+                None,
             );
 
             if let Err(IntersticeError::RowNotFound { .. }) = update_result {
@@ -605,6 +710,7 @@ impl Runtime {
                         new_row: new_row.clone(),
                     },
                     false,
+                    None,
                 );
             }
 
@@ -622,7 +728,7 @@ impl Runtime {
         let bindings = self
             .replica_bindings
             .lock()
-            .unwrap()
+            
             .iter()
             .filter(|binding| {
                 binding.source_node_id == source_node_id
@@ -642,6 +748,7 @@ impl Runtime {
                         deleted_row_id: primary_key,
                     },
                     false,
+                    None,
                 );
             }
 
@@ -659,7 +766,7 @@ impl Runtime {
         let bindings = self
             .replica_bindings
             .lock()
-            .unwrap()
+            
             .iter()
             .filter(|binding| {
                 binding.source_node_id == source_node_id
@@ -671,11 +778,11 @@ impl Runtime {
 
         for binding in bindings {
             let mut restored = false;
-            if let Some(module) = self.modules.lock().unwrap().get(&binding.owner_module_name) {
+            if let Some(module) = self.modules.lock().get(&binding.owner_module_name) {
                 if let Some(table) = module
                     .tables
                     .lock()
-                    .unwrap()
+                    
                     .get_mut(&binding.local_table_name)
                 {
                     let _ = table.restore_from_rows(rows.clone());
@@ -698,14 +805,14 @@ impl Runtime {
             binding.source_table_name
         );
 
-        let should_emit = self.emitted_replica_sync_events.lock().unwrap().insert(key);
+        let should_emit = self.emitted_replica_sync_events.lock().insert(key);
 
         if should_emit {
-            let _ = self.event_sender.send(EventInstance::ReplicaTableSynced {
+            let _ = self.event_sender.send((EventInstance::ReplicaTableSynced {
                 node_name: binding.source_node_name.clone(),
                 module_name: binding.source_module_name.clone(),
                 table_name: binding.source_table_name.clone(),
-            });
+            }, None));
         }
     }
 
@@ -713,7 +820,7 @@ impl Runtime {
         let module_schema = runtime
             .modules
             .lock()
-            .unwrap()
+            
             .get(module_name)
             .map(|module| module.schema.as_ref().clone());
 
@@ -791,16 +898,35 @@ impl Runtime {
             }
         }
 
-        runtime.modules.lock().unwrap().remove(module_name);
+        // Subtract table subscriptions from active_subscription_count
+        if let Some(schema) = &module_schema {
+            let table_sub_count = schema
+                .subscriptions
+                .iter()
+                .filter(|s| matches!(
+                    s.event,
+                    SubscriptionEventSchema::Insert { .. }
+                        | SubscriptionEventSchema::Update { .. }
+                        | SubscriptionEventSchema::Delete { .. }
+                ))
+                .count() as i32;
+            if table_sub_count > 0 {
+                runtime
+                    .active_subscription_count
+                    .fetch_sub(table_sub_count, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+
+        runtime.modules.lock().remove(module_name);
         runtime
             .replica_bindings
             .lock()
-            .unwrap()
+            
             .retain(|binding| binding.owner_module_name != module_name);
         runtime
             .emitted_replica_sync_events
             .lock()
-            .unwrap()
+            
             .retain(|key| !key.starts_with(&format!("{}|", module_name)));
         if let Some(modules_path) = &runtime.modules_path {
             let module_dir = modules_path.join(module_name);
@@ -813,13 +939,13 @@ impl Runtime {
         let authorities_to_remove = runtime
             .authority_modules
             .lock()
-            .unwrap()
+            
             .iter()
             .filter(|(_, entry)| entry.module_name() == module_name)
             .map(|(authority, _)| authority.clone())
             .collect::<Vec<_>>();
         for authority in authorities_to_remove {
-            runtime.authority_modules.lock().unwrap().remove(&authority);
+            runtime.authority_modules.lock().remove(&authority);
         }
 
         runtime.logger.log(
@@ -888,7 +1014,7 @@ fn setup_file_watches(
                             }
 
                             for ev in events {
-                                let _ = event_sender.send(EventInstance::File(ev));
+                                let _ = event_sender.send((EventInstance::File(ev), None));
                             }
                         }
                         Err(err) => {
@@ -922,7 +1048,7 @@ fn setup_file_watches(
         runtime
             .file_watchers
             .lock()
-            .unwrap()
+            
             .extend(watchers_for_module);
     }
 

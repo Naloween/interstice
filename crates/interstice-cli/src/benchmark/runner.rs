@@ -72,13 +72,13 @@ async fn run_single(mut config: BenchmarkRunConfig) -> Result<BenchmarkReport, I
         if let Err(err) = invoke_reducer_once(
             &address,
             &config.module_name,
-            "reset_benchmark_state",
+            "reset",
             reset_input,
         )
         .await
         {
             eprintln!(
-                "Warning: failed to reset benchmark state via {}::reset_benchmark_state: {}",
+                "Warning: failed to reset benchmark state via {}::reset: {}",
                 config.module_name, err
             );
         }
@@ -88,6 +88,32 @@ async fn run_single(mut config: BenchmarkRunConfig) -> Result<BenchmarkReport, I
     let start = Instant::now();
     let warmup_duration = Duration::from_millis(config.warmup_ms);
     let measure_duration = Duration::from_millis(config.duration_ms);
+
+    let mut handles = Vec::with_capacity(config.connections);
+    for worker_id in 0..config.connections {
+        let worker_config = config.clone();
+        let worker_address = address.clone();
+        handles.push(tokio::spawn(async move {
+            run_worker(
+                worker_id,
+                &worker_address,
+                &worker_config,
+                start,
+                warmup_duration,
+                measure_duration,
+            )
+            .await
+        }));
+    }
+
+    // Wait for warmup to complete before taking QueryDelta start snapshot.
+    // This ensures the snapshot reflects steady-state, not cold start.
+    if config.warmup_ms > 0 {
+        let warmup_target = TokioInstant::from_std(start + warmup_duration);
+        if TokioInstant::now() < warmup_target {
+            sleep_until(warmup_target).await;
+        }
+    }
 
     let throughput_snapshot_start = if config.throughput_mode == ThroughputMode::QueryDelta {
         Some(
@@ -108,23 +134,6 @@ async fn run_single(mut config: BenchmarkRunConfig) -> Result<BenchmarkReport, I
     } else {
         None
     };
-
-    let mut handles = Vec::with_capacity(config.connections);
-    for worker_id in 0..config.connections {
-        let worker_config = config.clone();
-        let worker_address = address.clone();
-        handles.push(tokio::spawn(async move {
-            run_worker(
-                worker_id,
-                &worker_address,
-                &worker_config,
-                start,
-                warmup_duration,
-                measure_duration,
-            )
-            .await
-        }));
-    }
 
     let mut aggregate = WorkerMetrics::default();
 
@@ -152,7 +161,7 @@ async fn run_single(mut config: BenchmarkRunConfig) -> Result<BenchmarkReport, I
     let (throughput_kind, throughput_tps, throughput_counter_end, throughput_window_ms) =
         match config.throughput_mode {
             ThroughputMode::DispatchSuccess => (
-                "dispatch_success".to_string(),
+                "dispatch_rate".to_string(),
                 aggregate.measured_sent as f64 / (config.duration_ms as f64 / 1_000.0),
                 None,
                 None,

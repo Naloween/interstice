@@ -6,7 +6,7 @@ use std::sync::Arc;
 use wasmtime::{Caller, Memory};
 
 impl Runtime {
-    pub async fn handle_module_call(
+    pub fn handle_module_call(
         &self,
         call: ModuleCall,
         _memory: &Memory,
@@ -20,7 +20,8 @@ impl Runtime {
                 wasm_binary,
             } => match node_selection {
                 NodeSelection::Current => {
-                    tokio::task::spawn_local(async move {
+                    // Spawn on the tokio runtime (not spawn_local — we're on a std::thread).
+                    self.tokio_handle.spawn(async move {
                         match Module::from_bytes(runtime.clone(), &wasm_binary).await {
                             Ok(module) => {
                                 if let Err(err) =
@@ -65,8 +66,7 @@ impl Runtime {
                                     )),
                                     _memory,
                                     _caller,
-                                )
-                                .await,
+                                ),
                             ));
                         }
                     };
@@ -78,8 +78,7 @@ impl Runtime {
                                     ModuleCallResponse::Err(err.to_string()),
                                     _memory,
                                     _caller,
-                                )
-                                .await,
+                                ),
                             ));
                         }
                     };
@@ -115,8 +114,7 @@ impl Runtime {
                                     )),
                                     _memory,
                                     _caller,
-                                )
-                                .await,
+                                ),
                             ));
                         }
                     };
@@ -128,8 +126,7 @@ impl Runtime {
                                     ModuleCallResponse::Err(err.to_string()),
                                     _memory,
                                     _caller,
-                                )
-                                .await,
+                                ),
                             ));
                         }
                     };
@@ -144,7 +141,7 @@ impl Runtime {
             },
         };
 
-        let packed = self.send_data_to_module(response, _memory, _caller).await;
+        let packed = self.send_data_to_module(response, _memory, _caller);
         Ok(Some(packed))
     }
 }
