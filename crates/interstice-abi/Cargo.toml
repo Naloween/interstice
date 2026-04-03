@@ -1,6 +1,6 @@
 [package]
 name = "interstice-abi"
-version = "0.4.0"
+version = "0.4.2"
 edition = "2024"
 license = "MIT"
 description = "WASM ABI types and host-call interfaces for the Interstice runtime"

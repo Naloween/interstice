@@ -1,6 +1,6 @@
 [package]
 name = "interstice-sdk-macros"
-version = "0.4.0"
+version = "0.4.2"
 edition = "2024"
 license = "MIT"
 description = "Procedural macros to generate typed SDK bindings for Interstice modules"
