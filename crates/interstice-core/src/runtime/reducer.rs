@@ -54,7 +54,12 @@ pub struct CallFrame {
 }
 
 impl CallFrame {
-    pub fn new(module: String, module_arc: Arc<Module>, kind: CallFrameKind, rng_state: u64) -> Self {
+    pub fn new(
+        module: String,
+        module_arc: Arc<Module>,
+        kind: CallFrameKind,
+        rng_state: u64,
+    ) -> Self {
         Self {
             module,
             module_arc,
@@ -111,9 +116,6 @@ impl Drop for CompletionToken {
         }
     }
 }
-
-// Keep the old name as an alias so call sites in mod.rs need minimal changes.
-pub type CompletionGuard = CompletionToken;
 
 /// Accumulated timing stats for the reducer pipeline. Reset after each report.
 #[derive(Default)]
@@ -223,9 +225,7 @@ impl Runtime {
         }
 
         // Detect cycles — check the current thread's stack only.
-        let cycle = CALL_STACK.with(|s| {
-            s.borrow().iter().any(|f| f.module == module_name)
-        });
+        let cycle = CALL_STACK.with(|s| s.borrow().iter().any(|f| f.module == module_name));
         if cycle {
             return Err(IntersticeError::ReducerCycle {
                 module: module_name.into(),
@@ -289,7 +289,14 @@ impl Runtime {
         let events_ns = t_events_done.duration_since(t_transactions_done).as_nanos() as u64;
 
         let mut perf = self.perf.lock();
-        perf.record(queue_ns, preamble_ns, wasm_ns, transaction_ns, events_ns, inter_job_ns);
+        perf.record(
+            queue_ns,
+            preamble_ns,
+            wasm_ns,
+            transaction_ns,
+            events_ns,
+            inter_job_ns,
+        );
         if perf.count % PERF_PRINT_EVERY == 0 {
             let report = perf.report();
             perf.reset();

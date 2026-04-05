@@ -403,28 +403,6 @@ fn draw_mesh_command(
     Ok(())
 }
 
-fn upload_and_draw(
-    gpu: &Gpu,
-    pass: u32,
-    vertices: Vec<ImmediateVertexBytes>,
-    created_buffers: &mut Vec<u32>,
-) -> Result<(), String> {
-    if vertices.is_empty() {
-        return Ok(());
-    }
-    let data = encode_immediate_vertices(&vertices);
-    let buffer = gpu.create_buffer(
-        data.len() as u64,
-        BufferUsage::VERTEX | BufferUsage::COPY_DST,
-        false,
-    )?;
-    gpu.write_buffer(buffer, 0, data)?;
-    gpu.set_vertex_buffer(pass, buffer, 0, 0, None)?;
-    gpu.draw(pass, vertices.len() as u32, 1)?;
-    created_buffers.push(buffer);
-    Ok(())
-}
-
 struct ImmediatePipeline {
     pipeline: u32,
 }

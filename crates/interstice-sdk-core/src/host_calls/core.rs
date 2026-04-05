@@ -1,16 +1,13 @@
 use interstice_abi::{
-    CallQueryRequest, CallQueryResponse, CallReducerRequest, CallReducerResponse,
-    HostCall, IndexKey, IndexQuery,
-    InsertRowResponse, IntersticeValue, ModuleSelection,
-    NodeSelection, Row, ScheduleRequest, ScheduleResponse, TableGetByPrimaryKeyRequest,
-    TableGetByPrimaryKeyResponse, TableIndexScanRequest, TableIndexScanResponse, TableScanRequest,
-    TableScanResponse,
-    decode, encode,
+    CallQueryRequest, CallQueryResponse, CallReducerRequest, CallReducerResponse, HostCall,
+    IndexKey, IndexQuery, InsertRowResponse, IntersticeValue, ModuleSelection, NodeSelection, Row,
+    ScheduleRequest, ScheduleResponse, TableGetByPrimaryKeyRequest, TableGetByPrimaryKeyResponse,
+    TableIndexScanRequest, TableIndexScanResponse, TableScanRequest, TableScanResponse, decode,
+    encode,
 };
 
 // Pre-allocated scratch buffer for serialising rows/keys before a direct host call.
 // WASM is single-threaded so a module-level static is safe to use as a reusable scratch area.
-#[cfg(target_arch = "wasm32")]
 static mut ENCODE_BUF: [u8; 16384] = [0u8; 16384];
 
 /// Holds encoded bytes for a direct host call — either borrowed from the static scratch buffer
@@ -32,7 +29,6 @@ impl EncodedBuf<'_> {
 
 /// Serialize `value` into the static encode buffer when possible, falling back to a heap
 /// allocation for values that exceed the static buffer.
-#[cfg(target_arch = "wasm32")]
 #[inline]
 fn encode_scratch<T: serde::Serialize>(value: &T) -> Result<EncodedBuf<'static>, String> {
     unsafe {
@@ -53,12 +49,6 @@ fn encode_scratch<T: serde::Serialize>(value: &T) -> Result<EncodedBuf<'static>,
             }
         }
     }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn encode_scratch<T: serde::Serialize>(value: &T) -> Result<EncodedBuf<'static>, String> {
-    let v = encode(value).map_err(|e| e.to_string())?;
-    Ok(EncodedBuf::Heap(v))
 }
 
 pub type NodeId = String;
@@ -145,56 +135,56 @@ pub fn insert_row(table_name: &str, row: Row) -> Result<Row, String> {
     let table_bytes = table_name.as_bytes();
     let row_buf = encode_scratch(&row)?;
     let (row_ptr, row_len) = row_buf.ptr_len();
-    #[cfg(target_arch = "wasm32")]
-    {
-        // Fast path: try the static response buffer first.
-        let written = unsafe {
-            let resp_ptr = std::ptr::addr_of_mut!(crate::host_calls::DIRECT_RESP_BUF) as *mut u8 as i32;
-            crate::host_calls::interstice_insert_row(
-                table_bytes.as_ptr() as i32, table_bytes.len() as i32,
-                row_ptr, row_len,
-                resp_ptr, 8192i32,
-            )
+
+    // Fast path: try the static response buffer first.
+    let written = unsafe {
+        let resp_ptr = std::ptr::addr_of_mut!(crate::host_calls::DIRECT_RESP_BUF) as *mut u8 as i32;
+        crate::host_calls::interstice_insert_row(
+            table_bytes.as_ptr() as i32,
+            table_bytes.len() as i32,
+            row_ptr,
+            row_len,
+            resp_ptr,
+            8192i32,
+        )
+    };
+    if written >= 0 {
+        let resp: InsertRowResponse = unsafe {
+            let buf = std::slice::from_raw_parts(
+                std::ptr::addr_of!(crate::host_calls::DIRECT_RESP_BUF) as *const u8,
+                written as usize,
+            );
+            decode(buf).map_err(|e| e.to_string())?
         };
-        if written >= 0 {
-            let resp: InsertRowResponse = unsafe {
-                let buf = std::slice::from_raw_parts(
-                    std::ptr::addr_of!(crate::host_calls::DIRECT_RESP_BUF) as *const u8,
-                    written as usize,
-                );
-                decode(buf).map_err(|e| e.to_string())?
-            };
-            return match resp {
-                InsertRowResponse::Ok(None) => Ok(row),
-                InsertRowResponse::Ok(Some(modified)) => Ok(modified),
-                InsertRowResponse::Err(err) => Err(err),
-            };
-        }
-        // Slow path: host returned -(needed_size). Allocate a heap buffer and retry.
-        let needed = (-written) as usize;
-        let mut heap_buf: Vec<u8> = vec![0u8; needed];
-        let written2 = unsafe {
-            crate::host_calls::interstice_insert_row(
-                table_bytes.as_ptr() as i32, table_bytes.len() as i32,
-                row_ptr, row_len,
-                heap_buf.as_mut_ptr() as i32, needed as i32,
-            )
-        };
-        if written2 < 0 {
-            return Err("insert_row: response buffer too small".into());
-        }
-        let resp: InsertRowResponse = decode(&heap_buf[..written2 as usize]).map_err(|e| e.to_string())?;
         return match resp {
             InsertRowResponse::Ok(None) => Ok(row),
             InsertRowResponse::Ok(Some(modified)) => Ok(modified),
             InsertRowResponse::Err(err) => Err(err),
         };
     }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = (row_ptr, row_len);
-        Err("wasm32 only".into())
+    // Slow path: host returned -(needed_size). Allocate a heap buffer and retry.
+    let needed = (-written) as usize;
+    let mut heap_buf: Vec<u8> = vec![0u8; needed];
+    let written2 = unsafe {
+        crate::host_calls::interstice_insert_row(
+            table_bytes.as_ptr() as i32,
+            table_bytes.len() as i32,
+            row_ptr,
+            row_len,
+            heap_buf.as_mut_ptr() as i32,
+            needed as i32,
+        )
+    };
+    if written2 < 0 {
+        return Err("insert_row: response buffer too small".into());
     }
+    let resp: InsertRowResponse =
+        decode(&heap_buf[..written2 as usize]).map_err(|e| e.to_string())?;
+    return match resp {
+        InsertRowResponse::Ok(None) => Ok(row),
+        InsertRowResponse::Ok(Some(modified)) => Ok(modified),
+        InsertRowResponse::Err(err) => Err(err),
+    };
 }
 
 pub fn update_row(table_name: &str, row: Row) -> Result<(), String> {
@@ -203,11 +193,17 @@ pub fn update_row(table_name: &str, row: Row) -> Result<(), String> {
     let (row_ptr, row_len) = row_buf.ptr_len();
     let result = unsafe {
         crate::host_calls::interstice_update_row(
-            table_bytes.as_ptr() as i32, table_bytes.len() as i32,
-            row_ptr, row_len,
+            table_bytes.as_ptr() as i32,
+            table_bytes.len() as i32,
+            row_ptr,
+            row_len,
         )
     };
-    if result < 0 { Err("update_row failed".into()) } else { Ok(()) }
+    if result < 0 {
+        Err("update_row failed".into())
+    } else {
+        Ok(())
+    }
 }
 
 pub fn delete_row(table_name: &str, primary_key: IndexKey) -> Result<(), String> {
@@ -216,11 +212,17 @@ pub fn delete_row(table_name: &str, primary_key: IndexKey) -> Result<(), String>
     let (pk_ptr, pk_len) = pk_buf.ptr_len();
     let result = unsafe {
         crate::host_calls::interstice_delete_row(
-            table_bytes.as_ptr() as i32, table_bytes.len() as i32,
-            pk_ptr, pk_len,
+            table_bytes.as_ptr() as i32,
+            table_bytes.len() as i32,
+            pk_ptr,
+            pk_len,
         )
     };
-    if result < 0 { Err("delete_row failed".into()) } else { Ok(()) }
+    if result < 0 {
+        Err("delete_row failed".into())
+    } else {
+        Ok(())
+    }
 }
 
 pub fn clear_table(module_selection: ModuleSelection, table_name: &str) -> Result<(), String> {
@@ -229,10 +231,15 @@ pub fn clear_table(module_selection: ModuleSelection, table_name: &str) -> Resul
             let table_bytes = table_name.as_bytes();
             let result = unsafe {
                 crate::host_calls::interstice_clear_table(
-                    table_bytes.as_ptr() as i32, table_bytes.len() as i32,
+                    table_bytes.as_ptr() as i32,
+                    table_bytes.len() as i32,
                 )
             };
-            if result < 0 { Err("clear_table failed".into()) } else { Ok(()) }
+            if result < 0 {
+                Err("clear_table failed".into())
+            } else {
+                Ok(())
+            }
         }
         ModuleSelection::Other(_) => {
             Err("clear_table with ModuleSelection::Other is not supported in ABI v2".into())
@@ -265,24 +272,21 @@ pub fn get_by_primary_key(
             let pk_buf = encode_scratch(&primary_key)?;
             let (pk_ptr, pk_len) = pk_buf.ptr_len();
             let written = unsafe {
-                #[cfg(target_arch = "wasm32")]
-                let resp_ptr = std::ptr::addr_of_mut!(crate::host_calls::DIRECT_RESP_BUF) as *mut u8 as i32;
-                #[cfg(target_arch = "wasm32")]
+                let resp_ptr =
+                    std::ptr::addr_of_mut!(crate::host_calls::DIRECT_RESP_BUF) as *mut u8 as i32;
                 let resp_cap = 8192i32;
-                #[cfg(not(target_arch = "wasm32"))]
-                let resp_ptr = 0i32;
-                #[cfg(not(target_arch = "wasm32"))]
-                let resp_cap = 0i32;
                 crate::host_calls::interstice_get_by_pk(
-                    table_bytes.as_ptr() as i32, table_bytes.len() as i32,
-                    pk_ptr, pk_len,
-                    resp_ptr, resp_cap,
+                    table_bytes.as_ptr() as i32,
+                    table_bytes.len() as i32,
+                    pk_ptr,
+                    pk_len,
+                    resp_ptr,
+                    resp_cap,
                 )
             };
             if written < 0 {
                 return Err("get_by_pk: response buffer too small".into());
             }
-            #[cfg(target_arch = "wasm32")]
             let resp: TableGetByPrimaryKeyResponse = unsafe {
                 let buf = std::slice::from_raw_parts(
                     std::ptr::addr_of!(crate::host_calls::DIRECT_RESP_BUF) as *const u8,
@@ -290,8 +294,6 @@ pub fn get_by_primary_key(
                 );
                 decode(buf).map_err(|e| e.to_string())?
             };
-            #[cfg(not(target_arch = "wasm32"))]
-            let resp: TableGetByPrimaryKeyResponse = { let _ = written; TableGetByPrimaryKeyResponse::Err("wasm32 only".into()) };
             match resp {
                 TableGetByPrimaryKeyResponse::Ok(row) => Ok(row),
                 TableGetByPrimaryKeyResponse::Err(err) => Err(err),

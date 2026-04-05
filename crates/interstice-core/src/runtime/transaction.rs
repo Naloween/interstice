@@ -60,7 +60,11 @@ impl Runtime {
 
             for transaction in transactions {
                 match transaction {
-                    Transaction::Insert { module_name, table_name, new_row } => {
+                    Transaction::Insert {
+                        module_name,
+                        table_name,
+                        new_row,
+                    } => {
                         let table = tables.get_mut(&table_name).ok_or_else(|| {
                             IntersticeError::TableNotFound {
                                 module_name: module_name.clone(),
@@ -89,7 +93,10 @@ impl Runtime {
                                 PersistenceKind::Stateful => {
                                     let pk = row_primary_key(&row)?;
                                     self.persistence.persist_stateful_insert(
-                                        &module_name, &table_name, &pk, &row,
+                                        &module_name,
+                                        &table_name,
+                                        &pk,
+                                        &row,
                                     )?;
                                 }
                                 PersistenceKind::Logged => {
@@ -97,7 +104,10 @@ impl Runtime {
                                     if let Some(plan) = self.persistence.record_logged_operation(
                                         &module_name,
                                         &table_name,
-                                        LogOperation::Insert { primary_key: pk, row: Some(row.clone()) },
+                                        LogOperation::Insert {
+                                            primary_key: pk,
+                                            row: Some(row.clone()),
+                                        },
                                     )? {
                                         snapshots.push((plan, table.snapshot_rows()));
                                     }
@@ -107,7 +117,11 @@ impl Runtime {
                         }
                     }
 
-                    Transaction::Update { module_name, table_name, update_row } => {
+                    Transaction::Update {
+                        module_name,
+                        table_name,
+                        update_row,
+                    } => {
                         let table = tables.get_mut(&table_name).ok_or_else(|| {
                             IntersticeError::TableNotFound {
                                 module_name: module_name.clone(),
@@ -130,7 +144,10 @@ impl Runtime {
                             PersistenceKind::Stateful => {
                                 let pk = row_primary_key(&update_row)?;
                                 self.persistence.persist_stateful_update(
-                                    &module_name, &table_name, &pk, &update_row,
+                                    &module_name,
+                                    &table_name,
+                                    &pk,
+                                    &update_row,
                                 )?;
                             }
                             PersistenceKind::Logged => {
@@ -138,7 +155,10 @@ impl Runtime {
                                 if let Some(plan) = self.persistence.record_logged_operation(
                                     &module_name,
                                     &table_name,
-                                    LogOperation::Update { primary_key: pk, row: Some(update_row) },
+                                    LogOperation::Update {
+                                        primary_key: pk,
+                                        row: Some(update_row),
+                                    },
                                 )? {
                                     snapshots.push((plan, table.snapshot_rows()));
                                 }
@@ -147,7 +167,11 @@ impl Runtime {
                         }
                     }
 
-                    Transaction::Delete { module_name, table_name, deleted_row_id } => {
+                    Transaction::Delete {
+                        module_name,
+                        table_name,
+                        deleted_row_id,
+                    } => {
                         let table = tables.get_mut(&table_name).ok_or_else(|| {
                             IntersticeError::TableNotFound {
                                 module_name: module_name.clone(),
@@ -169,14 +193,18 @@ impl Runtime {
                         match persistence_kind {
                             PersistenceKind::Stateful => {
                                 self.persistence.persist_stateful_delete(
-                                    &module_name, &table_name, &deleted_row_id,
+                                    &module_name,
+                                    &table_name,
+                                    &deleted_row_id,
                                 )?;
                             }
                             PersistenceKind::Logged => {
                                 if let Some(plan) = self.persistence.record_logged_operation(
                                     &module_name,
                                     &table_name,
-                                    LogOperation::Delete { primary_key: deleted_row_id },
+                                    LogOperation::Delete {
+                                        primary_key: deleted_row_id,
+                                    },
                                 )? {
                                     snapshots.push((plan, table.snapshot_rows()));
                                 }
@@ -185,7 +213,10 @@ impl Runtime {
                         }
                     }
 
-                    Transaction::Clear { module_name, table_name } => {
+                    Transaction::Clear {
+                        module_name,
+                        table_name,
+                    } => {
                         let table = tables.get_mut(&table_name).ok_or_else(|| {
                             IntersticeError::TableNotFound {
                                 module_name: module_name.clone(),
@@ -193,7 +224,11 @@ impl Runtime {
                             }
                         })?;
                         let persistence_kind = table.schema.persistence.clone();
-                        let deleted_rows = if has_subscriptions { table.snapshot_rows() } else { vec![] };
+                        let deleted_rows = if has_subscriptions {
+                            table.snapshot_rows()
+                        } else {
+                            vec![]
+                        };
                         table.clear();
 
                         for deleted_row in deleted_rows {
@@ -206,7 +241,8 @@ impl Runtime {
                         }
                         match persistence_kind {
                             PersistenceKind::Stateful => {
-                                self.persistence.persist_stateful_clear(&module_name, &table_name)?;
+                                self.persistence
+                                    .persist_stateful_clear(&module_name, &table_name)?;
                             }
                             PersistenceKind::Logged => {
                                 if let Some(plan) = self.persistence.record_logged_operation(
@@ -247,7 +283,7 @@ impl Runtime {
         let module_name_for_persistence;
         let table_name_for_persistence;
         let persistence_kind;
-        let mut log_operation: Option<LogOperation> = None;
+        let log_operation: LogOperation;
         let mut logged_snapshot_plan: Option<SnapshotPlan> = None;
         let mut logged_snapshot_rows: Option<Vec<Row>> = None;
 
@@ -264,16 +300,19 @@ impl Runtime {
                     Some(m) => Arc::clone(m),
                     None => {
                         let modules = self.modules.lock();
-                        modules.get(&module_name).ok_or_else(|| {
-                            IntersticeError::ModuleNotFound(
-                                module_name.clone(),
-                                format!(
-                                    "When trying to insert into table '{}' from '{}'",
-                                    table_name.clone(),
-                                    module_name.clone()
-                                ),
-                            )
-                        })?.clone()
+                        modules
+                            .get(&module_name)
+                            .ok_or_else(|| {
+                                IntersticeError::ModuleNotFound(
+                                    module_name.clone(),
+                                    format!(
+                                        "When trying to insert into table '{}' from '{}'",
+                                        table_name.clone(),
+                                        module_name.clone()
+                                    ),
+                                )
+                            })?
+                            .clone()
                     }
                 };
 
@@ -307,17 +346,14 @@ impl Runtime {
                     match persistence_kind {
                         PersistenceKind::Logged => {
                             let pk = row_primary_key(&new_row)?;
-                            log_operation = Some(LogOperation::Insert {
+                            log_operation = LogOperation::Insert {
                                 primary_key: pk,
                                 row: Some(new_row.clone()),
-                            });
+                            };
                             if let Some(plan) = self.persistence.record_logged_operation(
                                 &module_name_for_persistence,
                                 &table_name_for_persistence,
-                                log_operation
-                                    .as_ref()
-                                    .cloned()
-                                    .expect("logged operation missing"),
+                                log_operation,
                             )? {
                                 logged_snapshot_rows = Some(table.snapshot_rows());
                                 logged_snapshot_plan = Some(plan);
@@ -349,16 +385,19 @@ impl Runtime {
                     Some(m) => Arc::clone(m),
                     None => {
                         let modules = self.modules.lock();
-                        modules.get(&module_name).ok_or_else(|| {
-                            IntersticeError::ModuleNotFound(
-                                module_name.clone(),
-                                format!(
-                                    "When trying to update table '{}' from '{}'",
-                                    table_name.clone(),
-                                    module_name.clone()
-                                ),
-                            )
-                        })?.clone()
+                        modules
+                            .get(&module_name)
+                            .ok_or_else(|| {
+                                IntersticeError::ModuleNotFound(
+                                    module_name.clone(),
+                                    format!(
+                                        "When trying to update table '{}' from '{}'",
+                                        table_name.clone(),
+                                        module_name.clone()
+                                    ),
+                                )
+                            })?
+                            .clone()
                     }
                 };
 
@@ -388,17 +427,14 @@ impl Runtime {
                     match persistence_kind {
                         PersistenceKind::Logged => {
                             let pk = row_primary_key(&update_row)?;
-                            log_operation = Some(LogOperation::Update {
+                            log_operation = LogOperation::Update {
                                 primary_key: pk,
                                 row: Some(update_row.clone()),
-                            });
+                            };
                             if let Some(plan) = self.persistence.record_logged_operation(
                                 &module_name_for_persistence,
                                 &table_name_for_persistence,
-                                log_operation
-                                    .as_ref()
-                                    .cloned()
-                                    .expect("logged operation missing"),
+                                log_operation,
                             )? {
                                 logged_snapshot_rows = Some(table.snapshot_rows());
                                 logged_snapshot_plan = Some(plan);
@@ -430,16 +466,19 @@ impl Runtime {
                     Some(m) => Arc::clone(m),
                     None => {
                         let modules = self.modules.lock();
-                        modules.get(&module_name).ok_or_else(|| {
-                            IntersticeError::ModuleNotFound(
-                                module_name.clone(),
-                                format!(
-                                    "When trying to delete a row of table '{}' from '{}'",
-                                    table_name.clone(),
-                                    module_name.clone()
-                                ),
-                            )
-                        })?.clone()
+                        modules
+                            .get(&module_name)
+                            .ok_or_else(|| {
+                                IntersticeError::ModuleNotFound(
+                                    module_name.clone(),
+                                    format!(
+                                        "When trying to delete a row of table '{}' from '{}'",
+                                        table_name.clone(),
+                                        module_name.clone()
+                                    ),
+                                )
+                            })?
+                            .clone()
                     }
                 };
 
@@ -467,16 +506,13 @@ impl Runtime {
                 if log_transaction {
                     match persistence_kind {
                         PersistenceKind::Logged => {
-                            log_operation = Some(LogOperation::Delete {
+                            log_operation = LogOperation::Delete {
                                 primary_key: deleted_row_id.clone(),
-                            });
+                            };
                             if let Some(plan) = self.persistence.record_logged_operation(
                                 &module_name_for_persistence,
                                 &table_name_for_persistence,
-                                log_operation
-                                    .as_ref()
-                                    .cloned()
-                                    .expect("logged operation missing"),
+                                log_operation,
                             )? {
                                 logged_snapshot_rows = Some(table.snapshot_rows());
                                 logged_snapshot_plan = Some(plan);
@@ -505,15 +541,18 @@ impl Runtime {
                     Some(m) => Arc::clone(m),
                     None => {
                         let modules = self.modules.lock();
-                        modules.get(&module_name).ok_or_else(|| {
-                            IntersticeError::ModuleNotFound(
-                                module_name.clone(),
-                                format!(
-                                    "When trying to clear table '{}' from '{}'",
-                                    table_name, module_name
-                                ),
-                            )
-                        })?.clone()
+                        modules
+                            .get(&module_name)
+                            .ok_or_else(|| {
+                                IntersticeError::ModuleNotFound(
+                                    module_name.clone(),
+                                    format!(
+                                        "When trying to clear table '{}' from '{}'",
+                                        table_name, module_name
+                                    ),
+                                )
+                            })?
+                            .clone()
                     }
                 };
 
@@ -544,14 +583,11 @@ impl Runtime {
                 if log_transaction {
                     match persistence_kind {
                         PersistenceKind::Logged => {
-                            log_operation = Some(LogOperation::Clear);
+                            log_operation = LogOperation::Clear;
                             if let Some(plan) = self.persistence.record_logged_operation(
                                 &module_name_for_persistence,
                                 &table_name_for_persistence,
-                                log_operation
-                                    .as_ref()
-                                    .cloned()
-                                    .expect("logged operation missing"),
+                                log_operation,
                             )? {
                                 logged_snapshot_rows = Some(table.snapshot_rows());
                                 logged_snapshot_plan = Some(plan);
@@ -570,7 +606,9 @@ impl Runtime {
         }
 
         if log_transaction {
-            if let (Some(plan), Some(rows)) = (logged_snapshot_plan.take(), logged_snapshot_rows.take()) {
+            if let (Some(plan), Some(rows)) =
+                (logged_snapshot_plan.take(), logged_snapshot_rows.take())
+            {
                 self.persistence.snapshot_logged_table(plan, rows)?;
             }
         }

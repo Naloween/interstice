@@ -504,7 +504,7 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 ## Security and data access
 
 - Table views and row-level security: allow modules to filter rows based on runtime state and requesting node id
-- Time travel host call: should beable to time travel some table, creating timelines and branches (reason: very cool and allow easy time-related effects in games and apps in general). There should be several kind of travels changing the behavior of branching, what is saved and what not etc...
+- Time travel host call: should be able to time travel some table, creating timelines and branches (reason: very cool and allow easy time-related effects in games and apps in general). There should be several kind of travels changing the behavior of branching, what is saved and what not etc...
 
 ## Runtime and data model
 
@@ -515,24 +515,24 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 
 ## Robustness and correctness
 
-- Fix init event not working anymore
+- Fix init event not working correctly anymore (doesn't fire when initializing a node wth already added modules, only work when we add them when the node is running)
 - Add doc or dependencies when installing interstice through cargo, check on generated bins
-- Fix agar-cleint example not working on WSL (no waylands)
+- Fix agar-client example not working on WSL (no waylands)
 - Clean runtime, node and engines code (app, network, audio, file)
 - Rename the Input authority to be more explicit (audio also has input subscription)
 - Improve macro checks and error messages (subscription args and types)
-- Harden network reconnections and peer health handling
+- Harden network reconnections and peer health handling as well as connection workflow (currently always throw a warning when disconnecting)
 - Expand function-level documentation across core and SDK
 
 ## Performance and determinism
 
 - Iter-based table scans and more efficient index access
 - Reduce IntersticeValue conversions and avoid unnecessary clones
-- Parallelize reducers when safe under deterministic constraints
+- Parallelize reducers when safe under deterministic constraints (almost done, have to be more precise on which reducer do which operation on each table)
 
 ## Tooling, diagnostics, and DX
 
-- Benchmarks, profiling tools, and performance budgets
+- Benchmarks, profiling tools, and performance budgets (mostly done)
 - Time travel tooling: rewind and inspect previous node/module states
 
 ---

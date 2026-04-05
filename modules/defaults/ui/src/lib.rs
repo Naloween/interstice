@@ -2,9 +2,8 @@ use interstice_sdk::*;
 
 interstice_module!(visibility: Private);
 
-use crate::bindings::{
-    graphics::{Color as GraphicsColor, Rect as GraphicsRect, Vec2 as GraphicsVec2, *},
-    *,
+use crate::bindings::graphics::{
+    Color as GraphicsColor, Rect as GraphicsRect, Vec2 as GraphicsVec2, *,
 };
 
 const DEFAULT_SCOPE: &str = "default";
