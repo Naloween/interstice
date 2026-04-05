@@ -36,7 +36,10 @@ impl AutoIncCounter {
             IntersticeType::I64 => AutoIncKind::I64,
             _ => return None,
         };
-        Some(Self { raw: Arc::new(AtomicU64::new(0)), kind })
+        Some(Self {
+            raw: Arc::new(AtomicU64::new(0)),
+            kind,
+        })
     }
 
     /// Atomically reserve the next ID.  Each call on any clone of the same counter
@@ -87,14 +90,16 @@ impl AutoIncCounter {
                 .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))?,
             (AutoIncKind::I32, IntersticeValue::I32(v)) => (*v as i64)
                 .checked_add(1)
-                .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))? as u64,
+                .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))?
+                as u64,
             (AutoIncKind::I64, IntersticeValue::I64(v)) => v
                 .checked_add(1)
-                .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))? as u64,
+                .ok_or_else(|| IntersticeError::Internal("auto_inc overflow".into()))?
+                as u64,
             _ => {
                 return Err(IntersticeError::Internal(
                     "auto_inc value type mismatch".into(),
-                ))
+                ));
             }
         };
         // Advance atomically to max(current, candidate)
@@ -113,7 +118,7 @@ impl AutoIncCounter {
         Ok(())
     }
 
-    pub fn reset(&self) {
+    pub fn _reset(&self) {
         self.raw.store(0, Ordering::Relaxed);
     }
 }
