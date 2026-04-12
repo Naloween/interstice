@@ -77,7 +77,8 @@ pub struct Runtime {
     node_subscriptions: Arc<Mutex<HashMap<NodeId, Vec<SubscriptionEventSchema>>>>,
     pub(crate) node_names_by_id: Arc<Mutex<HashMap<NodeId, String>>>,
     pub(crate) replica_bindings: Arc<Mutex<Vec<ReplicaBinding>>>,
-    /// Logical node name (e.g. CLI registry name) used to resolve `table` / `module.table` access paths.
+    /// Logical node key for `table` / `module.table` ACL paths (usually the node UUID; a registry
+    /// display name may override when wired in from the CLI).
     pub(crate) local_display_name: Mutex<Option<String>>,
     pub(crate) emitted_replica_sync_events: Arc<Mutex<HashSet<String>>>,
     pub(crate) file_watchers: Arc<Mutex<Vec<RecommendedWatcher>>>,

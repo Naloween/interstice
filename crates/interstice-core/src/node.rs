@@ -79,6 +79,9 @@ impl Node {
             ),
         ));
         let run_app_notify = Arc::new(Notify::new());
+        // Stable logical key for `node.module.table` ACL expansion (1- and 2-segment paths).
+        // Matches `canonical_physical_name` for native tables when no registry display name exists.
+        let local_key = Some(id.to_string());
         let runtime = Arc::new(Runtime::new(
             id,
             Some(modules_path),
@@ -91,7 +94,7 @@ impl Node {
             logger.clone(),
             reducer_sender,
             reducer_receiver,
-            None,
+            local_key,
         )?);
         let gpu_call_receiver = runtime.take_gpu_call_receiver();
         let app = App::new(
@@ -154,6 +157,7 @@ impl Node {
             ),
         ));
         let run_app_notify = Arc::new(Notify::new());
+        let local_key = Some(id.to_string());
         let runtime = Arc::new(Runtime::new(
             id,
             Some(modules_path.clone()),
@@ -166,7 +170,7 @@ impl Node {
             logger.clone(),
             reducer_sender,
             reducer_receiver,
-            None,
+            local_key,
         )?);
         let gpu_call_receiver = runtime.take_gpu_call_receiver();
         let app = App::new(
