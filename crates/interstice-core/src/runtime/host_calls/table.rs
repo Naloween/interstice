@@ -97,8 +97,12 @@ impl Runtime {
             if allowed {
                 Ok(())
             } else {
+                let kind = match frame.kind {
+                    CallFrameKind::Reducer => "Reducer",
+                    CallFrameKind::Query => "Query",
+                };
                 Err(format!(
-                    "Reducer '{}.{}' lacks {} permission for {} (declared access uses structured node.module.table refs)",
+                    "{kind} '{}.{}' lacks {} permission for {} (declared access uses structured node.module.table refs)",
                     frame.module,
                     frame.reducer,
                     op_label(&op),

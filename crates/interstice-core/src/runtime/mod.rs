@@ -381,10 +381,16 @@ impl Runtime {
             } => {
                 let runtime = runtime.clone();
                 tokio::task::spawn_blocking(move || {
-                    let result = match runtime
-                        .call_query(&module_name, &query_name, input, requesting_node_id)
-                    {
-                        Ok(value) => value,
+                    match runtime.call_query(&module_name, &query_name, input, requesting_node_id) {
+                        Ok(value) => {
+                            runtime.network_handle.send_packet(
+                                requesting_node_id,
+                                crate::network::protocol::NetworkPacket::QueryResponse {
+                                    request_id,
+                                    result: value,
+                                },
+                            );
+                        }
                         Err(err) => {
                             runtime.logger.log(
                                 &format!(
@@ -394,16 +400,12 @@ impl Runtime {
                                 LogSource::Runtime,
                                 LogLevel::Error,
                             );
-                            IntersticeValue::Void
+                            runtime.network_handle.send_packet(
+                                requesting_node_id,
+                                crate::network::protocol::NetworkPacket::Error(err.to_string()),
+                            );
                         }
-                    };
-                    runtime.network_handle.send_packet(
-                        requesting_node_id,
-                        crate::network::protocol::NetworkPacket::QueryResponse {
-                            request_id,
-                            result,
-                        },
-                    );
+                    }
                 });
             }
             EventInstance::RemoteQueryResponse { request_id, result } => {

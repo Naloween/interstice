@@ -1,9 +1,11 @@
 mod index_key;
 mod init;
 mod interstice_type;
+mod path_segments;
 mod query;
 mod reducer;
 mod table;
+mod table_access_tokens;
 
 use proc_macro::TokenStream;
 
@@ -28,8 +30,8 @@ pub fn reducer(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn query(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    query_macro(item)
+pub fn query(attr: TokenStream, item: TokenStream) -> TokenStream {
+    query_macro(attr, item)
 }
 
 #[proc_macro_attribute]

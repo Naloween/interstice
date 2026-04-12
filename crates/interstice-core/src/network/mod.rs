@@ -186,7 +186,7 @@ impl Network {
         }
     }
 
-    pub fn listen(&mut self) -> Result<(), IntersticeError> {
+    pub async fn listen(&mut self) -> Result<(), IntersticeError> {
         let peers = self.peers.clone();
         let sender = self.packet_sender.clone();
         let event_sender = self.runtime_event_sender.clone();
@@ -195,11 +195,13 @@ impl Network {
         let my_address = self.address.clone();
         let my_node_id = self.node_id.clone();
         let logger = self.logger.clone();
+        let listener = TcpListener::bind(&my_address).await.map_err(|err| {
+            IntersticeError::Internal(format!(
+                "Failed to listen on address {}: {}",
+                my_address, err
+            ))
+        })?;
         tokio::spawn(async move {
-            let listener = TcpListener::bind(&my_address)
-                .await
-                .map_err(|_err| IntersticeError::Internal("Failed to listen adress".into()))
-                .unwrap();
             logger.log(
                 &format!("Listening on {}", my_address),
                 LogSource::Network,

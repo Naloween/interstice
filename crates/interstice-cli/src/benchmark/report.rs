@@ -103,6 +103,7 @@ pub(crate) fn print_benchmark_help() {
     println!("      --latency-sample-stride <n> (default 64)");
     println!("      --throughput-mode <dispatch_success|query_delta> (default dispatch_success)");
     println!("        query_delta: measures real committed tx/s via server-side counter");
+    println!("          (the throughput query must declare #[query(reads = [...])] for tables it reads)");
     println!("      --throughput-query <query_name>");
     println!("      --throughput-query-field <field_name>");
     println!("      --throughput-query-arg-json '<json>' (repeatable)");
@@ -134,9 +135,9 @@ pub(crate) fn print_benchmark_help() {
 }
 
 pub(crate) fn print_profiles() {
-    println!("Built-in benchmark profiles:");
+    println!("Built-in benchmark profiles (node registry name `benchmark-example`, see `interstice example benchmark`):");
     println!("  vm-noop           — pure WASM call overhead (noop reducer, dispatch_success)");
-    println!("  insert-ephemeral  — ephemeral table insert throughput (query_delta)");
+    println!("  insert-ephemeral  — ephemeral inserts + progress tracking; query_delta toward ~100k commits");
     println!("  durability        — logged/persisted insert throughput (query_delta)");
     println!("  fanout            — subscription fanout throughput");
 }

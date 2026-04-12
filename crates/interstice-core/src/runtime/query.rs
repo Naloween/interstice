@@ -30,8 +30,7 @@ impl Runtime {
                 .clone()
         };
 
-        // Check that query exists in schema
-        module
+        let query_schema = module
             .schema
             .queries
             .iter()
@@ -40,6 +39,7 @@ impl Runtime {
                 module: module_name.into(),
                 reducer: query_name.into(),
             })?;
+        let table_access = crate::runtime::reducer::ReducerTableAccess::from_query_schema(query_schema);
 
         // Detect re-entrant query cycles — check the current thread's stack only.
         let cycle = CALL_STACK.with(|s| {
@@ -73,7 +73,7 @@ impl Runtime {
                 module.clone(),
                 CallFrameKind::Query,
                 rng_seed,
-                crate::runtime::reducer::ReducerTableAccess::default(),
+                table_access,
             ));
         });
 

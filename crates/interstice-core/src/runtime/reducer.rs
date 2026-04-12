@@ -3,7 +3,7 @@ use crate::{
     runtime::transaction::Transaction,
     runtime::{Runtime, module::Module, table::TableAutoIncSnapshot},
 };
-use interstice_abi::{IntersticeValue, ReducerContext, ReducerTableRef};
+use interstice_abi::{IntersticeValue, QuerySchema, ReducerContext, ReducerTableRef};
 use serde::Serialize;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -86,6 +86,15 @@ impl ReducerTableAccess {
             inserts: schema.inserts.iter().cloned().collect(),
             updates: schema.updates.iter().cloned().collect(),
             deletes: schema.deletes.iter().cloned().collect(),
+        }
+    }
+
+    pub fn from_query_schema(schema: &QuerySchema) -> Self {
+        Self {
+            reads: schema.reads.iter().cloned().collect(),
+            inserts: HashSet::new(),
+            updates: HashSet::new(),
+            deletes: HashSet::new(),
         }
     }
 }

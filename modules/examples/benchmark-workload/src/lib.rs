@@ -456,7 +456,7 @@ pub fn health(_ctx: QueryContext) -> String {
     "ok".to_string()
 }
 
-#[query]
+#[query(reads = [benchprogress])]
 pub fn has_progress(ctx: QueryContext, client_id: String, min_seq: u64) -> bool {
     ctx.current
         .tables
@@ -466,7 +466,7 @@ pub fn has_progress(ctx: QueryContext, client_id: String, min_seq: u64) -> bool 
         .unwrap_or(false)
 }
 
-#[query]
+#[query(reads = [benchprogress])]
 pub fn has_committed(ctx: QueryContext, client_id: String, min_committed: u64) -> bool {
     ctx.current
         .tables
@@ -476,7 +476,7 @@ pub fn has_committed(ctx: QueryContext, client_id: String, min_committed: u64) -
         .unwrap_or(false)
 }
 
-#[query]
+#[query(reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchfanout, benchtickstate])]
 pub fn stats(ctx: QueryContext, client_id: String) -> BenchStats {
     let progress = ctx.current.tables.benchprogress().get(client_id);
     let fanout = ctx.current.tables.benchfanout().get(FANOUT_KEY.to_string());
@@ -500,7 +500,7 @@ pub fn stats(ctx: QueryContext, client_id: String) -> BenchStats {
     }
 }
 
-#[query]
+#[query(reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent])]
 pub fn global_counts(ctx: QueryContext) -> BenchGlobalCounts {
     BenchGlobalCounts {
         ephemeral_rows: ctx.current.tables.benchephemeral().scan().len() as u64,
@@ -511,7 +511,7 @@ pub fn global_counts(ctx: QueryContext) -> BenchGlobalCounts {
     }
 }
 
-#[query]
+#[query(reads = [benchprogress])]
 pub fn total_committed(ctx: QueryContext) -> u64 {
     ctx.current
         .tables

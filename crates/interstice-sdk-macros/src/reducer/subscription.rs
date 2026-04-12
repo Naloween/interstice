@@ -1,7 +1,7 @@
 use quote::quote;
 use syn::{Expr, Ident, Meta, punctuated::Punctuated, token::Comma};
 
-use super::dotted::segments_from_dotted_str;
+use crate::path_segments::segments_from_dotted_str;
 
 pub fn get_register_subscription_function(
     reducer_ident: Ident,

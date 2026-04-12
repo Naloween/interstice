@@ -122,7 +122,7 @@ fn on_greeting_insert(ctx: ReducerContext, inserted_row: Greetings) {
     ctx.log(&format!("Inserted greeting: {:?}", inserted_row));
 }
 
-#[query]
+#[query(reads = [greetings])]
 fn get_greetings(ctx: QueryContext) -> Vec<Greetings> {
     ctx.current.tables.greetings().scan().unwrap_or_else(|err| {
         ctx.log(&format!("Failed to scan greetings: {}", err));

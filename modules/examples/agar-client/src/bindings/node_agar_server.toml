@@ -1,8 +1,9 @@
+
 name = "agar-server"
-address = "127.0.0.1:8080"
+address = "127.0.0.1:8086"
 
 [[modules]]
-abi_version = 5
+abi_version = 6
 name = "agar-server"
 visibility = "Public"
 queries = []

@@ -2,7 +2,7 @@ name = "hello-example"
 address = "127.0.0.1:8080"
 
 [[modules]]
-abi_version = 5
+abi_version = 6
 name = "hello-example"
 visibility = "Public"
 authorities = []

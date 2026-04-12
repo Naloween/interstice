@@ -388,7 +388,7 @@ fn load_scenario_file(path: &Path) -> Result<Vec<BenchmarkRunConfig>, Interstice
 fn built_in_profile(name: &str) -> Result<Vec<BenchmarkRunConfig>, IntersticeError> {
     let scenarios = match name {
         "vm-noop" => vec![BenchmarkRunConfig {
-            node: "bench-node".to_string(),
+            node: "benchmark-example".to_string(),
             module_name: "benchmark-workload".to_string(),
             reducer_name: "noop".to_string(),
             name: Some("vm-noop".to_string()),
@@ -413,13 +413,13 @@ fn built_in_profile(name: &str) -> Result<Vec<BenchmarkRunConfig>, IntersticeErr
             reset_before: true,
         }],
         "insert-ephemeral" => vec![BenchmarkRunConfig {
-            node: "bench-node".to_string(),
+            node: "benchmark-example".to_string(),
             module_name: "benchmark-workload".to_string(),
             reducer_name: "tx_insert_ephemeral".to_string(),
             name: Some("insert-ephemeral".to_string()),
-            duration_ms: 15_000,
+            duration_ms: 90_000,
             warmup_ms: 5_000,
-            connections: 4,
+            connections: 12,
             transport: BenchmarkTransport::Persistent,
             rate: None,
             args_json: serde_json::Value::Array(vec![
@@ -443,7 +443,7 @@ fn built_in_profile(name: &str) -> Result<Vec<BenchmarkRunConfig>, IntersticeErr
             reset_before: true,
         }],
         "durability" => vec![BenchmarkRunConfig {
-            node: "bench-node".to_string(),
+            node: "benchmark-example".to_string(),
             module_name: "benchmark-workload".to_string(),
             reducer_name: "tx_insert_logged".to_string(),
             name: Some("durability".to_string()),
@@ -474,7 +474,7 @@ fn built_in_profile(name: &str) -> Result<Vec<BenchmarkRunConfig>, IntersticeErr
         }],
         "fanout" => vec![
             BenchmarkRunConfig {
-                node: "bench-node".to_string(),
+                node: "benchmark-example".to_string(),
                 module_name: "benchmark-workload".to_string(),
                 reducer_name: "start_tick".to_string(),
                 name: Some("fanout-start".to_string()),
@@ -496,7 +496,7 @@ fn built_in_profile(name: &str) -> Result<Vec<BenchmarkRunConfig>, IntersticeErr
                 reset_before: false,
             },
             BenchmarkRunConfig {
-                node: "bench-node".to_string(),
+                node: "benchmark-example".to_string(),
                 module_name: "benchmark-workload".to_string(),
                 reducer_name: "emit_event".to_string(),
                 name: Some("fanout".to_string()),
@@ -525,7 +525,7 @@ fn built_in_profile(name: &str) -> Result<Vec<BenchmarkRunConfig>, IntersticeErr
                 reset_before: false,
             },
             BenchmarkRunConfig {
-                node: "bench-node".to_string(),
+                node: "benchmark-example".to_string(),
                 module_name: "benchmark-workload".to_string(),
                 reducer_name: "stop_tick".to_string(),
                 name: Some("fanout-stop".to_string()),

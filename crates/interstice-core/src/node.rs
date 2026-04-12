@@ -5,8 +5,14 @@ use crate::{
     logger::{LogLevel, LogSource, Logger},
     network::{Network, NetworkHandle},
     persistence::{PeerTokenStore, TableStore},
-    runtime::{Runtime, event::EventInstance, module::Module, reducer::{CompletionToken, ReducerJob}},
+    runtime::{
+        Runtime,
+        event::EventInstance,
+        module::Module,
+        reducer::{CompletionToken, ReducerJob},
+    },
 };
+use crossbeam_channel;
 use interstice_abi::{ModuleSchema, NodeSchema};
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -15,7 +21,6 @@ use tokio::sync::{
     Notify,
     mpsc::{self, UnboundedReceiver},
 };
-use crossbeam_channel;
 use uuid::Uuid;
 
 pub type NodeId = Uuid;
@@ -212,7 +217,7 @@ impl Node {
         );
 
         // Run network events
-        network.listen()?;
+        network.listen().await?;
         let _net_handle = network.run();
 
         let runtime_for_thread = runtime.clone();
@@ -251,7 +256,6 @@ impl Node {
                 .runtime
                 .modules
                 .lock()
-                
                 .values()
                 .map(|m| (*m.schema).clone())
                 .collect(),

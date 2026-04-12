@@ -80,7 +80,8 @@ fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> 
         }),
         "agar-server" => Ok(ExampleConfig {
             name: "agar-server-example",
-            port: 8080,
+            // Dedicated port: 8080 is used by hello-example; sharing it caused bind failures.
+            port: 8086,
             modules: vec![ExampleModule {
                 bytes: AGAR_SERVER_BYTES,
             }],
