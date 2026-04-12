@@ -510,6 +510,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
+
         pub trait #has_table_read_handle_trait {
             fn #get_table_read_handle_fn(&self) -> #table_read_handle_struct;
         }
@@ -519,6 +520,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 return #table_read_handle_struct {}
             }
         }
+
 
     }
     .into()

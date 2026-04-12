@@ -5,6 +5,10 @@ pub fn get_register_schema_function(
     reducer_ident: Ident,
     arg_names: Vec<&Box<Pat>>,
     arg_types: Vec<&Box<Type>>,
+    reads: Vec<String>,
+    inserts: Vec<String>,
+    updates: Vec<String>,
+    deletes: Vec<String>,
 ) -> proc_macro2::TokenStream {
     let reducer_schema_fn = syn::Ident::new(
         &format!("interstice_{}_schema", reducer_ident),
@@ -33,6 +37,10 @@ pub fn get_register_schema_function(
             interstice_sdk::ReducerSchema::new(
                 stringify!(#reducer_ident),
                 vec![#(#schema_entries),*],
+                vec![#(#reads.to_string()),*],
+                vec![#(#inserts.to_string()),*],
+                vec![#(#updates.to_string()),*],
+                vec![#(#deletes.to_string()),*],
             )
         }
 
