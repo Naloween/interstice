@@ -5,6 +5,8 @@ pub mod host_calls;
 pub mod module;
 mod query;
 pub mod reducer;
+mod scheduler;
+mod table_access;
 pub mod table;
 pub mod transaction;
 mod wasm;
@@ -24,7 +26,7 @@ use crate::{
             gpu::{GpuCallRequest, GpuState},
         },
         module::Module,
-        reducer::{ACTIVE_COMPLETION, CompletionToken, PerfStats, ReducerJob},
+        reducer::{ACTIVE_COMPLETION, CompletionToken, ReducerJob},
         wasm::{StoreState, linker::define_host_calls},
     },
 };
@@ -75,13 +77,14 @@ pub struct Runtime {
     node_subscriptions: Arc<Mutex<HashMap<NodeId, Vec<SubscriptionEventSchema>>>>,
     pub(crate) node_names_by_id: Arc<Mutex<HashMap<NodeId, String>>>,
     pub(crate) replica_bindings: Arc<Mutex<Vec<ReplicaBinding>>>,
+    /// Logical node name (e.g. CLI registry name) used to resolve `table` / `module.table` access paths.
+    pub(crate) local_display_name: Mutex<Option<String>>,
     pub(crate) emitted_replica_sync_events: Arc<Mutex<HashSet<String>>>,
     pub(crate) file_watchers: Arc<Mutex<Vec<RecommendedWatcher>>>,
     pub(crate) call_sequence: AtomicU64,
     pub(crate) active_subscription_count: AtomicI32,
     pub(crate) timer_tx: tokio::sync::mpsc::UnboundedSender<(std::time::Instant, String, String)>,
     timer_rx: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<(std::time::Instant, String, String)>>>,
-    pub(crate) perf: Mutex<PerfStats>,
 }
 
 #[derive(Debug, Clone)]
@@ -107,6 +110,7 @@ impl Runtime {
         logger: Logger,
         reducer_sender: CbSender<ReducerJob>,
         reducer_receiver: CbReceiver<ReducerJob>,
+        local_display_name: Option<String>,
     ) -> Result<Self, IntersticeError> {
         // reducer_sender/receiver are pre-created by the Node so the same sender can be
         // shared directly with the Network layer, bypassing the unbounded event channel.
@@ -143,6 +147,7 @@ impl Runtime {
             node_subscriptions: Arc::new(Mutex::new(HashMap::new())),
             node_names_by_id: Arc::new(Mutex::new(HashMap::new())),
             replica_bindings: Arc::new(Mutex::new(Vec::new())),
+            local_display_name: Mutex::new(local_display_name),
             emitted_replica_sync_events: Arc::new(Mutex::new(HashSet::new())),
             logger,
             file_watchers: Arc::new(Mutex::new(Vec::new())),
@@ -150,7 +155,6 @@ impl Runtime {
             active_subscription_count: AtomicI32::new(0),
             timer_tx,
             timer_rx: Mutex::new(Some(timer_rx)),
-            perf: Mutex::new(PerfStats::default()),
             tokio_handle,
         })
     }
@@ -164,6 +168,47 @@ impl Runtime {
     }
 
     pub async fn run(runtime: Arc<Runtime>, mut event_receiver: UnboundedReceiver<(EventInstance, Option<CompletionToken>)>) {
+        let (ready_tx, ready_rx) = crossbeam_channel::unbounded::<(u64, ReducerJob)>();
+        let (done_tx, done_rx) = crossbeam_channel::unbounded::<u64>();
+
+        {
+            let incoming_rx = runtime.reducer_receiver.clone();
+            let rt = runtime.clone();
+            std::thread::Builder::new()
+                .name("reducer-scheduler".to_string())
+                .spawn(move || {
+                    let mut scheduler = crate::runtime::scheduler::ReducerScheduler::<ReducerJob>::new();
+                    loop {
+                        crossbeam_channel::select! {
+                            recv(incoming_rx) -> msg => {
+                                let job = match msg {
+                                    Ok(job) => job,
+                                    Err(_) => break,
+                                };
+                                let accesses = reducer_accesses(&rt, &job.module_name, &job.reducer_name);
+                                if let Some(runnable) = scheduler.enqueue(job, accesses) {
+                                    if ready_tx.send((runnable.id, runnable.payload)).is_err() {
+                                        return;
+                                    }
+                                }
+                            }
+                            recv(done_rx) -> msg => {
+                                let done_id = match msg {
+                                    Ok(id) => id,
+                                    Err(_) => break,
+                                };
+                                for runnable in scheduler.complete(done_id) {
+                                    if ready_tx.send((runnable.id, runnable.payload)).is_err() {
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+                .expect("Failed to spawn reducer scheduler thread");
+        }
+
         // crossbeam Receiver is Clone — each thread gets its own handle to the same
         // MPMC queue with no mutex overhead.
         let num_reducer_threads = std::thread::available_parallelism()
@@ -171,18 +216,17 @@ impl Runtime {
             .unwrap_or(4)
             .min(8);
         for i in 0..num_reducer_threads {
-            let receiver = runtime.reducer_receiver.clone();
+            let receiver = ready_rx.clone();
+            let done = done_tx.clone();
             let rt = runtime.clone();
             std::thread::Builder::new()
                 .name(format!("wasm-reducer-{}", i))
                 .spawn(move || {
-                    let mut prev_done = std::time::Instant::now();
                     loop {
-                        let job = match receiver.recv() {
+                        let (job_id, job) = match receiver.recv() {
                             Ok(j) => j,
                             Err(_) => break,
                         };
-                        let inter_job_ns = prev_done.elapsed().as_nanos() as u64;
                         // Fork the token into TLS so that event dispatch (which
                         // runs in a different async task) can attach its own fork
                         // by reading the token out of the EventInstance.  We use
@@ -198,14 +242,12 @@ impl Runtime {
                             &job.reducer_name,
                             job.input,
                             job.caller_node_id,
-                            job.queued_at,
-                            inter_job_ns,
                         );
                         // Clear TLS *before* the guard drops so any event forks
                         // made during call_reducer are counted, and the guard's
                         // drop is the last decrement if no events were dispatched.
                         ACTIVE_COMPLETION.with(|c| *c.borrow_mut() = None);
-                        prev_done = std::time::Instant::now();
+                        let _ = done.send(job_id);
                     }
                 })
                 .expect("Failed to spawn wasm-reducer thread");
@@ -255,7 +297,6 @@ impl Runtime {
                                 input: interstice_abi::IntersticeValue::Vec(vec![]),
                                 caller_node_id: timer_node_id,
                                 completion: None,
-                                queued_at: std::time::Instant::now(),
                             });
                         }
                     }
@@ -334,7 +375,6 @@ impl Runtime {
                     input,
                     caller_node_id: requesting_node_id,
                     completion: None,
-                    queued_at: std::time::Instant::now(),
                 });
             }
             EventInstance::RemoteQueryCall {
@@ -717,4 +757,64 @@ impl Runtime {
 
         Ok(())
     }
+}
+
+fn reducer_accesses(
+    runtime: &Arc<Runtime>,
+    module_name: &str,
+    reducer_name: &str,
+) -> Vec<crate::runtime::scheduler::TableAccess> {
+    let modules = runtime.modules.lock();
+    let Some(module) = modules.get(module_name) else {
+        return Vec::new();
+    };
+    let Some(reducer) = module
+        .schema
+        .reducers
+        .iter()
+        .find(|r| r.name == reducer_name)
+    else {
+        return Vec::new();
+    };
+
+    let local = runtime.local_display_name.lock().clone();
+    let expand_vec = |v: &[String]| -> Vec<String> {
+        v.iter()
+            .filter_map(|e| {
+                crate::runtime::table_access::normalize_user_table_ref(
+                    e,
+                    local.as_deref(),
+                    module_name,
+                )
+                .ok()
+            })
+            .collect()
+    };
+
+    let mut out = Vec::new();
+    for table in expand_vec(&reducer.reads) {
+        out.push(crate::runtime::scheduler::TableAccess {
+            table_name: table,
+            op: crate::runtime::scheduler::TableOp::Read,
+        });
+    }
+    for table in expand_vec(&reducer.inserts) {
+        out.push(crate::runtime::scheduler::TableAccess {
+            table_name: table,
+            op: crate::runtime::scheduler::TableOp::Insert,
+        });
+    }
+    for table in expand_vec(&reducer.updates) {
+        out.push(crate::runtime::scheduler::TableAccess {
+            table_name: table,
+            op: crate::runtime::scheduler::TableOp::Update,
+        });
+    }
+    for table in expand_vec(&reducer.deletes) {
+        out.push(crate::runtime::scheduler::TableAccess {
+            table_name: table,
+            op: crate::runtime::scheduler::TableOp::Delete,
+        });
+    }
+    out
 }

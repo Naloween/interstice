@@ -442,7 +442,6 @@ impl Runtime {
                     input: args,
                     caller_node_id: self.network_handle.node_id,
                     completion,
-                    queued_at: std::time::Instant::now(),
                 });
             }
             SubscriptionTarget::Remote(uuid) => {

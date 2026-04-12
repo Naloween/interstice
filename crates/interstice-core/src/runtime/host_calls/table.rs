@@ -10,7 +10,65 @@ use interstice_abi::{
 };
 use std::sync::Arc;
 
+enum TableAccessOp {
+    Read,
+    Insert,
+    Update,
+    Delete,
+}
+
 impl Runtime {
+    fn ensure_current_frame_table_access(
+        &self,
+        table_name: &str,
+        op: TableAccessOp,
+    ) -> Result<(), String> {
+        CALL_STACK.with(|s| {
+            let stack = s.borrow();
+            let frame = stack
+                .last()
+                .ok_or_else(|| "No active call frame".to_string())?;
+            if frame.kind == CallFrameKind::Query && !matches!(op, TableAccessOp::Read) {
+                return Err(format!(
+                    "{} not allowed in query context",
+                    match op {
+                        TableAccessOp::Read => "Read",
+                        TableAccessOp::Insert => "Insert",
+                        TableAccessOp::Update => "Update",
+                        TableAccessOp::Delete => "Delete/Clear",
+                    }
+                ));
+            }
+            let local = self.local_display_name.lock().clone();
+            let bindings = self.replica_bindings.lock();
+            let key = crate::runtime::table_access::canonical_physical_name(
+                table_name,
+                &frame.module,
+                local.as_deref(),
+                &bindings,
+            )
+            .map_err(|e| e.to_string())?;
+            let allowed = match op {
+                TableAccessOp::Read => frame.table_access.reads.contains(&key),
+                TableAccessOp::Insert => frame.table_access.inserts.contains(&key),
+                TableAccessOp::Update => frame.table_access.updates.contains(&key),
+                TableAccessOp::Delete => frame.table_access.deletes.contains(&key),
+            };
+            if allowed {
+                Ok(())
+            } else {
+                Err(format!(
+                    "Reducer '{}.{}' lacks {} permission for table '{}' (required ACL key '{}')",
+                    frame.module,
+                    frame.reducer,
+                    op_label(&op),
+                    table_name,
+                    key
+                ))
+            }
+        })
+    }
+
     fn selected_module_name(&self, module_selection: &ModuleSelection) -> Result<String, String> {
         match module_selection {
             ModuleSelection::Current => {
@@ -36,6 +94,11 @@ impl Runtime {
     ) -> InsertRowResponse {
         let module_name = caller_module_schema.name.clone();
         let mut row = insert_row_request.row;
+        if let Err(err) =
+            self.ensure_current_frame_table_access(&insert_row_request.table_name, TableAccessOp::Insert)
+        {
+            return InsertRowResponse::Err(err);
+        }
 
         // Get module_arc from the active call frame (avoids modules.lock() HashMap lookup)
         let module_arc = match self.current_frame_module_arc() {
@@ -122,6 +185,11 @@ impl Runtime {
         update_row_request: UpdateRowRequest,
     ) -> UpdateRowResponse {
         let module_name = caller_module_schema.name.clone();
+        if let Err(err) =
+            self.ensure_current_frame_table_access(&update_row_request.table_name, TableAccessOp::Update)
+        {
+            return UpdateRowResponse::Err(err);
+        }
         {
             let module_arc = match self.current_frame_module_arc() {
                 Ok(m) => m,
@@ -168,6 +236,11 @@ impl Runtime {
         delete_row_request: DeleteRowRequest,
     ) -> DeleteRowResponse {
         let module_name = caller_module_name;
+        if let Err(err) =
+            self.ensure_current_frame_table_access(&delete_row_request.table_name, TableAccessOp::Delete)
+        {
+            return DeleteRowResponse::Err(err);
+        }
         {
             let module_arc = match self.current_frame_module_arc() {
                 Ok(m) => m,
@@ -210,6 +283,9 @@ impl Runtime {
             );
         }
         let module_name = caller_module_name;
+        if let Err(err) = self.ensure_current_frame_table_access(&request.table_name, TableAccessOp::Delete) {
+            return ClearTableResponse::Err(err);
+        }
         {
             let module_arc = match self.current_frame_module_arc() {
                 Ok(m) => m,
@@ -243,6 +319,13 @@ impl Runtime {
             Ok(module_name) => module_name,
             Err(err) => return TableScanResponse::Err(err),
         };
+        if matches!(table_scan_request.module_selection, ModuleSelection::Current) {
+            if let Err(err) =
+                self.ensure_current_frame_table_access(&table_scan_request.table_name, TableAccessOp::Read)
+            {
+                return TableScanResponse::Err(err);
+            }
+        }
 
         // For Current module, use the cached module_arc from the call frame
         let module_arc = match &table_scan_request.module_selection {
@@ -278,6 +361,13 @@ impl Runtime {
             Ok(module_name) => module_name,
             Err(err) => return TableGetByPrimaryKeyResponse::Err(err),
         };
+        if matches!(request.module_selection, ModuleSelection::Current) {
+            if let Err(err) =
+                self.ensure_current_frame_table_access(&request.table_name, TableAccessOp::Read)
+            {
+                return TableGetByPrimaryKeyResponse::Err(err);
+            }
+        }
 
         let module_arc = match &request.module_selection {
             ModuleSelection::Current => match self.current_frame_module_arc() {
@@ -313,6 +403,13 @@ impl Runtime {
             Ok(module_name) => module_name,
             Err(err) => return TableIndexScanResponse::Err(err),
         };
+        if matches!(request.module_selection, ModuleSelection::Current) {
+            if let Err(err) =
+                self.ensure_current_frame_table_access(&request.table_name, TableAccessOp::Read)
+            {
+                return TableIndexScanResponse::Err(err);
+            }
+        }
 
         let module_arc = match &request.module_selection {
             ModuleSelection::Current => match self.current_frame_module_arc() {
@@ -345,5 +442,14 @@ impl Runtime {
             Ok(rows) => TableIndexScanResponse::Ok { rows },
             Err(err) => TableIndexScanResponse::Err(err),
         }
+    }
+}
+
+fn op_label(op: &TableAccessOp) -> &'static str {
+    match op {
+        TableAccessOp::Read => "read",
+        TableAccessOp::Insert => "insert",
+        TableAccessOp::Update => "update",
+        TableAccessOp::Delete => "delete",
     }
 }

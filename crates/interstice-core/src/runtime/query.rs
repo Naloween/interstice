@@ -69,9 +69,11 @@ impl Runtime {
         CALL_STACK.with(|s| {
             s.borrow_mut().push(CallFrame::new(
                 module_name.into(),
+                query_name.into(),
                 module.clone(),
                 CallFrameKind::Query,
                 rng_seed,
+                crate::runtime::reducer::ReducerTableAccess::default(),
             ));
         });
 

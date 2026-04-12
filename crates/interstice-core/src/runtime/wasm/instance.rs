@@ -115,6 +115,11 @@ impl WasmInstance {
         if len < 0 {
             return Err(IntersticeError::MemoryRead);
         }
+        if len == 0 {
+            return Err(IntersticeError::Internal(
+                "interstice_describe returned empty schema payload".to_string(),
+            ));
+        }
 
         let mut bytes = vec![0u8; len as usize];
         self.memory
@@ -127,7 +132,12 @@ impl WasmInstance {
             .map_err(|_| IntersticeError::BadSignature("dealloc".into()))?;
         let _ = dealloc.call(&mut self.store, (ptr, len));
 
-        let schema = decode(&bytes).map_err(|_| IntersticeError::InvalidSchema)?;
+        let schema: ModuleSchema = decode(&bytes).map_err(|err| {
+            IntersticeError::Internal(format!(
+                "Invalid schema payload (ptr={}, len={}): {}",
+                ptr, len, err
+            ))
+        })?;
 
         Ok(schema)
     }

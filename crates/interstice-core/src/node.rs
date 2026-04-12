@@ -91,6 +91,7 @@ impl Node {
             logger.clone(),
             reducer_sender,
             reducer_receiver,
+            None,
         )?);
         let gpu_call_receiver = runtime.take_gpu_call_receiver();
         let app = App::new(
@@ -165,6 +166,7 @@ impl Node {
             logger.clone(),
             reducer_sender,
             reducer_receiver,
+            None,
         )?);
         let gpu_call_receiver = runtime.take_gpu_call_receiver();
         let app = App::new(

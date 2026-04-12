@@ -580,7 +580,6 @@ async fn connection_task(
                                 input,
                                 caller_node_id: node_id,
                                 completion: None,
-                                queued_at: std::time::Instant::now(),
                             });
                         }
                         Ok(packet) => {

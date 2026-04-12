@@ -108,7 +108,6 @@ impl ApplicationHandler for App {
                         input: IntersticeValue::Vec(vec![]),
                         caller_node_id: self.node_id,
                         completion: Some(token),
-                        queued_at: std::time::Instant::now(),
                     });
                     let _ = send_result;
                     self.wait_for_render_completion(done_rx);
