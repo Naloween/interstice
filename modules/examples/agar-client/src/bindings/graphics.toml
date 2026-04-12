@@ -1,4 +1,4 @@
-abi_version = 1
+abi_version = 5
 name = "graphics"
 visibility = "Private"
 queries = []
@@ -14,7 +14,27 @@ minor = 1
 patch = 0
 
 [[reducers]]
+name = "load"
+arguments = []
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+
+[[reducers]]
+name = "render"
+arguments = []
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+
+[[reducers]]
 name = "create_mesh"
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
 
 [[reducers.arguments]]
 name = "local_id"
@@ -28,6 +48,10 @@ Named = "MeshDescriptor"
 
 [[reducers]]
 name = "create_texture"
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
 
 [[reducers.arguments]]
 name = "local_id"
@@ -47,6 +71,10 @@ Vec = "U8"
 
 [[reducers]]
 name = "create_pipeline"
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
 
 [[reducers.arguments]]
 name = "local_id"
@@ -60,6 +88,10 @@ Named = "PipelineDescriptorInput"
 
 [[reducers]]
 name = "destroy_resource"
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
 
 [[reducers.arguments]]
 name = "local_id"
@@ -67,6 +99,10 @@ field_type = "String"
 
 [[reducers]]
 name = "create_bind_group"
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
 
 [[reducers.arguments]]
 name = "local_id"
@@ -80,6 +116,10 @@ Named = "BindGroupDescriptorInput"
 
 [[reducers]]
 name = "draw_mesh"
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
 
 [[reducers.arguments]]
 name = "layer"
@@ -99,6 +139,10 @@ field_type = "U32"
 
 [[reducers]]
 name = "draw_rect"
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
 
 [[reducers.arguments]]
 name = "layer"
@@ -126,6 +170,10 @@ field_type = "F32"
 
 [[reducers]]
 name = "draw_text"
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
 
 [[reducers.arguments]]
 name = "layer"
@@ -159,6 +207,10 @@ Option = "String"
 
 [[reducers]]
 name = "draw_image"
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
 
 [[reducers.arguments]]
 name = "layer"
@@ -182,6 +234,10 @@ Named = "Color"
 
 [[reducers]]
 name = "draw_circle"
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
 
 [[reducers.arguments]]
 name = "layer"
@@ -213,6 +269,10 @@ field_type = "F32"
 
 [[reducers]]
 name = "draw_circles"
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
 
 [[reducers.arguments]]
 name = "layer"
@@ -246,6 +306,10 @@ field_type = "F32"
 
 [[reducers]]
 name = "draw_polyline"
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
 
 [[reducers.arguments]]
 name = "layer"
@@ -277,6 +341,10 @@ field_type = "Bool"
 
 [[reducers]]
 name = "submit_compute"
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
 
 [[reducers.arguments]]
 name = "submission"
@@ -286,6 +354,10 @@ Named = "ComputeSubmission"
 
 [[reducers]]
 name = "submit_render_pass"
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
 
 [[reducers.arguments]]
 name = "submission"
@@ -295,6 +367,10 @@ Named = "RenderPassSubmission"
 
 [[reducers]]
 name = "set_layer_z"
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
 
 [[reducers.arguments]]
 name = "name"
@@ -306,6 +382,10 @@ field_type = "I32"
 
 [[reducers]]
 name = "create_layer"
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
 
 [[reducers.arguments]]
 name = "name"
@@ -321,6 +401,10 @@ field_type = "Bool"
 
 [[reducers]]
 name = "destroy_layer"
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
 
 [[reducers.arguments]]
 name = "name"
@@ -328,6 +412,10 @@ field_type = "String"
 
 [[reducers]]
 name = "set_layer_clear"
+reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
 
 [[reducers.arguments]]
 name = "name"

@@ -33,10 +33,20 @@ pub fn init(ctx: ReducerContext) {
     }
 }
 
-#[reducer(on = "agar-server.agar-server.player.sync")]
+#[reducer(
+    on = "agar-server.agar-server.player.sync",
+    reads = ["agar-server.agar-server.player"],
+)]
 pub fn on_player_sync(_ctx: ReducerContext) {}
 
-#[reducer(on = "graphics.frametick.update")]
+#[reducer(
+    on = "graphics.frametick.update",
+    reads = [
+        "agar-server.agar-server.player",
+        "agar-server.agar-server.food",
+        "input.keystate",
+    ]
+)]
 pub fn on_frame(ctx: ReducerContext, _prev: FrameTick, _tick: FrameTick) {
     let server = ctx.agar_server().agar_server();
     let (dx, dy) = input_dir(&ctx);

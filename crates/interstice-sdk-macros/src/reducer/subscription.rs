@@ -1,6 +1,8 @@
 use quote::quote;
 use syn::{Expr, Ident, Meta, punctuated::Punctuated, token::Comma};
 
+use super::dotted::segments_from_dotted_str;
+
 pub fn get_register_subscription_function(
     reducer_ident: Ident,
     attributes: Punctuated<Meta, Comma>,
@@ -50,26 +52,29 @@ pub fn get_register_subscription_function(
                             );
                         }
 
-                        let segments: Vec<_> = content.split('.').collect();
+                        let segments = match segments_from_dotted_str(&content, litstr.span()) {
+                            Err(e) => return Some(e.into_compile_error()),
+                            Ok(s) => s,
+                        };
 
                         if segments.len() == 3 || segments.len() == 4 {
 
                             let (node_selection, module_name, table_name, event_name) = if segments.len() == 3 {
                                 let node_selection = quote! {interstice_sdk::NodeSelection::Current};
-                                let module_name = segments[0];
-                                let table_name  = segments[1];
-                                let event_name  = segments[2];
+                                let module_name = &segments[0];
+                                let table_name  = &segments[1];
+                                let event_name  = &segments[2];
                                 (node_selection, module_name, table_name, event_name)
                             } else {
-                                let node_name = segments[0];
+                                let node_name = &segments[0];
                                 let node_selection = quote! {interstice_sdk::NodeSelection::Other(#node_name.to_string())};
-                                let module_name = segments[1];
-                                let table_name  = segments[2];
-                                let event_name  = segments[3];
+                                let module_name = &segments[1];
+                                let table_name  = &segments[2];
+                                let event_name  = &segments[3];
                                 (node_selection, module_name, table_name, event_name)
                             };
 
-                            match event_name.to_string().as_str() {
+                            match event_name.as_str() {
                                 "insert" => {
                                     use_table_subscription = true;
                                     return Some(
@@ -115,9 +120,9 @@ pub fn get_register_subscription_function(
                                 "sync" | "table_sync" => {
                                     if segments.len() != 4 {
                                         let msg = "Replica sync event must use '[node].[module].[table].sync'";
-                                        return Some(syn::Error::new_spanned(event_name, msg).to_compile_error());
+                                        return Some(syn::Error::new(litstr.span(), msg).into_compile_error());
                                     }
-                                    let node_name = segments[0];
+                                    let node_name = &segments[0];
                                     return Some(
                                         quote! {
                                             interstice_sdk::SubscriptionSchema {
@@ -136,11 +141,11 @@ pub fn get_register_subscription_function(
                                         "Event name not recognized. Expected 'insert', 'update', 'delete' or 'sync'. Got '{}'",
                                         other
                                     );
-                                    return Some(syn::Error::new_spanned(event_name, msg).to_compile_error());
+                                    return Some(syn::Error::new(litstr.span(), msg).into_compile_error());
                                 }
                             }
                         } else if segments.len() == 1 {
-                            match segments[0]{
+                            match segments[0].as_str() {
                                 "init" => {
                                     return Some(
                                             quote! {

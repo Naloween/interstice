@@ -1,4 +1,4 @@
-abi_version = 1
+abi_version = 5
 name = "input"
 visibility = "Private"
 reducers = []

@@ -15,7 +15,7 @@ pub struct Player {
     pub radius: f32,
 }
 
-#[reducer]
+#[reducer(reads = [player], inserts = [player])]
 pub fn join(ctx: ReducerContext, name: String) {
     if ctx
         .current
@@ -38,7 +38,7 @@ pub fn join(ctx: ReducerContext, name: String) {
     let _ = ctx.current.tables.player().insert(player);
 }
 
-#[reducer]
+#[reducer(reads = [player], updates = [player])]
 pub fn set_direction(ctx: ReducerContext, dx: f32, dy: f32) {
     let Some(mut p) = ctx.current.tables.player().get(ctx.caller_node_id) else {
         return;

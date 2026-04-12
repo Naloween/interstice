@@ -26,7 +26,10 @@ fn caller(ctx: ReducerContext) {
     ctx.log("hello remote called !");
 }
 
-#[reducer(on = "hello-example.hello-example.greetings.insert")]
+#[reducer(
+    on = "hello-example.hello-example.greetings.insert",
+    reads = ["hello-example.hello-example.greetings"]
+)]
 fn on_insert_greetings(ctx: ReducerContext, inserted_row: Greetings) {
     ctx.log(&format!(
         "Caller received new greeting: {:?}",

@@ -1,3 +1,6 @@
+//! Example workload for CLI benchmarks (`interstice benchmark …`). Use `total_committed` with
+//! `throughput_mode = "query_delta"` to measure committed transactions (target ~100k in long runs).
+
 use interstice_sdk::*;
 
 interstice_module!(visibility: Public);
@@ -110,7 +113,13 @@ pub struct BenchTickState {
     pub last_tick_ms: u64,
 }
 
-#[reducer(on = "load")]
+#[reducer(
+    on = "load",
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn load(ctx: ReducerContext) {
     ensure_fanout_counter(&ctx);
     ensure_tick_state(&ctx);
@@ -119,7 +128,12 @@ pub fn load(ctx: ReducerContext) {
 #[reducer]
 pub fn noop(_ctx: ReducerContext) {}
 
-#[reducer]
+#[reducer(
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn reset(ctx: ReducerContext) {
     let _ = ctx.current.tables.benchephemeral().clear();
     let _ = ctx.current.tables.benchstateful().clear();
@@ -133,7 +147,12 @@ pub fn reset(ctx: ReducerContext) {
     ensure_tick_state(&ctx);
 }
 
-#[reducer]
+#[reducer(
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn tx_insert_ephemeral(
     ctx: ReducerContext,
     client_id: String,
@@ -144,7 +163,12 @@ pub fn tx_insert_ephemeral(
     insert_ephemeral(&ctx, &client_id, seq, payload_bytes, track_progress);
 }
 
-#[reducer]
+#[reducer(
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn tx_insert_stateful(
     ctx: ReducerContext,
     client_id: String,
@@ -155,7 +179,12 @@ pub fn tx_insert_stateful(
     insert_stateful(&ctx, &client_id, seq, payload_bytes, track_progress);
 }
 
-#[reducer]
+#[reducer(
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn tx_insert_logged(
     ctx: ReducerContext,
     client_id: String,
@@ -166,7 +195,12 @@ pub fn tx_insert_logged(
     insert_logged(&ctx, &client_id, seq, payload_bytes, track_progress);
 }
 
-#[reducer]
+#[reducer(
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn tx_update_ephemeral(
     ctx: ReducerContext,
     client_id: String,
@@ -177,7 +211,12 @@ pub fn tx_update_ephemeral(
     update_ephemeral(&ctx, &client_id, seq, payload_bytes, track_progress);
 }
 
-#[reducer]
+#[reducer(
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn tx_update_stateful(
     ctx: ReducerContext,
     client_id: String,
@@ -188,7 +227,12 @@ pub fn tx_update_stateful(
     update_stateful(&ctx, &client_id, seq, payload_bytes, track_progress);
 }
 
-#[reducer]
+#[reducer(
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn tx_update_logged(
     ctx: ReducerContext,
     client_id: String,
@@ -199,22 +243,42 @@ pub fn tx_update_logged(
     update_logged(&ctx, &client_id, seq, payload_bytes, track_progress);
 }
 
-#[reducer]
+#[reducer(
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn tx_delete_ephemeral(ctx: ReducerContext, client_id: String, seq: u64, track_progress: bool) {
     delete_ephemeral(&ctx, &client_id, seq, track_progress);
 }
 
-#[reducer]
+#[reducer(
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn tx_delete_stateful(ctx: ReducerContext, client_id: String, seq: u64, track_progress: bool) {
     delete_stateful(&ctx, &client_id, seq, track_progress);
 }
 
-#[reducer]
+#[reducer(
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn tx_delete_logged(ctx: ReducerContext, client_id: String, seq: u64, track_progress: bool) {
     delete_logged(&ctx, &client_id, seq, track_progress);
 }
 
-#[reducer]
+#[reducer(
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn tx_mix_ephemeral(
     ctx: ReducerContext,
     client_id: String,
@@ -225,7 +289,12 @@ pub fn tx_mix_ephemeral(
     mix_ephemeral(&ctx, &client_id, seq, payload_bytes, track_progress);
 }
 
-#[reducer]
+#[reducer(
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn tx_mix_stateful(
     ctx: ReducerContext,
     client_id: String,
@@ -236,7 +305,12 @@ pub fn tx_mix_stateful(
     mix_stateful(&ctx, &client_id, seq, payload_bytes, track_progress);
 }
 
-#[reducer]
+#[reducer(
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn tx_mix_logged(
     ctx: ReducerContext,
     client_id: String,
@@ -247,7 +321,12 @@ pub fn tx_mix_logged(
     mix_logged(&ctx, &client_id, seq, payload_bytes, track_progress);
 }
 
-#[reducer]
+#[reducer(
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn emit_event(
     ctx: ReducerContext,
     client_id: String,
@@ -267,7 +346,13 @@ pub fn emit_event(
     }
 }
 
-#[reducer(on = "benchmark-workload.benchevent.insert")]
+#[reducer(
+    on = "benchmark-workload.benchevent.insert",
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn on_benchevent_insert(ctx: ReducerContext, inserted: BenchEvent) {
     ensure_fanout_counter(&ctx);
 
@@ -287,7 +372,12 @@ pub fn on_benchevent_insert(ctx: ReducerContext, inserted: BenchEvent) {
     let _ = ctx.current.tables.benchfanout().update(counter);
 }
 
-#[reducer]
+#[reducer(
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn start_tick(ctx: ReducerContext, tick_ms: u64) {
     let interval = tick_ms;
     let now = now_ms(&ctx);
@@ -315,7 +405,12 @@ pub fn start_tick(ctx: ReducerContext, tick_ms: u64) {
     let _ = ctx.schedule("tick", interval);
 }
 
-#[reducer]
+#[reducer(
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn stop_tick(ctx: ReducerContext) {
     if let Some(mut state) = ctx
         .current
@@ -328,7 +423,12 @@ pub fn stop_tick(ctx: ReducerContext) {
     }
 }
 
-#[reducer]
+#[reducer(
+    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
+    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
+)]
 pub fn tick(ctx: ReducerContext) {
     let Some(mut state) = ctx
         .current

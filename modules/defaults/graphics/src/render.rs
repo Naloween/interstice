@@ -21,7 +21,13 @@ use crate::types::{
 };
 use crate::{DEFAULT_CLEAR, DEFAULT_SEGMENTS, GpuExt, MIN_SEGMENTS, RENDERER_CACHE_KEY};
 
-#[reducer(on = "render")]
+#[reducer(
+    on = "render",
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn render(ctx: ReducerContext) {
     if let Err(err) = render_inner(&ctx) {
         ctx.log(&format!("Render failed: {}", err));

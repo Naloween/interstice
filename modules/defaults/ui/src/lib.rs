@@ -74,7 +74,11 @@ pub struct UiPanel {
     pub visible: bool,
 }
 
-#[reducer(on = "load")]
+#[reducer(
+    on = "load",
+    reads = [uilayerconfig, uilabel, uipanel],
+    inserts = [uilayerconfig, uilabel, uipanel]
+)]
 pub fn load(ctx: ReducerContext) {
     if ctx
         .current
@@ -157,7 +161,7 @@ pub fn load(ctx: ReducerContext) {
     }
 }
 
-#[reducer]
+#[reducer(reads = [uilayerconfig], inserts = [uilayerconfig], updates = [uilayerconfig])]
 pub fn configure_scope(
     ctx: ReducerContext,
     scope: String,
@@ -190,7 +194,7 @@ pub fn configure_scope(
     }
 }
 
-#[reducer]
+#[reducer(reads = [uilayerconfig], updates = [uilayerconfig])]
 pub fn set_scope_enabled(ctx: ReducerContext, scope: String, enabled: bool) {
     let Some(mut row) = ctx.current.tables.uilayerconfig().get(scope.clone()) else {
         ctx.log(&format!("UI scope '{}' not found", scope));
@@ -201,7 +205,7 @@ pub fn set_scope_enabled(ctx: ReducerContext, scope: String, enabled: bool) {
     let _ = ctx.current.tables.uilayerconfig().update(row);
 }
 
-#[reducer]
+#[reducer(reads = [uilabel], inserts = [uilabel], updates = [uilabel])]
 pub fn upsert_label(
     ctx: ReducerContext,
     scope: String,
@@ -240,7 +244,7 @@ pub fn upsert_label(
     }
 }
 
-#[reducer]
+#[reducer(deletes = [uilabel])]
 pub fn remove_label(ctx: ReducerContext, scope: String, id: String) {
     if id.trim().is_empty() {
         return;
@@ -248,7 +252,7 @@ pub fn remove_label(ctx: ReducerContext, scope: String, id: String) {
     let _ = ctx.current.tables.uilabel().delete((scope, id));
 }
 
-#[reducer]
+#[reducer(reads = [uipanel], inserts = [uipanel], updates = [uipanel])]
 pub fn upsert_panel(
     ctx: ReducerContext,
     scope: String,
@@ -293,7 +297,7 @@ pub fn upsert_panel(
     }
 }
 
-#[reducer]
+#[reducer(deletes = [uipanel])]
 pub fn remove_panel(ctx: ReducerContext, scope: String, id: String) {
     if id.trim().is_empty() {
         return;
@@ -301,7 +305,7 @@ pub fn remove_panel(ctx: ReducerContext, scope: String, id: String) {
     let _ = ctx.current.tables.uipanel().delete((scope, id));
 }
 
-#[reducer]
+#[reducer(reads = [uilabel, uipanel], deletes = [uilabel, uipanel])]
 pub fn clear_scope(ctx: ReducerContext, scope: String) {
     for row in ctx.current.tables.uilabel().scan() {
         if row.key.0 == scope {
@@ -316,7 +320,7 @@ pub fn clear_scope(ctx: ReducerContext, scope: String) {
     }
 }
 
-#[reducer(on = "graphics.frametick.update")]
+#[reducer(on = "graphics.frametick.update", reads = [uilayerconfig, uilabel, uipanel])]
 pub fn render(ctx: ReducerContext, _prev: FrameTick, tick: FrameTick) {
     ctx.log(&format!("ui render tick {}", tick.frame));
     let layer_rows = ctx.current.tables.uilayerconfig().scan();

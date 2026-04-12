@@ -5,7 +5,12 @@ use interstice_sdk::*;
 use crate::helpers::{owns_layer, purge_layer_draws};
 use crate::tables::{HasLayerEditHandle, Layer};
 
-#[reducer]
+#[reducer(
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn create_layer(ctx: ReducerContext, name: String, z: i32, clear: bool) {
     if name.trim().is_empty() {
         ctx.log("Layer name cannot be empty");
@@ -29,7 +34,12 @@ pub fn create_layer(ctx: ReducerContext, name: String, z: i32, clear: bool) {
     }
 }
 
-#[reducer]
+#[reducer(
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn set_layer_z(ctx: ReducerContext, name: String, z: i32) {
     match ctx.current.tables.layer().get(name.clone()) {
         Some(mut layer) => {
@@ -49,7 +59,12 @@ pub fn set_layer_z(ctx: ReducerContext, name: String, z: i32) {
     }
 }
 
-#[reducer]
+#[reducer(
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn set_layer_clear(ctx: ReducerContext, name: String, clear: bool) {
     match ctx.current.tables.layer().get(name.clone()) {
         Some(mut layer) => {
@@ -69,7 +84,12 @@ pub fn set_layer_clear(ctx: ReducerContext, name: String, clear: bool) {
     }
 }
 
-#[reducer]
+#[reducer(
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn destroy_layer(ctx: ReducerContext, name: String) {
     match ctx.current.tables.layer().get(name.clone()) {
         Some(layer) => {

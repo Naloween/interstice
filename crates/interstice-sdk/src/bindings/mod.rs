@@ -5,7 +5,7 @@ mod reducer;
 mod table;
 mod type_definition;
 
-use interstice_abi::{ModuleSchema, NodeSchema};
+use interstice_sdk_core::module_toml::{module_schema_from_toml_str, node_schema_from_toml_str};
 use node::{get_current_node_code, get_node_code};
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -30,7 +30,7 @@ pub fn generate_bindings() {
             let path = entry.unwrap().path();
             if path.extension().and_then(|s| s.to_str()) == Some("toml") {
                 let content = read_to_string(&path).unwrap();
-                match ModuleSchema::from_toml_string(&content) {
+                match module_schema_from_toml_str(&content) {
                     Ok(module_schema) => {
                         let module_name = module_schema.name.clone();
                         let major = module_schema.version.major;
@@ -44,7 +44,7 @@ pub fn generate_bindings() {
                         });
                         modules_schema.push(module_schema);
                     }
-                    Err(mod_err) => match NodeSchema::from_toml_string(&content) {
+                    Err(mod_err) => match node_schema_from_toml_str(&content) {
                         Ok(node_schema) => {
                             let node_name = node_schema.name.clone();
                             let address = node_schema.address.clone();

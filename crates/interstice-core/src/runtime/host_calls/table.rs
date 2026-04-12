@@ -4,9 +4,9 @@ use crate::{
 };
 use interstice_abi::{
     ClearTableRequest, ClearTableResponse, DeleteRowRequest, DeleteRowResponse, InsertRowRequest,
-    InsertRowResponse, ModuleSchema, ModuleSelection, TableGetByPrimaryKeyRequest,
-    TableGetByPrimaryKeyResponse, TableIndexScanRequest, TableIndexScanResponse, TableScanRequest,
-    TableScanResponse, UpdateRowRequest, UpdateRowResponse,
+    InsertRowResponse, ModuleSchema, ModuleSelection, NodeSelection, ReducerTableRef,
+    TableGetByPrimaryKeyRequest, TableGetByPrimaryKeyResponse, TableIndexScanRequest,
+    TableIndexScanResponse, TableScanRequest, TableScanResponse, UpdateRowRequest, UpdateRowResponse,
 };
 use std::sync::Arc;
 
@@ -17,9 +17,56 @@ enum TableAccessOp {
     Delete,
 }
 
+fn effective_reducer_table_ref(
+    frame: &crate::runtime::reducer::CallFrame,
+    module_selection: &ModuleSelection,
+    physical_table: &str,
+    replica_bindings: &[crate::runtime::ReplicaBinding],
+) -> ReducerTableRef {
+    let table_lower = physical_table.to_lowercase();
+    for b in replica_bindings {
+        if b.owner_module_name == frame.module && b.local_table_name == physical_table {
+            return ReducerTableRef {
+                node_selection: NodeSelection::Other(b.source_node_name.to_lowercase()),
+                module_selection: ModuleSelection::Other(b.source_module_name.to_lowercase()),
+                table_name: b.source_table_name.to_lowercase(),
+            };
+        }
+    }
+    ReducerTableRef {
+        node_selection: NodeSelection::Current,
+        module_selection: module_selection.clone(),
+        table_name: table_lower,
+    }
+}
+
+fn format_module_selection(m: &ModuleSelection) -> &str {
+    match m {
+        ModuleSelection::Current => "current",
+        ModuleSelection::Other(s) => s.as_str(),
+    }
+}
+
+fn format_reducer_table_ref(r: &ReducerTableRef) -> String {
+    match &r.node_selection {
+        NodeSelection::Current => format!(
+            "current.{}.{}",
+            format_module_selection(&r.module_selection),
+            r.table_name
+        ),
+        NodeSelection::Other(n) => format!(
+            "{}.{}.{}",
+            n,
+            format_module_selection(&r.module_selection),
+            r.table_name
+        ),
+    }
+}
+
 impl Runtime {
     fn ensure_current_frame_table_access(
         &self,
+        module_selection: &ModuleSelection,
         table_name: &str,
         op: TableAccessOp,
     ) -> Result<(), String> {
@@ -39,15 +86,8 @@ impl Runtime {
                     }
                 ));
             }
-            let local = self.local_display_name.lock().clone();
             let bindings = self.replica_bindings.lock();
-            let key = crate::runtime::table_access::canonical_physical_name(
-                table_name,
-                &frame.module,
-                local.as_deref(),
-                &bindings,
-            )
-            .map_err(|e| e.to_string())?;
+            let key = effective_reducer_table_ref(frame, module_selection, table_name, &bindings);
             let allowed = match op {
                 TableAccessOp::Read => frame.table_access.reads.contains(&key),
                 TableAccessOp::Insert => frame.table_access.inserts.contains(&key),
@@ -58,12 +98,11 @@ impl Runtime {
                 Ok(())
             } else {
                 Err(format!(
-                    "Reducer '{}.{}' lacks {} permission for table '{}' (required ACL key '{}')",
+                    "Reducer '{}.{}' lacks {} permission for {} (declared access uses structured node.module.table refs)",
                     frame.module,
                     frame.reducer,
                     op_label(&op),
-                    table_name,
-                    key
+                    format_reducer_table_ref(&key),
                 ))
             }
         })
@@ -94,9 +133,11 @@ impl Runtime {
     ) -> InsertRowResponse {
         let module_name = caller_module_schema.name.clone();
         let mut row = insert_row_request.row;
-        if let Err(err) =
-            self.ensure_current_frame_table_access(&insert_row_request.table_name, TableAccessOp::Insert)
-        {
+        if let Err(err) = self.ensure_current_frame_table_access(
+            &ModuleSelection::Current,
+            &insert_row_request.table_name,
+            TableAccessOp::Insert,
+        ) {
             return InsertRowResponse::Err(err);
         }
 
@@ -185,9 +226,11 @@ impl Runtime {
         update_row_request: UpdateRowRequest,
     ) -> UpdateRowResponse {
         let module_name = caller_module_schema.name.clone();
-        if let Err(err) =
-            self.ensure_current_frame_table_access(&update_row_request.table_name, TableAccessOp::Update)
-        {
+        if let Err(err) = self.ensure_current_frame_table_access(
+            &ModuleSelection::Current,
+            &update_row_request.table_name,
+            TableAccessOp::Update,
+        ) {
             return UpdateRowResponse::Err(err);
         }
         {
@@ -236,9 +279,11 @@ impl Runtime {
         delete_row_request: DeleteRowRequest,
     ) -> DeleteRowResponse {
         let module_name = caller_module_name;
-        if let Err(err) =
-            self.ensure_current_frame_table_access(&delete_row_request.table_name, TableAccessOp::Delete)
-        {
+        if let Err(err) = self.ensure_current_frame_table_access(
+            &ModuleSelection::Current,
+            &delete_row_request.table_name,
+            TableAccessOp::Delete,
+        ) {
             return DeleteRowResponse::Err(err);
         }
         {
@@ -283,7 +328,11 @@ impl Runtime {
             );
         }
         let module_name = caller_module_name;
-        if let Err(err) = self.ensure_current_frame_table_access(&request.table_name, TableAccessOp::Delete) {
+        if let Err(err) = self.ensure_current_frame_table_access(
+            &request.module_selection,
+            &request.table_name,
+            TableAccessOp::Delete,
+        ) {
             return ClearTableResponse::Err(err);
         }
         {
@@ -319,12 +368,12 @@ impl Runtime {
             Ok(module_name) => module_name,
             Err(err) => return TableScanResponse::Err(err),
         };
-        if matches!(table_scan_request.module_selection, ModuleSelection::Current) {
-            if let Err(err) =
-                self.ensure_current_frame_table_access(&table_scan_request.table_name, TableAccessOp::Read)
-            {
-                return TableScanResponse::Err(err);
-            }
+        if let Err(err) = self.ensure_current_frame_table_access(
+            &table_scan_request.module_selection,
+            &table_scan_request.table_name,
+            TableAccessOp::Read,
+        ) {
+            return TableScanResponse::Err(err);
         }
 
         // For Current module, use the cached module_arc from the call frame
@@ -361,12 +410,12 @@ impl Runtime {
             Ok(module_name) => module_name,
             Err(err) => return TableGetByPrimaryKeyResponse::Err(err),
         };
-        if matches!(request.module_selection, ModuleSelection::Current) {
-            if let Err(err) =
-                self.ensure_current_frame_table_access(&request.table_name, TableAccessOp::Read)
-            {
-                return TableGetByPrimaryKeyResponse::Err(err);
-            }
+        if let Err(err) = self.ensure_current_frame_table_access(
+            &request.module_selection,
+            &request.table_name,
+            TableAccessOp::Read,
+        ) {
+            return TableGetByPrimaryKeyResponse::Err(err);
         }
 
         let module_arc = match &request.module_selection {
@@ -403,12 +452,12 @@ impl Runtime {
             Ok(module_name) => module_name,
             Err(err) => return TableIndexScanResponse::Err(err),
         };
-        if matches!(request.module_selection, ModuleSelection::Current) {
-            if let Err(err) =
-                self.ensure_current_frame_table_access(&request.table_name, TableAccessOp::Read)
-            {
-                return TableIndexScanResponse::Err(err);
-            }
+        if let Err(err) = self.ensure_current_frame_table_access(
+            &request.module_selection,
+            &request.table_name,
+            TableAccessOp::Read,
+        ) {
+            return TableIndexScanResponse::Err(err);
         }
 
         let module_arc = match &request.module_selection {

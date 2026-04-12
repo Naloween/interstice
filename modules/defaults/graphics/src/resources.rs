@@ -20,7 +20,12 @@ use crate::types::{
     TextureDescriptorInput, TextureUsageFlags,
 };
 
-#[reducer]
+#[reducer(
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn create_texture(
     ctx: ReducerContext,
     local_id: String,
@@ -64,7 +69,12 @@ pub fn create_texture(
     }
 }
 
-#[reducer]
+#[reducer(
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn create_mesh(ctx: ReducerContext, local_id: String, mesh: MeshDescriptor) {
     if mesh.vertices.is_empty() {
         ctx.log("Mesh must include at least one vertex");
@@ -87,7 +97,12 @@ pub fn create_mesh(ctx: ReducerContext, local_id: String, mesh: MeshDescriptor) 
     }
 }
 
-#[reducer]
+#[reducer(
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn create_pipeline(ctx: ReducerContext, local_id: String, descriptor: PipelineDescriptorInput) {
     let key = namespaced_key(&ctx, &local_id);
     if ctx
@@ -119,7 +134,12 @@ pub fn create_pipeline(ctx: ReducerContext, local_id: String, descriptor: Pipeli
     }
 }
 
-#[reducer]
+#[reducer(
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn create_bind_group(
     ctx: ReducerContext,
     local_id: String,
@@ -148,7 +168,12 @@ pub fn create_bind_group(
     }
 }
 
-#[reducer]
+#[reducer(
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn destroy_resource(ctx: ReducerContext, local_id: String) {
     let key = namespaced_key(&ctx, &local_id);
     if try_destroy_texture(&ctx, &key).is_some() {

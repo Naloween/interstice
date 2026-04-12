@@ -3,7 +3,7 @@ use crate::{
     runtime::transaction::Transaction,
     runtime::{Runtime, module::Module, table::TableAutoIncSnapshot},
 };
-use interstice_abi::{IntersticeValue, ReducerContext};
+use interstice_abi::{IntersticeValue, ReducerContext, ReducerTableRef};
 use serde::Serialize;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -73,41 +73,20 @@ impl CallFrame {
 
 #[derive(Debug, Clone, Default)]
 pub struct ReducerTableAccess {
-    pub reads: HashSet<String>,
-    pub inserts: HashSet<String>,
-    pub updates: HashSet<String>,
-    pub deletes: HashSet<String>,
+    pub reads: HashSet<ReducerTableRef>,
+    pub inserts: HashSet<ReducerTableRef>,
+    pub updates: HashSet<ReducerTableRef>,
+    pub deletes: HashSet<ReducerTableRef>,
 }
 
 impl ReducerTableAccess {
-    /// Expands `table` / `module.table` / `node.module.table` entries to a normalized `node.module.table` key set.
-    pub fn from_schema_expanded(
-        schema: &interstice_abi::ReducerSchema,
-        local_node: Option<&str>,
-        current_module: &str,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            reads: crate::runtime::table_access::expand_access_set(
-                &schema.reads,
-                local_node,
-                current_module,
-            )?,
-            inserts: crate::runtime::table_access::expand_access_set(
-                &schema.inserts,
-                local_node,
-                current_module,
-            )?,
-            updates: crate::runtime::table_access::expand_access_set(
-                &schema.updates,
-                local_node,
-                current_module,
-            )?,
-            deletes: crate::runtime::table_access::expand_access_set(
-                &schema.deletes,
-                local_node,
-                current_module,
-            )?,
-        })
+    pub fn from_schema(schema: &interstice_abi::ReducerSchema) -> Self {
+        Self {
+            reads: schema.reads.iter().cloned().collect(),
+            inserts: schema.inserts.iter().cloned().collect(),
+            updates: schema.updates.iter().cloned().collect(),
+            deletes: schema.deletes.iter().cloned().collect(),
+        }
     }
 }
 
@@ -209,18 +188,7 @@ impl Runtime {
                 module: module_name.into(),
                 reducer: reducer_name.into(),
             })?;
-        let local = self.local_display_name.lock().clone();
-        let table_access = ReducerTableAccess::from_schema_expanded(
-            reducer_schema,
-            local.as_deref(),
-            module_name,
-        )
-        .map_err(|detail| {
-            IntersticeError::Internal(format!(
-                "Invalid table access metadata for reducer '{}.{}': {}",
-                module_name, reducer_name, detail
-            ))
-        })?;
+        let table_access = ReducerTableAccess::from_schema(reducer_schema);
         let call_sequence = self
             .call_sequence
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);

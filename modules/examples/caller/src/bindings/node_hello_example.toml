@@ -2,10 +2,9 @@ name = "hello-example"
 address = "127.0.0.1:8080"
 
 [[modules]]
-abi_version = 1
+abi_version = 5
 name = "hello-example"
 visibility = "Public"
-subscriptions = []
 authorities = []
 module_dependencies = []
 node_dependencies = []
@@ -17,15 +16,66 @@ minor = 0
 patch = 1
 
 [[modules.reducers]]
+name = "init"
+arguments = []
+reads = []
+inserts = []
+updates = []
+deletes = []
+
+[[modules.reducers]]
+name = "on_connect"
+reads = []
+inserts = []
+updates = []
+deletes = []
+
+[[modules.reducers.arguments]]
+name = "node_id"
+field_type = "String"
+
+[[modules.reducers]]
+name = "on_disconnect"
+reads = []
+inserts = []
+updates = []
+deletes = []
+
+[[modules.reducers.arguments]]
+name = "node_id"
+field_type = "String"
+
+[[modules.reducers]]
+name = "scheduled"
+arguments = []
+reads = []
+inserts = []
+updates = []
+deletes = []
+
+[[modules.reducers]]
 name = "hello"
+reads = []
+inserts = ["greetings"]
+updates = []
+deletes = []
 
 [[modules.reducers.arguments]]
 name = "name"
 field_type = "String"
 
 [[modules.reducers]]
-name = "scheduled"
-arguments = []
+name = "on_greeting_insert"
+reads = []
+inserts = []
+updates = []
+deletes = []
+
+[[modules.reducers.arguments]]
+name = "inserted_row"
+
+[modules.reducers.arguments.field_type]
+Named = "Greetings"
 
 [[modules.queries]]
 name = "get_greetings"
@@ -33,6 +83,26 @@ arguments = []
 
 [modules.queries.return_type.Vec]
 Named = "Greetings"
+
+[[modules.subscriptions]]
+reducer_name = "init"
+event = "Load"
+
+[[modules.subscriptions]]
+reducer_name = "on_connect"
+event = "Connect"
+
+[[modules.subscriptions]]
+reducer_name = "on_disconnect"
+event = "Disconnect"
+
+[[modules.subscriptions]]
+reducer_name = "on_greeting_insert"
+
+[modules.subscriptions.event.Insert]
+node_selection = "Current"
+module_name = "hello"
+table_name = "greetings"
 
 [[modules.tables]]
 name = "greetings"

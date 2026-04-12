@@ -1,25 +1,36 @@
 use serde::{Deserialize, Serialize};
 
 use crate::interstice_type_def::FieldDef;
+use crate::{ModuleSelection, NodeSelection};
+
+/// Declared table access for a reducer: [`NodeSelection`] + [`ModuleSelection`] + `table_name`.
+/// Use [`ModuleSelection::Current`] for the module that contains the reducer (no embedded crate name);
+/// the runtime matches that against the active call frame / host-call [`ModuleSelection`], like table scans.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
+pub struct ReducerTableRef {
+    pub node_selection: NodeSelection,
+    pub module_selection: ModuleSelection,
+    pub table_name: String,
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ReducerSchema {
     pub name: String,
     pub arguments: Vec<FieldDef>,
-    pub reads: Vec<String>,
-    pub inserts: Vec<String>,
-    pub updates: Vec<String>,
-    pub deletes: Vec<String>,
+    pub reads: Vec<ReducerTableRef>,
+    pub inserts: Vec<ReducerTableRef>,
+    pub updates: Vec<ReducerTableRef>,
+    pub deletes: Vec<ReducerTableRef>,
 }
 
 impl ReducerSchema {
     pub fn new(
         name: impl Into<String>,
         arguments: Vec<FieldDef>,
-        reads: Vec<String>,
-        inserts: Vec<String>,
-        updates: Vec<String>,
-        deletes: Vec<String>,
+        reads: Vec<ReducerTableRef>,
+        inserts: Vec<ReducerTableRef>,
+        updates: Vec<ReducerTableRef>,
+        deletes: Vec<ReducerTableRef>,
     ) -> Self {
         Self {
             name: name.into(),
@@ -34,8 +45,8 @@ impl ReducerSchema {
 
 #[cfg(test)]
 mod tests {
-    use super::ReducerSchema;
-    use crate::{FieldDef, IntersticeType, decode, encode};
+    use super::{ReducerSchema, ReducerTableRef};
+    use crate::{FieldDef, IntersticeType, ModuleSelection, NodeSelection, decode, encode};
 
     #[test]
     fn reducer_schema_round_trip_preserves_access_lists() {
@@ -45,19 +56,33 @@ mod tests {
                 name: "name".to_string(),
                 field_type: IntersticeType::String,
             }],
-            vec!["users".to_string()],
-            vec!["greetings".to_string()],
-            vec!["greetings".to_string()],
-            vec!["sessions".to_string()],
+            vec![ReducerTableRef {
+                node_selection: NodeSelection::Current,
+                module_selection: ModuleSelection::Other("hello-example".to_string()),
+                table_name: "users".to_string(),
+            }],
+            vec![ReducerTableRef {
+                node_selection: NodeSelection::Current,
+                module_selection: ModuleSelection::Other("hello-example".to_string()),
+                table_name: "greetings".to_string(),
+            }],
+            vec![ReducerTableRef {
+                node_selection: NodeSelection::Current,
+                module_selection: ModuleSelection::Other("hello-example".to_string()),
+                table_name: "greetings".to_string(),
+            }],
+            vec![ReducerTableRef {
+                node_selection: NodeSelection::Current,
+                module_selection: ModuleSelection::Other("hello-example".to_string()),
+                table_name: "sessions".to_string(),
+            }],
         );
 
         let bytes = encode(&schema).expect("encode reducer schema");
         let decoded: ReducerSchema = decode(&bytes).expect("decode reducer schema");
 
         assert_eq!(decoded.name, "hello");
-        assert_eq!(decoded.reads, vec!["users".to_string()]);
-        assert_eq!(decoded.inserts, vec!["greetings".to_string()]);
-        assert_eq!(decoded.updates, vec!["greetings".to_string()]);
-        assert_eq!(decoded.deletes, vec!["sessions".to_string()]);
+        assert_eq!(decoded.reads.len(), 1);
+        assert_eq!(decoded.reads[0].table_name, "users");
     }
 }

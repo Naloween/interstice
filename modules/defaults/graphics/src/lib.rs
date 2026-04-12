@@ -22,7 +22,13 @@ pub use resources::*;
 pub use tables::*;
 pub use types::*;
 
-#[reducer(on = "load")]
+#[reducer(
+    on = "load",
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn load(ctx: ReducerContext) {
     let _ = ctx.current.tables.layer().insert(Layer {
         name: "default".to_string(),

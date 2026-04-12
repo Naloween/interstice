@@ -6,7 +6,6 @@ pub mod module;
 mod query;
 pub mod reducer;
 mod scheduler;
-mod table_access;
 pub mod table;
 pub mod transaction;
 mod wasm;
@@ -77,9 +76,6 @@ pub struct Runtime {
     node_subscriptions: Arc<Mutex<HashMap<NodeId, Vec<SubscriptionEventSchema>>>>,
     pub(crate) node_names_by_id: Arc<Mutex<HashMap<NodeId, String>>>,
     pub(crate) replica_bindings: Arc<Mutex<Vec<ReplicaBinding>>>,
-    /// Logical node key for `table` / `module.table` ACL paths (usually the node UUID; a registry
-    /// display name may override when wired in from the CLI).
-    pub(crate) local_display_name: Mutex<Option<String>>,
     pub(crate) emitted_replica_sync_events: Arc<Mutex<HashSet<String>>>,
     pub(crate) file_watchers: Arc<Mutex<Vec<RecommendedWatcher>>>,
     pub(crate) call_sequence: AtomicU64,
@@ -111,7 +107,6 @@ impl Runtime {
         logger: Logger,
         reducer_sender: CbSender<ReducerJob>,
         reducer_receiver: CbReceiver<ReducerJob>,
-        local_display_name: Option<String>,
     ) -> Result<Self, IntersticeError> {
         // reducer_sender/receiver are pre-created by the Node so the same sender can be
         // shared directly with the Network layer, bypassing the unbounded event channel.
@@ -148,7 +143,6 @@ impl Runtime {
             node_subscriptions: Arc::new(Mutex::new(HashMap::new())),
             node_names_by_id: Arc::new(Mutex::new(HashMap::new())),
             replica_bindings: Arc::new(Mutex::new(Vec::new())),
-            local_display_name: Mutex::new(local_display_name),
             emitted_replica_sync_events: Arc::new(Mutex::new(HashSet::new())),
             logger,
             file_watchers: Arc::new(Mutex::new(Vec::new())),
@@ -778,42 +772,28 @@ fn reducer_accesses(
         return Vec::new();
     };
 
-    let local = runtime.local_display_name.lock().clone();
-    let expand_vec = |v: &[String]| -> Vec<String> {
-        v.iter()
-            .filter_map(|e| {
-                crate::runtime::table_access::normalize_user_table_ref(
-                    e,
-                    local.as_deref(),
-                    module_name,
-                )
-                .ok()
-            })
-            .collect()
-    };
-
     let mut out = Vec::new();
-    for table in expand_vec(&reducer.reads) {
+    for table_ref in &reducer.reads {
         out.push(crate::runtime::scheduler::TableAccess {
-            table_name: table,
+            table_ref: table_ref.clone(),
             op: crate::runtime::scheduler::TableOp::Read,
         });
     }
-    for table in expand_vec(&reducer.inserts) {
+    for table_ref in &reducer.inserts {
         out.push(crate::runtime::scheduler::TableAccess {
-            table_name: table,
+            table_ref: table_ref.clone(),
             op: crate::runtime::scheduler::TableOp::Insert,
         });
     }
-    for table in expand_vec(&reducer.updates) {
+    for table_ref in &reducer.updates {
         out.push(crate::runtime::scheduler::TableAccess {
-            table_name: table,
+            table_ref: table_ref.clone(),
             op: crate::runtime::scheduler::TableOp::Update,
         });
     }
-    for table in expand_vec(&reducer.deletes) {
+    for table_ref in &reducer.deletes {
         out.push(crate::runtime::scheduler::TableAccess {
-            table_name: table,
+            table_ref: table_ref.clone(),
             op: crate::runtime::scheduler::TableOp::Delete,
         });
     }

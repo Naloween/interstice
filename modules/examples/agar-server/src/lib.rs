@@ -21,14 +21,14 @@ pub struct Vec2 {
     pub y: f32,
 }
 
-#[reducer(on = "load")]
+#[reducer(on = "load", reads = [food], inserts = [food])]
 pub fn init(ctx: ReducerContext) {
     ctx.log("agar-server ready");
     spawn_missing_foods(&ctx);
     ctx.schedule("tick", DT_MS).expect("Couldn't schedule tick");
 }
 
-#[reducer]
+#[reducer(reads = [player, food], inserts = [food], updates = [player], deletes = [player, food])]
 pub fn tick(ctx: ReducerContext) {
     if ctx.caller_node_id != ctx.current_node_id() {
         ctx.log("tick can only be called by the server itself");

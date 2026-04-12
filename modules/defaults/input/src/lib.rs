@@ -17,7 +17,7 @@ struct MouseState {
     wheel_delta: (f32, f32),
 }
 
-#[reducer(on = "load")]
+#[reducer(on = "load", inserts = [keystate, mousestate])]
 fn on_load(ctx: ReducerContext) {
     let res = ctx.current.tables.mousestate().insert(MouseState {
         id: 0,
@@ -43,7 +43,12 @@ fn on_load(ctx: ReducerContext) {
     }
 }
 
-#[reducer(on = "input")]
+#[reducer(
+    on = "input",
+    reads = [keystate, mousestate],
+    inserts = [keystate],
+    updates = [keystate, mousestate]
+)]
 fn on_input(ctx: ReducerContext, event: InputEvent) {
     match event {
         InputEvent::Added { .. } => {}

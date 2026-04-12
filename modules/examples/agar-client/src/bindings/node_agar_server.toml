@@ -2,11 +2,10 @@ name = "agar-server"
 address = "127.0.0.1:8080"
 
 [[modules]]
-abi_version = 1
+abi_version = 5
 name = "agar-server"
 visibility = "Public"
 queries = []
-subscriptions = []
 authorities = []
 module_dependencies = []
 node_dependencies = []
@@ -18,11 +17,27 @@ minor = 1
 patch = 0
 
 [[modules.reducers]]
+name = "init"
+arguments = []
+reads = ["food"]
+inserts = ["food"]
+updates = []
+deletes = []
+
+[[modules.reducers]]
 name = "tick"
 arguments = []
+reads = ["player", "food"]
+inserts = ["food"]
+updates = ["player"]
+deletes = ["player", "food"]
 
 [[modules.reducers]]
 name = "join"
+reads = ["player"]
+inserts = ["player"]
+updates = []
+deletes = []
 
 [[modules.reducers.arguments]]
 name = "name"
@@ -30,6 +45,10 @@ field_type = "String"
 
 [[modules.reducers]]
 name = "set_direction"
+reads = ["player"]
+inserts = []
+updates = ["player"]
+deletes = []
 
 [[modules.reducers.arguments]]
 name = "dx"
@@ -38,6 +57,10 @@ field_type = "F32"
 [[modules.reducers.arguments]]
 name = "dy"
 field_type = "F32"
+
+[[modules.subscriptions]]
+reducer_name = "init"
+event = "Load"
 
 [[modules.tables]]
 name = "food"

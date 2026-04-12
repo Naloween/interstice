@@ -13,7 +13,12 @@ use crate::types::{
     RectCommand, RenderPassSubmission, ResourceAddress, TextCommand, Vec2,
 };
 
-#[reducer]
+#[reducer(
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn draw_circle(
     ctx: ReducerContext,
     layer: String,
@@ -51,7 +56,12 @@ pub fn draw_circle(
     enqueue_draw_command(&ctx, command);
 }
 
-#[reducer]
+#[reducer(
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn draw_circles(
     ctx: ReducerContext,
     layer: String,
@@ -106,7 +116,12 @@ pub fn draw_circles(
     enqueue_draw_command(&ctx, command);
 }
 
-#[reducer]
+#[reducer(
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn draw_polyline(
     ctx: ReducerContext,
     layer: String,
@@ -144,7 +159,12 @@ pub fn draw_polyline(
     enqueue_draw_command(&ctx, command);
 }
 
-#[reducer]
+#[reducer(
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn draw_rect(
     ctx: ReducerContext,
     layer: String,
@@ -180,7 +200,12 @@ pub fn draw_rect(
     enqueue_draw_command(&ctx, command);
 }
 
-#[reducer]
+#[reducer(
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn draw_image(
     ctx: ReducerContext,
     layer: String,
@@ -227,7 +252,12 @@ pub fn draw_image(
     enqueue_draw_command(&ctx, command);
 }
 
-#[reducer]
+#[reducer(
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn draw_text(
     ctx: ReducerContext,
     layer: String,
@@ -268,7 +298,12 @@ pub fn draw_text(
     enqueue_draw_command(&ctx, command);
 }
 
-#[reducer]
+#[reducer(
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn draw_mesh(
     ctx: ReducerContext,
     layer: String,
@@ -341,7 +376,12 @@ pub fn draw_mesh(
     enqueue_draw_command(&ctx, command);
 }
 
-#[reducer]
+#[reducer(
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn submit_render_pass(ctx: ReducerContext, submission: RenderPassSubmission) {
     if !ensure_layer_exists(&ctx, &submission.layer) {
         return;
@@ -359,7 +399,12 @@ pub fn submit_render_pass(ctx: ReducerContext, submission: RenderPassSubmission)
     }
 }
 
-#[reducer]
+#[reducer(
+    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
+    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
+)]
 pub fn submit_compute(ctx: ReducerContext, submission: ComputeSubmission) {
     if let Err(err) = ctx.current.tables.computecommand().insert(ComputeCommand {
         id: 0,

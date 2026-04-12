@@ -44,7 +44,7 @@ pub fn scheduled(ctx: ReducerContext) {
     ctx.log("Scheduled reducer called");
 }
 
-#[reducer]
+#[reducer(inserts = [greetings])]
 pub fn hello(ctx: ReducerContext, name: String) {
     ctx.log(&format!("Saying hello to {}", name));
     match ctx.current.tables.greetings().insert(Greetings {
