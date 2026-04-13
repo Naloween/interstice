@@ -82,6 +82,10 @@ pub struct Runtime {
     pub(crate) active_subscription_count: AtomicI32,
     pub(crate) timer_tx: tokio::sync::mpsc::UnboundedSender<(std::time::Instant, String, String)>,
     timer_rx: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<(std::time::Instant, String, String)>>>,
+    /// Sorted [`TableAccess`] slices per module → reducer for the scheduler hot path.
+    /// Nested maps allow `get` with `&str` without allocating lookup keys.
+    reducer_access_cache:
+        parking_lot::Mutex<HashMap<String, HashMap<String, Arc<[scheduler::TableAccess]>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -151,7 +155,12 @@ impl Runtime {
             timer_tx,
             timer_rx: Mutex::new(Some(timer_rx)),
             tokio_handle,
+            reducer_access_cache: parking_lot::Mutex::new(HashMap::new()),
         })
+    }
+
+    pub(crate) fn clear_reducer_access_cache(&self) {
+        self.reducer_access_cache.lock().clear();
     }
 
     pub fn take_gpu_call_receiver(&self) -> mpsc::Receiver<GpuCallRequest> {
@@ -180,7 +189,8 @@ impl Runtime {
                                     Ok(job) => job,
                                     Err(_) => break,
                                 };
-                                let accesses = reducer_accesses(&rt, &job.module_name, &job.reducer_name);
+                                let accesses =
+                                    reducer_accesses_cached(&rt, &job.module_name, &job.reducer_name);
                                 if let Some(runnable) = scheduler.enqueue(job, accesses) {
                                     if ready_tx.send((runnable.id, runnable.payload)).is_err() {
                                         return;
@@ -286,12 +296,16 @@ impl Runtime {
                         while let Some(std::cmp::Reverse((wake_at, _, _))) = heap.peek() {
                             if *wake_at > now { break; }
                             let std::cmp::Reverse((_, module_name, reducer_name)) = heap.pop().unwrap();
-                            let _ = timer_reducer_sender.try_send(crate::runtime::reducer::ReducerJob {
+                            let job = crate::runtime::reducer::ReducerJob {
                                 module_name,
                                 reducer_name,
                                 input: interstice_abi::IntersticeValue::Vec(vec![]),
                                 caller_node_id: timer_node_id,
                                 completion: None,
+                            };
+                            let sender = timer_reducer_sender.clone();
+                            std::thread::spawn(move || {
+                                let _ = sender.send(job);
                             });
                         }
                     }
@@ -362,14 +376,16 @@ impl Runtime {
                 input,
                 requesting_node_id,
             } => {
-                // Use try_send so a full queue drops this call rather than blocking
-                // the event loop (which would also stall queries and other events).
-                let _ = runtime.reducer_sender.try_send(ReducerJob {
+                let job = ReducerJob {
                     module_name,
                     reducer_name,
                     input,
                     caller_node_id: requesting_node_id,
                     completion: None,
+                };
+                let sender = runtime.reducer_sender.clone();
+                std::thread::spawn(move || {
+                    let _ = sender.send(job);
                 });
             }
             EventInstance::RemoteQueryCall {
@@ -756,11 +772,11 @@ impl Runtime {
     }
 }
 
-fn reducer_accesses(
+fn reducer_accesses_uncached(
     runtime: &Arc<Runtime>,
     module_name: &str,
     reducer_name: &str,
-) -> Vec<crate::runtime::scheduler::TableAccess> {
+) -> Vec<scheduler::TableAccess> {
     let modules = runtime.modules.lock();
     let Some(module) = modules.get(module_name) else {
         return Vec::new();
@@ -776,28 +792,54 @@ fn reducer_accesses(
 
     let mut out = Vec::new();
     for table_ref in &reducer.reads {
-        out.push(crate::runtime::scheduler::TableAccess {
+        out.push(scheduler::TableAccess {
             table_ref: table_ref.clone(),
-            op: crate::runtime::scheduler::TableOp::Read,
+            op: scheduler::TableOp::Read,
         });
     }
     for table_ref in &reducer.inserts {
-        out.push(crate::runtime::scheduler::TableAccess {
+        out.push(scheduler::TableAccess {
             table_ref: table_ref.clone(),
-            op: crate::runtime::scheduler::TableOp::Insert,
+            op: scheduler::TableOp::Insert,
         });
     }
     for table_ref in &reducer.updates {
-        out.push(crate::runtime::scheduler::TableAccess {
+        out.push(scheduler::TableAccess {
             table_ref: table_ref.clone(),
-            op: crate::runtime::scheduler::TableOp::Update,
+            op: scheduler::TableOp::Update,
         });
     }
     for table_ref in &reducer.deletes {
-        out.push(crate::runtime::scheduler::TableAccess {
+        out.push(scheduler::TableAccess {
             table_ref: table_ref.clone(),
-            op: crate::runtime::scheduler::TableOp::Delete,
+            op: scheduler::TableOp::Delete,
         });
     }
     out
+}
+
+fn reducer_accesses_cached(
+    runtime: &Arc<Runtime>,
+    module_name: &str,
+    reducer_name: &str,
+) -> Arc<[scheduler::TableAccess]> {
+    {
+        let cache = runtime.reducer_access_cache.lock();
+        if let Some(hit) = cache
+            .get(module_name)
+            .and_then(|m| m.get(reducer_name))
+        {
+            return hit.clone();
+        }
+    }
+    let mut v = reducer_accesses_uncached(runtime, module_name, reducer_name);
+    scheduler::sort_table_accesses(&mut v);
+    let arc: Arc<[scheduler::TableAccess]> = Arc::from(v.into_boxed_slice());
+    runtime
+        .reducer_access_cache
+        .lock()
+        .entry(module_name.to_string())
+        .or_default()
+        .insert(reducer_name.to_string(), arc.clone());
+    arc
 }

@@ -137,7 +137,7 @@ pub(crate) fn print_benchmark_help() {
 pub(crate) fn print_profiles() {
     println!("Built-in benchmark profiles (node registry name `benchmark-example`, see `interstice example benchmark`):");
     println!("  vm-noop           — pure WASM call overhead (noop reducer, dispatch_success)");
-    println!("  insert-ephemeral  — ephemeral inserts + progress tracking; query_delta toward ~100k commits");
+    println!("  insert-ephemeral  — parallel-safe ephemeral inserts; query_delta on benchephemeral_row_count (~100k growth)");
     println!("  durability        — logged/persisted insert throughput (query_delta)");
     println!("  fanout            — subscription fanout throughput");
 }

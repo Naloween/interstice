@@ -6,7 +6,7 @@ use crate::{ModuleSelection, NodeSelection};
 /// Declared table access for a reducer: [`NodeSelection`] + [`ModuleSelection`] + `table_name`.
 /// Use [`ModuleSelection::Current`] for the module that contains the reducer (no embedded crate name);
 /// the runtime matches that against the active call frame / host-call [`ModuleSelection`], like table scans.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ReducerTableRef {
     pub node_selection: NodeSelection,
     pub module_selection: ModuleSelection,

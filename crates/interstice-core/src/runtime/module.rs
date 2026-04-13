@@ -520,6 +520,7 @@ impl Runtime {
             .lock()
             
             .insert(module.schema.name.clone(), Arc::new(module));
+        runtime.clear_reducer_access_cache();
 
         // Now that the module is registered, request remote replica subscriptions and full sync.
         // Sending these earlier can race with network responses and drop initial sync before
@@ -918,6 +919,7 @@ impl Runtime {
         }
 
         runtime.modules.lock().remove(module_name);
+        runtime.clear_reducer_access_cache();
         runtime
             .replica_bindings
             .lock()

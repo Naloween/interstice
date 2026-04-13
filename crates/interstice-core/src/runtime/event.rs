@@ -436,12 +436,19 @@ impl Runtime {
                     }
                     _ => IntersticeValue::Vec(vec![]),
                 };
-                let _ = self.reducer_sender.try_send(crate::runtime::ReducerJob {
+                let job = crate::runtime::ReducerJob {
                     module_name: module,
                     reducer_name: reducer,
                     input: args,
                     caller_node_id: self.network_handle.node_id,
                     completion,
+                };
+                let sender = self.reducer_sender.clone();
+                // Subscription dispatch runs on the node's dedicated current-thread runtime;
+                // `spawn_blocking` / `block_in_place` cannot be used there. Enqueue from an OS
+                // thread so the bounded reducer ingress can apply backpressure without dropping.
+                std::thread::spawn(move || {
+                    let _ = sender.send(job);
                 });
             }
             SubscriptionTarget::Remote(uuid) => {

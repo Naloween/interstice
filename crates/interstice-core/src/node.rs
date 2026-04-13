@@ -25,9 +25,9 @@ use uuid::Uuid;
 
 pub type NodeId = Uuid;
 
-/// Bounded reducer queue capacity. Limits how many remote reducer jobs can be
-/// queued before new ones are dropped, preventing OOM when clients dispatch
-/// faster than the WASM executor can process.
+/// Bounded reducer queue capacity. When full, producers **block** (see
+/// `send` on the ingress channel) so TCP / event paths apply backpressure
+/// instead of silently dropping work (`try_send` must not be used here).
 const REDUCER_QUEUE_CAPACITY: usize = 8_192;
 
 pub struct Node {
@@ -62,9 +62,8 @@ impl Node {
             data_path.join("peer_tokens.toml"),
         )?));
 
-        // Create bounded reducer channel first so both Network and Runtime share the
-        // same sender — remote reducer calls go directly to the executor without
-        // passing through the unbounded event channel.
+        // Bounded reducer ingress: producers use blocking `send` so a full queue
+        // stalls readers / the event loop instead of dropping reducer jobs.
         let (reducer_sender, reducer_receiver) =
             crossbeam_channel::bounded::<ReducerJob>(REDUCER_QUEUE_CAPACITY);
 

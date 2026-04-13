@@ -4,7 +4,9 @@ set -e
 # Build all example modules in release mode and copy to CLI module_examples folder
 
 MODULES=("audio-example" "caller-example" "graphics-example" "hello-example" "agar-server" "agar-client" "benchmark-workload")
-TARGET_DIR="target/wasm32-unknown-unknown/release"
+# Respect CARGO_TARGET_DIR so WASM is copied from the same tree `cargo build` wrote to.
+: "${CARGO_TARGET_DIR:=target}"
+TARGET_DIR="${CARGO_TARGET_DIR}/wasm32-unknown-unknown/release"
 DEST_DIR="crates/interstice-cli/module_examples"
 
 echo "Building example modules..."

@@ -102,14 +102,13 @@ impl ApplicationHandler for App {
 
                 if let Some((module_name, reducer_name)) = render_target {
                     let (token, done_rx) = CompletionToken::new();
-                    let send_result = self.runtime.reducer_sender.try_send(ReducerJob {
+                    let _ = self.runtime.reducer_sender.send(ReducerJob {
                         module_name,
                         reducer_name,
                         input: IntersticeValue::Vec(vec![]),
                         caller_node_id: self.node_id,
                         completion: Some(token),
                     });
-                    let _ = send_result;
                     self.wait_for_render_completion(done_rx);
                 }
             }

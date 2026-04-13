@@ -1,20 +1,20 @@
 # Run with: interstice example benchmark   # registry: benchmark-example @ 127.0.0.1:8085
 # Then:     interstice benchmark scenario benchmarks/scenarios/insert_ephemeral_100k.toml
 #
-# throughput_counter_end - throughput_counter_start should reach ~100_000 (see report JSON).
+# throughput_counter_end - throughput_counter_start should reach ~100_000 (ephemeral row growth; see report JSON).
 
 [[scenarios]]
 name = "insert-ephemeral-100k-commits"
 node = "benchmark-example"
 module_name = "benchmark-workload"
-reducer_name = "tx_insert_ephemeral"
+reducer_name = "bench_insert_ephemeral"
 duration_ms = 90000
 warmup_ms = 5000
 connections = 12
 transport = "persistent"
-args_json = ["$client", "$seq", 64, true]
+args_json = ["$client", "$seq", 64]
 throughput_mode = "query_delta"
-throughput_query_name = "total_committed"
+throughput_query_name = "benchephemeral_row_count"
 throughput_query_args_json = []
 reset_before = true
 output = "benchmarks/results/insert-ephemeral-100k.json"

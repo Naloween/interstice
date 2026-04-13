@@ -1,5 +1,8 @@
-//! Example workload for CLI benchmarks (`interstice benchmark …`). Use `total_committed` with
-//! `throughput_mode = "query_delta"` to measure committed transactions (target ~100k in long runs).
+//! Example workload for CLI benchmarks (`interstice benchmark …`).
+//! For parallel throughput runs, use [`bench_insert_ephemeral`] with
+//! [`benchephemeral_row_count`] and `throughput_mode = "query_delta"`.
+//! Reducers that touch [`BenchProgress`] (for example [`tx_insert_ephemeral`]) declare broad table
+//! access and serialize under the reducer scheduler; use those when you need per-client commit tracking.
 
 use interstice_sdk::*;
 
@@ -127,6 +130,17 @@ pub fn load(ctx: ReducerContext) {
 
 #[reducer]
 pub fn noop(_ctx: ReducerContext) {}
+
+/// Ephemeral insert only, narrow declared access — safe to run many workers in parallel.
+#[reducer(inserts = [benchephemeral])]
+pub fn bench_insert_ephemeral(
+    ctx: ReducerContext,
+    client_id: String,
+    seq: u64,
+    payload_bytes: u64,
+) {
+    insert_ephemeral_row(&ctx, &client_id, seq, payload_bytes);
+}
 
 #[reducer(
     reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
@@ -522,6 +536,11 @@ pub fn total_committed(ctx: QueryContext) -> u64 {
         .sum()
 }
 
+#[query(reads = [benchephemeral])]
+pub fn benchephemeral_row_count(ctx: QueryContext) -> u64 {
+    ctx.current.tables.benchephemeral().scan().len() as u64
+}
+
 fn mix_ephemeral(
     ctx: &ReducerContext,
     client_id: &str,
@@ -564,13 +583,7 @@ fn mix_logged(
     }
 }
 
-fn insert_ephemeral(
-    ctx: &ReducerContext,
-    client_id: &str,
-    seq: u64,
-    payload_bytes: u64,
-    track_progress: bool,
-) {
+fn insert_ephemeral_row(ctx: &ReducerContext, client_id: &str, seq: u64, payload_bytes: u64) {
     let _ = ctx.current.tables.benchephemeral().insert(BenchEphemeral {
         key: key(client_id, seq),
         client_id: client_id.to_string(),
@@ -578,6 +591,16 @@ fn insert_ephemeral(
         payload: payload(payload_bytes),
         committed_ms: now_ms(ctx),
     });
+}
+
+fn insert_ephemeral(
+    ctx: &ReducerContext,
+    client_id: &str,
+    seq: u64,
+    payload_bytes: u64,
+    track_progress: bool,
+) {
+    insert_ephemeral_row(ctx, client_id, seq, payload_bytes);
 
     if track_progress {
         record_progress(ctx, client_id.to_string(), seq);

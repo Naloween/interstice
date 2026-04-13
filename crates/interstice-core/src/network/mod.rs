@@ -576,12 +576,19 @@ async fn connection_task(
                         Ok(NetworkPacket::ReducerCall { module_name, reducer_name, input }) => {
                             // Hot path: bypass the intermediate packet channel — dispatch
                             // directly to the crossbeam reducer queue for zero-copy dispatch.
-                            let _ = reducer_sender.try_send(ReducerJob {
+                            // Must use blocking `send`: `try_send` dropped work when the queue
+                            // filled, so clients could "succeed" millions of TCP writes while
+                            // almost no reducers actually ran.
+                            let job = ReducerJob {
                                 module_name,
                                 reducer_name,
                                 input,
                                 caller_node_id: node_id,
                                 completion: None,
+                            };
+                            let sender = reducer_sender.clone();
+                            tokio::task::block_in_place(move || {
+                                let _ = sender.send(job);
                             });
                         }
                         Ok(packet) => {
