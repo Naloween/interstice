@@ -11,10 +11,11 @@ use std::collections::HashMap;
 
 use crate::helpers::clear_commands_tables;
 use crate::tables::{
-    BindGroupBinding, ComputeCommand, Draw2DCommand, FrameTick, HasComputeCommandEditHandle,
-    HasDraw2DCommandEditHandle, HasFrameTickEditHandle, HasLayerEditHandle, HasMeshBindingEditHandle,
-    HasPipelineBindingEditHandle, HasRenderPassCommandEditHandle, HasRendererCacheEditHandle, Layer,
-    MeshBinding, PipelineBinding, RenderPassCommand, RendererCache, TextureBinding,
+    ComputeCommand, Draw2DCommand, FrameTick, HasComputeCommandEditHandle,
+    HasDraw2DCommandEditHandle, HasFrameTickEditHandle, HasLayerEditHandle,
+    HasMeshBindingEditHandle, HasPipelineBindingEditHandle, HasRenderPassCommandEditHandle,
+    HasRendererCacheEditHandle, Layer, MeshBinding, PipelineBinding, RenderPassCommand,
+    RendererCache,
 };
 use crate::types::{
     CircleCommand, Color, MeshDrawCommand, PolylineCommand, RectCommand, TextCommand, Vec2,
@@ -26,45 +27,20 @@ use crate::{DEFAULT_CLEAR, DEFAULT_SEGMENTS, GpuExt, MIN_SEGMENTS, RENDERER_CACH
 pub fn render<Caps>(ctx: ReducerContext<Caps>)
 where
     Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
+        + CanRead<Draw2DCommand>
         + CanRead<RendererCache>
+        + CanRead<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanRead<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanRead<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanDelete<Draw2DCommand>
+        + CanDelete<RenderPassCommand>
+        + CanDelete<ComputeCommand>
         + CanInsert<RendererCache>
         + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
+        + CanDelete<RendererCache>,
 {
     if let Err(err) = render_inner(&ctx) {
         ctx.log(&format!("Render failed: {}", err));
@@ -75,46 +51,7 @@ where
 
 fn bump_frame_tick<Caps>(ctx: &ReducerContext<Caps>)
 where
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
+    Caps: CanRead<FrameTick> + CanUpdate<FrameTick>,
 {
     let mut row = ctx.current.tables.frametick().get(0).unwrap();
     row.frame = row.frame.saturating_add(1);
@@ -124,45 +61,16 @@ where
 fn render_inner<Caps>(ctx: &ReducerContext<Caps>) -> Result<(), String>
 where
     Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
+        + CanRead<Draw2DCommand>
+        + CanRead<RendererCache>
+        + CanRead<RenderPassCommand>
+        + CanRead<ComputeCommand>
         + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
         + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
         + CanRead<RendererCache>
         + CanInsert<RendererCache>
         + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
+        + CanDelete<RendererCache>,
 {
     let gpu = ctx.gpu();
 
@@ -310,46 +218,10 @@ fn ensure_immediate_pipeline<Caps>(
     format: TextureFormat,
 ) -> Result<ImmediatePipeline, String>
 where
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
+    Caps: CanRead<RendererCache>
         + CanInsert<RendererCache>
         + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
+        + CanDelete<RendererCache>,
 {
     let mut cache = ctx
         .current
@@ -459,46 +331,7 @@ fn execute_draw_commands<Caps>(
     surface: SurfaceInfo,
 ) -> Result<(), String>
 where
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
+    Caps: CanRead<Layer> + CanRead<MeshBinding> + CanRead<PipelineBinding>,
 {
     // Batch all immediate draw commands (circle, polyline, rect, text)
     let mut immediate_vertices: Vec<ImmediateVertexBytes> = Vec::new();
@@ -577,46 +410,7 @@ fn draw_mesh_command<Caps>(
     payload: &MeshDrawCommand,
 ) -> Result<(), String>
 where
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
+    Caps: CanRead<Layer> + CanRead<MeshBinding> + CanRead<PipelineBinding>,
 {
     let mesh_key = (
         payload.mesh.owner_node_id.clone(),

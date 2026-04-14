@@ -1,9 +1,8 @@
 use interstice_sdk::*;
 
 use crate::tables::{
-    BindGroupBinding, ComputeCommand, Draw2DCommand, FrameTick, HasComputeCommandEditHandle,
-    HasDraw2DCommandEditHandle, HasLayerEditHandle, HasRenderPassCommandEditHandle, Layer,
-    MeshBinding, PipelineBinding, RenderPassCommand, RendererCache, TextureBinding,
+    ComputeCommand, Draw2DCommand, HasComputeCommandEditHandle, HasDraw2DCommandEditHandle,
+    HasLayerEditHandle, HasRenderPassCommandEditHandle, Layer, RenderPassCommand,
 };
 
 pub(crate) fn owns_layer<Caps>(ctx: &ReducerContext<Caps>, layer: &Layer) -> bool {
@@ -23,46 +22,7 @@ pub(crate) fn ensure_layer_exists<Caps: CanRead<Layer>>(
 
 pub(crate) fn purge_layer_draws<Caps>(ctx: &ReducerContext<Caps>, layer: &str)
 where
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
+    Caps: CanRead<Draw2DCommand> + CanDelete<Draw2DCommand>,
 {
     for row in ctx
         .current
@@ -78,46 +38,7 @@ where
 
 pub(crate) fn enqueue_draw_command<Caps>(ctx: &ReducerContext<Caps>, command: Draw2DCommand)
 where
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
+    Caps: CanInsert<Draw2DCommand>,
 {
     if let Err(err) = ctx.current.tables.draw2dcommand().insert(command) {
         ctx.log(&format!("Failed to store draw command: {}", err));
@@ -130,46 +51,7 @@ pub(crate) fn namespaced_key<Caps>(ctx: &ReducerContext<Caps>, local_id: &str) -
 
 pub(crate) fn clear_commands_tables<Caps>(ctx: &ReducerContext<Caps>)
 where
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
+    Caps: CanDelete<Draw2DCommand> + CanDelete<RenderPassCommand> + CanDelete<ComputeCommand>,
 {
     let _ = ctx.current.tables.draw2dcommand().clear();
     let _ = ctx.current.tables.renderpasscommand().clear();

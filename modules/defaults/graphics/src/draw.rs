@@ -4,10 +4,9 @@ use interstice_sdk::*;
 
 use crate::helpers::{enqueue_draw_command, ensure_layer_exists, namespaced_key};
 use crate::tables::{
-    BindGroupBinding, ComputeCommand, Draw2DCommand, FrameTick, HasComputeCommandEditHandle,
-    HasMeshBindingEditHandle, HasPipelineBindingEditHandle, HasRenderPassCommandEditHandle,
-    HasTextureBindingEditHandle, Layer, MeshBinding, PipelineBinding, RenderPassCommand,
-    RendererCache, TextureBinding,
+    ComputeCommand, Draw2DCommand, HasComputeCommandEditHandle, HasMeshBindingEditHandle,
+    HasPipelineBindingEditHandle, HasRenderPassCommandEditHandle, HasTextureBindingEditHandle,
+    Layer, MeshBinding, PipelineBinding, RenderPassCommand, TextureBinding,
 };
 use crate::types::{
     CircleCommand, Color, ComputeSubmission, ImageCommand, MeshDrawCommand, PolylineCommand, Rect,
@@ -15,48 +14,7 @@ use crate::types::{
 };
 
 #[reducer]
-pub fn draw_circle<
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
->(
+pub fn draw_circle<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     ctx: ReducerContext<Caps>,
     layer: String,
     center: Vec2,
@@ -94,48 +52,7 @@ pub fn draw_circle<
 }
 
 #[reducer]
-pub fn draw_circles<
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
->(
+pub fn draw_circles<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     ctx: ReducerContext<Caps>,
     layer: String,
     centers: Vec<Vec2>,
@@ -190,48 +107,7 @@ pub fn draw_circles<
 }
 
 #[reducer]
-pub fn draw_polyline<
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
->(
+pub fn draw_polyline<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     ctx: ReducerContext<Caps>,
     layer: String,
     points: Vec<Vec2>,
@@ -269,48 +145,7 @@ pub fn draw_polyline<
 }
 
 #[reducer]
-pub fn draw_rect<
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
->(
+pub fn draw_rect<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     ctx: ReducerContext<Caps>,
     layer: String,
     rect: Rect,
@@ -346,48 +181,7 @@ pub fn draw_rect<
 }
 
 #[reducer]
-pub fn draw_image<
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
->(
+pub fn draw_image<Caps: CanInsert<Draw2DCommand> + CanRead<Layer> + CanRead<TextureBinding>>(
     ctx: ReducerContext<Caps>,
     layer: String,
     texture_local_id: String,
@@ -434,48 +228,7 @@ pub fn draw_image<
 }
 
 #[reducer]
-pub fn draw_text<
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
->(
+pub fn draw_text<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     ctx: ReducerContext<Caps>,
     layer: String,
     content: String,
@@ -517,46 +270,7 @@ pub fn draw_text<
 
 #[reducer]
 pub fn draw_mesh<
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
+    Caps: CanInsert<Draw2DCommand> + CanRead<Layer> + CanRead<MeshBinding> + CanRead<PipelineBinding>,
 >(
     ctx: ReducerContext<Caps>,
     layer: String,
@@ -630,48 +344,7 @@ pub fn draw_mesh<
 }
 
 #[reducer]
-pub fn submit_render_pass<
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
->(
+pub fn submit_render_pass<Caps: CanRead<Layer> + CanInsert<RenderPassCommand>>(
     ctx: ReducerContext<Caps>,
     submission: RenderPassSubmission,
 ) {
@@ -692,48 +365,7 @@ pub fn submit_render_pass<
 }
 
 #[reducer]
-pub fn submit_compute<
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
->(
+pub fn submit_compute<Caps: CanInsert<ComputeCommand>>(
     ctx: ReducerContext<Caps>,
     submission: ComputeSubmission,
 ) {

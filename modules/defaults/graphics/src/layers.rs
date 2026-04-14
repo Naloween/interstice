@@ -3,54 +3,12 @@ use std::str::FromStr;
 use interstice_sdk::*;
 
 use crate::helpers::{owns_layer, purge_layer_draws};
-use crate::tables::{
-    BindGroupBinding, ComputeCommand, Draw2DCommand, FrameTick, HasLayerEditHandle, Layer,
-    MeshBinding, PipelineBinding, RenderPassCommand, RendererCache, TextureBinding,
-};
+use crate::tables::{Draw2DCommand, HasLayerEditHandle, Layer};
 
 #[reducer]
 pub fn create_layer<Caps>(ctx: ReducerContext<Caps>, name: String, z: i32, clear: bool)
 where
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
+    Caps: CanInsert<Layer> + CanRead<Layer>,
 {
     if name.trim().is_empty() {
         ctx.log("Layer name cannot be empty");
@@ -77,46 +35,7 @@ where
 #[reducer]
 pub fn set_layer_z<Caps>(ctx: ReducerContext<Caps>, name: String, z: i32)
 where
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
+    Caps: CanRead<Layer> + CanUpdate<Layer>,
 {
     match ctx.current.tables.layer().get(name.clone()) {
         Some(mut layer) => {
@@ -139,46 +58,7 @@ where
 #[reducer]
 pub fn set_layer_clear<Caps>(ctx: ReducerContext<Caps>, name: String, clear: bool)
 where
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
+    Caps: CanRead<Layer> + CanUpdate<Layer>,
 {
     match ctx.current.tables.layer().get(name.clone()) {
         Some(mut layer) => {
@@ -201,46 +81,7 @@ where
 #[reducer]
 pub fn destroy_layer<Caps>(ctx: ReducerContext<Caps>, name: String)
 where
-    Caps: CanRead<Layer>
-        + CanInsert<Layer>
-        + CanUpdate<Layer>
-        + CanDelete<Layer>
-        + CanRead<TextureBinding>
-        + CanInsert<TextureBinding>
-        + CanUpdate<TextureBinding>
-        + CanDelete<TextureBinding>
-        + CanRead<MeshBinding>
-        + CanInsert<MeshBinding>
-        + CanUpdate<MeshBinding>
-        + CanDelete<MeshBinding>
-        + CanRead<PipelineBinding>
-        + CanInsert<PipelineBinding>
-        + CanUpdate<PipelineBinding>
-        + CanDelete<PipelineBinding>
-        + CanRead<BindGroupBinding>
-        + CanInsert<BindGroupBinding>
-        + CanUpdate<BindGroupBinding>
-        + CanDelete<BindGroupBinding>
-        + CanRead<FrameTick>
-        + CanInsert<FrameTick>
-        + CanUpdate<FrameTick>
-        + CanDelete<FrameTick>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
-        + CanRead<Draw2DCommand>
-        + CanInsert<Draw2DCommand>
-        + CanUpdate<Draw2DCommand>
-        + CanDelete<Draw2DCommand>
-        + CanRead<RenderPassCommand>
-        + CanInsert<RenderPassCommand>
-        + CanUpdate<RenderPassCommand>
-        + CanDelete<RenderPassCommand>
-        + CanRead<ComputeCommand>
-        + CanInsert<ComputeCommand>
-        + CanUpdate<ComputeCommand>
-        + CanDelete<ComputeCommand>,
+    Caps: CanRead<Layer> + CanDelete<Layer> + CanRead<Draw2DCommand> + CanDelete<Draw2DCommand>,
 {
     match ctx.current.tables.layer().get(name.clone()) {
         Some(layer) => {
