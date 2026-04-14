@@ -152,11 +152,11 @@ struct AssetStore { /* ... */ }
 struct DerivedCache { /* ... */ }
 ```
 
-| Mode | Disk space | Restart behavior | Best for |
-|------|-----------|-----------------|----------|
-| **Logged** (default) | Grows with history (compacted at snapshots) | Replays WAL to rebuild exact state | Transactional data, audit trails, small–medium rows |
-| **Stateful** | ≈ current live data (one file per row) | Reads row files directly | Large assets (images, audio, video blobs), rows that update frequently and are large |
-| **Ephemeral** | Zero | Table starts empty | Caches, derived views, session state |
+| Mode                 | Disk space                                  | Restart behavior                   | Best for                                                                             |
+| -------------------- | ------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------ |
+| **Logged** (default) | Grows with history (compacted at snapshots) | Replays WAL to rebuild exact state | Transactional data, audit trails, small–medium rows                                  |
+| **Stateful**         | ≈ current live data (one file per row)      | Reads row files directly           | Large assets (images, audio, video blobs), rows that update frequently and are large |
+| **Ephemeral**        | Zero                                        | Table starts empty                 | Caches, derived views, session state                                                 |
 
 - **Logged** — every mutation is appended to a write-ahead log (fsynced every ~10 ms in a background thread). Periodic snapshots compact the log. On restart the runtime replays the log from the last snapshot to reconstruct state exactly.
 - **Stateful** — each row lives in its own file (`<pk>.row`) inside a dedicated directory. Insert and update atomically replace the row file; delete removes it; clear removes all files. Disk usage equals exactly the sum of current row sizes — no history accumulates. On restart the runtime reads every row file to reconstruct the table.
@@ -203,13 +203,16 @@ You define them through the `#[reducer]` marker on top of a function:
 
 ```rust
 #[reducer]
-fn my_reducer(ctx: ReducerContext, my_arg1: u32, my_arg2: MyCustomenum){
-  ...
+fn my_reducer<Caps>(ctx: ReducerContext<Caps>, my_arg1: u32, my_arg2: MyCustomEnum)
+where
+    Caps: CanRead<MyTable> + CanInsert<MyTable>,
+{
+    // ...
 }
 ```
 
-The first argument of a reducer should always be a `ReducerContext`.
-Use `ctx.current.<table>().insert(...)` and `ctx.current.<table>().scan()` for table operations.
+The first argument of a reducer should always be a `ReducerContext<Caps>`, with explicit table-access bounds.
+Use `ctx.current.tables.<table>().insert(...)` and `ctx.current.tables.<table>().scan()` for table operations.
 
 Reducers can also subscribe to events, in which case they cannot be called externally.
 There are different kinds of events, all following the format:
@@ -253,12 +256,60 @@ Apart from reducers you may also want to define queries. Similar to reducers, th
 
 ```rust
 #[query]
-fn my_query(ctx: QueryContext, my_arg1: u32, my_arg2: MyCustomenum) -> MyCustomStruct {
+fn my_query<Caps>(ctx: QueryContext<Caps>, my_arg1: u32, my_arg2: MyCustomEnum) -> MyCustomStruct
+where
+    Caps: CanRead<MyTable>,
+{
   ...
 }
 ```
 
 Contrary to reducers, queries can return values but are read-only and cannot mutate any tables. They can call other queries but cannot call reducers. They also cannot subscribe to events, since they cannot affect the current state.
+
+### Table access capabilities (core pattern)
+
+Interstice enforces table access through capability traits on context generics:
+
+- `CanRead<Row>`
+- `CanInsert<Row>`
+- `CanUpdate<Row>`
+- `CanDelete<Row>`
+
+`Row` is the actual `#[table]` row struct type. There is no implicit "allow all" shortcut.
+
+Example:
+
+```rust
+#[table]
+pub struct Greetings {
+    #[primary_key(auto_inc)]
+    pub id: u64,
+    pub message: String,
+}
+
+#[reducer]
+pub fn hello<Caps>(ctx: ReducerContext<Caps>, message: String)
+where
+    Caps: CanInsert<Greetings>,
+{
+    let _ = ctx.current.tables.greetings().insert(Greetings { id: 0, message });
+}
+
+#[query]
+pub fn list_greetings<Caps>(ctx: QueryContext<Caps>) -> Vec<Greetings>
+where
+    Caps: CanRead<Greetings>,
+{
+    ctx.current.tables.greetings().scan()
+}
+```
+
+Why this matters:
+
+- Access is explicit in function signatures.
+- ABI schema access declarations are derived from `Can*` bounds.
+- Runtime permission checks stay aligned with compile-time intent.
+- Narrow capabilities improve safety and allow reducer parallelization.
 
 ### Schedule system
 
@@ -429,6 +480,23 @@ interstice benchmark scenario benchmarks/scenarios/durability.toml
 
 Template placeholders supported in JSON args include `$seq`, `$worker`, `$op`, `$client`, `$now_ms`, `$max_seq`, `$max_client`, `$total_sent`.
 
+### Reliable benchmark protocol
+
+To get comparable numbers, treat benchmarking as a controlled experiment:
+
+1. **Use a fresh node process** for each run series (avoid stale module binaries and residual state).
+2. **Use node-authoritative metrics** (`bench_start` / `bench_stop` / `bench_metrics_snapshot`) as the source of truth.
+3. **Keep args type-correct** in reducer calls (`$now_ms` must resolve to numeric input, not a quoted string payload type mismatch).
+4. **Run multiple repetitions** (at least 5) and report median + p95, not a single best run.
+5. **Pin runtime conditions** (same CPU governor, no heavy background load, same build profile, same connection count and payload).
+6. **Reject inconsistent runs** where node committed counts diverge materially from expected in-window activity.
+
+Suggested reporting set:
+
+- Throughput: `node_committed.measured / duration`
+- Latency: node-side p50/p95/p99 from `bench_metrics_snapshot`
+- Context: module/reducer, connections, payload bytes, warmup/duration, build mode, machine
+
 # Security
 
 - Publishing doesn't require any privilege by default, so anyone can publish and remove modules, even remotely.
@@ -436,25 +504,9 @@ Template placeholders supported in JSON args include `$seq`, `$worker`, `$op`, `
 
 ---
 
-# Benchmarks
+# Benchmark interpretation
 
-Measured on a single node running the `benchmark-workload` module, x86-64 Linux, `--release` build. Each scenario runs for 20 s with 5 s warmup on a freshly started isolated node. Connections = 4.
-
-## Durability
-
-| Mode | Throughput |
-|------|-----------|
-| Ephemeral | ~5 370 tx/s |
-| Stateful (per-row files, atomic rename) | ~4 540 tx/s |
-| Logged (async WAL, 10 ms batch fsync) | ~2 765 tx/s |
-
-*Logged throughput reflects batched fsyncs every ~10 ms — individual transactions are not individually synced to disk. Per-transaction fsync yields ~100 tx/s; the async WAL gives a ~28× improvement.*
-
-## Notes
-
-- `Ephemeral` is the baseline: pure in-memory reducer dispatch with no I/O.
-- `Stateful` writes one file per mutated row (atomic rename, O(1) per write). Throughput depends on row size; the overhead is a single rename syscall per changed row.
-- `Logged` appends to a WAL file without blocking the reducer loop, then batches `fsync` every ~10 ms in a background thread.
+Absolute throughput values depend heavily on workload shape and machine conditions. Prefer publishing reproducible scenario configs and run metadata over static headline numbers.
 
 ---
 
@@ -508,6 +560,7 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 
 ## Runtime and data model
 
+- Network authority
 - Bundles to ship nodes as a whole program
 - Table migrations and schema evolution without data loss
 - Better Default system modules (ModuleManager, Graphics, Inputs)
