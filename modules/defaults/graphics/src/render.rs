@@ -18,8 +18,8 @@ use crate::tables::{
     RendererCache,
 };
 use crate::types::{
-    CircleCommand, Color, MeshDrawCommand, PolylineCommand, RectCommand, TextCommand, Vec2,
-    color_to_array,
+    CircleCommand, Color, Draw2DCommandType, MeshDrawCommand, PolylineCommand, RectCommand,
+    TextCommand, Vec2, color_to_array,
 };
 use crate::{DEFAULT_CLEAR, DEFAULT_SEGMENTS, GpuExt, MIN_SEGMENTS, RENDERER_CACHE_KEY};
 
@@ -337,30 +337,30 @@ where
     let mut immediate_vertices: Vec<ImmediateVertexBytes> = Vec::new();
 
     for command in &commands {
-        match command.command_type.as_str() {
-            "circle" => {
+        match command.command_type {
+            Draw2DCommandType::Circle => {
                 if let Some(payload) = &command.circle {
                     immediate_vertices.extend(tessellate_circle(surface, payload));
                 }
             }
-            "circles" => {
+            Draw2DCommandType::Circles => {
                 if let Some(batch) = &command.circles {
                     for payload in batch {
                         immediate_vertices.extend(tessellate_circle(surface, payload));
                     }
                 }
             }
-            "polyline" => {
+            Draw2DCommandType::Polyline => {
                 if let Some(payload) = &command.polyline {
                     immediate_vertices.extend(tessellate_polyline(surface, payload));
                 }
             }
-            "rect" => {
+            Draw2DCommandType::Rect => {
                 if let Some(payload) = &command.rect {
                     immediate_vertices.extend(tessellate_rect(surface, payload));
                 }
             }
-            "text" => {
+            Draw2DCommandType::Text => {
                 if let Some(payload) = &command.text {
                     immediate_vertices.extend(tessellate_text(surface, payload));
                 }
@@ -386,7 +386,7 @@ where
 
     // Mesh commands are still drawn individually
     for command in &commands {
-        if command.command_type.as_str() == "mesh" {
+        if command.command_type == Draw2DCommandType::Mesh {
             if let Some(payload) = &command.mesh {
                 draw_mesh_command(ctx, gpu, pass, payload)?;
             }
@@ -395,7 +395,7 @@ where
 
     // Log for unimplemented image commands
     for command in &commands {
-        if command.command_type.as_str() == "image" {
+        if command.command_type == Draw2DCommandType::Image {
             ctx.log("draw_image is queued but texture sampling render path is not implemented yet");
         }
     }

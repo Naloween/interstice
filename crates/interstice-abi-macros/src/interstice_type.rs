@@ -239,7 +239,12 @@ fn derive_interstice_type_macro_enum(
                     #variant_name_str => {
                         match *value {
                             #abi::IntersticeValue::Void => Ok(#enum_name::#variant_ident),
-                            other => Err(format!("Expected Void for variant {}::{}, got {:?}", #enum_name_str, #variant_name_str, other)),
+                            other => Err(#abi::IntersticeAbiError::ConversionError(format!(
+                                "Expected Void for variant {}::{}, got {:?}",
+                                #enum_name_str,
+                                #variant_name_str,
+                                other
+                            ))),
                         }
                     }
                 }
@@ -253,8 +258,13 @@ fn derive_interstice_type_macro_enum(
                     let ty = &fields.unnamed.first().unwrap().ty;
                     quote! {
                         #variant_name_str => {
-                            let inner: #ty = (*value).try_into()
-                                .map_err(|_| format!("Failed to convert payload for {}::{}", #enum_name_str, #variant_name_str))?;
+                            let inner: #ty = (*value).try_into().map_err(|_| {
+                                #abi::IntersticeAbiError::ConversionError(format!(
+                                    "Failed to convert payload for {}::{}",
+                                    #enum_name_str,
+                                    #variant_name_str
+                                ))
+                            })?;
                             Ok(#enum_name::#variant_ident(inner))
                         }
                     }
@@ -267,16 +277,29 @@ fn derive_interstice_type_macro_enum(
                             match *value {
                                 #abi::IntersticeValue::Tuple(vec) => {
                                     if vec.len() != #arity {
-                                        return Err(format!("Wrong tuple arity for {}::{}", #enum_name_str, #variant_name_str));
+                                        return Err(#abi::IntersticeAbiError::ConversionError(format!(
+                                            "Wrong tuple arity for {}::{}",
+                                            #enum_name_str,
+                                            #variant_name_str
+                                        )));
                                     }
                                     Ok(#enum_name::#variant_ident(
                                         #(
                                             <#types as TryFrom<#abi::IntersticeValue>>::try_from(vec[#indices].clone())
-                                                .map_err(|_| format!("Failed to convert tuple element for {}::{}", #enum_name_str, #variant_name_str))?
+                                                .map_err(|_| #abi::IntersticeAbiError::ConversionError(format!(
+                                                    "Failed to convert tuple element for {}::{}",
+                                                    #enum_name_str,
+                                                    #variant_name_str
+                                                )))?
                                         ),*
                                     ))
                                 }
-                                other => Err(format!("Expected Tuple for {}::{}, got {:?}", #enum_name_str, #variant_name_str, other)),
+                                other => Err(#abi::IntersticeAbiError::ConversionError(format!(
+                                    "Expected Tuple for {}::{}, got {:?}",
+                                    #enum_name_str,
+                                    #variant_name_str,
+                                    other
+                                ))),
                             }
                         }
                     }
@@ -294,7 +317,11 @@ fn derive_interstice_type_macro_enum(
                         match *value {
                             #abi::IntersticeValue::Struct { name: struct_name, fields } => {
                                 if struct_name != #variant_name_str {
-                                    return Err(format!("Struct name mismatch for {}::{}", #enum_name_str, #variant_name_str));
+                                    return Err(#abi::IntersticeAbiError::ConversionError(format!(
+                                        "Struct name mismatch for {}::{}",
+                                        #enum_name_str,
+                                        #variant_name_str
+                                    )));
                                 }
                                 let mut map = std::collections::HashMap::new();
                                 for field in fields {
@@ -305,12 +332,27 @@ fn derive_interstice_type_macro_enum(
                                     #(
                                         #field_idents: <#field_types as TryFrom<#abi::IntersticeValue>>::try_from(
                                             map.remove(#field_names)
-                                                .ok_or_else(|| format!("Missing field {} in {}::{}", #field_names, #enum_name_str, #variant_name_str))?
-                                        ).map_err(|_| format!("Failed to convert field {} in {}::{}", #field_names, #enum_name_str, #variant_name_str))?
+                                                .ok_or_else(|| #abi::IntersticeAbiError::ConversionError(format!(
+                                                    "Missing field {} in {}::{}",
+                                                    #field_names,
+                                                    #enum_name_str,
+                                                    #variant_name_str
+                                                )))?
+                                        ).map_err(|_| #abi::IntersticeAbiError::ConversionError(format!(
+                                            "Failed to convert field {} in {}::{}",
+                                            #field_names,
+                                            #enum_name_str,
+                                            #variant_name_str
+                                        )))?
                                     ),*
                                 })
                             }
-                            other => Err(format!("Expected Struct for {}::{}, got {:?}", #enum_name_str, #variant_name_str, other)),
+                            other => Err(#abi::IntersticeAbiError::ConversionError(format!(
+                                "Expected Struct for {}::{}, got {:?}",
+                                #enum_name_str,
+                                #variant_name_str,
+                                other
+                            ))),
                         }
                     }
                 }
@@ -328,17 +370,24 @@ fn derive_interstice_type_macro_enum(
         }
 
         impl TryFrom<#abi::IntersticeValue> for #enum_name {
-            type Error = String;
+            type Error = #abi::IntersticeAbiError;
 
             fn try_from(value: #abi::IntersticeValue) -> Result<Self, Self::Error> {
                 match value {
                     #abi::IntersticeValue::Enum { name, variant, value } if name == #enum_name_str => {
                         match variant.as_str() {
                             #(#reverse_match_arms,)*
-                            _ => Err(format!("Unknown variant '{}' for enum {}", variant, #enum_name_str)),
+                            _ => Err(#abi::IntersticeAbiError::ConversionError(format!(
+                                "Unknown variant '{}' for enum {}",
+                                variant,
+                                #enum_name_str
+                            ))),
                         }
                     }
-                    _ => Err(format!("Expected IntersticeValue::Enum for {}", #enum_name_str)),
+                    _ => Err(#abi::IntersticeAbiError::ConversionError(format!(
+                        "Expected IntersticeValue::Enum for {}",
+                        #enum_name_str
+                    ))),
                 }
             }
         }

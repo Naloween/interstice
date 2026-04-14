@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use interstice_sdk::*;
 
+use crate::Draw2DCommandType;
 use crate::helpers::{enqueue_draw_command, ensure_layer_exists, namespaced_key};
 use crate::tables::{
     ComputeCommand, Draw2DCommand, HasComputeCommandEditHandle, HasMeshBindingEditHandle,
@@ -33,7 +34,7 @@ pub fn draw_circle<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     let command = Draw2DCommand {
         id: 0,
         layer,
-        command_type: "circle".into(),
+        command_type: Draw2DCommandType::Circle,
         circle: Some(CircleCommand {
             center,
             radius,
@@ -94,7 +95,7 @@ pub fn draw_circles<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     let command = Draw2DCommand {
         id: 0,
         layer,
-        command_type: "circles".into(),
+        command_type: Draw2DCommandType::Circles,
         circle: None,
         circles: Some(circles),
         polyline: None,
@@ -126,7 +127,7 @@ pub fn draw_polyline<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     let command = Draw2DCommand {
         id: 0,
         layer,
-        command_type: "polyline".into(),
+        command_type: Draw2DCommandType::Polyline,
         circle: None,
         circles: None,
         polyline: Some(PolylineCommand {
@@ -163,7 +164,7 @@ pub fn draw_rect<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     let command = Draw2DCommand {
         id: 0,
         layer,
-        command_type: "rect".into(),
+        command_type: Draw2DCommandType::Rect,
         circle: None,
         circles: None,
         polyline: None,
@@ -208,7 +209,7 @@ pub fn draw_image<Caps: CanInsert<Draw2DCommand> + CanRead<Layer> + CanRead<Text
     let command = Draw2DCommand {
         id: 0,
         layer,
-        command_type: "image".into(),
+        command_type: Draw2DCommandType::Image,
         circle: None,
         circles: None,
         polyline: None,
@@ -250,7 +251,7 @@ pub fn draw_text<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     let command = Draw2DCommand {
         id: 0,
         layer,
-        command_type: "text".into(),
+        command_type: Draw2DCommandType::Text,
         circle: None,
         circles: None,
         polyline: None,
@@ -321,7 +322,7 @@ pub fn draw_mesh<
     let command = Draw2DCommand {
         id: 0,
         layer,
-        command_type: "mesh".into(),
+        command_type: Draw2DCommandType::Mesh,
         circle: None,
         circles: None,
         polyline: None,

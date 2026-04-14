@@ -117,7 +117,7 @@ fn print_help() {
     println!("  bindings add module <node> <module> [project_path]  Add module binding");
     println!("  bindings add node <node> [project_path]            Add node binding");
     println!(
-        "  example <hello|caller|graphics|audio|agar-server|agar-client|benchmark>  Start a named example (ports: hello=8080, caller=8081, graphics=8082, audio=8083, agar-server=8086, agar-client=8084, benchmark=8085)"
+        "  example <hello|caller|graphics|audio|agar-server|agar-client>  Start a named example (ports: hello=8080, caller=8081, graphics=8082, audio=8083, agar-server=8086, agar-client=8084)"
     );
     println!(
         "  init                                   Initialize a new interstice module project in the current directory"
@@ -131,7 +131,7 @@ fn print_help() {
     println!(
         "  call_query <node> <module_name> <query_name>        Call a query of a module on a node"
     );
-    println!("  benchmark <...>                    Run benchmark workloads and scenarios");
+    println!("  benchmark simple <...>             Run simple benchmark workload");
     println!("  help                             Show this help message");
     println!();
     println!("OPTIONS:");

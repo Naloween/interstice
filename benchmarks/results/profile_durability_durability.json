@@ -1,0 +1,74 @@
+{
+  "name": "durability",
+  "node": "benchmark-example",
+  "module_name": "benchmark-workload",
+  "reducer_name": "bench_tx_insert_logged",
+  "transport": "persistent",
+  "warmup_ms": 0,
+  "duration_ms": 10000,
+  "connections": 4,
+  "rate": null,
+  "output": "benchmarks/results/profile_durability_durability.json",
+  "sent_warmup": 0,
+  "sent_measured": 1645,
+  "failed": 0,
+  "throughput_kind": "node_commit_rate",
+  "throughput_tps": 0.0,
+  "throughput_counter_start": 0,
+  "throughput_counter_end": 0,
+  "throughput_window_ms": 10000,
+  "write_latency_us_mean": 24930.15075,
+  "write_latency_us_p50": 25303.447,
+  "write_latency_us_p95": 45141.711,
+  "write_latency_us_p99": 45583.101,
+  "write_latency_us_max": 45583.101,
+  "started_at_ms": 1776169541261,
+  "ended_at_ms": 1776169551377,
+  "worker_summaries": [
+    {
+      "worker_id": 0,
+      "client_id": "bench-worker-0-40ece9e5-b31f-4596-a47c-4340d3788932",
+      "attempted": 408,
+      "measured_sent": 408,
+      "last_seq": 408
+    },
+    {
+      "worker_id": 1,
+      "client_id": "bench-worker-1-11c56413-f99b-4240-939e-ef3b20e2ee21",
+      "attempted": 414,
+      "measured_sent": 414,
+      "last_seq": 414
+    },
+    {
+      "worker_id": 2,
+      "client_id": "bench-worker-2-870455f6-e27d-4d2b-b49f-6269dc9053b4",
+      "attempted": 412,
+      "measured_sent": 412,
+      "last_seq": 412
+    },
+    {
+      "worker_id": 3,
+      "client_id": "bench-worker-3-cfd0d959-8eb8-4fed-9797-50e1c8f0a5e7",
+      "attempted": 411,
+      "measured_sent": 411,
+      "last_seq": 411
+    }
+  ],
+  "node_metrics": {
+    "run_id": "bench-2ede91f8-346e-423d-8959-a5ea2123c636",
+    "active": false,
+    "started_ms": 0,
+    "warmup_end_ms": 0,
+    "measure_end_ms": 0,
+    "stopped_ms": 0,
+    "warmup_committed": 0,
+    "measured_committed": 0,
+    "total_committed": 0,
+    "latency_ms_mean": 0.0,
+    "latency_ms_p50": 0.0,
+    "latency_ms_p95": 0.0,
+    "latency_ms_p99": 0.0,
+    "latency_ms_max": 0.0
+  },
+  "verification": null
+}

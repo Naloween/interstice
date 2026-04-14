@@ -242,12 +242,21 @@ impl Runtime {
                         ACTIVE_COMPLETION.with(|c| *c.borrow_mut() = tls_fork);
                         // Keep the original as the guard for THIS job's share.
                         let _completion_guard = job.completion;
-                        let _ = rt.call_reducer(
+                        if let Err(err) = rt.call_reducer(
                             &job.module_name,
                             &job.reducer_name,
                             job.input,
                             job.caller_node_id,
-                        );
+                        ) {
+                            rt.logger.log(
+                                &format!(
+                                    "Reducer execution failed for '{}.{}': {}",
+                                    job.module_name, job.reducer_name, err
+                                ),
+                                LogSource::Runtime,
+                                LogLevel::Error,
+                            );
+                        }
                         // Clear TLS *before* the guard drops so any event forks
                         // made during call_reducer are counted, and the guard's
                         // drop is the last decrement if no events were dispatched.

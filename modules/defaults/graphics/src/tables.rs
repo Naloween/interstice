@@ -2,8 +2,9 @@ use interstice_sdk::*;
 use std::str::FromStr;
 
 use crate::types::{
-    BindGroupDescriptorInput, CircleCommand, ComputeSubmission, ImageCommand, MeshDrawCommand,
-    PipelineDescriptorInput, PolylineCommand, RectCommand, RenderPassSubmission, TextCommand,
+    BindGroupDescriptorInput, CircleCommand, ComputeSubmission, Draw2DCommandType, ImageCommand,
+    MeshDrawCommand, PipelineDescriptorInput, PolylineCommand, RectCommand, RenderPassSubmission,
+    TextCommand,
 };
 
 #[table(ephemeral)]
@@ -84,7 +85,7 @@ pub struct Draw2DCommand {
     #[primary_key(auto_inc)]
     pub id: u64,
     pub layer: String,
-    pub command_type: String,
+    pub command_type: Draw2DCommandType,
     pub circle: Option<CircleCommand>,
     pub circles: Option<Vec<CircleCommand>>,
     pub polyline: Option<PolylineCommand>,
@@ -109,4 +110,3 @@ pub struct ComputeCommand {
     pub id: u64,
     pub payload: ComputeSubmission,
 }
-

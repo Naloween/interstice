@@ -1,58 +1,130 @@
 {
   "name": "insert-ephemeral",
-  "node": "bench-node",
+  "node": "benchmark-example",
   "module_name": "benchmark-workload",
-  "reducer_name": "tx_insert_ephemeral",
+  "reducer_name": "bench_tx_insert_ephemeral",
   "transport": "persistent",
   "warmup_ms": 5000,
-  "duration_ms": 15000,
-  "connections": 4,
+  "duration_ms": 90000,
+  "connections": 12,
   "rate": null,
   "output": "benchmarks/results/profile_insert_ephemeral_insert-ephemeral.json",
-  "sent_warmup": 7972188,
-  "sent_measured": 22585421,
+  "sent_warmup": 480,
+  "sent_measured": 6661,
   "failed": 0,
-  "throughput_kind": "query_delta",
-  "throughput_tps": 41340.8,
-  "throughput_counter_start": 263685,
-  "throughput_counter_end": 883797,
-  "throughput_window_ms": 15000,
-  "write_latency_us_mean": 2.4719363606738547,
-  "write_latency_us_p50": 1.977,
-  "write_latency_us_p95": 5.27,
-  "write_latency_us_p99": 10.238,
-  "write_latency_us_max": 19471.039,
-  "started_at_ms": 1773585957478,
-  "ended_at_ms": 1773585977567,
+  "throughput_kind": "node_commit_rate",
+  "throughput_tps": 73.86666666666666,
+  "throughput_counter_start": 480,
+  "throughput_counter_end": 7128,
+  "throughput_window_ms": 90000,
+  "write_latency_us_mean": 168776.7857142857,
+  "write_latency_us_p50": 162000.0,
+  "write_latency_us_p95": 219000.0,
+  "write_latency_us_p99": 247000.0,
+  "write_latency_us_max": 304000.0,
+  "started_at_ms": 1776169551613,
+  "ended_at_ms": 1776169646927,
   "worker_summaries": [
     {
       "worker_id": 0,
-      "client_id": "bench-worker-0-2b790a40-b698-42d7-ac2c-e961b23a955e",
-      "attempted": 7499603,
-      "measured_sent": 5577622,
-      "last_seq": 7499603
+      "client_id": "bench-worker-0-b7dd8e16-91a2-4c3b-ba8a-0864f559eed7",
+      "attempted": 595,
+      "measured_sent": 555,
+      "last_seq": 595
     },
     {
       "worker_id": 1,
-      "client_id": "bench-worker-1-12dd8eec-db81-4e8a-a06b-9c544e7cd7ad",
-      "attempted": 7802413,
-      "measured_sent": 5748666,
-      "last_seq": 7802413
+      "client_id": "bench-worker-1-7c1dcb11-c5f9-4d9d-98ce-7b790c3aecd8",
+      "attempted": 596,
+      "measured_sent": 556,
+      "last_seq": 596
     },
     {
       "worker_id": 2,
-      "client_id": "bench-worker-2-0beaec8f-6f0f-4064-b5a8-d4d525845a8d",
-      "attempted": 7639502,
-      "measured_sent": 5625142,
-      "last_seq": 7639502
+      "client_id": "bench-worker-2-7dd1c952-7fab-4200-8c62-33790e0b613a",
+      "attempted": 594,
+      "measured_sent": 554,
+      "last_seq": 594
     },
     {
       "worker_id": 3,
-      "client_id": "bench-worker-3-7849f254-1cb8-4e5e-8a5d-e4988e545d8d",
-      "attempted": 7616091,
-      "measured_sent": 5633991,
-      "last_seq": 7616091
+      "client_id": "bench-worker-3-799e8a79-cb07-4bb5-a797-1d1254f57a43",
+      "attempted": 594,
+      "measured_sent": 554,
+      "last_seq": 594
+    },
+    {
+      "worker_id": 4,
+      "client_id": "bench-worker-4-8e46b204-ce67-45a6-aba9-61c9baedd0de",
+      "attempted": 596,
+      "measured_sent": 556,
+      "last_seq": 596
+    },
+    {
+      "worker_id": 5,
+      "client_id": "bench-worker-5-2c3afa0f-fe9c-4c3a-ae5b-79f4329833f5",
+      "attempted": 595,
+      "measured_sent": 555,
+      "last_seq": 595
+    },
+    {
+      "worker_id": 6,
+      "client_id": "bench-worker-6-191b8e30-56c2-4b47-8b86-6e7afe164afe",
+      "attempted": 596,
+      "measured_sent": 556,
+      "last_seq": 596
+    },
+    {
+      "worker_id": 7,
+      "client_id": "bench-worker-7-1be54066-7318-4472-856d-f9bf3beb684e",
+      "attempted": 596,
+      "measured_sent": 556,
+      "last_seq": 596
+    },
+    {
+      "worker_id": 8,
+      "client_id": "bench-worker-8-32c27a53-b3bc-4e84-83a8-a022fa316bab",
+      "attempted": 594,
+      "measured_sent": 554,
+      "last_seq": 594
+    },
+    {
+      "worker_id": 9,
+      "client_id": "bench-worker-9-2fc02316-b578-497b-8a1b-b1f22603e6f5",
+      "attempted": 595,
+      "measured_sent": 555,
+      "last_seq": 595
+    },
+    {
+      "worker_id": 10,
+      "client_id": "bench-worker-10-fc8d68cd-0792-49a4-bedc-865598b3f2eb",
+      "attempted": 594,
+      "measured_sent": 554,
+      "last_seq": 594
+    },
+    {
+      "worker_id": 11,
+      "client_id": "bench-worker-11-b69ec165-356b-4ff9-a18a-70197481a3a8",
+      "attempted": 596,
+      "measured_sent": 556,
+      "last_seq": 596
     }
   ],
+  "node_metrics": {
+    "run_id": "bench-e219c025-6405-4101-b8ac-c365bc4001be",
+    "active": false,
+    "started_ms": 1776169551619,
+    "warmup_end_ms": 1776169556619,
+    "measure_end_ms": 1776169646619,
+    "stopped_ms": 1776169646804,
+    "warmup_committed": 480,
+    "measured_committed": 6648,
+    "total_committed": 7128,
+    "latency_ms_mean": 168.77678571428572,
+    "latency_ms_p50": 162.0,
+    "latency_ms_p95": 219.0,
+    "latency_ms_p99": 247.0,
+    "latency_ms_max": 304.0
+  },
   "verification": null
 }

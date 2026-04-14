@@ -35,6 +35,18 @@ pub struct Rect {
 }
 
 #[interstice_type]
+#[derive(Debug, Clone, PartialEq)]
+pub enum Draw2DCommandType {
+    Circle,
+    Circles,
+    Polyline,
+    Rect,
+    Image,
+    Text,
+    Mesh,
+}
+
+#[interstice_type]
 #[derive(Debug, Clone)]
 pub struct RectCommand {
     pub rect: Rect,
