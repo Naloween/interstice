@@ -1,7 +1,7 @@
 use crate::bindings::{
     agar_server::{
         HasAgarServerModuleHandle,
-        agar_server::{HasFoodHandle, HasPlayerHandle, Vec2 as AgarVec2},
+        agar_server::{Food, HasFoodHandle, HasPlayerHandle, Player, Vec2 as AgarVec2},
     },
     graphics::*,
     input::*,
@@ -33,21 +33,17 @@ pub fn init(ctx: ReducerContext) {
     }
 }
 
-#[reducer(
-    on = "agar-server.agar-server.player.sync",
-    reads = ["agar-server.agar-server.player"],
-)]
+#[reducer(on = "agar-server.agar-server.player.sync")]
 pub fn on_player_sync(_ctx: ReducerContext) {}
 
-#[reducer(
-    on = "graphics.frametick.update",
-    reads = [
-        "agar-server.agar-server.player",
-        "agar-server.agar-server.food",
-        "input.keystate",
-    ]
-)]
-pub fn on_frame(ctx: ReducerContext, _prev: FrameTick, _tick: FrameTick) {
+#[reducer(on = "graphics.frametick.update")]
+pub fn on_frame<Caps>(
+    ctx: ReducerContext<Caps>,
+    _prev: FrameTick,
+    _tick: FrameTick,
+) where
+    Caps: CanRead<KeyState> + CanRead<Player> + CanRead<Food>,
+{
     let server = ctx.agar_server().agar_server();
     let (dx, dy) = input_dir(&ctx);
     if let Err(err) = server.reducers.set_direction(dx, dy) {
@@ -56,7 +52,10 @@ pub fn on_frame(ctx: ReducerContext, _prev: FrameTick, _tick: FrameTick) {
     render_world(&ctx);
 }
 
-fn input_dir(ctx: &ReducerContext) -> (f32, f32) {
+fn input_dir<Caps>(ctx: &ReducerContext<Caps>) -> (f32, f32)
+where
+    Caps: CanRead<KeyState>,
+{
     let input = ctx.input();
     let key_states = input.tables.keystate().scan();
 
@@ -90,7 +89,10 @@ fn input_dir(ctx: &ReducerContext) -> (f32, f32) {
     }
 }
 
-fn render_world(ctx: &ReducerContext) {
+fn render_world<Caps>(ctx: &ReducerContext<Caps>)
+where
+    Caps: CanRead<Player> + CanRead<Food>,
+{
     let server = ctx.agar_server().agar_server();
     let players = server.tables.player().scan();
     let foods = server.tables.food().scan();

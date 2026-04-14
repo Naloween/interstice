@@ -1,8 +1,12 @@
 use interstice_abi::get_query_wrapper_name;
 use quote::quote;
-use syn::{Ident, LitInt};
+use syn::{Ident, LitInt, Type};
 
-pub fn get_wrapper_function(query_ident: Ident, arg_count: usize) -> proc_macro2::TokenStream {
+pub fn get_wrapper_function(
+    query_ident: Ident,
+    caps_ty: Type,
+    arg_count: usize,
+) -> proc_macro2::TokenStream {
     let wrapper_name = syn::Ident::new(
         &get_query_wrapper_name(&query_ident.to_string()),
         query_ident.span(),
@@ -16,7 +20,8 @@ pub fn get_wrapper_function(query_ident: Ident, arg_count: usize) -> proc_macro2
         #[unsafe(no_mangle)]
         pub extern "C" fn #wrapper_name(ptr: i32, len: i32) -> i64 {
             let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
-            let (query_context, interstice_args): (interstice_sdk::QueryContext, interstice_sdk::IntersticeValue) = interstice_sdk::decode(bytes).unwrap();
+            let (raw_context, interstice_args): (interstice_sdk::RawQueryContext, interstice_sdk::IntersticeValue) = interstice_sdk::decode(bytes).unwrap();
+            let query_context: interstice_sdk::QueryContext<#caps_ty> = raw_context.into();
             let interstice_args_vec = match interstice_args {
                 interstice_sdk::IntersticeValue::Vec(v) => v,
                 _ => panic!("Expected Vec<IntersticeValue> as query_wrapper input, got {:?}", interstice_args),

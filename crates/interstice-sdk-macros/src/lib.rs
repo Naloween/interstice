@@ -1,3 +1,5 @@
+mod caps_bounds;
+mod context_caps;
 mod index_key;
 mod init;
 mod interstice_type;
@@ -5,7 +7,6 @@ mod path_segments;
 mod query;
 mod reducer;
 mod table;
-mod table_access_tokens;
 
 use proc_macro::TokenStream;
 

@@ -12,7 +12,8 @@ use crate::{
 };
 use interstice_abi::{
     ABI_VERSION, Authority, FileEvent, IndexKey, IntersticeValue, ModuleSchema, NodeSchema,
-    NodeSelection, QueryContext, ReducerContext, SubscriptionEventSchema, TableVisibility,
+    NodeSelection, RawQueryContext as QueryContext, RawReducerContext as ReducerContext,
+    SubscriptionEventSchema, TableVisibility,
     get_query_wrapper_name, get_reducer_wrapper_name,
 };
 use notify::{RecursiveMode, Watcher};

@@ -5,10 +5,7 @@ pub fn get_register_schema_function(
     reducer_ident: Ident,
     arg_names: Vec<&Box<Pat>>,
     arg_types: Vec<&Box<Type>>,
-    reads: Vec<proc_macro2::TokenStream>,
-    inserts: Vec<proc_macro2::TokenStream>,
-    updates: Vec<proc_macro2::TokenStream>,
-    deletes: Vec<proc_macro2::TokenStream>,
+    caps_extend_body: proc_macro2::TokenStream,
 ) -> proc_macro2::TokenStream {
     let reducer_schema_fn = syn::Ident::new(
         &format!("interstice_{}_schema", reducer_ident),
@@ -34,13 +31,18 @@ pub fn get_register_schema_function(
 
     quote! {
         fn #reducer_schema_fn() -> interstice_sdk::ReducerSchema {
+            let mut reads = Vec::new();
+            let mut inserts = Vec::new();
+            let mut updates = Vec::new();
+            let mut deletes = Vec::new();
+            #caps_extend_body
             interstice_sdk::ReducerSchema::new(
                 stringify!(#reducer_ident),
                 vec![#(#schema_entries),*],
-                vec![#(#reads),*],
-                vec![#(#inserts),*],
-                vec![#(#updates),*],
-                vec![#(#deletes),*],
+                reads,
+                inserts,
+                updates,
+                deletes,
             )
         }
 

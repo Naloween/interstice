@@ -28,18 +28,20 @@ pub fn get_node_code(node_schema: NodeSchema) -> TokenStream {
 
     let tokens = quote! {
         pub mod #node_mod_ident {
-            pub struct #node_type_ident {}
+            pub struct #node_type_ident<Caps> {
+                pub _caps: std::marker::PhantomData<Caps>,
+            }
 
             #(#module_tokens)*
         }
 
-        pub trait #trait_handle_ident {
-            fn #node_method_ident(&self) -> #node_mod_ident::#node_type_ident;
+        pub trait #trait_handle_ident<Caps> {
+            fn #node_method_ident(&self) -> #node_mod_ident::#node_type_ident<Caps>;
         }
 
-        impl #trait_handle_ident for interstice_sdk::ReducerContext {
-            fn #node_method_ident(&self) -> #node_mod_ident::#node_type_ident {
-                #node_mod_ident::#node_type_ident {}
+        impl<Caps> #trait_handle_ident<Caps> for interstice_sdk::ReducerContext<Caps> {
+            fn #node_method_ident(&self) -> #node_mod_ident::#node_type_ident<Caps> {
+                #node_mod_ident::#node_type_ident { _caps: std::marker::PhantomData }
             }
         }
     };

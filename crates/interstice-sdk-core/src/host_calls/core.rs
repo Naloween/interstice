@@ -336,7 +336,7 @@ pub fn scan_index(
     }
 }
 
-use interstice_abi::{QueryContext, ReducerContext};
+use crate::{QueryContext, ReducerContext};
 
 use crate::host_calls::{host_call, unpack};
 
@@ -360,55 +360,55 @@ pub trait HostSchedule {
     fn schedule(&self, reducer_name: &str, delay_ms: u64) -> Result<(), String>;
 }
 
-impl HostLog for ReducerContext {
+impl<Caps> HostLog for ReducerContext<Caps> {
     fn log(&self, message: &str) {
         log(message);
     }
 }
 
-impl HostLog for QueryContext {
+impl<Caps> HostLog for QueryContext<Caps> {
     fn log(&self, message: &str) {
         log(message);
     }
 }
 
-impl HostCurrentNodeId for ReducerContext {
+impl<Caps> HostCurrentNodeId for ReducerContext<Caps> {
     fn current_node_id(&self) -> NodeId {
         current_node_id()
     }
 }
 
-impl HostCurrentNodeId for QueryContext {
+impl<Caps> HostCurrentNodeId for QueryContext<Caps> {
     fn current_node_id(&self) -> NodeId {
         current_node_id()
     }
 }
 
-impl HostTime for ReducerContext {
+impl<Caps> HostTime for ReducerContext<Caps> {
     fn time_now_ms(&self) -> Result<u64, String> {
         time_now_ms()
     }
 }
 
-impl HostTime for QueryContext {
+impl<Caps> HostTime for QueryContext<Caps> {
     fn time_now_ms(&self) -> Result<u64, String> {
         time_now_ms()
     }
 }
 
-impl HostDeterministicRandom for ReducerContext {
+impl<Caps> HostDeterministicRandom for ReducerContext<Caps> {
     fn deterministic_random_u64(&self) -> Result<u64, String> {
         deterministic_random_u64()
     }
 }
 
-impl HostDeterministicRandom for QueryContext {
+impl<Caps> HostDeterministicRandom for QueryContext<Caps> {
     fn deterministic_random_u64(&self) -> Result<u64, String> {
         deterministic_random_u64()
     }
 }
 
-impl HostSchedule for ReducerContext {
+impl<Caps> HostSchedule for ReducerContext<Caps> {
     fn schedule(&self, reducer_name: &str, delay_ms: u64) -> Result<(), String> {
         schedule(reducer_name.to_string(), delay_ms)
     }

@@ -6,7 +6,7 @@ pub fn get_register_schema_function(
     input_fn: ItemFn,
     arg_names: Vec<&Box<Pat>>,
     arg_types: Vec<&Box<Type>>,
-    reads: Vec<proc_macro2::TokenStream>,
+    caps_extend_body: proc_macro2::TokenStream,
 ) -> proc_macro2::TokenStream {
     let query_schema_fn = syn::Ident::new(
         &format!("interstice_{}_query_schema", query_ident),
@@ -42,11 +42,13 @@ pub fn get_register_schema_function(
 
     quote! {
         fn #query_schema_fn() -> interstice_sdk::QuerySchema {
+            let mut reads = Vec::new();
+            #caps_extend_body
             interstice_sdk::QuerySchema::with_reads(
                 stringify!(#query_ident),
                 vec![#(#schema_entries),*],
                 #return_type,
-                vec![#(#reads),*],
+                reads,
             )
         }
 

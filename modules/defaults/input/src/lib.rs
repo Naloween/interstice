@@ -3,22 +3,25 @@ use interstice_sdk::{key_code::KeyCode, *};
 interstice_module!(visibility: Private, authorities: [Input]);
 
 #[table(public, ephemeral)]
-struct KeyState {
+pub struct KeyState {
     #[primary_key]
     code: u32,
     pressed: bool,
 }
 
 #[table(public, ephemeral)]
-struct MouseState {
+pub struct MouseState {
     #[primary_key]
     id: u32,
     position: (f32, f32),
     wheel_delta: (f32, f32),
 }
 
-#[reducer(on = "load", inserts = [keystate, mousestate])]
-fn on_load(ctx: ReducerContext) {
+#[reducer(on = "load")]
+fn on_load<Caps>(ctx: ReducerContext<Caps>)
+where
+    Caps: CanInsert<KeyState> + CanInsert<MouseState>,
+{
     let res = ctx.current.tables.mousestate().insert(MouseState {
         id: 0,
         position: (0.0, 0.0),
@@ -43,13 +46,15 @@ fn on_load(ctx: ReducerContext) {
     }
 }
 
-#[reducer(
-    on = "input",
-    reads = [keystate, mousestate],
-    inserts = [keystate],
-    updates = [keystate, mousestate]
-)]
-fn on_input(ctx: ReducerContext, event: InputEvent) {
+#[reducer(on = "input")]
+fn on_input<Caps>(ctx: ReducerContext<Caps>, event: InputEvent)
+where
+    Caps: CanRead<MouseState>
+        + CanUpdate<MouseState>
+        + CanRead<KeyState>
+        + CanInsert<KeyState>
+        + CanUpdate<KeyState>,
+{
     match event {
         InputEvent::Added { .. } => {}
         InputEvent::Removed { .. } => {}

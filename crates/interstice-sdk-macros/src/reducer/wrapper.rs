@@ -1,9 +1,10 @@
 use interstice_abi::get_reducer_wrapper_name;
 use quote::quote;
-use syn::{Ident, LitInt};
+use syn::{Ident, LitInt, Type};
 
 pub fn get_wrapper_function(
     reducer_ident: Ident,
+    caps_ty: Type,
     arg_count: usize,
     table_subscription: bool,
 ) -> proc_macro2::TokenStream {
@@ -24,7 +25,8 @@ pub fn get_wrapper_function(
         #[unsafe(no_mangle)]
         pub extern "C" fn #wrapper_name(ptr: i32, len: i32) {
             let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
-            let (reducer_context, interstice_args): (interstice_sdk::ReducerContext, interstice_sdk::IntersticeValue) = interstice_sdk::decode(bytes).unwrap();
+            let (raw_context, interstice_args): (interstice_sdk::RawReducerContext, interstice_sdk::IntersticeValue) = interstice_sdk::decode(bytes).unwrap();
+            let reducer_context: interstice_sdk::ReducerContext<#caps_ty> = raw_context.into();
             let interstice_args_vec = match interstice_args {
                 interstice_sdk::IntersticeValue::Vec(v) => v,
                 _ => panic!("Expected Vec<IntersticeValue> as reducer_wrapper input, got {:?}", interstice_args),

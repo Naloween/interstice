@@ -8,6 +8,9 @@ pub fn get_table_code(
     module_tables_name: &str,
     module_selection_tokens: TokenStream,
     table_name_override: Option<&str>,
+    ref_node_name: &str,
+    ref_module_name: &str,
+    ref_table_name: &str,
 ) -> TokenStream {
     let span = proc_macro2::Span::call_site();
     let table_name_ident = format_ident!("{}", table_schema.name);
@@ -15,6 +18,9 @@ pub fn get_table_code(
         .unwrap_or(&table_schema.name)
         .to_string();
     let table_name_lit = LitStr::new(&effective_table_name, span);
+    // Schema / caps use the logical table name (matches `replicated_tables` in interstice_module!);
+    // runtime host calls use `effective_table_name` (e.g. local `__replica__…` shadow table).
+    let schema_table_name_lit = LitStr::new(ref_table_name, span);
     let table_struct_name = syn::Ident::new(&table_schema.type_name, span);
     let table_handle_struct_name =
         syn::Ident::new(&(table_schema.type_name.clone() + "Handle"), span);
@@ -23,6 +29,15 @@ pub fn get_table_code(
         span,
     );
     let module_tables_ident = syn::Ident::new(module_tables_name, span);
+    let read_cap = format_ident!("Read{}", table_schema.type_name);
+    let module_lit = LitStr::new(ref_module_name, span);
+    let node_sel_ts = if ref_node_name == "current" {
+        quote! { interstice_sdk::NodeSelection::Current }
+    } else {
+        let n = LitStr::new(ref_node_name, span);
+        quote! { interstice_sdk::NodeSelection::Other(#n.to_string()) }
+    };
+    let module_sel_ts = quote! { interstice_sdk::ModuleSelection::Other(#module_lit.to_string()) };
 
     let into_row_entries: Vec<TokenStream> = table_schema
         .fields
@@ -71,7 +86,10 @@ pub fn get_table_code(
 
             let unique_method = if index.unique {
                 quote! {
-                    pub fn #fn_get(&self, value: #index_type) -> Option<#table_struct_name> {
+                    pub fn #fn_get(&self, value: #index_type) -> Option<#table_struct_name>
+                    where
+                        Caps: interstice_sdk::CanRead<#table_struct_name>,
+                    {
                         self.#fn_eq(value).into_iter().next()
                     }
                 }
@@ -81,7 +99,10 @@ pub fn get_table_code(
 
             let btree_methods = if index.index_type == interstice_abi::IndexType::BTree {
                 quote! {
-                    pub fn #fn_lt(&self, value: #index_type) -> Vec<#table_struct_name> {
+                    pub fn #fn_lt(&self, value: #index_type) -> Vec<#table_struct_name>
+                    where
+                        Caps: interstice_sdk::CanRead<#table_struct_name>,
+                    {
                         interstice_sdk::host_calls::scan_index(
                             #module_selection_tokens,
                             #table_name_lit.to_string(),
@@ -97,7 +118,10 @@ pub fn get_table_code(
                             .collect()
                     }
 
-                        pub fn #fn_lte(&self, value: #index_type) -> Vec<#table_struct_name> {
+                        pub fn #fn_lte(&self, value: #index_type) -> Vec<#table_struct_name>
+                        where
+                            Caps: interstice_sdk::CanRead<#table_struct_name>,
+                        {
                         interstice_sdk::host_calls::scan_index(
                             #module_selection_tokens,
                             #table_name_lit.to_string(),
@@ -113,7 +137,10 @@ pub fn get_table_code(
                             .collect()
                     }
 
-                        pub fn #fn_gt(&self, value: #index_type) -> Vec<#table_struct_name> {
+                        pub fn #fn_gt(&self, value: #index_type) -> Vec<#table_struct_name>
+                        where
+                            Caps: interstice_sdk::CanRead<#table_struct_name>,
+                        {
                         interstice_sdk::host_calls::scan_index(
                             #module_selection_tokens,
                             #table_name_lit.to_string(),
@@ -129,7 +156,10 @@ pub fn get_table_code(
                             .collect()
                     }
 
-                        pub fn #fn_gte(&self, value: #index_type) -> Vec<#table_struct_name> {
+                        pub fn #fn_gte(&self, value: #index_type) -> Vec<#table_struct_name>
+                        where
+                            Caps: interstice_sdk::CanRead<#table_struct_name>,
+                        {
                         interstice_sdk::host_calls::scan_index(
                             #module_selection_tokens,
                             #table_name_lit.to_string(),
@@ -151,7 +181,10 @@ pub fn get_table_code(
                         max: #index_type,
                         include_min: bool,
                         include_max: bool,
-                    ) -> Vec<#table_struct_name> {
+                    ) -> Vec<#table_struct_name>
+                    where
+                        Caps: interstice_sdk::CanRead<#table_struct_name>,
+                    {
                         interstice_sdk::host_calls::scan_index(
                             #module_selection_tokens,
                             #table_name_lit.to_string(),
@@ -176,7 +209,10 @@ pub fn get_table_code(
             };
 
             quote! {
-                pub fn #fn_eq(&self, value: #index_type) -> Vec<#table_struct_name> {
+                pub fn #fn_eq(&self, value: #index_type) -> Vec<#table_struct_name>
+                where
+                    Caps: interstice_sdk::CanRead<#table_struct_name>,
+                {
                     interstice_sdk::host_calls::scan_index(
                         #module_selection_tokens,
                         #table_name_lit.to_string(),
@@ -199,7 +235,50 @@ pub fn get_table_code(
         .collect();
 
     quote! {
-        pub struct #table_handle_struct_name {}
+        #[derive(Clone, Copy, Debug, Default)]
+        pub struct #read_cap;
+
+        impl interstice_sdk::CanRead<#table_struct_name> for #read_cap {}
+
+        impl interstice_sdk::TableRow for #table_struct_name {
+            const TABLE_NAME: &'static str = #schema_table_name_lit;
+            fn table_ref() -> interstice_sdk::ReducerTableRef {
+                interstice_sdk::ReducerTableRef {
+                    node_selection: #node_sel_ts,
+                    module_selection: #module_sel_ts,
+                    table_name: #schema_table_name_lit.to_string(),
+                }
+            }
+        }
+
+        impl interstice_sdk::ReducerCapPiece for #read_cap {
+            fn extend_reducer_schema(
+                reads: &mut Vec<interstice_sdk::ReducerTableRef>,
+                _inserts: &mut Vec<interstice_sdk::ReducerTableRef>,
+                _updates: &mut Vec<interstice_sdk::ReducerTableRef>,
+                _deletes: &mut Vec<interstice_sdk::ReducerTableRef>,
+            ) {
+                reads.push(interstice_sdk::ReducerTableRef {
+                    node_selection: #node_sel_ts,
+                    module_selection: #module_sel_ts,
+                    table_name: #schema_table_name_lit.to_string(),
+                });
+            }
+        }
+
+        impl interstice_sdk::QueryCapPiece for #read_cap {
+            fn extend_query_schema(reads: &mut Vec<interstice_sdk::ReducerTableRef>) {
+                reads.push(interstice_sdk::ReducerTableRef {
+                    node_selection: #node_sel_ts,
+                    module_selection: #module_sel_ts,
+                    table_name: #schema_table_name_lit.to_string(),
+                });
+            }
+        }
+
+        pub struct #table_handle_struct_name<Caps> {
+            _caps: std::marker::PhantomData<Caps>,
+        }
 
         impl Into<interstice_sdk::Row> for #table_struct_name {
             fn into(self) -> interstice_sdk::Row {
@@ -222,8 +301,11 @@ pub fn get_table_code(
             }
         }
 
-        impl #table_handle_struct_name {
-            pub fn scan(&self) -> Vec<#table_struct_name> {
+        impl<Caps> #table_handle_struct_name<Caps> {
+            pub fn scan(&self) -> Vec<#table_struct_name>
+            where
+                Caps: interstice_sdk::CanRead<#table_struct_name>,
+            {
                 interstice_sdk::host_calls::scan(
                     #module_selection_tokens,
                     #table_name_lit.to_string(),
@@ -234,7 +316,10 @@ pub fn get_table_code(
                 .collect()
             }
 
-            pub fn get(&self, primary_key: #primary_key_type) -> Option<#table_struct_name> {
+            pub fn get(&self, primary_key: #primary_key_type) -> Option<#table_struct_name>
+            where
+                Caps: interstice_sdk::CanRead<#table_struct_name>,
+            {
                 interstice_sdk::host_calls::get_by_primary_key(
                     #module_selection_tokens,
                     #table_name_lit,
@@ -248,13 +333,25 @@ pub fn get_table_code(
             #(#index_methods)*
         }
 
-        pub trait #has_table_handle_trait_name {
-            fn #table_name_ident(&self) -> #table_handle_struct_name;
+        impl<Caps> IntoIterator for #table_handle_struct_name<Caps>
+        where
+            Caps: interstice_sdk::CanRead<#table_struct_name>,
+        {
+            type Item = #table_struct_name;
+            type IntoIter = std::vec::IntoIter<#table_struct_name>;
+
+            fn into_iter(self) -> Self::IntoIter {
+                self.scan().into_iter()
+            }
         }
 
-        impl #has_table_handle_trait_name for #module_tables_ident {
-            fn #table_name_ident(&self) -> #table_handle_struct_name {
-                #table_handle_struct_name {}
+        pub trait #has_table_handle_trait_name<Caps> {
+            fn #table_name_ident(&self) -> #table_handle_struct_name<Caps>;
+        }
+
+        impl<Caps> #has_table_handle_trait_name<Caps> for #module_tables_ident<Caps> {
+            fn #table_name_ident(&self) -> #table_handle_struct_name<Caps> {
+                #table_handle_struct_name { _caps: std::marker::PhantomData }
             }
         }
     }

@@ -116,14 +116,8 @@ pub struct BenchTickState {
     pub last_tick_ms: u64,
 }
 
-#[reducer(
-    on = "load",
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn load(ctx: ReducerContext) {
+#[reducer(on = "load")]
+pub fn load<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(ctx: ReducerContext<Caps>) {
     ensure_fanout_counter(&ctx);
     ensure_tick_state(&ctx);
 }
@@ -132,9 +126,9 @@ pub fn load(ctx: ReducerContext) {
 pub fn noop(_ctx: ReducerContext) {}
 
 /// Ephemeral insert only, narrow declared access — safe to run many workers in parallel.
-#[reducer(inserts = [benchephemeral])]
-pub fn bench_insert_ephemeral(
-    ctx: ReducerContext,
+#[reducer]
+pub fn bench_insert_ephemeral<Caps: CanInsert<BenchEphemeral>>(
+    ctx: ReducerContext<Caps>,
     client_id: String,
     seq: u64,
     payload_bytes: u64,
@@ -142,13 +136,8 @@ pub fn bench_insert_ephemeral(
     insert_ephemeral_row(&ctx, &client_id, seq, payload_bytes);
 }
 
-#[reducer(
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn reset(ctx: ReducerContext) {
+#[reducer]
+pub fn reset<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(ctx: ReducerContext<Caps>) {
     let _ = ctx.current.tables.benchephemeral().clear();
     let _ = ctx.current.tables.benchstateful().clear();
     let _ = ctx.current.tables.benchlogged().clear();
@@ -161,14 +150,9 @@ pub fn reset(ctx: ReducerContext) {
     ensure_tick_state(&ctx);
 }
 
-#[reducer(
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn tx_insert_ephemeral(
-    ctx: ReducerContext,
+#[reducer]
+pub fn tx_insert_ephemeral<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: ReducerContext<Caps>,
     client_id: String,
     seq: u64,
     payload_bytes: u64,
@@ -177,14 +161,9 @@ pub fn tx_insert_ephemeral(
     insert_ephemeral(&ctx, &client_id, seq, payload_bytes, track_progress);
 }
 
-#[reducer(
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn tx_insert_stateful(
-    ctx: ReducerContext,
+#[reducer]
+pub fn tx_insert_stateful<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: ReducerContext<Caps>,
     client_id: String,
     seq: u64,
     payload_bytes: u64,
@@ -193,14 +172,9 @@ pub fn tx_insert_stateful(
     insert_stateful(&ctx, &client_id, seq, payload_bytes, track_progress);
 }
 
-#[reducer(
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn tx_insert_logged(
-    ctx: ReducerContext,
+#[reducer]
+pub fn tx_insert_logged<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: ReducerContext<Caps>,
     client_id: String,
     seq: u64,
     payload_bytes: u64,
@@ -209,14 +183,9 @@ pub fn tx_insert_logged(
     insert_logged(&ctx, &client_id, seq, payload_bytes, track_progress);
 }
 
-#[reducer(
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn tx_update_ephemeral(
-    ctx: ReducerContext,
+#[reducer]
+pub fn tx_update_ephemeral<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: ReducerContext<Caps>,
     client_id: String,
     seq: u64,
     payload_bytes: u64,
@@ -225,14 +194,9 @@ pub fn tx_update_ephemeral(
     update_ephemeral(&ctx, &client_id, seq, payload_bytes, track_progress);
 }
 
-#[reducer(
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn tx_update_stateful(
-    ctx: ReducerContext,
+#[reducer]
+pub fn tx_update_stateful<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: ReducerContext<Caps>,
     client_id: String,
     seq: u64,
     payload_bytes: u64,
@@ -241,14 +205,9 @@ pub fn tx_update_stateful(
     update_stateful(&ctx, &client_id, seq, payload_bytes, track_progress);
 }
 
-#[reducer(
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn tx_update_logged(
-    ctx: ReducerContext,
+#[reducer]
+pub fn tx_update_logged<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: ReducerContext<Caps>,
     client_id: String,
     seq: u64,
     payload_bytes: u64,
@@ -257,44 +216,39 @@ pub fn tx_update_logged(
     update_logged(&ctx, &client_id, seq, payload_bytes, track_progress);
 }
 
-#[reducer(
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn tx_delete_ephemeral(ctx: ReducerContext, client_id: String, seq: u64, track_progress: bool) {
+#[reducer]
+pub fn tx_delete_ephemeral<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: ReducerContext<Caps>,
+    client_id: String,
+    seq: u64,
+    track_progress: bool,
+) {
     delete_ephemeral(&ctx, &client_id, seq, track_progress);
 }
 
-#[reducer(
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn tx_delete_stateful(ctx: ReducerContext, client_id: String, seq: u64, track_progress: bool) {
+#[reducer]
+pub fn tx_delete_stateful<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: ReducerContext<Caps>,
+    client_id: String,
+    seq: u64,
+    track_progress: bool,
+) {
     delete_stateful(&ctx, &client_id, seq, track_progress);
 }
 
-#[reducer(
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn tx_delete_logged(ctx: ReducerContext, client_id: String, seq: u64, track_progress: bool) {
+#[reducer]
+pub fn tx_delete_logged<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: ReducerContext<Caps>,
+    client_id: String,
+    seq: u64,
+    track_progress: bool,
+) {
     delete_logged(&ctx, &client_id, seq, track_progress);
 }
 
-#[reducer(
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn tx_mix_ephemeral(
-    ctx: ReducerContext,
+#[reducer]
+pub fn tx_mix_ephemeral<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: ReducerContext<Caps>,
     client_id: String,
     seq: u64,
     payload_bytes: u64,
@@ -303,14 +257,9 @@ pub fn tx_mix_ephemeral(
     mix_ephemeral(&ctx, &client_id, seq, payload_bytes, track_progress);
 }
 
-#[reducer(
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn tx_mix_stateful(
-    ctx: ReducerContext,
+#[reducer]
+pub fn tx_mix_stateful<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: ReducerContext<Caps>,
     client_id: String,
     seq: u64,
     payload_bytes: u64,
@@ -319,14 +268,9 @@ pub fn tx_mix_stateful(
     mix_stateful(&ctx, &client_id, seq, payload_bytes, track_progress);
 }
 
-#[reducer(
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn tx_mix_logged(
-    ctx: ReducerContext,
+#[reducer]
+pub fn tx_mix_logged<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: ReducerContext<Caps>,
     client_id: String,
     seq: u64,
     payload_bytes: u64,
@@ -335,14 +279,9 @@ pub fn tx_mix_logged(
     mix_logged(&ctx, &client_id, seq, payload_bytes, track_progress);
 }
 
-#[reducer(
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn emit_event(
-    ctx: ReducerContext,
+#[reducer]
+pub fn emit_event<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: ReducerContext<Caps>,
     client_id: String,
     seq: u64,
     payload_bytes: u64,
@@ -360,14 +299,11 @@ pub fn emit_event(
     }
 }
 
-#[reducer(
-    on = "benchmark-workload.benchevent.insert",
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn on_benchevent_insert(ctx: ReducerContext, inserted: BenchEvent) {
+#[reducer(on = "benchmark-workload.benchevent.insert")]
+pub fn on_benchevent_insert<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: ReducerContext<Caps>,
+    inserted: BenchEvent,
+) {
     ensure_fanout_counter(&ctx);
 
     let now = now_ms(&ctx);
@@ -386,13 +322,8 @@ pub fn on_benchevent_insert(ctx: ReducerContext, inserted: BenchEvent) {
     let _ = ctx.current.tables.benchfanout().update(counter);
 }
 
-#[reducer(
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn start_tick(ctx: ReducerContext, tick_ms: u64) {
+#[reducer]
+pub fn start_tick<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(ctx: ReducerContext<Caps>, tick_ms: u64) {
     let interval = tick_ms;
     let now = now_ms(&ctx);
 
@@ -419,13 +350,8 @@ pub fn start_tick(ctx: ReducerContext, tick_ms: u64) {
     let _ = ctx.schedule("tick", interval);
 }
 
-#[reducer(
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn stop_tick(ctx: ReducerContext) {
+#[reducer]
+pub fn stop_tick<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(ctx: ReducerContext<Caps>) {
     if let Some(mut state) = ctx
         .current
         .tables
@@ -437,13 +363,8 @@ pub fn stop_tick(ctx: ReducerContext) {
     }
 }
 
-#[reducer(
-    reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    inserts = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    updates = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate],
-    deletes = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent, benchfanout, benchtickstate]
-)]
-pub fn tick(ctx: ReducerContext) {
+#[reducer]
+pub fn tick<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(ctx: ReducerContext<Caps>) {
     let Some(mut state) = ctx
         .current
         .tables
@@ -470,8 +391,12 @@ pub fn health(_ctx: QueryContext) -> String {
     "ok".to_string()
 }
 
-#[query(reads = [benchprogress])]
-pub fn has_progress(ctx: QueryContext, client_id: String, min_seq: u64) -> bool {
+#[query]
+pub fn has_progress(
+    ctx: QueryContext<ReadBenchProgress>,
+    client_id: String,
+    min_seq: u64,
+) -> bool {
     ctx.current
         .tables
         .benchprogress()
@@ -480,8 +405,12 @@ pub fn has_progress(ctx: QueryContext, client_id: String, min_seq: u64) -> bool 
         .unwrap_or(false)
 }
 
-#[query(reads = [benchprogress])]
-pub fn has_committed(ctx: QueryContext, client_id: String, min_committed: u64) -> bool {
+#[query]
+pub fn has_committed(
+    ctx: QueryContext<ReadBenchProgress>,
+    client_id: String,
+    min_committed: u64,
+) -> bool {
     ctx.current
         .tables
         .benchprogress()
@@ -490,8 +419,11 @@ pub fn has_committed(ctx: QueryContext, client_id: String, min_committed: u64) -
         .unwrap_or(false)
 }
 
-#[query(reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchfanout, benchtickstate])]
-pub fn stats(ctx: QueryContext, client_id: String) -> BenchStats {
+#[query]
+pub fn stats<Caps: CanRead<BenchEphemeral> + CanRead<BenchStateful> + CanRead<BenchLogged> + CanRead<BenchProgress> + CanRead<BenchFanout> + CanRead<BenchTickState>>(
+    ctx: QueryContext<Caps>,
+    client_id: String,
+) -> BenchStats {
     let progress = ctx.current.tables.benchprogress().get(client_id);
     let fanout = ctx.current.tables.benchfanout().get(FANOUT_KEY.to_string());
     let tick = ctx
@@ -514,8 +446,10 @@ pub fn stats(ctx: QueryContext, client_id: String) -> BenchStats {
     }
 }
 
-#[query(reads = [benchephemeral, benchstateful, benchlogged, benchprogress, benchevent])]
-pub fn global_counts(ctx: QueryContext) -> BenchGlobalCounts {
+#[query]
+pub fn global_counts<Caps: CanRead<BenchEphemeral> + CanRead<BenchStateful> + CanRead<BenchLogged> + CanRead<BenchProgress> + CanRead<BenchEvent>>(
+    ctx: QueryContext<Caps>,
+) -> BenchGlobalCounts {
     BenchGlobalCounts {
         ephemeral_rows: ctx.current.tables.benchephemeral().scan().len() as u64,
         stateful_rows: ctx.current.tables.benchstateful().scan().len() as u64,
@@ -525,8 +459,8 @@ pub fn global_counts(ctx: QueryContext) -> BenchGlobalCounts {
     }
 }
 
-#[query(reads = [benchprogress])]
-pub fn total_committed(ctx: QueryContext) -> u64 {
+#[query]
+pub fn total_committed(ctx: QueryContext<ReadBenchProgress>) -> u64 {
     ctx.current
         .tables
         .benchprogress()
@@ -536,13 +470,13 @@ pub fn total_committed(ctx: QueryContext) -> u64 {
         .sum()
 }
 
-#[query(reads = [benchephemeral])]
-pub fn benchephemeral_row_count(ctx: QueryContext) -> u64 {
+#[query]
+pub fn benchephemeral_row_count(ctx: QueryContext<ReadBenchEphemeral>) -> u64 {
     ctx.current.tables.benchephemeral().scan().len() as u64
 }
 
-fn mix_ephemeral(
-    ctx: &ReducerContext,
+fn mix_ephemeral<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: &ReducerContext<Caps>,
     client_id: &str,
     seq: u64,
     payload_bytes: u64,
@@ -555,8 +489,8 @@ fn mix_ephemeral(
     }
 }
 
-fn mix_stateful(
-    ctx: &ReducerContext,
+fn mix_stateful<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: &ReducerContext<Caps>,
     client_id: &str,
     seq: u64,
     payload_bytes: u64,
@@ -569,8 +503,8 @@ fn mix_stateful(
     }
 }
 
-fn mix_logged(
-    ctx: &ReducerContext,
+fn mix_logged<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: &ReducerContext<Caps>,
     client_id: &str,
     seq: u64,
     payload_bytes: u64,
@@ -583,7 +517,12 @@ fn mix_logged(
     }
 }
 
-fn insert_ephemeral_row(ctx: &ReducerContext, client_id: &str, seq: u64, payload_bytes: u64) {
+fn insert_ephemeral_row<Caps: CanInsert<BenchEphemeral>>(
+    ctx: &ReducerContext<Caps>,
+    client_id: &str,
+    seq: u64,
+    payload_bytes: u64,
+) {
     let _ = ctx.current.tables.benchephemeral().insert(BenchEphemeral {
         key: key(client_id, seq),
         client_id: client_id.to_string(),
@@ -593,8 +532,8 @@ fn insert_ephemeral_row(ctx: &ReducerContext, client_id: &str, seq: u64, payload
     });
 }
 
-fn insert_ephemeral(
-    ctx: &ReducerContext,
+fn insert_ephemeral<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: &ReducerContext<Caps>,
     client_id: &str,
     seq: u64,
     payload_bytes: u64,
@@ -607,8 +546,8 @@ fn insert_ephemeral(
     }
 }
 
-fn insert_stateful(
-    ctx: &ReducerContext,
+fn insert_stateful<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: &ReducerContext<Caps>,
     client_id: &str,
     seq: u64,
     payload_bytes: u64,
@@ -627,8 +566,8 @@ fn insert_stateful(
     }
 }
 
-fn insert_logged(
-    ctx: &ReducerContext,
+fn insert_logged<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: &ReducerContext<Caps>,
     client_id: &str,
     seq: u64,
     payload_bytes: u64,
@@ -647,8 +586,8 @@ fn insert_logged(
     }
 }
 
-fn update_ephemeral(
-    ctx: &ReducerContext,
+fn update_ephemeral<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: &ReducerContext<Caps>,
     client_id: &str,
     seq: u64,
     payload_bytes: u64,
@@ -670,8 +609,8 @@ fn update_ephemeral(
     }
 }
 
-fn update_stateful(
-    ctx: &ReducerContext,
+fn update_stateful<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: &ReducerContext<Caps>,
     client_id: &str,
     seq: u64,
     payload_bytes: u64,
@@ -693,8 +632,8 @@ fn update_stateful(
     }
 }
 
-fn update_logged(
-    ctx: &ReducerContext,
+fn update_logged<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: &ReducerContext<Caps>,
     client_id: &str,
     seq: u64,
     payload_bytes: u64,
@@ -716,7 +655,12 @@ fn update_logged(
     }
 }
 
-fn delete_ephemeral(ctx: &ReducerContext, client_id: &str, seq: u64, track_progress: bool) {
+fn delete_ephemeral<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: &ReducerContext<Caps>,
+    client_id: &str,
+    seq: u64,
+    track_progress: bool,
+) {
     let _ = ctx
         .current
         .tables
@@ -728,7 +672,12 @@ fn delete_ephemeral(ctx: &ReducerContext, client_id: &str, seq: u64, track_progr
     }
 }
 
-fn delete_stateful(ctx: &ReducerContext, client_id: &str, seq: u64, track_progress: bool) {
+fn delete_stateful<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: &ReducerContext<Caps>,
+    client_id: &str,
+    seq: u64,
+    track_progress: bool,
+) {
     let _ = ctx
         .current
         .tables
@@ -740,7 +689,12 @@ fn delete_stateful(ctx: &ReducerContext, client_id: &str, seq: u64, track_progre
     }
 }
 
-fn delete_logged(ctx: &ReducerContext, client_id: &str, seq: u64, track_progress: bool) {
+fn delete_logged<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: &ReducerContext<Caps>,
+    client_id: &str,
+    seq: u64,
+    track_progress: bool,
+) {
     let _ = ctx.current.tables.benchlogged().delete(key(client_id, seq));
 
     if track_progress {
@@ -748,7 +702,7 @@ fn delete_logged(ctx: &ReducerContext, client_id: &str, seq: u64, track_progress
     }
 }
 
-fn ensure_fanout_counter(ctx: &ReducerContext) {
+fn ensure_fanout_counter<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(ctx: &ReducerContext<Caps>) {
     if ctx
         .current
         .tables
@@ -766,7 +720,7 @@ fn ensure_fanout_counter(ctx: &ReducerContext) {
     }
 }
 
-fn ensure_tick_state(ctx: &ReducerContext) {
+fn ensure_tick_state<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(ctx: &ReducerContext<Caps>) {
     if ctx
         .current
         .tables
@@ -784,7 +738,11 @@ fn ensure_tick_state(ctx: &ReducerContext) {
     }
 }
 
-fn record_progress(ctx: &ReducerContext, client_id: String, seq: u64) {
+fn record_progress<Caps: CanRead<BenchEphemeral> + CanInsert<BenchEphemeral> + CanUpdate<BenchEphemeral> + CanDelete<BenchEphemeral> + CanRead<BenchStateful> + CanInsert<BenchStateful> + CanUpdate<BenchStateful> + CanDelete<BenchStateful> + CanRead<BenchLogged> + CanInsert<BenchLogged> + CanUpdate<BenchLogged> + CanDelete<BenchLogged> + CanRead<BenchProgress> + CanInsert<BenchProgress> + CanUpdate<BenchProgress> + CanDelete<BenchProgress> + CanRead<BenchEvent> + CanInsert<BenchEvent> + CanUpdate<BenchEvent> + CanDelete<BenchEvent> + CanRead<BenchFanout> + CanInsert<BenchFanout> + CanUpdate<BenchFanout> + CanDelete<BenchFanout> + CanRead<BenchTickState> + CanInsert<BenchTickState> + CanUpdate<BenchTickState> + CanDelete<BenchTickState>>(
+    ctx: &ReducerContext<Caps>,
+    client_id: String,
+    seq: u64,
+) {
     let now = now_ms(ctx);
 
     if let Some(mut progress) = ctx.current.tables.benchprogress().get(client_id.clone()) {
@@ -810,6 +768,6 @@ fn payload(payload_bytes: u64) -> String {
     "x".repeat(payload_bytes as usize)
 }
 
-fn now_ms(ctx: &ReducerContext) -> u64 {
+fn now_ms<Caps>(ctx: &ReducerContext<Caps>) -> u64 {
     ctx.time_now_ms().unwrap_or(0)
 }

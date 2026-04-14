@@ -15,8 +15,11 @@ pub struct Player {
     pub radius: f32,
 }
 
-#[reducer(reads = [player], inserts = [player])]
-pub fn join(ctx: ReducerContext, name: String) {
+#[reducer]
+pub fn join<Caps>(ctx: ReducerContext<Caps>, name: String)
+where
+    Caps: CanRead<Player> + CanInsert<Player>,
+{
     if ctx
         .current
         .tables
@@ -38,8 +41,11 @@ pub fn join(ctx: ReducerContext, name: String) {
     let _ = ctx.current.tables.player().insert(player);
 }
 
-#[reducer(reads = [player], updates = [player])]
-pub fn set_direction(ctx: ReducerContext, dx: f32, dy: f32) {
+#[reducer]
+pub fn set_direction<Caps>(ctx: ReducerContext<Caps>, dx: f32, dy: f32)
+where
+    Caps: CanRead<Player> + CanUpdate<Player>,
+{
     let Some(mut p) = ctx.current.tables.player().get(ctx.caller_node_id) else {
         return;
     };

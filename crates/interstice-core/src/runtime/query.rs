@@ -3,7 +3,7 @@ use crate::{
     runtime::Runtime,
     runtime::reducer::{CallFrame, CallFrameKind, CALL_STACK},
 };
-use interstice_abi::{IntersticeValue, QueryContext};
+use interstice_abi::{IntersticeValue, RawQueryContext as QueryContext};
 use serde::Serialize;
 
 impl Runtime {

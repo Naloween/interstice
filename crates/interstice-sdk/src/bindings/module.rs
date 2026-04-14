@@ -50,12 +50,17 @@ pub fn get_module_code(module_schema: ModuleSchema, node_selection: NodeSelectio
     let table_items: Vec<TokenStream> = module_schema
         .tables
         .into_iter()
-        .map(|table| match &node_selection {
+        .map(|table| {
+            let table_name_for_ref = table.name.clone();
+            match &node_selection {
             NodeSelection::Current => get_table_code(
                 table,
                 &module_tables_name,
                 quote! { interstice_sdk::ModuleSelection::Other(#module_name_lit.to_string()) },
                 None,
+                "current",
+                &module_name,
+                &table_name_for_ref,
             ),
             NodeSelection::Other(node_name) => {
                 let replica_table_name = format!(
@@ -69,17 +74,24 @@ pub fn get_module_code(module_schema: ModuleSchema, node_selection: NodeSelectio
                     &module_tables_name,
                     quote! { interstice_sdk::ModuleSelection::Current },
                     Some(&replica_table_name),
+                    node_name,
+                    &module_name,
+                    &table_name_for_ref,
                 )
             }
-        })
+        }})
         .collect();
 
     let context_type_tokens = match &node_selection {
-        NodeSelection::Current => quote! { interstice_sdk::ReducerContext },
+        NodeSelection::Current => quote! { interstice_sdk::ReducerContext<Caps> },
         NodeSelection::Other(node_name) => {
             let node_ident = Ident::new(&snake_to_camel_case(&to_snake_case(node_name)), span);
-            quote! { #node_ident }
+            quote! { #node_ident<Caps> }
         }
+    };
+    let context_generics = match &node_selection {
+        NodeSelection::Current => quote! { <Caps> },
+        NodeSelection::Other(_) => quote! { <Caps> },
     };
 
     let needs_inner_module = matches!(node_selection, NodeSelection::Other(_));
@@ -89,13 +101,15 @@ pub fn get_module_code(module_schema: ModuleSchema, node_selection: NodeSelectio
             pub mod #module_inner_ident {
                 #(#type_definition_items)*
 
-                pub struct #module_handle_ident {
-                    pub tables: #module_tables_ident,
+                pub struct #module_handle_ident<Caps> {
+                    pub tables: #module_tables_ident<Caps>,
                     pub reducers: #module_reducers_ident,
                     pub queries: #module_queries_ident,
                 }
 
-                pub struct #module_tables_ident {}
+                pub struct #module_tables_ident<Caps> {
+                    pub _caps: std::marker::PhantomData<Caps>,
+                }
                 pub struct #module_reducers_ident {}
                 pub struct #module_queries_ident {}
 
@@ -110,14 +124,14 @@ pub fn get_module_code(module_schema: ModuleSchema, node_selection: NodeSelectio
                 #(#table_items)*
             }
 
-            pub trait #has_module_handle_trait_ident {
-                fn #module_method_ident(&self) -> #module_inner_ident::#module_handle_ident;
+            pub trait #has_module_handle_trait_ident<Caps> {
+                fn #module_method_ident(&self) -> #module_inner_ident::#module_handle_ident<Caps>;
             }
 
-            impl #has_module_handle_trait_ident for #context_type_tokens {
-                fn #module_method_ident(&self) -> #module_inner_ident::#module_handle_ident {
+            impl #context_generics #has_module_handle_trait_ident<Caps> for #context_type_tokens {
+                fn #module_method_ident(&self) -> #module_inner_ident::#module_handle_ident<Caps> {
                     #module_inner_ident::#module_handle_ident {
-                        tables: #module_inner_ident::#module_tables_ident {},
+                        tables: #module_inner_ident::#module_tables_ident { _caps: std::marker::PhantomData },
                         reducers: #module_inner_ident::#module_reducers_ident {},
                         queries: #module_inner_ident::#module_queries_ident {},
                     }
@@ -128,13 +142,15 @@ pub fn get_module_code(module_schema: ModuleSchema, node_selection: NodeSelectio
         quote! {
             #(#type_definition_items)*
 
-            pub struct #module_handle_ident {
-                pub tables: #module_tables_ident,
+            pub struct #module_handle_ident<Caps> {
+                pub tables: #module_tables_ident<Caps>,
                 pub reducers: #module_reducers_ident,
                 pub queries: #module_queries_ident,
             }
 
-            pub struct #module_tables_ident {}
+            pub struct #module_tables_ident<Caps> {
+                pub _caps: std::marker::PhantomData<Caps>,
+            }
             pub struct #module_reducers_ident {}
             pub struct #module_queries_ident {}
 
@@ -148,14 +164,14 @@ pub fn get_module_code(module_schema: ModuleSchema, node_selection: NodeSelectio
 
             #(#table_items)*
 
-            pub trait #has_module_handle_trait_ident {
-                fn #module_method_ident(&self) -> #module_handle_ident;
+            pub trait #has_module_handle_trait_ident<Caps> {
+                fn #module_method_ident(&self) -> #module_handle_ident<Caps>;
             }
 
-            impl #has_module_handle_trait_ident for #context_type_tokens {
-                fn #module_method_ident(&self) -> #module_handle_ident {
+            impl #context_generics #has_module_handle_trait_ident<Caps> for #context_type_tokens {
+                fn #module_method_ident(&self) -> #module_handle_ident<Caps> {
                     #module_handle_ident {
-                        tables: #module_tables_ident {},
+                        tables: #module_tables_ident { _caps: std::marker::PhantomData },
                         reducers: #module_reducers_ident {},
                         queries: #module_queries_ident {},
                     }

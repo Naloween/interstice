@@ -44,8 +44,11 @@ pub fn scheduled(ctx: ReducerContext) {
     ctx.log("Scheduled reducer called");
 }
 
-#[reducer(inserts = [greetings])]
-pub fn hello(ctx: ReducerContext, name: String) {
+#[reducer]
+pub fn hello<Caps>(ctx: ReducerContext<Caps>, name: String)
+where
+    Caps: CanInsert<Greetings>,
+{
     ctx.log(&format!("Saying hello to {}", name));
     match ctx.current.tables.greetings().insert(Greetings {
         id: 0,
@@ -62,7 +65,10 @@ fn on_greeting_insert(ctx: ReducerContext, inserted_row: Greetings) {
     ctx.log(&format!("Inserted greeting: {:?}", inserted_row));
 }
 
-#[query(reads = [greetings])]
-fn get_greetings(ctx: QueryContext) -> Vec<Greetings> {
+#[query]
+fn get_greetings<Caps>(ctx: QueryContext<Caps>) -> Vec<Greetings>
+where
+    Caps: CanRead<Greetings>,
+{
     ctx.current.tables.greetings().scan()
 }

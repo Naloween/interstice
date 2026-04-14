@@ -1,6 +1,8 @@
 use interstice_abi::{
-    Authority, ModuleDependency, ModuleVisibility, NodeDependency, encode, pack_ptr_len,
+    Authority, ModuleDependency, ModuleSelection, ModuleVisibility, NodeDependency, NodeSelection,
+    QuerySchema, ReducerSchema, ReducerTableRef, ReplicatedTableSchema, encode, pack_ptr_len,
 };
+use std::collections::HashSet;
 
 pub const fn validate_replicated_table_literal(value: &str) {
     let bytes = value.as_bytes();
@@ -179,7 +181,7 @@ macro_rules! interstice_module {
             fn audio(&self) -> Audio;
         }
 
-        impl AudioExt for interstice_sdk::ReducerContext {
+        impl<Caps> AudioExt for interstice_sdk::ReducerContext<Caps> {
             fn audio(&self) -> interstice_sdk::Audio {
                 interstice_sdk::Audio
             }
@@ -191,7 +193,7 @@ macro_rules! interstice_module {
             fn gpu(&self) -> Gpu;
         }
 
-        impl GpuExt for interstice_sdk::ReducerContext {
+        impl<Caps> GpuExt for interstice_sdk::ReducerContext<Caps> {
             fn gpu(&self) -> interstice_sdk::Gpu {
                 interstice_sdk::Gpu
             }
@@ -203,7 +205,7 @@ macro_rules! interstice_module {
             fn file(&self) -> File;
         }
 
-        impl FileExt for interstice_sdk::ReducerContext {
+        impl<Caps> FileExt for interstice_sdk::ReducerContext<Caps> {
             fn file(&self) -> interstice_sdk::File {
                 interstice_sdk::File
             }
@@ -215,7 +217,7 @@ macro_rules! interstice_module {
             fn module(&self) -> ModuleAuthority;
         }
 
-        impl ModuleExt for interstice_sdk::ReducerContext {
+        impl<Caps> ModuleExt for interstice_sdk::ReducerContext<Caps> {
             fn module(&self) -> interstice_sdk::ModuleAuthority {
                 interstice_sdk::ModuleAuthority
             }
@@ -238,6 +240,16 @@ pub fn describe_module(
     let subscriptions = interstice_sdk_core::registry::collect_subscriptions();
     let type_definitions = interstice_sdk_core::registry::collect_type_definitions();
 
+    validate_declared_accesses(
+        name,
+        &reducers,
+        &queries,
+        &tables,
+        &module_dependencies,
+        &node_dependencies,
+        &replicated_tables,
+    );
+
     let schema = interstice_abi::ModuleSchema {
         abi_version: interstice_abi::ABI_VERSION,
         name: name.to_string(),
@@ -258,4 +270,167 @@ pub fn describe_module(
     let len = bytes.len() as i32;
     let ptr = Box::into_raw(bytes.into_boxed_slice()) as *mut u8 as i32;
     return pack_ptr_len(ptr, len);
+}
+
+fn validate_declared_accesses(
+    current_module: &str,
+    reducers: &[ReducerSchema],
+    queries: &[QuerySchema],
+    tables: &[interstice_abi::TableSchema],
+    module_dependencies: &[ModuleDependency],
+    node_dependencies: &[NodeDependency],
+    replicated_tables: &[ReplicatedTableSchema],
+) {
+    let local_tables: HashSet<String> = tables.iter().map(|t| t.name.to_lowercase()).collect();
+    let modules: HashSet<String> = module_dependencies
+        .iter()
+        .map(|m| m.module_name.to_lowercase())
+        .collect();
+    let nodes: HashSet<String> = node_dependencies
+        .iter()
+        .map(|n| n.name.to_lowercase())
+        .collect();
+    let replicas: HashSet<(String, String, String)> = replicated_tables
+        .iter()
+        .map(|r| {
+            (
+                r.node_name.to_lowercase(),
+                r.module_name.to_lowercase(),
+                r.table_name.to_lowercase(),
+            )
+        })
+        .collect();
+
+    for reducer in reducers {
+        for access in &reducer.reads {
+            validate_access_ref(
+                current_module,
+                reducer.name.as_str(),
+                "reducer",
+                "reads",
+                access,
+                &local_tables,
+                &modules,
+                &nodes,
+                &replicas,
+            );
+        }
+        for access in &reducer.inserts {
+            validate_access_ref(
+                current_module,
+                reducer.name.as_str(),
+                "reducer",
+                "inserts",
+                access,
+                &local_tables,
+                &modules,
+                &nodes,
+                &replicas,
+            );
+        }
+        for access in &reducer.updates {
+            validate_access_ref(
+                current_module,
+                reducer.name.as_str(),
+                "reducer",
+                "updates",
+                access,
+                &local_tables,
+                &modules,
+                &nodes,
+                &replicas,
+            );
+        }
+        for access in &reducer.deletes {
+            validate_access_ref(
+                current_module,
+                reducer.name.as_str(),
+                "reducer",
+                "deletes",
+                access,
+                &local_tables,
+                &modules,
+                &nodes,
+                &replicas,
+            );
+        }
+    }
+
+    for query in queries {
+        for access in &query.reads {
+            validate_access_ref(
+                current_module,
+                query.name.as_str(),
+                "query",
+                "reads",
+                access,
+                &local_tables,
+                &modules,
+                &nodes,
+                &replicas,
+            );
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn validate_access_ref(
+    current_module: &str,
+    owner_name: &str,
+    owner_kind: &str,
+    op: &str,
+    access: &ReducerTableRef,
+    local_tables: &HashSet<String>,
+    modules: &HashSet<String>,
+    nodes: &HashSet<String>,
+    replicas: &HashSet<(String, String, String)>,
+) {
+    let access_table_lc = access.table_name.to_lowercase();
+    match (&access.node_selection, &access.module_selection) {
+        (NodeSelection::Current, ModuleSelection::Current) => {
+            if !local_tables.contains(&access_table_lc) {
+                panic!(
+                    "Invalid {owner_kind} `{owner_name}` {op} access: local table `{}` does not exist in module `{}`",
+                    access.table_name, current_module
+                );
+            }
+        }
+        (NodeSelection::Current, ModuleSelection::Other(module)) => {
+            if module == current_module {
+                panic!(
+                    "Invalid {owner_kind} `{owner_name}` {op} access: use current module table references for `{}`",
+                    access.table_name
+                );
+            }
+            if !modules.contains(&module.to_lowercase()) {
+                panic!(
+                    "Invalid {owner_kind} `{owner_name}` {op} access: module dependency `{module}` is not declared"
+                );
+            }
+        }
+        (NodeSelection::Other(node), ModuleSelection::Other(module)) => {
+            if !nodes.contains(&node.to_lowercase()) {
+                panic!(
+                    "Invalid {owner_kind} `{owner_name}` {op} access: node dependency `{node}` is not declared"
+                );
+            }
+            let key = (
+                node.to_lowercase(),
+                module.to_lowercase(),
+                access_table_lc.clone(),
+            );
+            if !replicas.contains(&key) {
+                panic!(
+                    "Invalid {owner_kind} `{owner_name}` {op} access: replica `{node}.{module}.{}`
+is not declared in `replicated_tables`",
+                    access.table_name
+                );
+            }
+        }
+        (NodeSelection::Other(node), ModuleSelection::Current) => {
+            panic!(
+                "Invalid {owner_kind} `{owner_name}` {op} access: remote node `{node}` must use an explicit module selection"
+            );
+        }
+    }
 }

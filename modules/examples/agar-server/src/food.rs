@@ -13,7 +13,10 @@ pub struct Food {
     pub radius: f32,
 }
 
-pub fn spawn_missing_foods(ctx: &ReducerContext) {
+pub fn spawn_missing_foods<Caps>(ctx: &ReducerContext<Caps>)
+where
+    Caps: CanRead<Food> + CanInsert<Food>,
+{
     let mut count = ctx.current.tables.food().scan().len();
     while count < TARGET_FOOD {
         let pos = rand_pos();

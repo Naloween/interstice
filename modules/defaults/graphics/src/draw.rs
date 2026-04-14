@@ -4,23 +4,60 @@ use interstice_sdk::*;
 
 use crate::helpers::{enqueue_draw_command, ensure_layer_exists, namespaced_key};
 use crate::tables::{
-    ComputeCommand, Draw2DCommand, HasComputeCommandEditHandle, HasMeshBindingEditHandle,
-    HasPipelineBindingEditHandle, HasRenderPassCommandEditHandle, HasTextureBindingEditHandle,
-    RenderPassCommand,
+    BindGroupBinding, ComputeCommand, Draw2DCommand, FrameTick, HasComputeCommandEditHandle,
+    HasMeshBindingEditHandle, HasPipelineBindingEditHandle, HasRenderPassCommandEditHandle,
+    HasTextureBindingEditHandle, Layer, MeshBinding, PipelineBinding, RenderPassCommand,
+    RendererCache, TextureBinding,
 };
 use crate::types::{
     CircleCommand, Color, ComputeSubmission, ImageCommand, MeshDrawCommand, PolylineCommand, Rect,
     RectCommand, RenderPassSubmission, ResourceAddress, TextCommand, Vec2,
 };
 
-#[reducer(
-    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
-)]
-pub fn draw_circle(
-    ctx: ReducerContext,
+#[reducer]
+pub fn draw_circle<
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+>(
+    ctx: ReducerContext<Caps>,
     layer: String,
     center: Vec2,
     radius: f32,
@@ -56,14 +93,50 @@ pub fn draw_circle(
     enqueue_draw_command(&ctx, command);
 }
 
-#[reducer(
-    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
-)]
-pub fn draw_circles(
-    ctx: ReducerContext,
+#[reducer]
+pub fn draw_circles<
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+>(
+    ctx: ReducerContext<Caps>,
     layer: String,
     centers: Vec<Vec2>,
     radii: Vec<f32>,
@@ -116,14 +189,50 @@ pub fn draw_circles(
     enqueue_draw_command(&ctx, command);
 }
 
-#[reducer(
-    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
-)]
-pub fn draw_polyline(
-    ctx: ReducerContext,
+#[reducer]
+pub fn draw_polyline<
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+>(
+    ctx: ReducerContext<Caps>,
     layer: String,
     points: Vec<Vec2>,
     width: f32,
@@ -159,14 +268,50 @@ pub fn draw_polyline(
     enqueue_draw_command(&ctx, command);
 }
 
-#[reducer(
-    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
-)]
-pub fn draw_rect(
-    ctx: ReducerContext,
+#[reducer]
+pub fn draw_rect<
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+>(
+    ctx: ReducerContext<Caps>,
     layer: String,
     rect: Rect,
     color: Color,
@@ -200,14 +345,50 @@ pub fn draw_rect(
     enqueue_draw_command(&ctx, command);
 }
 
-#[reducer(
-    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
-)]
-pub fn draw_image(
-    ctx: ReducerContext,
+#[reducer]
+pub fn draw_image<
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+>(
+    ctx: ReducerContext<Caps>,
     layer: String,
     texture_local_id: String,
     rect: Rect,
@@ -252,14 +433,50 @@ pub fn draw_image(
     enqueue_draw_command(&ctx, command);
 }
 
-#[reducer(
-    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
-)]
-pub fn draw_text(
-    ctx: ReducerContext,
+#[reducer]
+pub fn draw_text<
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+>(
+    ctx: ReducerContext<Caps>,
     layer: String,
     content: String,
     position: Vec2,
@@ -298,14 +515,50 @@ pub fn draw_text(
     enqueue_draw_command(&ctx, command);
 }
 
-#[reducer(
-    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
-)]
-pub fn draw_mesh(
-    ctx: ReducerContext,
+#[reducer]
+pub fn draw_mesh<
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+>(
+    ctx: ReducerContext<Caps>,
     layer: String,
     mesh_local_id: String,
     pipeline_local_id: String,
@@ -376,13 +629,52 @@ pub fn draw_mesh(
     enqueue_draw_command(&ctx, command);
 }
 
-#[reducer(
-    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
-)]
-pub fn submit_render_pass(ctx: ReducerContext, submission: RenderPassSubmission) {
+#[reducer]
+pub fn submit_render_pass<
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+>(
+    ctx: ReducerContext<Caps>,
+    submission: RenderPassSubmission,
+) {
     if !ensure_layer_exists(&ctx, &submission.layer) {
         return;
     }
@@ -399,13 +691,52 @@ pub fn submit_render_pass(ctx: ReducerContext, submission: RenderPassSubmission)
     }
 }
 
-#[reducer(
-    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
-)]
-pub fn submit_compute(ctx: ReducerContext, submission: ComputeSubmission) {
+#[reducer]
+pub fn submit_compute<
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+>(
+    ctx: ReducerContext<Caps>,
+    submission: ComputeSubmission,
+) {
     if let Err(err) = ctx.current.tables.computecommand().insert(ComputeCommand {
         id: 0,
         payload: submission,

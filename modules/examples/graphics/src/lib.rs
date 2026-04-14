@@ -14,8 +14,11 @@ pub struct PipelineTable {
 
 // REDUCERS
 
-#[reducer(on = "load", inserts = [pipelinetable])]
-pub fn load(ctx: ReducerContext) {
+#[reducer(on = "load")]
+pub fn load<Caps>(ctx: ReducerContext<Caps>)
+where
+    Caps: CanInsert<PipelineTable>,
+{
     ctx.log("Loading graphics...");
     let gpu = ctx.gpu();
 
@@ -115,8 +118,11 @@ pub fn load(ctx: ReducerContext) {
     }
 }
 
-#[reducer(on = "render", reads = [pipelinetable])]
-pub fn render(ctx: ReducerContext) {
+#[reducer(on = "render")]
+pub fn render<Caps>(ctx: ReducerContext<Caps>)
+where
+    Caps: CanRead<PipelineTable>,
+{
     let gpu = ctx.gpu();
 
     // Get pipeline from table

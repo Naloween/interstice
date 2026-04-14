@@ -74,12 +74,23 @@ pub struct UiPanel {
     pub visible: bool,
 }
 
-#[reducer(
-    on = "load",
-    reads = [uilayerconfig, uilabel, uipanel],
-    inserts = [uilayerconfig, uilabel, uipanel]
-)]
-pub fn load(ctx: ReducerContext) {
+#[reducer(on = "load")]
+pub fn load<
+    Caps: CanRead<UiLayerConfig>
+        + CanInsert<UiLayerConfig>
+        + CanUpdate<UiLayerConfig>
+        + CanDelete<UiLayerConfig>
+        + CanRead<UiLabel>
+        + CanInsert<UiLabel>
+        + CanUpdate<UiLabel>
+        + CanDelete<UiLabel>
+        + CanRead<UiPanel>
+        + CanInsert<UiPanel>
+        + CanUpdate<UiPanel>
+        + CanDelete<UiPanel>,
+>(
+    ctx: ReducerContext<Caps>,
+) {
     if ctx
         .current
         .tables
@@ -161,9 +172,22 @@ pub fn load(ctx: ReducerContext) {
     }
 }
 
-#[reducer(reads = [uilayerconfig], inserts = [uilayerconfig], updates = [uilayerconfig])]
-pub fn configure_scope(
-    ctx: ReducerContext,
+#[reducer]
+pub fn configure_scope<
+    Caps: CanRead<UiLayerConfig>
+        + CanInsert<UiLayerConfig>
+        + CanUpdate<UiLayerConfig>
+        + CanDelete<UiLayerConfig>
+        + CanRead<UiLabel>
+        + CanInsert<UiLabel>
+        + CanUpdate<UiLabel>
+        + CanDelete<UiLabel>
+        + CanRead<UiPanel>
+        + CanInsert<UiPanel>
+        + CanUpdate<UiPanel>
+        + CanDelete<UiPanel>,
+>(
+    ctx: ReducerContext<Caps>,
     scope: String,
     layer_name: String,
     z: i32,
@@ -194,8 +218,25 @@ pub fn configure_scope(
     }
 }
 
-#[reducer(reads = [uilayerconfig], updates = [uilayerconfig])]
-pub fn set_scope_enabled(ctx: ReducerContext, scope: String, enabled: bool) {
+#[reducer]
+pub fn set_scope_enabled<
+    Caps: CanRead<UiLayerConfig>
+        + CanInsert<UiLayerConfig>
+        + CanUpdate<UiLayerConfig>
+        + CanDelete<UiLayerConfig>
+        + CanRead<UiLabel>
+        + CanInsert<UiLabel>
+        + CanUpdate<UiLabel>
+        + CanDelete<UiLabel>
+        + CanRead<UiPanel>
+        + CanInsert<UiPanel>
+        + CanUpdate<UiPanel>
+        + CanDelete<UiPanel>,
+>(
+    ctx: ReducerContext<Caps>,
+    scope: String,
+    enabled: bool,
+) {
     let Some(mut row) = ctx.current.tables.uilayerconfig().get(scope.clone()) else {
         ctx.log(&format!("UI scope '{}' not found", scope));
         return;
@@ -205,9 +246,22 @@ pub fn set_scope_enabled(ctx: ReducerContext, scope: String, enabled: bool) {
     let _ = ctx.current.tables.uilayerconfig().update(row);
 }
 
-#[reducer(reads = [uilabel], inserts = [uilabel], updates = [uilabel])]
-pub fn upsert_label(
-    ctx: ReducerContext,
+#[reducer]
+pub fn upsert_label<
+    Caps: CanRead<UiLayerConfig>
+        + CanInsert<UiLayerConfig>
+        + CanUpdate<UiLayerConfig>
+        + CanDelete<UiLayerConfig>
+        + CanRead<UiLabel>
+        + CanInsert<UiLabel>
+        + CanUpdate<UiLabel>
+        + CanDelete<UiLabel>
+        + CanRead<UiPanel>
+        + CanInsert<UiPanel>
+        + CanUpdate<UiPanel>
+        + CanDelete<UiPanel>,
+>(
+    ctx: ReducerContext<Caps>,
     scope: String,
     id: String,
     text: String,
@@ -244,17 +298,47 @@ pub fn upsert_label(
     }
 }
 
-#[reducer(deletes = [uilabel])]
-pub fn remove_label(ctx: ReducerContext, scope: String, id: String) {
+#[reducer]
+pub fn remove_label<
+    Caps: CanRead<UiLayerConfig>
+        + CanInsert<UiLayerConfig>
+        + CanUpdate<UiLayerConfig>
+        + CanDelete<UiLayerConfig>
+        + CanRead<UiLabel>
+        + CanInsert<UiLabel>
+        + CanUpdate<UiLabel>
+        + CanDelete<UiLabel>
+        + CanRead<UiPanel>
+        + CanInsert<UiPanel>
+        + CanUpdate<UiPanel>
+        + CanDelete<UiPanel>,
+>(
+    ctx: ReducerContext<Caps>,
+    scope: String,
+    id: String,
+) {
     if id.trim().is_empty() {
         return;
     }
     let _ = ctx.current.tables.uilabel().delete((scope, id));
 }
 
-#[reducer(reads = [uipanel], inserts = [uipanel], updates = [uipanel])]
-pub fn upsert_panel(
-    ctx: ReducerContext,
+#[reducer]
+pub fn upsert_panel<
+    Caps: CanRead<UiLayerConfig>
+        + CanInsert<UiLayerConfig>
+        + CanUpdate<UiLayerConfig>
+        + CanDelete<UiLayerConfig>
+        + CanRead<UiLabel>
+        + CanInsert<UiLabel>
+        + CanUpdate<UiLabel>
+        + CanDelete<UiLabel>
+        + CanRead<UiPanel>
+        + CanInsert<UiPanel>
+        + CanUpdate<UiPanel>
+        + CanDelete<UiPanel>,
+>(
+    ctx: ReducerContext<Caps>,
     scope: String,
     id: String,
     rect: Rect,
@@ -297,16 +381,49 @@ pub fn upsert_panel(
     }
 }
 
-#[reducer(deletes = [uipanel])]
-pub fn remove_panel(ctx: ReducerContext, scope: String, id: String) {
+#[reducer]
+pub fn remove_panel<
+    Caps: CanRead<UiLayerConfig>
+        + CanInsert<UiLayerConfig>
+        + CanUpdate<UiLayerConfig>
+        + CanDelete<UiLayerConfig>
+        + CanRead<UiLabel>
+        + CanInsert<UiLabel>
+        + CanUpdate<UiLabel>
+        + CanDelete<UiLabel>
+        + CanRead<UiPanel>
+        + CanInsert<UiPanel>
+        + CanUpdate<UiPanel>
+        + CanDelete<UiPanel>,
+>(
+    ctx: ReducerContext<Caps>,
+    scope: String,
+    id: String,
+) {
     if id.trim().is_empty() {
         return;
     }
     let _ = ctx.current.tables.uipanel().delete((scope, id));
 }
 
-#[reducer(reads = [uilabel, uipanel], deletes = [uilabel, uipanel])]
-pub fn clear_scope(ctx: ReducerContext, scope: String) {
+#[reducer]
+pub fn clear_scope<
+    Caps: CanRead<UiLayerConfig>
+        + CanInsert<UiLayerConfig>
+        + CanUpdate<UiLayerConfig>
+        + CanDelete<UiLayerConfig>
+        + CanRead<UiLabel>
+        + CanInsert<UiLabel>
+        + CanUpdate<UiLabel>
+        + CanDelete<UiLabel>
+        + CanRead<UiPanel>
+        + CanInsert<UiPanel>
+        + CanUpdate<UiPanel>
+        + CanDelete<UiPanel>,
+>(
+    ctx: ReducerContext<Caps>,
+    scope: String,
+) {
     for row in ctx.current.tables.uilabel().scan() {
         if row.key.0 == scope {
             let _ = ctx.current.tables.uilabel().delete(row.key);
@@ -320,8 +437,25 @@ pub fn clear_scope(ctx: ReducerContext, scope: String) {
     }
 }
 
-#[reducer(on = "graphics.frametick.update", reads = [uilayerconfig, uilabel, uipanel])]
-pub fn render(ctx: ReducerContext, _prev: FrameTick, tick: FrameTick) {
+#[reducer(on = "graphics.frametick.update")]
+pub fn render<
+    Caps: CanRead<UiLayerConfig>
+        + CanInsert<UiLayerConfig>
+        + CanUpdate<UiLayerConfig>
+        + CanDelete<UiLayerConfig>
+        + CanRead<UiLabel>
+        + CanInsert<UiLabel>
+        + CanUpdate<UiLabel>
+        + CanDelete<UiLabel>
+        + CanRead<UiPanel>
+        + CanInsert<UiPanel>
+        + CanUpdate<UiPanel>
+        + CanDelete<UiPanel>,
+>(
+    ctx: ReducerContext<Caps>,
+    _prev: FrameTick,
+    tick: FrameTick,
+) {
     ctx.log(&format!("ui render tick {}", tick.frame));
     let layer_rows = ctx.current.tables.uilayerconfig().scan();
     let graphics = ctx.graphics();
@@ -333,7 +467,24 @@ pub fn render(ctx: ReducerContext, _prev: FrameTick, tick: FrameTick) {
     }
 }
 
-fn ensure_graphics_layer(ctx: &ReducerContext, graphics: &GraphicsReducers, layer: &UiLayerConfig) {
+fn ensure_graphics_layer<
+    Caps: CanRead<UiLayerConfig>
+        + CanInsert<UiLayerConfig>
+        + CanUpdate<UiLayerConfig>
+        + CanDelete<UiLayerConfig>
+        + CanRead<UiLabel>
+        + CanInsert<UiLabel>
+        + CanUpdate<UiLabel>
+        + CanDelete<UiLabel>
+        + CanRead<UiPanel>
+        + CanInsert<UiPanel>
+        + CanUpdate<UiPanel>
+        + CanDelete<UiPanel>,
+>(
+    ctx: &ReducerContext<Caps>,
+    graphics: &GraphicsReducers,
+    layer: &UiLayerConfig,
+) {
     if let Err(err) = graphics.create_layer(layer.layer_name.clone(), layer.z, layer.clear) {
         ctx.log(&format!("UI layer create failed: {err}"));
     }
@@ -345,8 +496,21 @@ fn ensure_graphics_layer(ctx: &ReducerContext, graphics: &GraphicsReducers, laye
     }
 }
 
-fn render_panels_for_scope(
-    ctx: &ReducerContext,
+fn render_panels_for_scope<
+    Caps: CanRead<UiLayerConfig>
+        + CanInsert<UiLayerConfig>
+        + CanUpdate<UiLayerConfig>
+        + CanDelete<UiLayerConfig>
+        + CanRead<UiLabel>
+        + CanInsert<UiLabel>
+        + CanUpdate<UiLabel>
+        + CanDelete<UiLabel>
+        + CanRead<UiPanel>
+        + CanInsert<UiPanel>
+        + CanUpdate<UiPanel>
+        + CanDelete<UiPanel>,
+>(
+    ctx: &ReducerContext<Caps>,
     graphics: &GraphicsReducers,
     scope: &str,
     layer_name: &str,
@@ -402,8 +566,21 @@ fn render_panels_for_scope(
     }
 }
 
-fn render_labels_for_scope(
-    ctx: &ReducerContext,
+fn render_labels_for_scope<
+    Caps: CanRead<UiLayerConfig>
+        + CanInsert<UiLayerConfig>
+        + CanUpdate<UiLayerConfig>
+        + CanDelete<UiLayerConfig>
+        + CanRead<UiLabel>
+        + CanInsert<UiLabel>
+        + CanUpdate<UiLabel>
+        + CanDelete<UiLabel>
+        + CanRead<UiPanel>
+        + CanInsert<UiPanel>
+        + CanUpdate<UiPanel>
+        + CanDelete<UiPanel>,
+>(
+    ctx: &ReducerContext<Caps>,
     graphics: &GraphicsReducers,
     scope: &str,
     layer_name: &str,

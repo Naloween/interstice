@@ -4,15 +4,15 @@ mod player;
 use interstice_sdk::*;
 
 use crate::{
-    food::{HasFoodEditHandle, spawn_missing_foods},
-    player::{BASE_SPEED, HasPlayerEditHandle},
+    food::{Food, HasFoodEditHandle, spawn_missing_foods},
+    player::{BASE_SPEED, HasPlayerEditHandle, Player},
 };
 
 interstice_module!(visibility: Public);
 
 const WORLD_SIZE: f32 = 2_000.0;
 
-const DT_MS: u64 = 16;
+const DT_MS: u64 = 8;
 
 #[interstice_type]
 #[derive(Debug, Clone)]
@@ -21,15 +21,35 @@ pub struct Vec2 {
     pub y: f32,
 }
 
-#[reducer(on = "load", reads = [food], inserts = [food])]
-pub fn init(ctx: ReducerContext) {
+#[reducer(on = "load")]
+pub fn init<Caps>(ctx: ReducerContext<Caps>)
+where
+    Caps: CanRead<Food>
+        + CanInsert<Food>
+        + CanUpdate<Food>
+        + CanDelete<Food>
+        + CanRead<Player>
+        + CanInsert<Player>
+        + CanUpdate<Player>
+        + CanDelete<Player>,
+{
     ctx.log("agar-server ready");
     spawn_missing_foods(&ctx);
     ctx.schedule("tick", DT_MS).expect("Couldn't schedule tick");
 }
 
-#[reducer(reads = [player, food], inserts = [food], updates = [player], deletes = [player, food])]
-pub fn tick(ctx: ReducerContext) {
+#[reducer]
+pub fn tick<Caps>(ctx: ReducerContext<Caps>)
+where
+    Caps: CanRead<Food>
+        + CanInsert<Food>
+        + CanUpdate<Food>
+        + CanDelete<Food>
+        + CanRead<Player>
+        + CanInsert<Player>
+        + CanUpdate<Player>
+        + CanDelete<Player>,
+{
     if ctx.caller_node_id != ctx.current_node_id() {
         ctx.log("tick can only be called by the server itself");
         return;

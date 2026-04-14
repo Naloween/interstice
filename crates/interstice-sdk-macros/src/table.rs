@@ -9,6 +9,11 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     let struct_ident = &input.ident;
     let struct_name = struct_ident.to_string();
     let table_name = struct_name.to_lowercase();
+    let table_name_lit = syn::LitStr::new(&table_name, struct_ident.span());
+    let read_cap = syn::Ident::new(&format!("Read{}", struct_name), struct_ident.span());
+    let insert_cap = syn::Ident::new(&format!("Insert{}", struct_name), struct_ident.span());
+    let update_cap = syn::Ident::new(&format!("Update{}", struct_name), struct_ident.span());
+    let delete_cap = syn::Ident::new(&format!("Delete{}", struct_name), struct_ident.span());
     let table_edit_handle_struct =
         syn::Ident::new(&format!("{}EditHandle", struct_name), struct_ident.span());
     let table_read_handle_struct =
@@ -285,7 +290,10 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         let fn_get = syn::Ident::new(&format!("get_by_{}", index_name), struct_ident.span());
 
         index_read_methods.push(quote! {
-            pub fn #fn_eq(&self, value: #index_ty_ident) -> Vec<#struct_ident> {
+            pub fn #fn_eq(&self, value: #index_ty_ident) -> Vec<#struct_ident>
+            where
+                Caps: interstice_sdk::CanRead<#struct_ident>,
+            {
                 interstice_sdk::host_calls::scan_index(
                     interstice_sdk::ModuleSelection::Current,
                     #table_name.to_string(),
@@ -301,7 +309,10 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
 
         if *unique {
             index_read_methods.push(quote! {
-                pub fn #fn_get(&self, value: #index_ty_ident) -> Option<#struct_ident> {
+                pub fn #fn_get(&self, value: #index_ty_ident) -> Option<#struct_ident>
+                where
+                    Caps: interstice_sdk::CanRead<#struct_ident>,
+                {
                     self.#fn_eq(value).into_iter().next()
                 }
             });
@@ -309,7 +320,10 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
 
         if *is_btree {
             index_read_methods.push(quote! {
-                pub fn #fn_lt(&self, value: #index_ty_ident) -> Vec<#struct_ident> {
+                pub fn #fn_lt(&self, value: #index_ty_ident) -> Vec<#struct_ident>
+                where
+                    Caps: interstice_sdk::CanRead<#struct_ident>,
+                {
                     interstice_sdk::host_calls::scan_index(
                         interstice_sdk::ModuleSelection::Current,
                         #table_name.to_string(),
@@ -322,7 +336,10 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                     .collect()
                 }
 
-                pub fn #fn_lte(&self, value: #index_ty_ident) -> Vec<#struct_ident> {
+                pub fn #fn_lte(&self, value: #index_ty_ident) -> Vec<#struct_ident>
+                where
+                    Caps: interstice_sdk::CanRead<#struct_ident>,
+                {
                     interstice_sdk::host_calls::scan_index(
                         interstice_sdk::ModuleSelection::Current,
                         #table_name.to_string(),
@@ -335,7 +352,10 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                     .collect()
                 }
 
-                pub fn #fn_gt(&self, value: #index_ty_ident) -> Vec<#struct_ident> {
+                pub fn #fn_gt(&self, value: #index_ty_ident) -> Vec<#struct_ident>
+                where
+                    Caps: interstice_sdk::CanRead<#struct_ident>,
+                {
                     interstice_sdk::host_calls::scan_index(
                         interstice_sdk::ModuleSelection::Current,
                         #table_name.to_string(),
@@ -348,7 +368,10 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                     .collect()
                 }
 
-                pub fn #fn_gte(&self, value: #index_ty_ident) -> Vec<#struct_ident> {
+                pub fn #fn_gte(&self, value: #index_ty_ident) -> Vec<#struct_ident>
+                where
+                    Caps: interstice_sdk::CanRead<#struct_ident>,
+                {
                     interstice_sdk::host_calls::scan_index(
                         interstice_sdk::ModuleSelection::Current,
                         #table_name.to_string(),
@@ -367,7 +390,10 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                     max: #index_ty_ident,
                     include_min: bool,
                     include_max: bool,
-                ) -> Vec<#struct_ident> {
+                ) -> Vec<#struct_ident>
+                where
+                    Caps: interstice_sdk::CanRead<#struct_ident>,
+                {
                     interstice_sdk::host_calls::scan_index(
                         interstice_sdk::ModuleSelection::Current,
                         #table_name.to_string(),
@@ -389,7 +415,10 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 
     let read_table_imp = quote! {
-        pub fn scan(&self) -> Vec<#struct_ident>{
+        pub fn scan(&self) -> Vec<#struct_ident>
+        where
+            Caps: interstice_sdk::CanRead<#struct_ident>,
+        {
             interstice_sdk::host_calls::scan(interstice_sdk::ModuleSelection::Current, #table_name.to_string())
                 .expect("Table scan failed")
                 .into_iter()
@@ -397,7 +426,10 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 .collect()
         }
 
-        pub fn get(&self, primary_key: #pk_type_ident) -> Option<#struct_ident> {
+        pub fn get(&self, primary_key: #pk_type_ident) -> Option<#struct_ident>
+        where
+            Caps: interstice_sdk::CanRead<#struct_ident>,
+        {
             interstice_sdk::host_calls::get_by_primary_key(
                 interstice_sdk::ModuleSelection::Current,
                 #table_name,
@@ -413,6 +445,100 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     quote! {
         #[interstice_type]
         #output_struct
+
+        #[derive(Clone, Copy, Debug, Default)]
+        pub struct #read_cap;
+
+        #[derive(Clone, Copy, Debug, Default)]
+        pub struct #insert_cap;
+
+        #[derive(Clone, Copy, Debug, Default)]
+        pub struct #update_cap;
+
+        #[derive(Clone, Copy, Debug, Default)]
+        pub struct #delete_cap;
+
+        impl interstice_sdk::CanRead<#struct_ident> for #read_cap {}
+
+        impl interstice_sdk::CanInsert<#struct_ident> for #insert_cap {}
+
+        impl interstice_sdk::CanUpdate<#struct_ident> for #update_cap {}
+
+        impl interstice_sdk::CanDelete<#struct_ident> for #delete_cap {}
+
+        impl interstice_sdk::TableRow for #struct_ident {
+            const TABLE_NAME: &'static str = #table_name_lit;
+        }
+
+        impl interstice_sdk::ReducerCapPiece for #read_cap {
+            fn extend_reducer_schema(
+                reads: &mut Vec<interstice_sdk::ReducerTableRef>,
+                _inserts: &mut Vec<interstice_sdk::ReducerTableRef>,
+                _updates: &mut Vec<interstice_sdk::ReducerTableRef>,
+                _deletes: &mut Vec<interstice_sdk::ReducerTableRef>,
+            ) {
+                reads.push(interstice_sdk::ReducerTableRef {
+                    node_selection: interstice_sdk::NodeSelection::Current,
+                    module_selection: interstice_sdk::ModuleSelection::Current,
+                    table_name: #table_name.to_string(),
+                });
+            }
+        }
+
+        impl interstice_sdk::ReducerCapPiece for #insert_cap {
+            fn extend_reducer_schema(
+                _reads: &mut Vec<interstice_sdk::ReducerTableRef>,
+                inserts: &mut Vec<interstice_sdk::ReducerTableRef>,
+                _updates: &mut Vec<interstice_sdk::ReducerTableRef>,
+                _deletes: &mut Vec<interstice_sdk::ReducerTableRef>,
+            ) {
+                inserts.push(interstice_sdk::ReducerTableRef {
+                    node_selection: interstice_sdk::NodeSelection::Current,
+                    module_selection: interstice_sdk::ModuleSelection::Current,
+                    table_name: #table_name.to_string(),
+                });
+            }
+        }
+
+        impl interstice_sdk::ReducerCapPiece for #update_cap {
+            fn extend_reducer_schema(
+                _reads: &mut Vec<interstice_sdk::ReducerTableRef>,
+                _inserts: &mut Vec<interstice_sdk::ReducerTableRef>,
+                updates: &mut Vec<interstice_sdk::ReducerTableRef>,
+                _deletes: &mut Vec<interstice_sdk::ReducerTableRef>,
+            ) {
+                updates.push(interstice_sdk::ReducerTableRef {
+                    node_selection: interstice_sdk::NodeSelection::Current,
+                    module_selection: interstice_sdk::ModuleSelection::Current,
+                    table_name: #table_name.to_string(),
+                });
+            }
+        }
+
+        impl interstice_sdk::ReducerCapPiece for #delete_cap {
+            fn extend_reducer_schema(
+                _reads: &mut Vec<interstice_sdk::ReducerTableRef>,
+                _inserts: &mut Vec<interstice_sdk::ReducerTableRef>,
+                _updates: &mut Vec<interstice_sdk::ReducerTableRef>,
+                deletes: &mut Vec<interstice_sdk::ReducerTableRef>,
+            ) {
+                deletes.push(interstice_sdk::ReducerTableRef {
+                    node_selection: interstice_sdk::NodeSelection::Current,
+                    module_selection: interstice_sdk::ModuleSelection::Current,
+                    table_name: #table_name.to_string(),
+                });
+            }
+        }
+
+        impl interstice_sdk::QueryCapPiece for #read_cap {
+            fn extend_query_schema(reads: &mut Vec<interstice_sdk::ReducerTableRef>) {
+                reads.push(interstice_sdk::ReducerTableRef {
+                    node_selection: interstice_sdk::NodeSelection::Current,
+                    module_selection: interstice_sdk::ModuleSelection::Current,
+                    table_name: #table_name.to_string(),
+                });
+            }
+        }
 
         impl Into<interstice_sdk::Row> for #struct_ident {
             fn into(self) -> interstice_sdk::Row{
@@ -455,11 +581,15 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             interstice_sdk::registry::register_table(#schema_fn);
         }
 
-        pub struct #table_edit_handle_struct{
+        pub struct #table_edit_handle_struct<Caps>{
+            _caps: std::marker::PhantomData<Caps>,
         }
 
-        impl #table_edit_handle_struct{
-            pub fn insert(&self, row: #struct_ident) -> Result<#struct_ident, String>{
+        impl<Caps> #table_edit_handle_struct<Caps>{
+            pub fn insert(&self, row: #struct_ident) -> Result<#struct_ident, String>
+            where
+                Caps: interstice_sdk::CanInsert<#struct_ident>,
+            {
                 interstice_sdk::host_calls::insert_row(
                     #table_name,
                     row.into(),
@@ -467,57 +597,93 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 .map(|row| row.into())
             }
 
-            pub fn update(&self, row: #struct_ident) -> Result<(), String>{
+            pub fn update(&self, row: #struct_ident) -> Result<(), String>
+            where
+                Caps: interstice_sdk::CanUpdate<#struct_ident>,
+            {
                 interstice_sdk::host_calls::update_row(
                     #table_name,
                     row.into(),
                 )
             }
 
-            pub fn delete(&self, primary_key: #pk_type_ident) -> Result<(), String>{
+            pub fn delete(&self, primary_key: #pk_type_ident) -> Result<(), String>
+            where
+                Caps: interstice_sdk::CanDelete<#struct_ident>,
+            {
                 interstice_sdk::host_calls::delete_row(
                     #table_name,
                     TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(primary_key)).expect("Failed to convert IntersticeValue to IndexKey"),
                 )
             }
 
-            pub fn clear(&self) -> Result<(), String> {
+            pub fn clear(&self) -> Result<(), String>
+            where
+                Caps: interstice_sdk::CanDelete<#struct_ident>,
+            {
                 interstice_sdk::host_calls::clear_table(
                     interstice_sdk::ModuleSelection::Current,
                     #table_name,
                 )
             }
 
-            #read_table_imp
-
         }
 
-        pub struct #table_read_handle_struct{
-        }
-
-        impl #table_read_handle_struct{
+        impl<Caps> #table_edit_handle_struct<Caps> {
             #read_table_imp
         }
 
-
-        pub trait #has_table_edit_handle_trait {
-            fn #get_table_edit_handle_fn(&self) -> #table_edit_handle_struct;
+        pub struct #table_read_handle_struct<Caps>{
+            _caps: std::marker::PhantomData<Caps>,
         }
 
-        impl #has_table_edit_handle_trait for interstice_sdk::ReducerContextCurrentModuleTables {
-            fn #get_table_edit_handle_fn(&self) -> #table_edit_handle_struct {
-                return #table_edit_handle_struct {}
+        impl<Caps> #table_read_handle_struct<Caps> {
+            #read_table_imp
+        }
+
+        impl<Caps> IntoIterator for #table_edit_handle_struct<Caps>
+        where
+            Caps: interstice_sdk::CanRead<#struct_ident>,
+        {
+            type Item = #struct_ident;
+            type IntoIter = std::vec::IntoIter<#struct_ident>;
+
+            fn into_iter(self) -> Self::IntoIter {
+                self.scan().into_iter()
+            }
+        }
+
+        impl<Caps> IntoIterator for #table_read_handle_struct<Caps>
+        where
+            Caps: interstice_sdk::CanRead<#struct_ident>,
+        {
+            type Item = #struct_ident;
+            type IntoIter = std::vec::IntoIter<#struct_ident>;
+
+            fn into_iter(self) -> Self::IntoIter {
+                self.scan().into_iter()
             }
         }
 
 
-        pub trait #has_table_read_handle_trait {
-            fn #get_table_read_handle_fn(&self) -> #table_read_handle_struct;
+        pub trait #has_table_edit_handle_trait<Caps> {
+            fn #get_table_edit_handle_fn(&self) -> #table_edit_handle_struct<Caps>;
         }
 
-        impl #has_table_read_handle_trait for interstice_sdk::QueryContextCurrentModuleTables {
-            fn #get_table_read_handle_fn(&self) -> #table_read_handle_struct {
-                return #table_read_handle_struct {}
+        impl<Caps> #has_table_edit_handle_trait<Caps> for interstice_sdk::ReducerContextCurrentModuleTables<Caps> {
+            fn #get_table_edit_handle_fn(&self) -> #table_edit_handle_struct<Caps> {
+                return #table_edit_handle_struct { _caps: std::marker::PhantomData }
+            }
+        }
+
+
+        pub trait #has_table_read_handle_trait<Caps> {
+            fn #get_table_read_handle_fn(&self) -> #table_read_handle_struct<Caps>;
+        }
+
+        impl<Caps> #has_table_read_handle_trait<Caps> for interstice_sdk::QueryContextCurrentModuleTables<Caps> {
+            fn #get_table_read_handle_fn(&self) -> #table_read_handle_struct<Caps> {
+                return #table_read_handle_struct { _caps: std::marker::PhantomData }
             }
         }
 

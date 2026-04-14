@@ -3,7 +3,7 @@ use crate::{
     runtime::transaction::Transaction,
     runtime::{Runtime, module::Module, table::TableAutoIncSnapshot},
 };
-use interstice_abi::{IntersticeValue, QuerySchema, ReducerContext, ReducerTableRef};
+use interstice_abi::{IntersticeValue, QuerySchema, RawReducerContext as ReducerContext, ReducerTableRef};
 use serde::Serialize;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};

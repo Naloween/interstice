@@ -26,11 +26,11 @@ fn caller(ctx: ReducerContext) {
     ctx.log("hello remote called !");
 }
 
-#[reducer(
-    on = "hello-example.hello-example.greetings.insert",
-    reads = ["hello-example.hello-example.greetings"]
-)]
-fn on_insert_greetings(ctx: ReducerContext, inserted_row: Greetings) {
+#[reducer(on = "hello-example.hello-example.greetings.insert")]
+fn on_insert_greetings<Caps>(ctx: ReducerContext<Caps>, inserted_row: Greetings)
+where
+    Caps: CanRead<Greetings>,
+{
     ctx.log(&format!(
         "Caller received new greeting: {:?}",
         inserted_row.greeting
@@ -43,6 +43,6 @@ fn on_insert_greetings(ctx: ReducerContext, inserted_row: Greetings) {
         .greetings()
         .scan()
     {
-        ctx.log(&format!("All hello greetings: {}", greeting.greeting));
+        ctx.log(&format!("Remote greeting row: {:?}", greeting.greeting));
     }
 }

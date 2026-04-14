@@ -11,23 +11,59 @@ use interstice_sdk::{
 use crate::GpuExt;
 use crate::helpers::namespaced_key;
 use crate::tables::{
-    BindGroupBinding, HasBindGroupBindingEditHandle, HasMeshBindingEditHandle,
-    HasPipelineBindingEditHandle, HasTextureBindingEditHandle, MeshBinding, PipelineBinding,
-    TextureBinding,
+    BindGroupBinding, ComputeCommand, Draw2DCommand, FrameTick, HasBindGroupBindingEditHandle,
+    HasMeshBindingEditHandle, HasPipelineBindingEditHandle, HasTextureBindingEditHandle, Layer,
+    MeshBinding, PipelineBinding, RenderPassCommand, RendererCache, TextureBinding,
 };
 use crate::types::{
     BindGroupDescriptorInput, MeshDescriptor, MeshVertex, PipelineDescriptorInput,
     TextureDescriptorInput, TextureUsageFlags,
 };
 
-#[reducer(
-    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
-)]
-pub fn create_texture(
-    ctx: ReducerContext,
+#[reducer]
+pub fn create_texture<
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+>(
+    ctx: ReducerContext<Caps>,
     local_id: String,
     desc: TextureDescriptorInput,
     bytes: Vec<u8>,
@@ -69,13 +105,53 @@ pub fn create_texture(
     }
 }
 
-#[reducer(
-    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
-)]
-pub fn create_mesh(ctx: ReducerContext, local_id: String, mesh: MeshDescriptor) {
+#[reducer]
+pub fn create_mesh<
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+>(
+    ctx: ReducerContext<Caps>,
+    local_id: String,
+    mesh: MeshDescriptor,
+) {
     if mesh.vertices.is_empty() {
         ctx.log("Mesh must include at least one vertex");
         return;
@@ -97,13 +173,53 @@ pub fn create_mesh(ctx: ReducerContext, local_id: String, mesh: MeshDescriptor) 
     }
 }
 
-#[reducer(
-    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
-)]
-pub fn create_pipeline(ctx: ReducerContext, local_id: String, descriptor: PipelineDescriptorInput) {
+#[reducer]
+pub fn create_pipeline<
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+>(
+    ctx: ReducerContext<Caps>,
+    local_id: String,
+    descriptor: PipelineDescriptorInput,
+) {
     let key = namespaced_key(&ctx, &local_id);
     if ctx
         .current
@@ -134,14 +250,50 @@ pub fn create_pipeline(ctx: ReducerContext, local_id: String, descriptor: Pipeli
     }
 }
 
-#[reducer(
-    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
-)]
-pub fn create_bind_group(
-    ctx: ReducerContext,
+#[reducer]
+pub fn create_bind_group<
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+>(
+    ctx: ReducerContext<Caps>,
     local_id: String,
     descriptor: BindGroupDescriptorInput,
 ) {
@@ -168,13 +320,52 @@ pub fn create_bind_group(
     }
 }
 
-#[reducer(
-    reads = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    inserts = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    updates = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding],
-    deletes = [layer, frametick, draw2dcommand, renderpasscommand, computecommand, renderercache, meshbinding, pipelinebinding, texturebinding, bindgroupbinding]
-)]
-pub fn destroy_resource(ctx: ReducerContext, local_id: String) {
+#[reducer]
+pub fn destroy_resource<
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+>(
+    ctx: ReducerContext<Caps>,
+    local_id: String,
+) {
     let key = namespaced_key(&ctx, &local_id);
     if try_destroy_texture(&ctx, &key).is_some() {
         return;
@@ -194,11 +385,53 @@ pub fn destroy_resource(ctx: ReducerContext, local_id: String) {
     ));
 }
 
-fn allocate_texture(
-    ctx: &ReducerContext,
+fn allocate_texture<Caps>(
+    ctx: &ReducerContext<Caps>,
     desc: &TextureDescriptorInput,
     bytes: &[u8],
-) -> Result<u32, String> {
+) -> Result<u32, String>
+where
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+{
     let gpu = ctx.gpu();
 
     let format = parse_texture_format(&desc.format)?;
@@ -246,11 +479,53 @@ fn allocate_texture(
     Ok(texture)
 }
 
-fn allocate_mesh(
-    ctx: &ReducerContext,
+fn allocate_mesh<Caps>(
+    ctx: &ReducerContext<Caps>,
     key: (String, String),
     mesh: &MeshDescriptor,
-) -> Result<MeshBinding, String> {
+) -> Result<MeshBinding, String>
+where
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+{
     let gpu = ctx.gpu();
     let stride = std::mem::size_of::<MeshVertexBytes>() as u32;
     let vertex_bytes = encode_mesh_vertices(&mesh.vertices);
@@ -294,7 +569,52 @@ fn allocate_mesh(
     Ok(binding)
 }
 
-fn try_destroy_texture(ctx: &ReducerContext, key: &(String, String)) -> Option<()> {
+fn try_destroy_texture<Caps>(
+    ctx: &ReducerContext<Caps>,
+    key: &(String, String),
+) -> Option<()>
+where
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+{
     let row = ctx.current.tables.texturebinding().get(key.clone())?;
     if let Err(err) = ctx.current.tables.texturebinding().delete(key.clone()) {
         ctx.log(&format!("Failed to delete texture binding: {}", err));
@@ -306,7 +626,52 @@ fn try_destroy_texture(ctx: &ReducerContext, key: &(String, String)) -> Option<(
     Some(())
 }
 
-fn try_destroy_mesh(ctx: &ReducerContext, key: &(String, String)) -> Option<()> {
+fn try_destroy_mesh<Caps>(
+    ctx: &ReducerContext<Caps>,
+    key: &(String, String),
+) -> Option<()>
+where
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+{
     let row = ctx.current.tables.meshbinding().get(key.clone())?;
     if let Err(err) = ctx.current.tables.meshbinding().delete(key.clone()) {
         ctx.log(&format!("Failed to delete mesh binding: {}", err));
@@ -323,7 +688,52 @@ fn try_destroy_mesh(ctx: &ReducerContext, key: &(String, String)) -> Option<()> 
     Some(())
 }
 
-fn try_destroy_pipeline(ctx: &ReducerContext, key: &(String, String)) -> Option<()> {
+fn try_destroy_pipeline<Caps>(
+    ctx: &ReducerContext<Caps>,
+    key: &(String, String),
+) -> Option<()>
+where
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+{
     let row = ctx.current.tables.pipelinebinding().get(key.clone())?;
     if let Err(err) = ctx.current.tables.pipelinebinding().delete(key.clone()) {
         ctx.log(&format!("Failed to delete pipeline descriptor: {}", err));
@@ -349,7 +759,52 @@ fn try_destroy_pipeline(ctx: &ReducerContext, key: &(String, String)) -> Option<
     Some(())
 }
 
-fn try_destroy_bind_group(ctx: &ReducerContext, key: &(String, String)) -> Option<()> {
+fn try_destroy_bind_group<Caps>(
+    ctx: &ReducerContext<Caps>,
+    key: &(String, String),
+) -> Option<()>
+where
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+{
     let row = ctx.current.tables.bindgroupbinding().get(key.clone())?;
     if let Err(err) = ctx.current.tables.bindgroupbinding().delete(key.clone()) {
         ctx.log(&format!("Failed to delete bind group descriptor: {}", err));
@@ -431,10 +886,52 @@ fn encode_mesh_vertices(vertices: &[MeshVertex]) -> Vec<u8> {
     bytes
 }
 
-fn allocate_render_pipeline(
-    ctx: &ReducerContext,
+fn allocate_render_pipeline<Caps>(
+    ctx: &ReducerContext<Caps>,
     descriptor: &PipelineDescriptorInput,
-) -> Result<(u32, u32, u32), String> {
+) -> Result<(u32, u32, u32), String>
+where
+    Caps: CanRead<Layer>
+        + CanInsert<Layer>
+        + CanUpdate<Layer>
+        + CanDelete<Layer>
+        + CanRead<TextureBinding>
+        + CanInsert<TextureBinding>
+        + CanUpdate<TextureBinding>
+        + CanDelete<TextureBinding>
+        + CanRead<MeshBinding>
+        + CanInsert<MeshBinding>
+        + CanUpdate<MeshBinding>
+        + CanDelete<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanInsert<PipelineBinding>
+        + CanUpdate<PipelineBinding>
+        + CanDelete<PipelineBinding>
+        + CanRead<BindGroupBinding>
+        + CanInsert<BindGroupBinding>
+        + CanUpdate<BindGroupBinding>
+        + CanDelete<BindGroupBinding>
+        + CanRead<FrameTick>
+        + CanInsert<FrameTick>
+        + CanUpdate<FrameTick>
+        + CanDelete<FrameTick>
+        + CanRead<RendererCache>
+        + CanInsert<RendererCache>
+        + CanUpdate<RendererCache>
+        + CanDelete<RendererCache>
+        + CanRead<Draw2DCommand>
+        + CanInsert<Draw2DCommand>
+        + CanUpdate<Draw2DCommand>
+        + CanDelete<Draw2DCommand>
+        + CanRead<RenderPassCommand>
+        + CanInsert<RenderPassCommand>
+        + CanUpdate<RenderPassCommand>
+        + CanDelete<RenderPassCommand>
+        + CanRead<ComputeCommand>
+        + CanInsert<ComputeCommand>
+        + CanUpdate<ComputeCommand>
+        + CanDelete<ComputeCommand>,
+{
     let gpu = ctx.gpu();
     let shader_module_id = gpu.create_shader_module(descriptor.shader_source.clone())?;
     let pipeline_layout_id = gpu.create_pipeline_layout(CreatePipelineLayout {

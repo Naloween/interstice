@@ -22,8 +22,11 @@ pub struct AudioState {
     pub phase: f32,
 }
 
-#[reducer(on = "load", inserts = [audiostate])]
-fn on_load(ctx: ReducerContext) {
+#[reducer(on = "load")]
+fn on_load<Caps>(ctx: ReducerContext<Caps>)
+where
+    Caps: CanInsert<AudioState>,
+{
     let output_config = AudioStreamConfig {
         sample_rate: SAMPLE_RATE,
         channels: CHANNELS,
@@ -69,8 +72,11 @@ fn on_load(ctx: ReducerContext) {
     ctx.log("Audio module loaded");
 }
 
-#[reducer(on = "audio_output", reads = [audiostate], updates = [audiostate])]
-fn on_audio_output(ctx: ReducerContext) {
+#[reducer(on = "audio_output")]
+fn on_audio_output<Caps>(ctx: ReducerContext<Caps>)
+where
+    Caps: CanRead<AudioState> + CanUpdate<AudioState>,
+{
     let mut state = ctx.current.tables.audiostate().get(0).unwrap_or_else(|| {
         ctx.log("Audio state not found");
         AudioState {
