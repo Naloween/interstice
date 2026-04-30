@@ -37,11 +37,8 @@ pub fn init(ctx: ReducerContext) {
 pub fn on_player_sync(_ctx: ReducerContext) {}
 
 #[reducer(on = "graphics.frametick.update")]
-pub fn on_frame<Caps>(
-    ctx: ReducerContext<Caps>,
-    _prev: FrameTick,
-    _tick: FrameTick,
-) where
+pub fn on_frame<Caps>(ctx: ReducerContext<Caps>, _prev: FrameTick, _tick: FrameTick)
+where
     Caps: CanRead<KeyState> + CanRead<Player> + CanRead<Food>,
 {
     let server = ctx.agar_server().agar_server();
