@@ -46,6 +46,7 @@ pub fn on_frame<Caps>(
 {
     let server = ctx.agar_server().agar_server();
     let (dx, dy) = input_dir(&ctx);
+
     if let Err(err) = server.reducers.set_direction(dx, dy) {
         ctx.log(&format!("set_direction failed: {}", err));
     }
@@ -87,6 +88,7 @@ where
     } else {
         (0.0, 0.0)
     }
+
 }
 
 fn render_world<Caps>(ctx: &ReducerContext<Caps>)
