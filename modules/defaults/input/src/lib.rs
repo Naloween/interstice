@@ -55,6 +55,7 @@ where
         + CanInsert<KeyState>
         + CanUpdate<KeyState>,
 {
+
     match event {
         InputEvent::Added { .. } => {}
         InputEvent::Removed { .. } => {}

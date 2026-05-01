@@ -143,9 +143,7 @@ pub fn bench_begin_run<Caps>(
 pub fn bench_tx<Caps>(ctx: ReducerContext<Caps>, run_id: String, seq: u64, payload_bytes: u64)
 where
     Caps: CanRead<BenchRun>
-        + CanInsert<BenchRun>
         + CanUpdate<BenchRun>
-        + CanDelete<BenchRun>
         + CanRead<BenchEphemeral>
         + CanInsert<BenchEphemeral>
         + CanUpdate<BenchEphemeral>

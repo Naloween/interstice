@@ -20,7 +20,7 @@ use std::{
 use tokio::sync::{mpsc::UnboundedSender, oneshot::Receiver as OneshotReceiver};
 use winit::{
     application::ApplicationHandler,
-    event::{DeviceEvent, DeviceId, WindowEvent},
+    event::{DeviceEvent, DeviceId, RawKeyEvent, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     window::{Window, WindowId},
 };
@@ -118,7 +118,39 @@ impl ApplicationHandler for App {
                 gpu.graphics_end_frame();
                 gpu.configure_surface(size.width.max(1), size.height.max(1));
             }
-            _ => (),
+            WindowEvent::MouseWheel { device_id, delta, phase: _phase } => self.device_event(event_loop, device_id, DeviceEvent::MouseWheel { delta }),
+            WindowEvent::MouseInput { device_id, state, button } => self.device_event(event_loop, device_id, DeviceEvent::Button { button: match button {
+                winit::event::MouseButton::Left => 0,
+                winit::event::MouseButton::Right => 1,
+                winit::event::MouseButton::Middle => 2,
+                winit::event::MouseButton::Back => 3,
+                winit::event::MouseButton::Forward => 4,
+                winit::event::MouseButton::Other(i) => i as u32,
+            }, state }),
+            WindowEvent::KeyboardInput { device_id, event, is_synthetic: _is_synthetic } => self.device_event(event_loop, device_id, DeviceEvent::Key(RawKeyEvent {physical_key: event.physical_key, state: event.state})),
+            // WindowEvent::ActivationTokenDone { serial, token } => todo!(),
+            // WindowEvent::Moved(physical_position) => todo!(),
+            // WindowEvent::Destroyed => todo!(),
+            // WindowEvent::DroppedFile(path_buf) => todo!(),
+            // WindowEvent::HoveredFile(path_buf) => todo!(),
+            // WindowEvent::HoveredFileCancelled => todo!(),
+            // WindowEvent::Focused(_) => todo!(),
+            // WindowEvent::ModifiersChanged(modifiers) => todo!(),
+            // WindowEvent::Ime(ime) => todo!(),
+            // WindowEvent::CursorMoved { device_id, position } => todo!(),
+            // WindowEvent::CursorEntered { device_id } => todo!(),
+            // WindowEvent::CursorLeft { device_id } => todo!(),
+            // WindowEvent::PinchGesture { device_id, delta, phase } => todo!(),
+            // WindowEvent::PanGesture { device_id, delta, phase } => todo!(),
+            // WindowEvent::DoubleTapGesture { device_id } => todo!(),
+            // WindowEvent::RotationGesture { device_id, delta, phase } => todo!(),
+            // WindowEvent::TouchpadPressure { device_id, pressure, stage } => todo!(),
+            // WindowEvent::AxisMotion { device_id, axis, value } => todo!(),
+            // WindowEvent::Touch(touch) => todo!(),
+            // WindowEvent::ScaleFactorChanged { scale_factor, inner_size_writer } => todo!(),
+            // WindowEvent::ThemeChanged(theme) => todo!(),
+            // WindowEvent::Occluded(_) => todo!(),
+            (_) => (),
         };
     }
 
