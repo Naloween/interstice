@@ -42,7 +42,17 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn new(nodes_path: &Path, port: u32) -> Result<Self, IntersticeError> {
+    /// Create a new node.
+    ///
+    /// # Arguments
+    /// * `nodes_path` - Directory to store node data
+    /// * `port` - Port to listen on (binds to 0.0.0.0:{port})
+    /// * `public_address` - Address to advertise for external connections (e.g., "127.0.0.1:{port}" for local, "hostname:{port}" for external)
+    pub fn new(
+        nodes_path: &Path,
+        port: u32,
+        public_address: String,
+    ) -> Result<Self, IntersticeError> {
         let id = Uuid::new_v4();
         let data_path = nodes_path.join(id.to_string());
         let modules_path = data_path.join("modules");
@@ -50,7 +60,7 @@ impl Node {
         std::fs::create_dir_all(&modules_path).expect("Should be able to create modules path");
         let table_store = TableStore::new(Some(modules_path.clone()));
 
-        let address = format!("127.0.0.1:{}", port);
+        let bind_address = format!("0.0.0.0:{}", port);
 
         let (event_sender, event_receiver) = mpsc::unbounded_channel();
 
@@ -69,7 +79,8 @@ impl Node {
 
         let network = Network::new(
             id,
-            address.clone(),
+            bind_address.clone(),
+            public_address.clone(),
             event_sender.clone(),
             reducer_sender.clone(),
             peer_tokens,
@@ -119,9 +130,14 @@ impl Node {
         Ok(node)
     }
 
-    pub async fn load(nodes_path: &Path, id: NodeId, port: u32) -> Result<Self, IntersticeError> {
+    pub async fn load(
+        nodes_path: &Path,
+        id: NodeId,
+        port: u32,
+        public_address: String,
+    ) -> Result<Self, IntersticeError> {
         let data_path = nodes_path.join(id.to_string());
-        let address = format!("127.0.0.1:{}", port);
+        let bind_address = format!("0.0.0.0:{}", port);
         let modules_path = data_path.join("modules");
         let table_store = TableStore::new(Some(modules_path.clone()));
 
@@ -143,7 +159,8 @@ impl Node {
 
         let network = Network::new(
             id,
-            address.clone(),
+            bind_address.clone(),
+            public_address.clone(),
             event_sender.clone(),
             reducer_sender.clone(),
             peer_tokens,

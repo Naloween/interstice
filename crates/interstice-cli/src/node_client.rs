@@ -18,9 +18,13 @@ pub async fn handshake_with_node(
     let mut stream = tokio::net::TcpStream::connect(address)
         .await
         .map_err(|_| IntersticeError::Internal("Failed to connect to node".into()))?;
+    // Use a placeholder address since the CLI doesn't listen for incoming connections.
+    // The actual address is provided by environment variable or defaults to localhost.
+    let cli_address =
+        std::env::var("INTERSTICE_CLI_ADDRESS").unwrap_or_else(|_| "127.0.0.1:0".to_string());
     let packet = NetworkPacket::Handshake {
         node_id: cli_identity.cli_id,
-        address: "127.0.0.1:12345".into(),
+        address: cli_address,
         token: cli_identity.cli_token,
     };
     write_packet(&mut stream, &packet).await?;

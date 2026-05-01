@@ -25,7 +25,8 @@ const CHANNEL_SIZE: usize = 1000;
 
 pub struct Network {
     node_id: Uuid,
-    address: String,
+    bind_address: String,
+    public_address: String,
     peers: Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
     peer_tokens: Arc<Mutex<PeerTokenStore>>,
     runtime_event_sender: mpsc::UnboundedSender<(
@@ -148,7 +149,8 @@ impl NetworkHandle {
 impl Network {
     pub fn new(
         node_id: Uuid,
-        address: String,
+        bind_address: String,
+        public_address: String,
         event_sender: mpsc::UnboundedSender<(
             EventInstance,
             Option<crate::runtime::reducer::CompletionToken>,
@@ -161,7 +163,8 @@ impl Network {
 
         Self {
             node_id,
-            address,
+            bind_address,
+            public_address,
             peers: Arc::new(Mutex::new(HashMap::new())),
             peer_tokens,
             packet_receiver: receiver,
@@ -175,7 +178,7 @@ impl Network {
     pub fn get_handle(&self) -> NetworkHandle {
         NetworkHandle {
             node_id: self.node_id.clone(),
-            address: self.address.clone(),
+            address: self.public_address.clone(),
             peers: self.peers.clone(),
             peer_tokens: self.peer_tokens.clone(),
             packet_sender: self.packet_sender.clone(),
@@ -192,18 +195,19 @@ impl Network {
         let event_sender = self.runtime_event_sender.clone();
         let reducer_sender = self.reducer_sender.clone();
         let peer_tokens = self.peer_tokens.clone();
-        let my_address = self.address.clone();
+        let bind_address = self.bind_address.clone();
+        let public_address = self.public_address.clone();
         let my_node_id = self.node_id.clone();
         let logger = self.logger.clone();
-        let listener = TcpListener::bind(&my_address).await.map_err(|err| {
+        let listener = TcpListener::bind(&bind_address).await.map_err(|err| {
             IntersticeError::Internal(format!(
                 "Failed to listen on address {}: {}",
-                my_address, err
+                bind_address, err
             ))
         })?;
         tokio::spawn(async move {
             logger.log(
-                &format!("Listening on {}", my_address),
+                &format!("Listening on {}", bind_address),
                 LogSource::Network,
                 LogLevel::Info,
             );
@@ -213,14 +217,14 @@ impl Network {
                         let mut cloned_peers = peers.clone();
                         let cloned_sender = sender.clone();
                         let event_sender = event_sender.clone();
-                        let my_address = my_address.clone();
+                        let public_address = public_address.clone();
                         let logger = logger.clone();
                         let peer_tokens = peer_tokens.clone();
                         let reducer_sender = reducer_sender.clone();
                         tokio::spawn(async move {
                             if let Err(e) = handshake_incoming(
                                 my_node_id,
-                                my_address,
+                                public_address,
                                 stream,
                                 &mut cloned_peers,
                                 cloned_sender,

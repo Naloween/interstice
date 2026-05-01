@@ -64,11 +64,11 @@ pub async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError>
                 .trim()
                 .parse()
                 .map_err(|err| IntersticeError::Internal(format!("Failed to parse port: {err}")))?;
-            let address = format!("127.0.0.1:{}", port);
-            let node = Node::new(&nodes_dir(), port)?;
+            let public_address = format!("127.0.0.1:{}", port);
+            let node = Node::new(&nodes_dir(), port, public_address.clone())?;
             registry.add(NodeRecord {
                 name,
-                address,
+                address: public_address,
                 node_id: Some(node.id.to_string()),
                 local: true,
                 last_seen: None,
@@ -146,7 +146,7 @@ pub async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError>
             let parsed_node_id = node_id
                 .parse()
                 .map_err(|_| IntersticeError::Internal("Invalid node id".into()))?;
-            start(parsed_node_id, port).await?;
+            start(parsed_node_id, port, node.address.clone()).await?;
         }
         "ping" => {
             if args.len() < 4 {

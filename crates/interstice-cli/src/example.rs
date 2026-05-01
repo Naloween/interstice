@@ -114,10 +114,11 @@ pub async fn example(example_name: &str) -> Result<(), IntersticeError> {
     }
 
     // Create new node
-    let node = Node::new(&nodes_dir(), config.port)?;
+    let public_address = format!("127.0.0.1:{}", config.port);
+    let node = Node::new(&nodes_dir(), config.port, public_address.clone())?;
     registry.add(NodeRecord {
         name,
-        address: format!("127.0.0.1:{}", config.port),
+        address: public_address,
         node_id: Some(node.id.to_string()),
         local: true,
         last_seen: None,
