@@ -3,7 +3,7 @@ use interstice_sdk::*;
 interstice_module!(visibility: Public);
 
 #[interstice_type]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BenchSnapshot {
     pub run_id: String,
     pub table_kind: String,
@@ -16,7 +16,7 @@ pub struct BenchSnapshot {
 }
 
 #[table(public, stateful)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BenchRun {
     #[primary_key]
     pub key: String,
@@ -30,7 +30,7 @@ pub struct BenchRun {
 }
 
 #[table(public, ephemeral)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BenchEphemeral {
     #[primary_key]
     pub key: String,
@@ -39,7 +39,7 @@ pub struct BenchEphemeral {
 }
 
 #[table(public, stateful)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BenchStateful {
     #[primary_key]
     pub key: String,
@@ -48,7 +48,7 @@ pub struct BenchStateful {
 }
 
 #[table(public)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BenchLogged {
     #[primary_key]
     pub key: String,
@@ -229,7 +229,10 @@ where
 }
 
 #[query]
-pub fn bench_snapshot<Caps: CanRead<BenchRun>>(ctx: QueryContext<Caps>, run_id: String) -> BenchSnapshot {
+pub fn bench_snapshot<Caps: CanRead<BenchRun>>(
+    ctx: QueryContext<Caps>,
+    run_id: String,
+) -> BenchSnapshot {
     let Some(run) = ctx.current.tables.benchrun().get("active".to_string()) else {
         return BenchSnapshot {
             run_id,

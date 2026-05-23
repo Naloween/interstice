@@ -8,7 +8,7 @@ use crate::types::{
 };
 
 #[table(ephemeral)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Layer {
     #[primary_key]
     pub name: String,
@@ -18,7 +18,7 @@ pub struct Layer {
 }
 
 #[table(ephemeral)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct TextureBinding {
     #[primary_key]
     pub key: (String, String),
@@ -29,7 +29,7 @@ pub struct TextureBinding {
 }
 
 #[table(ephemeral)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct MeshBinding {
     #[primary_key]
     pub key: (String, String),
@@ -41,7 +41,7 @@ pub struct MeshBinding {
 }
 
 #[table(ephemeral)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PipelineBinding {
     #[primary_key]
     pub key: (String, String),
@@ -52,7 +52,7 @@ pub struct PipelineBinding {
 }
 
 #[table(ephemeral)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BindGroupBinding {
     #[primary_key]
     pub key: (String, String),
@@ -61,7 +61,7 @@ pub struct BindGroupBinding {
 }
 
 #[table(public, ephemeral)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FrameTick {
     #[primary_key]
     pub id: u32,
@@ -69,7 +69,7 @@ pub struct FrameTick {
 }
 
 #[table(ephemeral)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RendererCache {
     #[primary_key]
     pub id: u32,
@@ -80,7 +80,7 @@ pub struct RendererCache {
 }
 
 #[table(ephemeral)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Draw2DCommand {
     #[primary_key(auto_inc)]
     pub id: u64,
@@ -96,7 +96,7 @@ pub struct Draw2DCommand {
 }
 
 #[table(ephemeral)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RenderPassCommand {
     #[primary_key(auto_inc)]
     pub id: u64,
@@ -104,7 +104,7 @@ pub struct RenderPassCommand {
 }
 
 #[table(ephemeral)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ComputeCommand {
     #[primary_key(auto_inc)]
     pub id: u64,

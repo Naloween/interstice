@@ -5,7 +5,7 @@ const FOOD_RADIUS: f32 = 6.0;
 const TARGET_FOOD: usize = 180;
 
 #[table(public, stateful)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Food {
     #[primary_key(auto_inc)]
     pub id: u64,

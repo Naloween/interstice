@@ -552,7 +552,7 @@ fn tessellate_polyline(surface: SurfaceInfo, cmd: &PolylineCommand) -> Vec<Immed
             }
         }
     }
-    let half = cmd.width.max(0.0001) * 0.5;
+    let half = cmd.width as f32 * 0.5;
     for (start, end) in segments {
         let dx = end.x - start.x;
         let dy = end.y - start.y;
@@ -626,16 +626,16 @@ fn triangulate_polygon(
 }
 
 fn tessellate_rect(surface: SurfaceInfo, cmd: &RectCommand) -> Vec<ImmediateVertexBytes> {
-    if cmd.rect.w <= 0.0 || cmd.rect.h <= 0.0 {
+    if cmd.rect.w <= 0 || cmd.rect.h <= 0 {
         return Vec::new();
     }
 
     if cmd.filled {
         let color = color_to_array(&cmd.color);
-        let x0 = cmd.rect.x;
-        let y0 = cmd.rect.y;
-        let x1 = cmd.rect.x + cmd.rect.w;
-        let y1 = cmd.rect.y + cmd.rect.h;
+        let x0 = cmd.rect.x as f32;
+        let y0 = cmd.rect.y as f32;
+        let x1 = cmd.rect.x as f32 + cmd.rect.w as f32;
+        let y1 = cmd.rect.y as f32 + cmd.rect.h as f32;
 
         return vec![
             ImmediateVertexBytes {
@@ -665,11 +665,11 @@ fn tessellate_rect(surface: SurfaceInfo, cmd: &RectCommand) -> Vec<ImmediateVert
         ];
     }
 
-    let stroke = cmd.stroke_width.max(0.0001);
-    let x0 = cmd.rect.x;
-    let y0 = cmd.rect.y;
-    let x1 = cmd.rect.x + cmd.rect.w;
-    let y1 = cmd.rect.y + cmd.rect.h;
+    let stroke = cmd.stroke_width;
+    let x0 = cmd.rect.x as f32;
+    let y0 = cmd.rect.y as f32;
+    let x1 = cmd.rect.x as f32 + cmd.rect.w as f32;
+    let y1 = cmd.rect.y as f32 + cmd.rect.h as f32;
     let color = cmd.color.clone();
 
     let mut vertices = Vec::new();

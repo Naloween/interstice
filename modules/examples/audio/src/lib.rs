@@ -13,7 +13,6 @@ const VOLUME: f32 = 0.2;
 // TABLES
 
 #[table(ephemeral)]
-#[derive(Clone)]
 pub struct AudioState {
     #[primary_key]
     pub id: u64,

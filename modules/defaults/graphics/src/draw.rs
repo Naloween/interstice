@@ -112,7 +112,7 @@ pub fn draw_polyline<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     ctx: ReducerContext<Caps>,
     layer: String,
     points: Vec<Vec2>,
-    width: f32,
+    width: u32,
     color: Color,
     closed: bool,
     filled: bool,
@@ -152,12 +152,12 @@ pub fn draw_rect<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     rect: Rect,
     color: Color,
     filled: bool,
-    stroke_width: f32,
+    stroke_width: u32,
 ) {
     if !ensure_layer_exists(&ctx, &layer) {
         return;
     }
-    if rect.w <= 0.0 || rect.h <= 0.0 {
+    if rect.w <= 0 || rect.h <= 0 {
         ctx.log("Rect width and height must be positive");
         return;
     }

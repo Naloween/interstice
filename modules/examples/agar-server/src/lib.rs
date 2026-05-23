@@ -15,7 +15,7 @@ const WORLD_SIZE: f32 = 2_000.0;
 const DT_MS: u64 = 8;
 
 #[interstice_type]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Vec2 {
     pub x: f32,
     pub y: f32,

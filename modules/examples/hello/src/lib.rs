@@ -15,7 +15,7 @@ pub struct Greetings {
 }
 
 #[interstice_type]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct TestCustomType {
     pub val: u32,
 }

@@ -98,7 +98,7 @@ pub fn derive_interstice_type_macro(input: TokenStream) -> TokenStream {
     };
 
     quote! {
-        #[derive(interstice_sdk::interstice_abi_macros::IntersticeType)]
+        #[derive(interstice_sdk::interstice_abi_macros::IntersticeType, Clone)]
         #input
 
         fn #type_def_fn() -> interstice_sdk::IntersticeTypeDef {

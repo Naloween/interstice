@@ -5,7 +5,7 @@ pub const BASE_SPEED: f32 = 240.0;
 const START_RADIUS: f32 = 18.0;
 
 #[table(public, stateful)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Player {
     #[primary_key]
     pub id: String,
