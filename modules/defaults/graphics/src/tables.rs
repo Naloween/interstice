@@ -68,6 +68,15 @@ pub struct FrameTick {
     pub frame: u64,
 }
 
+#[table(public, ephemeral)]
+#[derive(Debug)]
+pub struct SurfaceInfo {
+    #[primary_key]
+    pub id: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
 #[table(ephemeral)]
 #[derive(Debug)]
 pub struct RendererCache {

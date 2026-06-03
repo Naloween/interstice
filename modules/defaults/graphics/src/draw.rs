@@ -152,12 +152,13 @@ pub fn draw_rect<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     rect: Rect,
     color: Color,
     filled: bool,
-    stroke_width: u32,
+    stroke_width: f32,
+    corner_radius: Option<f32>,
 ) {
     if !ensure_layer_exists(&ctx, &layer) {
         return;
     }
-    if rect.w <= 0 || rect.h <= 0 {
+    if rect.w <= 0.0 || rect.h <= 0.0 {
         ctx.log("Rect width and height must be positive");
         return;
     }
@@ -173,6 +174,7 @@ pub fn draw_rect<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
             color,
             filled,
             stroke_width,
+            corner_radius,
         }),
         image: None,
         text: None,

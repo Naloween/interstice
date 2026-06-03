@@ -168,6 +168,12 @@ field_type = "Bool"
 name = "stroke_width"
 field_type = "F32"
 
+[[reducers.arguments]]
+name = "corner_radius"
+
+[reducers.arguments.field_type]
+Option = "F32"
+
 [[reducers]]
 name = "draw_text"
 reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
@@ -439,6 +445,41 @@ field_type = "U64"
 
 [tables.primary_key]
 name = "id"
+field_type = "U32"
+
+[[tables]]
+name = "surfaceinfo"
+type_name = "SurfaceInfo"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Ephemeral"
+
+[[tables.fields]]
+name = "width"
+field_type = "U32"
+
+[[tables.fields]]
+name = "height"
+field_type = "U32"
+
+[tables.primary_key]
+name = "id"
+field_type = "U32"
+
+[type_definitions.SurfaceInfo.Struct]
+name = "SurfaceInfo"
+
+[[type_definitions.SurfaceInfo.Struct.fields]]
+name = "id"
+field_type = "U32"
+
+[[type_definitions.SurfaceInfo.Struct.fields]]
+name = "width"
+field_type = "U32"
+
+[[type_definitions.SurfaceInfo.Struct.fields]]
+name = "height"
 field_type = "U32"
 
 [type_definitions.BindGroupDescriptorInput.Struct]

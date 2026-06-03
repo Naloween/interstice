@@ -28,10 +28,10 @@ pub struct Color {
 #[interstice_type]
 #[derive(Debug)]
 pub struct Rect {
-    pub x: u32,
-    pub y: u32,
-    pub w: u32,
-    pub h: u32,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
 }
 
 #[interstice_type]
@@ -52,7 +52,8 @@ pub struct RectCommand {
     pub rect: Rect,
     pub color: Color,
     pub filled: bool,
-    pub stroke_width: u32,
+    pub stroke_width: f32,
+    pub corner_radius: Option<f32>,
 }
 
 #[interstice_type]

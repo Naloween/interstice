@@ -3,7 +3,7 @@ set -e
 
 # Build all example modules in release mode and copy to CLI module_examples folder
 
-MODULES=("audio-example" "caller-example" "graphics-example" "hello-example" "agar-server" "agar-client" "benchmark-workload")
+MODULES=("audio-example" "caller-example" "graphics-example" "hello-example" "agar-server" "agar-client" "benchmark-workload" "ui-example")
 # Respect CARGO_TARGET_DIR so WASM is copied from the same tree `cargo build` wrote to.
 : "${CARGO_TARGET_DIR:=target}"
 TARGET_DIR="${CARGO_TARGET_DIR}/wasm32-unknown-unknown/release"

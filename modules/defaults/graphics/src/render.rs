@@ -14,8 +14,8 @@ use crate::tables::{
     ComputeCommand, Draw2DCommand, FrameTick, HasComputeCommandEditHandle,
     HasDraw2DCommandEditHandle, HasFrameTickEditHandle, HasLayerEditHandle,
     HasMeshBindingEditHandle, HasPipelineBindingEditHandle, HasRenderPassCommandEditHandle,
-    HasRendererCacheEditHandle, Layer, MeshBinding, PipelineBinding, RenderPassCommand,
-    RendererCache,
+    HasRendererCacheEditHandle, HasSurfaceInfoEditHandle, Layer, MeshBinding, PipelineBinding,
+    RenderPassCommand, RendererCache, SurfaceInfo,
 };
 use crate::types::{
     CircleCommand, Color, Draw2DCommandType, MeshDrawCommand, PolylineCommand, RectCommand,
@@ -33,6 +33,8 @@ where
         + CanRead<ComputeCommand>
         + CanRead<FrameTick>
         + CanUpdate<FrameTick>
+        + CanRead<SurfaceInfo>
+        + CanUpdate<SurfaceInfo>
         + CanRead<MeshBinding>
         + CanRead<PipelineBinding>
         + CanDelete<Draw2DCommand>
@@ -70,14 +72,22 @@ where
         + CanRead<RendererCache>
         + CanInsert<RendererCache>
         + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>,
+        + CanDelete<RendererCache>
+        + CanRead<SurfaceInfo>
+        + CanUpdate<SurfaceInfo>,
 {
     let gpu = ctx.gpu();
 
     gpu.begin_frame()?;
 
     let (surface_width, surface_height) = gpu.get_surface_size()?;
-    let surface = SurfaceInfo::new(surface_width, surface_height);
+    let surface = RenderSurface::new(surface_width, surface_height);
+
+    if let Some(mut info) = ctx.current.tables.surfaceinfo().get(0) {
+        info.width = surface_width;
+        info.height = surface_height;
+        let _ = ctx.current.tables.surfaceinfo().update(info);
+    }
 
     let surface_texture = gpu.get_current_surface_texture()?;
     let surface_format = gpu.get_surface_format()?;
@@ -328,7 +338,7 @@ fn execute_draw_commands<Caps>(
     immediate_pipeline: &ImmediatePipeline,
     commands: Vec<Draw2DCommand>,
     created_buffers: &mut Vec<u32>,
-    surface: SurfaceInfo,
+    surface: RenderSurface,
 ) -> Result<(), String>
 where
     Caps: CanRead<Layer> + CanRead<MeshBinding> + CanRead<PipelineBinding>,
@@ -461,7 +471,7 @@ struct ImmediateVertexBytes {
     color: [f32; 4],
 }
 
-fn tessellate_circle(surface: SurfaceInfo, cmd: &CircleCommand) -> Vec<ImmediateVertexBytes> {
+fn tessellate_circle(surface: RenderSurface, cmd: &CircleCommand) -> Vec<ImmediateVertexBytes> {
     let segments = DEFAULT_SEGMENTS.max(MIN_SEGMENTS);
     let mut vertices = Vec::new();
     if cmd.radius <= 0.0 {
@@ -533,7 +543,7 @@ fn tessellate_circle(surface: SurfaceInfo, cmd: &CircleCommand) -> Vec<Immediate
     vertices
 }
 
-fn tessellate_polyline(surface: SurfaceInfo, cmd: &PolylineCommand) -> Vec<ImmediateVertexBytes> {
+fn tessellate_polyline(surface: RenderSurface, cmd: &PolylineCommand) -> Vec<ImmediateVertexBytes> {
     if cmd.points.len() < 2 {
         return Vec::new();
     }
@@ -598,7 +608,7 @@ fn tessellate_polyline(surface: SurfaceInfo, cmd: &PolylineCommand) -> Vec<Immed
 }
 
 fn triangulate_polygon(
-    surface: SurfaceInfo,
+    surface: RenderSurface,
     points: &[Vec2],
     color: &Color,
 ) -> Vec<ImmediateVertexBytes> {
@@ -625,55 +635,40 @@ fn triangulate_polygon(
     vertices
 }
 
-fn tessellate_rect(surface: SurfaceInfo, cmd: &RectCommand) -> Vec<ImmediateVertexBytes> {
-    if cmd.rect.w <= 0 || cmd.rect.h <= 0 {
+fn tessellate_rect(surface: RenderSurface, cmd: &RectCommand) -> Vec<ImmediateVertexBytes> {
+    if cmd.rect.w <= 0.0 || cmd.rect.h <= 0.0 {
         return Vec::new();
+    }
+
+    if let Some(r) = cmd.corner_radius {
+        if r > 0.0 {
+            return tessellate_rounded_rect(surface, cmd, r);
+        }
     }
 
     if cmd.filled {
         let color = color_to_array(&cmd.color);
-        let x0 = cmd.rect.x as f32;
-        let y0 = cmd.rect.y as f32;
-        let x1 = cmd.rect.x as f32 + cmd.rect.w as f32;
-        let y1 = cmd.rect.y as f32 + cmd.rect.h as f32;
+        let x0 = cmd.rect.x;
+        let y0 = cmd.rect.y;
+        let x1 = x0 + cmd.rect.w;
+        let y1 = y0 + cmd.rect.h;
 
         return vec![
-            ImmediateVertexBytes {
-                position: to_clip(surface, x0, y0),
-                color,
-            },
-            ImmediateVertexBytes {
-                position: to_clip(surface, x1, y0),
-                color,
-            },
-            ImmediateVertexBytes {
-                position: to_clip(surface, x0, y1),
-                color,
-            },
-            ImmediateVertexBytes {
-                position: to_clip(surface, x0, y1),
-                color,
-            },
-            ImmediateVertexBytes {
-                position: to_clip(surface, x1, y0),
-                color,
-            },
-            ImmediateVertexBytes {
-                position: to_clip(surface, x1, y1),
-                color,
-            },
+            ImmediateVertexBytes { position: to_clip(surface, x0, y0), color },
+            ImmediateVertexBytes { position: to_clip(surface, x1, y0), color },
+            ImmediateVertexBytes { position: to_clip(surface, x0, y1), color },
+            ImmediateVertexBytes { position: to_clip(surface, x0, y1), color },
+            ImmediateVertexBytes { position: to_clip(surface, x1, y0), color },
+            ImmediateVertexBytes { position: to_clip(surface, x1, y1), color },
         ];
     }
 
-    let stroke = cmd.stroke_width;
-    let x0 = cmd.rect.x as f32;
-    let y0 = cmd.rect.y as f32;
-    let x1 = cmd.rect.x as f32 + cmd.rect.w as f32;
-    let y1 = cmd.rect.y as f32 + cmd.rect.h as f32;
-    let color = cmd.color.clone();
+    let x0 = cmd.rect.x;
+    let y0 = cmd.rect.y;
+    let x1 = x0 + cmd.rect.w;
+    let y1 = y0 + cmd.rect.h;
 
-    let mut vertices = Vec::new();
-    vertices.extend(tessellate_polyline(
+    tessellate_polyline(
         surface,
         &PolylineCommand {
             points: vec![
@@ -682,16 +677,71 @@ fn tessellate_rect(surface: SurfaceInfo, cmd: &RectCommand) -> Vec<ImmediateVert
                 Vec2 { x: x1, y: y1 },
                 Vec2 { x: x0, y: y1 },
             ],
-            color,
-            width: stroke,
+            color: cmd.color.clone(),
+            width: cmd.stroke_width as u32,
             closed: true,
             filled: false,
         },
-    ));
-    vertices
+    )
 }
 
-fn tessellate_text(surface: SurfaceInfo, cmd: &TextCommand) -> Vec<ImmediateVertexBytes> {
+/// Generates the outline polygon of a rounded rectangle going clockwise in screen-space.
+/// Each corner is approximated by `CORNER_SEGS` arc segments.
+fn rounded_rect_outline(rect: &crate::types::Rect, r: f32) -> Vec<Vec2> {
+    let x = rect.x;
+    let y = rect.y;
+    let w = rect.w;
+    let h = rect.h;
+    let r = r.min(w * 0.5).min(h * 0.5).max(0.0);
+
+    const CORNER_SEGS: usize = 8;
+    let mut pts = Vec::with_capacity((CORNER_SEGS + 1) * 4);
+
+    // Corners in clockwise order (screen-space, y-down):
+    // Each entry: (center_x, center_y, angle_start, angle_end)
+    // angle 0 = right, π/2 = down, π = left, 3π/2 = up
+    let half_pi = std::f32::consts::FRAC_PI_2;
+    let corners = [
+        (x + w - r, y + r,     -half_pi, 0.0),            // top-right
+        (x + w - r, y + h - r,  0.0,     half_pi),         // bottom-right
+        (x + r,     y + h - r,  half_pi, std::f32::consts::PI), // bottom-left
+        (x + r,     y + r,      std::f32::consts::PI, 3.0 * half_pi), // top-left
+    ];
+
+    for (cx, cy, a0, a1) in corners {
+        for i in 0..=CORNER_SEGS {
+            let t = i as f32 / CORNER_SEGS as f32;
+            let angle: f32 = a0 + (a1 - a0) * t;
+            pts.push(Vec2 {
+                x: cx + r * angle.cos(),
+                y: cy + r * angle.sin(),
+            });
+        }
+    }
+
+    pts
+}
+
+fn tessellate_rounded_rect(surface: RenderSurface, cmd: &RectCommand, r: f32) -> Vec<ImmediateVertexBytes> {
+    let pts = rounded_rect_outline(&cmd.rect, r);
+
+    if cmd.filled {
+        triangulate_polygon(surface, &pts, &cmd.color)
+    } else {
+        tessellate_polyline(
+            surface,
+            &PolylineCommand {
+                points: pts,
+                color: cmd.color.clone(),
+                width: cmd.stroke_width as u32,
+                closed: true,
+                filled: false,
+            },
+        )
+    }
+}
+
+fn tessellate_text(surface: RenderSurface, cmd: &TextCommand) -> Vec<ImmediateVertexBytes> {
     const BASE_GLYPH_SIZE: f32 = 8.0;
     const MAX_GLYPHS: usize = 8_192;
     const TAB_SPACES: u32 = 4;
@@ -760,7 +810,7 @@ fn tessellate_text(surface: SurfaceInfo, cmd: &TextCommand) -> Vec<ImmediateVert
 
 fn push_quad(
     vertices: &mut Vec<ImmediateVertexBytes>,
-    surface: SurfaceInfo,
+    surface: RenderSurface,
     x: f32,
     y: f32,
     w: f32,
@@ -808,7 +858,7 @@ fn polar(cmd: &CircleCommand, radius: f32, angle: f32) -> (f32, f32) {
     )
 }
 
-fn to_clip(surface: SurfaceInfo, x: f32, y: f32) -> [f32; 2] {
+fn to_clip(surface: RenderSurface, x: f32, y: f32) -> [f32; 2] {
     [
         (x / surface.width) * 2.0 - 1.0,
         1.0 - (y / surface.height) * 2.0,
@@ -841,12 +891,12 @@ fn format_label(format: TextureFormat) -> String {
 }
 
 #[derive(Clone, Copy)]
-struct SurfaceInfo {
+struct RenderSurface {
     width: f32,
     height: f32,
 }
 
-impl SurfaceInfo {
+impl RenderSurface {
     fn new(width: u32, height: u32) -> Self {
         Self {
             width: width.max(1) as f32,

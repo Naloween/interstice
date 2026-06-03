@@ -25,7 +25,7 @@ pub use types::*;
 #[reducer(on = "load")]
 pub fn load<Caps>(ctx: ReducerContext<Caps>)
 where
-    Caps: CanInsert<Layer> + CanInsert<FrameTick>,
+    Caps: CanInsert<Layer> + CanInsert<FrameTick> + CanInsert<SurfaceInfo>,
 {
     let _ = ctx.current.tables.layer().insert(Layer {
         name: "default".to_string(),
@@ -39,4 +39,9 @@ where
         .frametick()
         .insert(FrameTick { id: 0, frame: 0 })
         .expect("Couldn't insert frame count");
+    ctx.current
+        .tables
+        .surfaceinfo()
+        .insert(SurfaceInfo { id: 0, width: 0, height: 0 })
+        .expect("Couldn't insert surface info");
 }

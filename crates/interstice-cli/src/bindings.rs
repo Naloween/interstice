@@ -1,6 +1,11 @@
-use crate::{node_client::fetch_node_schema, node_registry::NodeRegistry};
-use interstice_core::IntersticeError;
+use crate::{
+    data_directory::nodes_dir,
+    node_client::{HandshakeInfo, fetch_node_schema},
+    node_registry::NodeRegistry,
+};
+use interstice_core::{IntersticeError, Node, interstice_abi::NodeSchema};
 use std::path::{Path, PathBuf};
+use tokio::time::{Duration, sleep};
 
 pub async fn handle_bindings_command(args: &[String]) -> Result<(), IntersticeError> {
     if args.len() < 4 {
@@ -39,6 +44,72 @@ pub async fn handle_bindings_command(args: &[String]) -> Result<(), IntersticeEr
     Ok(())
 }
 
+async fn fetch_schema_with_local_fallback(
+    registry: &mut NodeRegistry,
+    node_ref: &str,
+) -> Result<(NodeSchema, HandshakeInfo), IntersticeError> {
+    let address = registry
+        .resolve_address(node_ref)
+        .ok_or_else(|| IntersticeError::Internal(format!("Unknown node '{}'", node_ref)))?;
+    let node_name = registry
+        .get(node_ref)
+        .map(|n| n.name.clone())
+        .unwrap_or_else(|| node_ref.to_string());
+
+    match fetch_node_schema(&address, &node_name).await {
+        Ok(result) => return Ok(result),
+        Err(_) => {}
+    }
+
+    let record = registry
+        .get(node_ref)
+        .ok_or_else(|| IntersticeError::Internal(format!("Unknown node '{}'", node_ref)))?;
+
+    if !record.local {
+        return Err(IntersticeError::Internal(format!(
+            "Node '{}' is unreachable and is not a local node",
+            node_ref
+        )));
+    }
+
+    let node_id: uuid::Uuid = record
+        .node_id
+        .as_deref()
+        .ok_or_else(|| IntersticeError::Internal("Local node has no stored ID".into()))?
+        .parse()
+        .map_err(|_| IntersticeError::Internal("Invalid stored node ID".into()))?;
+    let port = address
+        .split(':')
+        .last()
+        .ok_or_else(|| IntersticeError::Internal("Invalid node address".into()))?
+        .parse::<u32>()
+        .map_err(|_| IntersticeError::Internal("Invalid port in node address".into()))?;
+
+    println!(
+        "Node '{}' is not running — starting it temporarily to fetch schema...",
+        node_name
+    );
+
+    let node_instance = Node::load(&nodes_dir(), node_id, port, address.clone()).await?;
+    let node_task = tokio::spawn(async move { node_instance.start().await });
+
+    // Retry until the node accepts connections (waits for module loading to complete).
+    let mut result = Err(IntersticeError::Internal("Node did not become ready in time".into()));
+    for attempt in 0..30u32 {
+        sleep(Duration::from_millis(if attempt == 0 { 500 } else { 300 })).await;
+        match fetch_node_schema(&address, &node_name).await {
+            Ok(r) => {
+                result = Ok(r);
+                break;
+            }
+            Err(_) => continue,
+        }
+    }
+
+    node_task.abort();
+    result
+}
+
 fn print_bindings_help() {
     println!("USAGE:");
     println!("  interstice bindings add module <node> <module> [project_path]");
@@ -51,14 +122,7 @@ pub async fn add_module_binding(
     project_path: &Path,
 ) -> Result<PathBuf, IntersticeError> {
     let mut registry = NodeRegistry::load()?;
-    let address = registry
-        .resolve_address(node_ref)
-        .ok_or_else(|| IntersticeError::Internal(format!("Unknown node '{}'", node_ref)))?;
-    let node_name = registry
-        .get(node_ref)
-        .map(|n| n.name.clone())
-        .unwrap_or_else(|| node_ref.to_string());
-    let (schema, handshake) = fetch_node_schema(&address, &node_name).await?;
+    let (schema, handshake) = fetch_schema_with_local_fallback(&mut registry, node_ref).await?;
     registry.set_last_seen(node_ref);
     registry.set_node_id(node_ref, handshake.node_id);
     registry.save()?;
@@ -90,14 +154,7 @@ pub async fn add_node_binding(
     project_path: &Path,
 ) -> Result<PathBuf, IntersticeError> {
     let mut registry = NodeRegistry::load()?;
-    let address = registry
-        .resolve_address(node_ref)
-        .ok_or_else(|| IntersticeError::Internal(format!("Unknown node '{}'", node_ref)))?;
-    let node_name = registry
-        .get(node_ref)
-        .map(|n| n.name.clone())
-        .unwrap_or_else(|| node_ref.to_string());
-    let (schema, handshake) = fetch_node_schema(&address, &node_name).await?;
+    let (schema, handshake) = fetch_schema_with_local_fallback(&mut registry, node_ref).await?;
     registry.set_last_seen(node_ref);
     registry.set_node_id(node_ref, handshake.node_id);
     registry.save()?;
@@ -106,7 +163,7 @@ pub async fn add_node_binding(
     std::fs::create_dir_all(&bindings_dir).map_err(|err| {
         IntersticeError::Internal(format!("Failed to create bindings directory: {err}"))
     })?;
-    let file_name = sanitize_filename(&node_name);
+    let file_name = sanitize_filename(&schema.name);
     let out_path = bindings_dir.join(format!("node_{}.toml", file_name));
     let contents = schema.to_public().to_toml_string().map_err(|err| {
         IntersticeError::Internal(format!("Failed to serialize node schema: {err}"))

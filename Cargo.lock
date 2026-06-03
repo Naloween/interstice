@@ -3946,6 +3946,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ui-example"
+version = "0.1.0"
+dependencies = [
+ "interstice-sdk",
+]
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
