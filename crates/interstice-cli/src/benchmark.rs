@@ -105,19 +105,59 @@ async fn run_simple(args: &[String]) -> Result<(), IntersticeError> {
             ]),
         },
     )
-    .await?;
+    .await
+    .map_err(|err| IntersticeError::Internal(format!(
+        "{err} — node dropped the connection immediately after handshake; \
+        another benchmark process with the same CLI identity may already be connected"
+    )))?;
 
-    for seq in 0..requests {
-        let packet = NetworkPacket::ReducerCall {
-            module_name: module.clone(),
-            reducer_name: "bench_tx".to_string(),
-            input: IntersticeValue::Vec(vec![
-                IntersticeValue::String(run_id.clone()),
-                IntersticeValue::U64(seq),
-                IntersticeValue::U64(payload_bytes),
-            ]),
-        };
-        write_packet(&mut stream, &packet).await?;
+    if operation == "insert" {
+        // bench_tx_insert only declares Insert caps — all calls are non-conflicting and run in parallel.
+        for seq in 0..requests {
+            write_packet(
+                &mut stream,
+                &NetworkPacket::ReducerCall {
+                    module_name: module.clone(),
+                    reducer_name: "bench_tx_insert".to_string(),
+                    input: IntersticeValue::Vec(vec![
+                        IntersticeValue::U64(seq),
+                        IntersticeValue::U64(payload_bytes),
+                        IntersticeValue::String(table.clone()),
+                    ]),
+                },
+            )
+            .await?;
+        }
+        // bench_end_run reads the target table, so the scheduler runs it after all inserts complete.
+        write_packet(
+            &mut stream,
+            &NetworkPacket::ReducerCall {
+                module_name: module.clone(),
+                reducer_name: "bench_end_run".to_string(),
+                input: IntersticeValue::Vec(vec![
+                    IntersticeValue::String(run_id.clone()),
+                    IntersticeValue::U64(requests),
+                ]),
+            },
+        )
+        .await?;
+    } else {
+        // update/delete inherently conflict (Update+Update, Delete+Delete) — use serialized bench_tx.
+        for seq in 0..requests {
+            write_packet(
+                &mut stream,
+                &NetworkPacket::ReducerCall {
+                    module_name: module.clone(),
+                    reducer_name: "bench_tx".to_string(),
+                    input: IntersticeValue::Vec(vec![
+                        IntersticeValue::String(run_id.clone()),
+                        IntersticeValue::U64(seq),
+                        IntersticeValue::U64(payload_bytes),
+                    ]),
+                },
+            )
+            .await?;
+        }
     }
     if poll_ms == 0 {
         return Err(IntersticeError::Internal(
@@ -153,41 +193,6 @@ async fn run_simple(args: &[String]) -> Result<(), IntersticeError> {
     println!("  elapsed_ms: {}", snapshot.elapsed_ms);
     println!("  committed_tps: {:.2}", snapshot.tps);
     Ok(())
-}
-
-async fn query_snapshot(
-    address: &str,
-    module_name: &str,
-    run_id: &str,
-) -> Result<Snapshot, IntersticeError> {
-    let (mut stream, _) = handshake_with_node(address).await?;
-    let request_id = Uuid::new_v4().to_string();
-    let packet = NetworkPacket::QueryCall {
-        request_id: request_id.clone(),
-        module_name: module_name.to_string(),
-        query_name: "bench_snapshot".to_string(),
-        input: IntersticeValue::Vec(vec![IntersticeValue::String(run_id.to_string())]),
-    };
-    write_packet(&mut stream, &packet).await?;
-    loop {
-        let packet = read_packet(&mut stream).await?;
-        match packet {
-            NetworkPacket::QueryResponse {
-                request_id: response_id,
-                result,
-            } if response_id == request_id => {
-                let _ = write_packet(&mut stream, &NetworkPacket::Close).await;
-                return parse_snapshot(result);
-            }
-            NetworkPacket::Error(err) => {
-                return Err(IntersticeError::Internal(format!(
-                    "Query failed with error: {}",
-                    err
-                )));
-            }
-            _ => {}
-        }
-    }
 }
 
 async fn query_snapshot_on_stream(

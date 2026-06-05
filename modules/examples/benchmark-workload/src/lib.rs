@@ -139,6 +139,52 @@ pub fn bench_begin_run<Caps>(
     });
 }
 
+/// Parallel insert reducer — only declares Insert caps so all concurrent calls are non-conflicting.
+/// Use bench_end_run after all bench_tx_insert calls to record completion.
+#[reducer]
+pub fn bench_tx_insert<Caps>(ctx: ReducerContext<Caps>, seq: u64, payload_bytes: u64, table_kind: String)
+where
+    Caps: CanInsert<BenchEphemeral> + CanInsert<BenchStateful> + CanInsert<BenchLogged>,
+{
+    let payload = "x".repeat(payload_bytes as usize);
+    let key = seq.to_string();
+    match table_kind.as_str() {
+        "ephemeral" => {
+            let _ = ctx.current.tables.benchephemeral().insert(BenchEphemeral { key, value: seq, payload });
+        }
+        "stateful" => {
+            let _ = ctx.current.tables.benchstateful().insert(BenchStateful { key, value: seq, payload });
+        }
+        "logged" => {
+            let _ = ctx.current.tables.benchlogged().insert(BenchLogged { key, value: seq, payload });
+        }
+        _ => {}
+    }
+}
+
+/// Completion barrier — reads target tables (conflicts with bench_tx_insert writes) so the scheduler
+/// guarantees it runs after all inserts finish. Records elapsed time and committed count on BenchRun.
+#[reducer]
+pub fn bench_end_run<Caps>(ctx: ReducerContext<Caps>, run_id: String, requests: u64)
+where
+    Caps: CanRead<BenchRun>
+        + CanUpdate<BenchRun>
+        + CanRead<BenchEphemeral>
+        + CanRead<BenchStateful>
+        + CanRead<BenchLogged>,
+{
+    let Some(mut run) = ctx.current.tables.benchrun().get("active".to_string()) else {
+        return;
+    };
+    if run.run_id != run_id || run.completed_ms > 0 {
+        return;
+    }
+    run.committed = requests;
+    run.completed_ms = now_ms(&ctx);
+    let _ = ctx.current.tables.benchrun().update(run);
+}
+
+/// Serialized reducer for update/delete operations (these inherently conflict at the table level).
 #[reducer]
 pub fn bench_tx<Caps>(ctx: ReducerContext<Caps>, run_id: String, seq: u64, payload_bytes: u64)
 where
