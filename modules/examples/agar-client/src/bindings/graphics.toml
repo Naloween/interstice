@@ -14,112 +14,9 @@ minor = 1
 patch = 0
 
 [[reducers]]
-name = "load"
-arguments = []
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-
-[[reducers]]
-name = "render"
-arguments = []
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-
-[[reducers]]
-name = "create_mesh"
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-
-[[reducers.arguments]]
-name = "local_id"
-field_type = "String"
-
-[[reducers.arguments]]
-name = "mesh"
-
-[reducers.arguments.field_type]
-Named = "MeshDescriptor"
-
-[[reducers]]
-name = "create_texture"
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-
-[[reducers.arguments]]
-name = "local_id"
-field_type = "String"
-
-[[reducers.arguments]]
-name = "desc"
-
-[reducers.arguments.field_type]
-Named = "TextureDescriptorInput"
-
-[[reducers.arguments]]
-name = "bytes"
-
-[reducers.arguments.field_type]
-Vec = "U8"
-
-[[reducers]]
-name = "create_pipeline"
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-
-[[reducers.arguments]]
-name = "local_id"
-field_type = "String"
-
-[[reducers.arguments]]
-name = "descriptor"
-
-[reducers.arguments.field_type]
-Named = "PipelineDescriptorInput"
-
-[[reducers]]
-name = "destroy_resource"
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-
-[[reducers.arguments]]
-name = "local_id"
-field_type = "String"
-
-[[reducers]]
-name = "create_bind_group"
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-
-[[reducers.arguments]]
-name = "local_id"
-field_type = "String"
-
-[[reducers.arguments]]
-name = "descriptor"
-
-[reducers.arguments.field_type]
-Named = "BindGroupDescriptorInput"
-
-[[reducers]]
 name = "draw_mesh"
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = []
+deletes = []
 
 [[reducers.arguments]]
 name = "layer"
@@ -137,12 +34,30 @@ field_type = "String"
 name = "instances"
 field_type = "U32"
 
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "meshbinding"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "pipelinebinding"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
 [[reducers]]
 name = "draw_rect"
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = []
+deletes = []
 
 [[reducers.arguments]]
 name = "layer"
@@ -168,12 +83,26 @@ field_type = "Bool"
 name = "stroke_width"
 field_type = "F32"
 
+[[reducers.arguments]]
+name = "corner_radius"
+
+[reducers.arguments.field_type]
+Option = "F32"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
 [[reducers]]
 name = "draw_text"
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = []
+deletes = []
 
 [[reducers.arguments]]
 name = "layer"
@@ -205,12 +134,20 @@ name = "font"
 [reducers.arguments.field_type]
 Option = "String"
 
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
 [[reducers]]
 name = "draw_image"
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = []
+deletes = []
 
 [[reducers.arguments]]
 name = "layer"
@@ -232,12 +169,25 @@ name = "tint"
 [reducers.arguments.field_type]
 Named = "Color"
 
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "texturebinding"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
 [[reducers]]
 name = "draw_circle"
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = []
+deletes = []
 
 [[reducers.arguments]]
 name = "layer"
@@ -267,12 +217,20 @@ field_type = "Bool"
 name = "stroke_width"
 field_type = "F32"
 
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
 [[reducers]]
 name = "draw_circles"
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = []
+deletes = []
 
 [[reducers.arguments]]
 name = "layer"
@@ -304,12 +262,20 @@ field_type = "Bool"
 name = "stroke_width"
 field_type = "F32"
 
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
 [[reducers]]
 name = "draw_polyline"
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = []
+deletes = []
 
 [[reducers.arguments]]
 name = "layer"
@@ -323,7 +289,7 @@ Named = "Vec2"
 
 [[reducers.arguments]]
 name = "width"
-field_type = "F32"
+field_type = "U32"
 
 [[reducers.arguments]]
 name = "color"
@@ -339,12 +305,21 @@ field_type = "Bool"
 name = "filled"
 field_type = "Bool"
 
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
 [[reducers]]
 name = "submit_compute"
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+reads = []
+updates = []
+deletes = []
 
 [[reducers.arguments]]
 name = "submission"
@@ -352,12 +327,15 @@ name = "submission"
 [reducers.arguments.field_type]
 Named = "ComputeSubmission"
 
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "computecommand"
+
 [[reducers]]
 name = "submit_render_pass"
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = []
+deletes = []
 
 [[reducers.arguments]]
 name = "submission"
@@ -365,12 +343,175 @@ name = "submission"
 [reducers.arguments.field_type]
 Named = "RenderPassSubmission"
 
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "renderpasscommand"
+
+[[reducers]]
+name = "create_mesh"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "mesh"
+
+[reducers.arguments.field_type]
+Named = "MeshDescriptor"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "meshbinding"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "meshbinding"
+
+[[reducers]]
+name = "create_texture"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "desc"
+
+[reducers.arguments.field_type]
+Named = "TextureDescriptorInput"
+
+[[reducers.arguments]]
+name = "bytes"
+
+[reducers.arguments.field_type]
+Vec = "U8"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "texturebinding"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "texturebinding"
+
+[[reducers]]
+name = "create_pipeline"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "descriptor"
+
+[reducers.arguments.field_type]
+Named = "PipelineDescriptorInput"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "pipelinebinding"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "pipelinebinding"
+
+[[reducers]]
+name = "destroy_resource"
+inserts = []
+updates = []
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "texturebinding"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "meshbinding"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "pipelinebinding"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "bindgroupbinding"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "texturebinding"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "meshbinding"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "pipelinebinding"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "bindgroupbinding"
+
+[[reducers]]
+name = "create_bind_group"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "descriptor"
+
+[reducers.arguments.field_type]
+Named = "BindGroupDescriptorInput"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "bindgroupbinding"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "bindgroupbinding"
+
 [[reducers]]
 name = "set_layer_z"
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = []
+deletes = []
 
 [[reducers.arguments]]
 name = "name"
@@ -379,13 +520,21 @@ field_type = "String"
 [[reducers.arguments]]
 name = "z"
 field_type = "I32"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
 
 [[reducers]]
 name = "create_layer"
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+updates = []
+deletes = []
 
 [[reducers.arguments]]
 name = "name"
@@ -399,23 +548,49 @@ field_type = "I32"
 name = "clear"
 field_type = "Bool"
 
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
 [[reducers]]
 name = "destroy_layer"
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = []
+updates = []
 
 [[reducers.arguments]]
 name = "name"
 field_type = "String"
 
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
 [[reducers]]
 name = "set_layer_clear"
-reads = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-inserts = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-updates = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
-deletes = ["layer", "frametick", "draw2dcommand", "renderpasscommand", "computecommand", "renderercache", "meshbinding", "pipelinebinding", "texturebinding", "bindgroupbinding"]
+inserts = []
+deletes = []
 
 [[reducers.arguments]]
 name = "name"
@@ -424,6 +599,16 @@ field_type = "String"
 [[reducers.arguments]]
 name = "clear"
 field_type = "Bool"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
 
 [[tables]]
 name = "frametick"
@@ -441,16 +626,25 @@ field_type = "U64"
 name = "id"
 field_type = "U32"
 
-[type_definitions.FrameTick.Struct]
-name = "FrameTick"
+[[tables]]
+name = "surfaceinfo"
+type_name = "SurfaceInfo"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Ephemeral"
 
-[[type_definitions.FrameTick.Struct.fields]]
-name = "id"
+[[tables.fields]]
+name = "width"
 field_type = "U32"
 
-[[type_definitions.FrameTick.Struct.fields]]
-name = "frame"
-field_type = "U64"
+[[tables.fields]]
+name = "height"
+field_type = "U32"
+
+[tables.primary_key]
+name = "id"
+field_type = "U32"
 
 [type_definitions.Color.Struct]
 name = "Color"
@@ -471,6 +665,53 @@ field_type = "F32"
 name = "a"
 field_type = "F32"
 
+[type_definitions.ComputeSubmission.Struct]
+name = "ComputeSubmission"
+
+[[type_definitions.ComputeSubmission.Struct.fields]]
+name = "debug_label"
+
+[type_definitions.ComputeSubmission.Struct.fields.field_type]
+Option = "String"
+
+[type_definitions.Vec3.Struct]
+name = "Vec3"
+
+[[type_definitions.Vec3.Struct.fields]]
+name = "x"
+field_type = "F32"
+
+[[type_definitions.Vec3.Struct.fields]]
+name = "y"
+field_type = "F32"
+
+[[type_definitions.Vec3.Struct.fields]]
+name = "z"
+field_type = "F32"
+
+[type_definitions.TextureUsageFlags.Struct]
+name = "TextureUsageFlags"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "copy_src"
+field_type = "Bool"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "copy_dst"
+field_type = "Bool"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "texture_binding"
+field_type = "Bool"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "storage_binding"
+field_type = "Bool"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "render_attachment"
+field_type = "Bool"
+
 [type_definitions.MeshDescriptor.Struct]
 name = "MeshDescriptor"
 
@@ -485,6 +726,83 @@ name = "indices"
 
 [type_definitions.MeshDescriptor.Struct.fields.field_type.Option]
 Vec = "U32"
+
+[type_definitions.Rect.Struct]
+name = "Rect"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "x"
+field_type = "F32"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "y"
+field_type = "F32"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "w"
+field_type = "F32"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "h"
+field_type = "F32"
+
+[type_definitions.MeshVertex.Struct]
+name = "MeshVertex"
+
+[[type_definitions.MeshVertex.Struct.fields]]
+name = "position"
+
+[type_definitions.MeshVertex.Struct.fields.field_type]
+Named = "Vec3"
+
+[[type_definitions.MeshVertex.Struct.fields]]
+name = "color"
+
+[type_definitions.MeshVertex.Struct.fields.field_type]
+Named = "Color"
+
+[[type_definitions.MeshVertex.Struct.fields]]
+name = "uv"
+
+[type_definitions.MeshVertex.Struct.fields.field_type]
+Named = "Vec2"
+
+[type_definitions.SurfaceInfo.Struct]
+name = "SurfaceInfo"
+
+[[type_definitions.SurfaceInfo.Struct.fields]]
+name = "id"
+field_type = "U32"
+
+[[type_definitions.SurfaceInfo.Struct.fields]]
+name = "width"
+field_type = "U32"
+
+[[type_definitions.SurfaceInfo.Struct.fields]]
+name = "height"
+field_type = "U32"
+
+[type_definitions.Vec2.Struct]
+name = "Vec2"
+
+[[type_definitions.Vec2.Struct.fields]]
+name = "x"
+field_type = "F32"
+
+[[type_definitions.Vec2.Struct.fields]]
+name = "y"
+field_type = "F32"
+
+[type_definitions.FrameTick.Struct]
+name = "FrameTick"
+
+[[type_definitions.FrameTick.Struct.fields]]
+name = "id"
+field_type = "U32"
+
+[[type_definitions.FrameTick.Struct.fields]]
+name = "frame"
+field_type = "U64"
 
 [type_definitions.TextureDescriptorInput.Struct]
 name = "TextureDescriptorInput"
@@ -515,29 +833,6 @@ name = "usage"
 [type_definitions.TextureDescriptorInput.Struct.fields.field_type]
 Named = "TextureUsageFlags"
 
-[type_definitions.TextureUsageFlags.Struct]
-name = "TextureUsageFlags"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "copy_src"
-field_type = "Bool"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "copy_dst"
-field_type = "Bool"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "texture_binding"
-field_type = "Bool"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "storage_binding"
-field_type = "Bool"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "render_attachment"
-field_type = "Bool"
-
 [type_definitions.PipelineDescriptorInput.Struct]
 name = "PipelineDescriptorInput"
 
@@ -561,36 +856,6 @@ name = "fragment_entry"
 [type_definitions.PipelineDescriptorInput.Struct.fields.field_type]
 Option = "String"
 
-[type_definitions.MeshVertex.Struct]
-name = "MeshVertex"
-
-[[type_definitions.MeshVertex.Struct.fields]]
-name = "position"
-
-[type_definitions.MeshVertex.Struct.fields.field_type]
-Named = "Vec3"
-
-[[type_definitions.MeshVertex.Struct.fields]]
-name = "color"
-
-[type_definitions.MeshVertex.Struct.fields.field_type]
-Named = "Color"
-
-[[type_definitions.MeshVertex.Struct.fields]]
-name = "uv"
-
-[type_definitions.MeshVertex.Struct.fields.field_type]
-Named = "Vec2"
-
-[type_definitions.ComputeSubmission.Struct]
-name = "ComputeSubmission"
-
-[[type_definitions.ComputeSubmission.Struct.fields]]
-name = "debug_label"
-
-[type_definitions.ComputeSubmission.Struct.fields.field_type]
-Option = "String"
-
 [type_definitions.BindGroupDescriptorInput.Struct]
 name = "BindGroupDescriptorInput"
 
@@ -599,51 +864,6 @@ name = "label"
 
 [type_definitions.BindGroupDescriptorInput.Struct.fields.field_type]
 Option = "String"
-
-[type_definitions.Vec3.Struct]
-name = "Vec3"
-
-[[type_definitions.Vec3.Struct.fields]]
-name = "x"
-field_type = "F32"
-
-[[type_definitions.Vec3.Struct.fields]]
-name = "y"
-field_type = "F32"
-
-[[type_definitions.Vec3.Struct.fields]]
-name = "z"
-field_type = "F32"
-
-[type_definitions.Rect.Struct]
-name = "Rect"
-
-[[type_definitions.Rect.Struct.fields]]
-name = "x"
-field_type = "F32"
-
-[[type_definitions.Rect.Struct.fields]]
-name = "y"
-field_type = "F32"
-
-[[type_definitions.Rect.Struct.fields]]
-name = "w"
-field_type = "F32"
-
-[[type_definitions.Rect.Struct.fields]]
-name = "h"
-field_type = "F32"
-
-[type_definitions.Vec2.Struct]
-name = "Vec2"
-
-[[type_definitions.Vec2.Struct.fields]]
-name = "x"
-field_type = "F32"
-
-[[type_definitions.Vec2.Struct.fields]]
-name = "y"
-field_type = "F32"
 
 [type_definitions.RenderPassSubmission.Struct]
 name = "RenderPassSubmission"

@@ -1,11 +1,11 @@
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 use interstice_sdk::*;
 use interstice_sdk::{
-    BeginRenderPass, BufferUsage, ColorTargetState, ColorWrites, CreatePipelineLayout,
-    CreateRenderPipeline, CreateTextureView, FragmentState, FrontFace, Gpu, IndexFormat, LoadOp,
-    MultisampleState, PrimitiveState, PrimitiveTopology, RenderPassColorAttachment, StoreOp,
-    TextureFormat, TextureViewDimension, VertexAttribute, VertexBufferLayout, VertexFormat,
-    VertexState, VertexStepMode,
+    BeginRenderPass, BlendComponent, BlendFactor, BlendOperation, BlendState, BufferUsage,
+    ColorTargetState, ColorWrites, CreatePipelineLayout, CreateRenderPipeline, CreateTextureView,
+    FragmentState, FrontFace, Gpu, IndexFormat, LoadOp, MultisampleState, PrimitiveState,
+    PrimitiveTopology, RenderPassColorAttachment, StoreOp, TextureFormat, TextureViewDimension,
+    VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode,
 };
 use std::collections::HashMap;
 
@@ -293,7 +293,18 @@ where
             entry_point: "fs_main".into(),
             targets: vec![ColorTargetState {
                 format,
-                blend: None,
+                blend: Some(BlendState {
+                    color: BlendComponent {
+                        src_factor: BlendFactor::SrcAlpha,
+                        dst_factor: BlendFactor::OneMinusSrcAlpha,
+                        operation: BlendOperation::Add,
+                    },
+                    alpha: BlendComponent {
+                        src_factor: BlendFactor::One,
+                        dst_factor: BlendFactor::OneMinusSrcAlpha,
+                        operation: BlendOperation::Add,
+                    },
+                }),
                 write_mask: ColorWrites::ALL,
             }],
         }),

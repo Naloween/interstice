@@ -33,6 +33,12 @@ pub fn on_load(ctx: ReducerContext) {
         text_size: 0.0,
         text_color: (0.0, 0.0, 0.0, 0.0),
         text_wrap: TextWrap::Words,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
 
@@ -55,6 +61,12 @@ pub fn on_load(ctx: ReducerContext) {
         text_size: 0.0,
         text_color: (0.0, 0.0, 0.0, 0.0),
         text_wrap: TextWrap::Words,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
 
@@ -77,6 +89,12 @@ pub fn on_load(ctx: ReducerContext) {
         text_size: 24.0,
         text_color: TEXT_COLOR,
         text_wrap: TextWrap::Words,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
 
@@ -99,6 +117,12 @@ pub fn on_load(ctx: ReducerContext) {
         text_size: 14.0,
         text_color: MUTED_COLOR,
         text_wrap: TextWrap::Words,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
 
@@ -121,6 +145,12 @@ pub fn on_load(ctx: ReducerContext) {
         text_size: 0.0,
         text_color: (0.0, 0.0, 0.0, 0.0),
         text_wrap: TextWrap::Words,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
 
@@ -144,6 +174,12 @@ pub fn on_load(ctx: ReducerContext) {
             text_size: 13.0,
             text_color: TEXT_COLOR,
             text_wrap: TextWrap::Words,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
         });
     }
@@ -167,6 +203,12 @@ pub fn on_load(ctx: ReducerContext) {
         text_size: 14.0,
         text_color: (1.0, 1.0, 1.0, 1.0),
         text_wrap: TextWrap::Words,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
 }
@@ -209,6 +251,12 @@ where
         text_size: 14.0,
         text_color: (1.0, 1.0, 1.0, 1.0),
         text_wrap: TextWrap::Words,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
 }

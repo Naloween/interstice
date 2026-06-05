@@ -1,4 +1,4 @@
-name = "agar-server"
+name = "agar-server-example"
 address = "127.0.0.1:8086"
 
 [[modules]]

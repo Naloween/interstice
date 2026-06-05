@@ -2,7 +2,6 @@ abi_version = 6
 name = "ui"
 visibility = "Public"
 queries = []
-tables = []
 subscriptions = []
 authorities = []
 node_dependencies = []
@@ -117,20 +116,127 @@ node_selection = "Current"
 module_selection = "Current"
 table_name = "uielement"
 
-[type_definitions.Size.Enum]
-name = "Size"
+[[tables]]
+name = "uielement"
+type_name = "UiElement"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Logged"
 
-[[type_definitions.Size.Enum.variants]]
-name = "Fixed"
+[[tables.fields]]
+name = "parent"
+
+[tables.fields.field_type]
+Option = "String"
+
+[[tables.fields]]
+name = "order"
+field_type = "U32"
+
+[[tables.fields]]
+name = "width"
+
+[tables.fields.field_type]
+Named = "Size"
+
+[[tables.fields]]
+name = "height"
+
+[tables.fields.field_type]
+Named = "Size"
+
+[[tables.fields]]
+name = "layout_direction"
+
+[tables.fields.field_type]
+Named = "LayoutDirection"
+
+[[tables.fields]]
+name = "gap"
 field_type = "F32"
 
-[[type_definitions.Size.Enum.variants]]
-name = "Grow"
-field_type = "Void"
+[[tables.fields]]
+name = "padding"
+field_type = "F32"
 
-[[type_definitions.Size.Enum.variants]]
-name = "Fit"
-field_type = "Void"
+[[tables.fields]]
+name = "margin"
+field_type = "F32"
+
+[[tables.fields]]
+name = "background_color"
+
+[tables.fields.field_type]
+Tuple = ["F32", "F32", "F32", "F32"]
+
+[[tables.fields]]
+name = "corner_radius"
+field_type = "F32"
+
+[[tables.fields]]
+name = "border_width"
+field_type = "F32"
+
+[[tables.fields]]
+name = "border_color"
+
+[tables.fields.field_type]
+Tuple = ["F32", "F32", "F32", "F32"]
+
+[[tables.fields]]
+name = "text"
+
+[tables.fields.field_type]
+Option = "String"
+
+[[tables.fields]]
+name = "text_size"
+field_type = "F32"
+
+[[tables.fields]]
+name = "text_color"
+
+[tables.fields.field_type]
+Tuple = ["F32", "F32", "F32", "F32"]
+
+[[tables.fields]]
+name = "text_wrap"
+
+[tables.fields.field_type]
+Named = "TextWrap"
+
+[[tables.fields]]
+name = "is_input"
+field_type = "Bool"
+
+[[tables.fields]]
+name = "cursor_pos"
+field_type = "U32"
+
+[[tables.fields]]
+name = "scrollable_x"
+field_type = "Bool"
+
+[[tables.fields]]
+name = "scrollable_y"
+field_type = "Bool"
+
+[[tables.fields]]
+name = "scroll_x"
+field_type = "F32"
+
+[[tables.fields]]
+name = "scroll_y"
+field_type = "F32"
+
+[[tables.fields]]
+name = "visible"
+field_type = "Bool"
+
+[tables.primary_key]
+name = "id"
+field_type = "String"
 
 [type_definitions.TextWrap.Enum]
 name = "TextWrap"
@@ -156,6 +262,21 @@ field_type = "Void"
 
 [[type_definitions.LayoutDirection.Enum.variants]]
 name = "Column"
+field_type = "Void"
+
+[type_definitions.Size.Enum]
+name = "Size"
+
+[[type_definitions.Size.Enum.variants]]
+name = "Fixed"
+field_type = "F32"
+
+[[type_definitions.Size.Enum.variants]]
+name = "Grow"
+field_type = "Void"
+
+[[type_definitions.Size.Enum.variants]]
+name = "Fit"
 field_type = "Void"
 
 [type_definitions.UiElement.Struct]

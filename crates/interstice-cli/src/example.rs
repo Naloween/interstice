@@ -98,15 +98,10 @@ fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> 
             name: "agar-client-example",
             port: 8084,
             modules: vec![
-                ExampleModule {
-                    bytes: DEFAULT_INPUT_BYTES,
-                },
-                ExampleModule {
-                    bytes: DEFAULT_GRAPHICS_BYTES,
-                },
-                ExampleModule {
-                    bytes: AGAR_CLIENT_BYTES,
-                },
+                ExampleModule { bytes: DEFAULT_INPUT_BYTES },
+                ExampleModule { bytes: DEFAULT_GRAPHICS_BYTES },
+                ExampleModule { bytes: DEFAULT_UI_BYTES },
+                ExampleModule { bytes: AGAR_CLIENT_BYTES },
             ],
         }),
         "benchmark-workload" => Ok(ExampleConfig {
