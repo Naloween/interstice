@@ -11,7 +11,7 @@ impl Runtime {
         call: ModuleCall,
         _memory: &Memory,
         _caller: &mut Caller<'_, StoreState>,
-        caller_module_schema: ModuleSchema,
+        caller_module_schema: Arc<ModuleSchema>,
         runtime: Arc<Runtime>,
     ) -> Result<Option<i64>, IntersticeError> {
         let response = match call {

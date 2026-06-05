@@ -134,7 +134,7 @@ pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> 
             };
             let module_schema = caller.data().module_schema.clone();
             let runtime = caller.data().runtime.clone();
-            let response = runtime.handle_insert_row(&module_schema, InsertRowRequest { table_name: table_name.to_string(), row });
+            let response = runtime.handle_insert_row(&*module_schema, InsertRowRequest { table_name: table_name.to_string(), row });
             // Fast path: Ok(None) is always [0x00, 0x00] in postcard (variant 0,
             // Option::None = 0).  Skip the encode() alloc entirely.
             match response {
@@ -193,7 +193,7 @@ pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> 
             };
             let module_schema = caller.data().module_schema.clone();
             let runtime = caller.data().runtime.clone();
-            match runtime.handle_update_row(&module_schema, interstice_abi::UpdateRowRequest { table_name: table_name.to_string(), row }) {
+            match runtime.handle_update_row(&*module_schema, interstice_abi::UpdateRowRequest { table_name: table_name.to_string(), row }) {
                 interstice_abi::UpdateRowResponse::Ok => 0,
                 interstice_abi::UpdateRowResponse::Err(_) => -1,
             }

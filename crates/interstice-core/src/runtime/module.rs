@@ -63,7 +63,7 @@ impl Module {
                 &runtime.engine,
                 StoreState {
                     runtime: runtime.clone(),
-                    module_schema: ModuleSchema::empty(),
+                    module_schema: Arc::new(ModuleSchema::empty()),
                 },
             );
             let raw = runtime.linker.instantiate(&mut store, &wasm_module).unwrap();
@@ -74,7 +74,7 @@ impl Module {
             &runtime.engine,
             StoreState {
                 runtime: runtime.clone(),
-                module_schema: ModuleSchema::empty(),
+                module_schema: Arc::new(ModuleSchema::empty()),
             },
         );
         let query_raw = runtime
@@ -99,7 +99,7 @@ impl Module {
                 &runtime.engine,
                 StoreState {
                     runtime: runtime.clone(),
-                    module_schema: ModuleSchema::empty(),
+                    module_schema: Arc::new(ModuleSchema::empty()),
                 },
             );
             let raw = runtime.linker.instantiate(&mut store, &wasm_module).unwrap();
@@ -110,7 +110,7 @@ impl Module {
             &runtime.engine,
             StoreState {
                 runtime: runtime.clone(),
-                module_schema: ModuleSchema::empty(),
+                module_schema: Arc::new(ModuleSchema::empty()),
             },
         );
         let query_raw = runtime
@@ -129,7 +129,7 @@ impl Module {
         wasm_bytes: Vec<u8>,
     ) -> Result<Self, IntersticeError> {
         assert!(!instances.is_empty(), "at least one reducer instance required");
-        let schema = instances[0].load_schema()?;
+        let schema = Arc::new(instances[0].load_schema()?);
         if schema.abi_version != ABI_VERSION {
             return Err(IntersticeError::AbiVersionMismatch {
                 expected: ABI_VERSION,
@@ -175,7 +175,7 @@ impl Module {
             instance_pool,
             query_instance: Arc::new(Mutex::new(query_instance)),
             wasm_bytes,
-            schema: Arc::new(schema),
+            schema,
             tables: Arc::new(Mutex::new(tables)),
             reducer_names,
         })

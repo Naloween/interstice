@@ -1,5 +1,8 @@
 // Interstice CLI - Command-line interface
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use interstice_cli::{
     benchmark::handle_benchmark_command,
     bindings::handle_bindings_command,

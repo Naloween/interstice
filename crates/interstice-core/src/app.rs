@@ -173,12 +173,22 @@ impl ApplicationHandler for App {
 
 impl App {
     fn wait_for_render_completion(&mut self, mut done_rx: OneshotReceiver<()>) {
+        const GPU_WAIT: std::time::Duration = std::time::Duration::from_micros(100);
         loop {
-            self.drain_gpu_calls();
+            // Drain all pending GPU calls without blocking.
+            while let Ok(req) = self.gpu_call_receiver.try_recv() {
+                let result = self.execute_gpu_call(req.call);
+                let _ = req.respond_to.send(result);
+            }
+            // Check if the render reducer has finished.
             match done_rx.try_recv() {
-                Ok(()) => break,
-                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => continue,
-                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => break,
+                Ok(()) | Err(tokio::sync::oneshot::error::TryRecvError::Closed) => return,
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+            }
+            // Park until the WASM renderer sends the next GPU call (or timeout to re-check done).
+            if let Ok(req) = self.gpu_call_receiver.recv_timeout(GPU_WAIT) {
+                let result = self.execute_gpu_call(req.call);
+                let _ = req.respond_to.send(result);
             }
         }
     }

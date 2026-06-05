@@ -3,28 +3,11 @@ pub mod linker;
 
 use interstice_abi::ModuleSchema;
 use std::sync::Arc;
-use wasmtime::{Caller, Memory};
 
-use crate::{error::IntersticeError, runtime::Runtime};
+use crate::runtime::Runtime;
 
 pub struct StoreState {
     pub runtime: Arc<Runtime>,
-    pub module_schema: ModuleSchema,
+    pub module_schema: Arc<ModuleSchema>,
 }
 
-pub fn read_bytes(
-    memory: &Memory,
-    caller: &mut Caller<StoreState>,
-    ptr: i32,
-    len: i32,
-) -> Result<Vec<u8>, IntersticeError> {
-    if len < 0 {
-        return Err(IntersticeError::MemoryRead);
-    }
-
-    let mut out = vec![0u8; len as usize];
-    memory
-        .read(caller, (ptr as u32) as usize, &mut out)
-        .map_err(|_| IntersticeError::MemoryRead)?;
-    return Ok(out);
-}

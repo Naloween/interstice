@@ -1,10 +1,11 @@
-use crate::runtime::wasm::{StoreState, read_bytes};
+use crate::runtime::wasm::StoreState;
 use crate::{error::IntersticeError, runtime::Runtime};
 use interstice_abi::{
     Authority, CallQueryResponse, CallReducerResponse, HostCall, ModuleSchema, decode, encode,
     pack_ptr_len,
 };
 use serde::Serialize;
+use std::sync::Arc;
 use wasmtime::{Caller, Memory};
 
 impl Runtime {
@@ -12,14 +13,21 @@ impl Runtime {
         &self,
         memory: &wasmtime::Memory,
         caller: &mut Caller<'_, StoreState>,
-        caller_module_schema: ModuleSchema,
+        caller_module_schema: Arc<ModuleSchema>,
         ptr: i32,
         len: i32,
     ) -> Result<Option<i64>, IntersticeError> {
-        let bytes = read_bytes(memory, caller, ptr, len)?;
-        let host_call: HostCall = decode(&bytes).map_err(|err| {
-            IntersticeError::Internal(format!("Failed to decode host call: {err}"))
-        })?;
+        let host_call: HostCall = {
+            let data = memory.data(&mut *caller);
+            let start = ptr.max(0) as usize;
+            let end = start.saturating_add(len.max(0) as usize);
+            if end > data.len() {
+                return Err(IntersticeError::MemoryRead);
+            }
+            decode(&data[start..end]).map_err(|err| {
+                IntersticeError::Internal(format!("Failed to decode host call: {err}"))
+            })?
+        };
 
         return match host_call {
             HostCall::CurrentNodeId => {
