@@ -1798,7 +1798,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-abi"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "bitflags 2.10.0",
  "interstice-abi-macros",
@@ -1809,7 +1809,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-abi-macros"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -1819,7 +1819,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-cli"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "directories",
  "interstice-core",
@@ -1834,7 +1834,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-core"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "colored_text",
@@ -1855,7 +1855,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-sdk"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "interstice-abi",
  "interstice-sdk-core",
@@ -1868,7 +1868,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-sdk-core"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "interstice-abi",
  "lazy_static",
@@ -1879,7 +1879,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-sdk-macros"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "interstice-abi",
  "interstice-sdk-core",
