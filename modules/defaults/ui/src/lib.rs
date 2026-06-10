@@ -152,11 +152,20 @@ where
     Caps: CanInsert<InputFocus> + CanInsert<UiInputState>,
 {
     let graphics = ctx.graphics();
-    if let Err(err) = graphics.reducers.create_layer(UI_LAYER.to_string(), UI_LAYER_Z, false) {
+    if let Err(err) = graphics
+        .reducers
+        .create_layer(UI_LAYER.to_string(), UI_LAYER_Z, false)
+    {
         ctx.log(&format!("ui: failed to create layer: {err}"));
     }
-    let _ = ctx.current.tables.inputfocus().insert(InputFocus { id: 0, focused_element: None });
-    let _ = ctx.current.tables.uiinputstate().insert(UiInputState { id: 0, last_input_generation: 0 });
+    let _ = ctx.current.tables.inputfocus().insert(InputFocus {
+        id: 0,
+        focused_element: None,
+    });
+    let _ = ctx.current.tables.uiinputstate().insert(UiInputState {
+        id: 0,
+        last_input_generation: 0,
+    });
 }
 
 // ── Render + input ────────────────────────────────────────────────────────────
@@ -183,59 +192,10 @@ where
     // Ensure UiInputState row exists — it should be inserted by on_load, but
     // defensively re-create it if somehow missing to prevent infinite repetition.
     if ctx.current.tables.uiinputstate().get(0).is_none() {
-        let _ = ctx.current.tables.uiinputstate().insert(UiInputState { id: 0, last_input_generation: 0 });
-    }
-
-    // ── Text input ───────────────────────────────────────────────────────────
-    let focused_id = ctx
-        .current
-        .tables
-        .inputfocus()
-        .get(0)
-        .and_then(|f| f.focused_element.clone());
-
-    if let Some(ref fid) = focused_id {
-        let buf = ctx.input().tables.textinputbuffer().get(0);
-        if let Some(buf) = buf {
-            let last_gen = ctx
-                .current
-                .tables
-                .uiinputstate()
-                .get(0)
-                .map(|s| s.last_input_generation)
-                .unwrap_or(0);
-
-            if buf.generation != last_gen && !buf.character.is_empty() {
-                // Update generation tracker.
-                if let Some(mut state) = ctx.current.tables.uiinputstate().get(0) {
-                    state.last_input_generation = buf.generation;
-                    let _ = ctx.current.tables.uiinputstate().update(state);
-                }
-
-                // Apply character to focused element.
-                if let Some(mut el) = ctx.current.tables.uielement().get(fid.clone()) {
-                    if el.is_input {
-                        let mut text = el.text.clone().unwrap_or_default();
-                        if buf.character == "\x08" {
-                            // Backspace: remove last char, adjust cursor.
-                            if el.cursor_pos > 0 {
-                                let byte_pos = char_to_byte_pos(&text, el.cursor_pos as usize - 1);
-                                let end = char_to_byte_pos(&text, el.cursor_pos as usize);
-                                text.drain(byte_pos..end);
-                                el.cursor_pos -= 1;
-                            }
-                        } else {
-                            // Insert character at cursor position.
-                            let byte_pos = char_to_byte_pos(&text, el.cursor_pos as usize);
-                            text.insert_str(byte_pos, &buf.character);
-                            el.cursor_pos += 1;
-                        }
-                        el.text = Some(text);
-                        let _ = ctx.current.tables.uielement().update(el);
-                    }
-                }
-            }
-        }
+        let _ = ctx.current.tables.uiinputstate().insert(UiInputState {
+            id: 0,
+            last_input_generation: 0,
+        });
     }
 
     // ── Scroll ───────────────────────────────────────────────────────────────
@@ -250,14 +210,28 @@ where
             let mut best: Option<(String, bool, bool)> = None;
 
             for root in all.iter().filter(|e| e.parent.is_none()) {
-                find_scrollable_at(&all, root, cursor, 0.0, 0.0, sw, sh, full_surface, &mut best);
+                find_scrollable_at(
+                    &all,
+                    root,
+                    cursor,
+                    0.0,
+                    0.0,
+                    sw,
+                    sh,
+                    full_surface,
+                    &mut best,
+                );
             }
 
             if let Some((sid, sx, sy)) = best {
                 if let Some(mut el) = ctx.current.tables.uielement().get(sid) {
                     const SCROLL_SPEED: f32 = 30.0;
-                    if sx { el.scroll_x = (el.scroll_x - wx * SCROLL_SPEED).max(0.0); }
-                    if sy { el.scroll_y = (el.scroll_y - wy * SCROLL_SPEED).max(0.0); }
+                    if sx {
+                        el.scroll_x = (el.scroll_x - wx * SCROLL_SPEED).max(0.0);
+                    }
+                    if sy {
+                        el.scroll_y = (el.scroll_y - wy * SCROLL_SPEED).max(0.0);
+                    }
                     let _ = ctx.current.tables.uielement().update(el);
                 }
             }
@@ -265,6 +239,12 @@ where
     }
 
     // ── Render ───────────────────────────────────────────────────────────────
+    let focused_id = ctx
+        .current
+        .tables
+        .inputfocus()
+        .get(0)
+        .and_then(|f| f.focused_element.clone());
     let all: Vec<UiElement> = ctx.current.tables.uielement().scan();
     let mut roots: Vec<&UiElement> = all.iter().filter(|e| e.parent.is_none()).collect();
     roots.sort_by_key(|e| e.order);
@@ -278,6 +258,55 @@ where
     }
 }
 
+#[reducer(on = "input.textinputbuffer.update")]
+pub fn on_key_input<Caps>(
+    ctx: ReducerContext<Caps>,
+    _previous_buf: TextInputBuffer,
+    new_buf: TextInputBuffer,
+) where
+    Caps: CanRead<InputFocus>
+        + CanRead<UiElement>
+        + CanInsert<InputFocus>
+        + CanUpdate<InputFocus>
+        + CanUpdate<UiElement>
+        + CanRead<UiInputState>
+        + CanUpdate<UiInputState>
+        + CanDelete<InputFocus>,
+{
+    // ── Text input ───────────────────────────────────────────────────────────
+    let focused_id = ctx
+        .current
+        .tables
+        .inputfocus()
+        .get(0)
+        .and_then(|f| f.focused_element.clone());
+
+    if let Some(ref fid) = focused_id {
+        // Apply character to focused element.
+        if let Some(mut el) = ctx.current.tables.uielement().get(fid.clone()) {
+            if el.is_input {
+                let mut text = el.text.clone().unwrap_or_default();
+                if new_buf.character == "\x08" {
+                    // Backspace: remove last char, adjust cursor.
+                    if el.cursor_pos > 0 {
+                        let byte_pos = char_to_byte_pos(&text, el.cursor_pos as usize - 1);
+                        let end = char_to_byte_pos(&text, el.cursor_pos as usize);
+                        text.drain(byte_pos..end);
+                        el.cursor_pos -= 1;
+                    }
+                } else {
+                    // Insert character at cursor position.
+                    let byte_pos = char_to_byte_pos(&text, el.cursor_pos as usize);
+                    ctx.log(&new_buf.character);
+                    text.insert_str(byte_pos, &new_buf.character);
+                    el.cursor_pos += 1;
+                }
+                el.text = Some(text);
+                let _ = ctx.current.tables.uielement().update(el);
+            }
+        }
+    }
+}
 // ── Text metrics ─────────────────────────────────────────────────────────────
 
 fn glyph_advance(size: f32) -> f32 {
@@ -331,7 +360,9 @@ fn compute_lines(text: &str, size: f32, inner_w: f32, wrap: &TextWrap) -> Vec<St
                     all_lines.extend(word_wrap(explicit_line, advance, inner_w));
                 }
             }
-            if all_lines.is_empty() { all_lines.push(String::new()); }
+            if all_lines.is_empty() {
+                all_lines.push(String::new());
+            }
             all_lines
         }
         TextWrap::Newlines => text.lines().map(|l| l.to_string()).collect(),
@@ -353,7 +384,10 @@ fn min_text_width(text: &str, size: f32, wrap: &TextWrap) -> f32 {
 }
 
 fn char_to_byte_pos(s: &str, char_idx: usize) -> usize {
-    s.char_indices().nth(char_idx).map(|(i, _)| i).unwrap_or(s.len())
+    s.char_indices()
+        .nth(char_idx)
+        .map(|(i, _)| i)
+        .unwrap_or(s.len())
 }
 
 // ── Layout ───────────────────────────────────────────────────────────────────
@@ -378,7 +412,9 @@ fn intersect_clip(a: ClipRect, b: ClipRect) -> ClipRect {
 }
 
 fn fit_width(all: &[UiElement], el: &UiElement, avail_w: f32) -> f32 {
-    let text_min_w = el.text.as_deref()
+    let text_min_w = el
+        .text
+        .as_deref()
         .map(|t| min_text_width(t, el.text_size, &el.text_wrap))
         .unwrap_or(0.0);
 
@@ -390,16 +426,22 @@ fn fit_width(all: &[UiElement], el: &UiElement, avail_w: f32) -> f32 {
 
     let inner_avail = (avail_w - el.padding * 2.0).max(0.0);
     let visible_n = children.len();
-    let gap_total = if visible_n > 1 { el.gap * (visible_n - 1) as f32 } else { 0.0 };
+    let gap_total = if visible_n > 1 {
+        el.gap * (visible_n - 1) as f32
+    } else {
+        0.0
+    };
 
     let children_w = match el.layout_direction {
         LayoutDirection::Row => {
-            let sum: f32 = children.iter()
+            let sum: f32 = children
+                .iter()
                 .map(|c| child_min_w(all, c, inner_avail) + c.margin * 2.0)
                 .sum();
             sum + gap_total
         }
-        LayoutDirection::Column => children.iter()
+        LayoutDirection::Column => children
+            .iter()
             .map(|c| child_min_w(all, c, inner_avail) + c.margin * 2.0)
             .fold(0.0f32, f32::max),
     };
@@ -415,10 +457,14 @@ fn child_min_w(all: &[UiElement], child: &UiElement, parent_inner_avail: f32) ->
 }
 
 fn fit_height(all: &[UiElement], el: &UiElement, inner_w: f32) -> f32 {
-    let text_h = el.text.as_deref().map(|t| {
-        let lines = compute_lines(t, el.text_size, inner_w, &el.text_wrap);
-        lines.len() as f32 * text_line_height(el.text_size)
-    }).unwrap_or(0.0);
+    let text_h = el
+        .text
+        .as_deref()
+        .map(|t| {
+            let lines = compute_lines(t, el.text_size, inner_w, &el.text_wrap);
+            lines.len() as f32 * text_line_height(el.text_size)
+        })
+        .unwrap_or(0.0);
 
     let mut children: Vec<&UiElement> = all
         .iter()
@@ -427,16 +473,22 @@ fn fit_height(all: &[UiElement], el: &UiElement, inner_w: f32) -> f32 {
     children.sort_by_key(|c| c.order);
 
     let visible_n = children.len();
-    let gap_total = if visible_n > 1 { el.gap * (visible_n - 1) as f32 } else { 0.0 };
+    let gap_total = if visible_n > 1 {
+        el.gap * (visible_n - 1) as f32
+    } else {
+        0.0
+    };
 
     let children_h = match el.layout_direction {
         LayoutDirection::Column => {
-            let sum: f32 = children.iter()
+            let sum: f32 = children
+                .iter()
                 .map(|c| child_resolved_h(all, c, inner_w) + c.margin * 2.0)
                 .sum();
             sum + gap_total
         }
-        LayoutDirection::Row => children.iter()
+        LayoutDirection::Row => children
+            .iter()
             .map(|c| child_resolved_h(all, c, inner_w) + c.margin * 2.0)
             .fold(0.0f32, f32::max),
     };
@@ -477,14 +529,18 @@ fn layout_element<'a>(
 
     let own_w = match el.width {
         Size::Fixed(px) => px.max(0.0),
-        Size::Grow => (avail_w - el.margin * 2.0).max(0.0).max(fit_width(all, el, avail_w)),
+        Size::Grow => (avail_w - el.margin * 2.0)
+            .max(0.0)
+            .max(fit_width(all, el, avail_w)),
         Size::Fit => fit_width(all, el, avail_w),
     };
     let inner_w = (own_w - el.padding * 2.0).max(0.0);
 
     let own_h = match el.height {
         Size::Fixed(px) => px.max(0.0),
-        Size::Grow => (avail_h - el.margin * 2.0).max(0.0).max(fit_height(all, el, inner_w)),
+        Size::Grow => (avail_h - el.margin * 2.0)
+            .max(0.0)
+            .max(fit_height(all, el, inner_w)),
         Size::Fit => fit_height(all, el, inner_w),
     };
     let inner_h = (own_h - el.padding * 2.0).max(0.0);
@@ -525,12 +581,20 @@ fn layout_element<'a>(
         });
 
     let visible_n = children.len() as f32;
-    let total_gap = if visible_n > 1.0 { el.gap * (visible_n - 1.0) } else { 0.0 };
+    let total_gap = if visible_n > 1.0 {
+        el.gap * (visible_n - 1.0)
+    } else {
+        0.0
+    };
     let remaining = match el.layout_direction {
         LayoutDirection::Row => (inner_w - fixed_main - total_gap).max(0.0),
         LayoutDirection::Column => (inner_h - fixed_main - total_gap).max(0.0),
     };
-    let grow_size = if grow_count > 0 { remaining / grow_count as f32 } else { 0.0 };
+    let grow_size = if grow_count > 0 {
+        remaining / grow_count as f32
+    } else {
+        0.0
+    };
 
     // Apply scroll offset to child origin.
     let scroll_ox = if el.scrollable_x { el.scroll_x } else { 0.0 };
@@ -540,7 +604,14 @@ fn layout_element<'a>(
     let content_x = x + el.padding - scroll_ox;
     let content_y = y + el.padding - scroll_oy;
     let mut result = Vec::new();
-    result.push(ComputedElement { schema: el, x, y, width: own_w, height: own_h, clip: self_clip });
+    result.push(ComputedElement {
+        schema: el,
+        x,
+        y,
+        width: own_w,
+        height: own_h,
+        clip: self_clip,
+    });
 
     for child in &children {
         let (child_avail_w, child_avail_h) = match el.layout_direction {
@@ -553,15 +624,24 @@ fn layout_element<'a>(
         };
 
         let child_nodes = layout_element(
-            all, child,
-            child_origin_x, child_origin_y,
-            child_avail_w, child_avail_h,
+            all,
+            child,
+            child_origin_x,
+            child_origin_y,
+            child_avail_w,
+            child_avail_h,
             content_clip,
         );
 
         let child_main = match el.layout_direction {
-            LayoutDirection::Row => child_nodes.first().map(|c| c.width + child.margin * 2.0).unwrap_or(0.0),
-            LayoutDirection::Column => child_nodes.first().map(|c| c.height + child.margin * 2.0).unwrap_or(0.0),
+            LayoutDirection::Row => child_nodes
+                .first()
+                .map(|c| c.width + child.margin * 2.0)
+                .unwrap_or(0.0),
+            LayoutDirection::Column => child_nodes
+                .first()
+                .map(|c| c.height + child.margin * 2.0)
+                .unwrap_or(0.0),
         };
 
         cursor += child_main + el.gap;
@@ -583,7 +663,9 @@ fn find_scrollable_at<'a>(
     clip: ClipRect,
     best: &mut Option<(String, bool, bool)>,
 ) {
-    if !el.visible { return; }
+    if !el.visible {
+        return;
+    }
 
     let x = origin_x + el.margin;
     let y = origin_y + el.margin;
@@ -612,7 +694,10 @@ fn find_scrollable_at<'a>(
 
     // Recurse into children.
     let inner_h = (own_h - el.padding * 2.0).max(0.0);
-    let content_clip = intersect_clip(self_clip, (x + el.padding, y + el.padding, inner_w, inner_h));
+    let content_clip = intersect_clip(
+        self_clip,
+        (x + el.padding, y + el.padding, inner_w, inner_h),
+    );
     let mut children: Vec<&UiElement> = all
         .iter()
         .filter(|c| c.parent.as_deref() == Some(&el.id) && c.visible)
@@ -620,18 +705,33 @@ fn find_scrollable_at<'a>(
     children.sort_by_key(|c| c.order);
 
     for child in children {
-        find_scrollable_at(all, child, cursor, x + el.padding, y + el.padding, inner_w, inner_h, content_clip, best);
+        find_scrollable_at(
+            all,
+            child,
+            cursor,
+            x + el.padding,
+            y + el.padding,
+            inner_w,
+            inner_h,
+            content_clip,
+            best,
+        );
     }
 }
 
 // ── Draw ─────────────────────────────────────────────────────────────────────
 
-fn draw_element<Caps>(ctx: &ReducerContext<Caps>, node: &ComputedElement, focused_id: &Option<String>)
-where
+fn draw_element<Caps>(
+    ctx: &ReducerContext<Caps>,
+    node: &ComputedElement,
+    focused_id: &Option<String>,
+) where
     Caps: CanRead<UiElement>,
 {
     let (cx, cy, cw, ch) = node.clip;
-    if cw <= 0.0 || ch <= 0.0 { return; }
+    if cw <= 0.0 || ch <= 0.0 {
+        return;
+    }
 
     let el = node.schema;
     let graphics = ctx.graphics();
@@ -642,11 +742,20 @@ where
         if a > 0.0 {
             let _ = graphics.reducers.draw_rect(
                 layer.clone(),
-                Rect { x: node.x, y: node.y, w: node.width, h: node.height },
+                Rect {
+                    x: node.x,
+                    y: node.y,
+                    w: node.width,
+                    h: node.height,
+                },
                 Color { r, g, b, a },
                 true,
                 0.0,
-                if el.corner_radius > 0.0 { Some(el.corner_radius) } else { None },
+                if el.corner_radius > 0.0 {
+                    Some(el.corner_radius)
+                } else {
+                    None
+                },
             );
         }
 
@@ -654,11 +763,25 @@ where
             let (br, bg, bb, ba) = el.border_color;
             let _ = graphics.reducers.draw_rect(
                 layer.clone(),
-                Rect { x: node.x, y: node.y, w: node.width, h: node.height },
-                Color { r: br, g: bg, b: bb, a: ba },
+                Rect {
+                    x: node.x,
+                    y: node.y,
+                    w: node.width,
+                    h: node.height,
+                },
+                Color {
+                    r: br,
+                    g: bg,
+                    b: bb,
+                    a: ba,
+                },
                 false,
                 el.border_width,
-                if el.corner_radius > 0.0 { Some(el.corner_radius) } else { None },
+                if el.corner_radius > 0.0 {
+                    Some(el.corner_radius)
+                } else {
+                    None
+                },
             );
         }
     }
@@ -672,15 +795,27 @@ where
 
         for (i, line) in lines.iter().enumerate() {
             let text_y = node.y + el.padding + i as f32 * lh;
-            if text_y + lh <= cy || text_y >= cy + ch { continue; }
-            if text_x >= cx + cw { continue; }
+            if text_y + lh <= cy || text_y >= cy + ch {
+                continue;
+            }
+            if text_x >= cx + cw {
+                continue;
+            }
 
             let _ = graphics.reducers.draw_text(
                 layer.clone(),
                 line.clone(),
-                Vec2 { x: text_x, y: text_y },
+                Vec2 {
+                    x: text_x,
+                    y: text_y,
+                },
                 el.text_size,
-                Color { r: tr, g: tg, b: tb, a: ta },
+                Color {
+                    r: tr,
+                    g: tg,
+                    b: tb,
+                    a: ta,
+                },
                 None,
             );
         }
@@ -704,8 +839,18 @@ where
             if cursor_x < cx + cw && cursor_y < cy + ch {
                 let _ = graphics.reducers.draw_rect(
                     layer.clone(),
-                    Rect { x: cursor_x, y: cursor_y, w: 2.0, h: lh },
-                    Color { r: 0.9, g: 0.9, b: 0.9, a: 1.0 },
+                    Rect {
+                        x: cursor_x,
+                        y: cursor_y,
+                        w: 2.0,
+                        h: lh,
+                    },
+                    Color {
+                        r: 0.9,
+                        g: 0.9,
+                        b: 0.9,
+                        a: 1.0,
+                    },
                     true,
                     0.0,
                     None,
@@ -723,11 +868,25 @@ where
             let (br, bg, bb, ba) = border_color;
             let _ = graphics.reducers.draw_rect(
                 layer,
-                Rect { x: node.x, y: node.y, w: node.width, h: node.height },
-                Color { r: br, g: bg, b: bb, a: ba },
+                Rect {
+                    x: node.x,
+                    y: node.y,
+                    w: node.width,
+                    h: node.height,
+                },
+                Color {
+                    r: br,
+                    g: bg,
+                    b: bb,
+                    a: ba,
+                },
                 false,
                 1.5,
-                if el.corner_radius > 0.0 { Some(el.corner_radius) } else { None },
+                if el.corner_radius > 0.0 {
+                    Some(el.corner_radius)
+                } else {
+                    None
+                },
             );
         }
     }

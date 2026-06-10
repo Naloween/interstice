@@ -66,10 +66,6 @@ persistence = "Ephemeral"
 name = "character"
 field_type = "String"
 
-[[tables.fields]]
-name = "generation"
-field_type = "U64"
-
 [tables.primary_key]
 name = "id"
 field_type = "U32"
@@ -84,10 +80,6 @@ field_type = "U32"
 [[type_definitions.TextInputBuffer.Struct.fields]]
 name = "character"
 field_type = "String"
-
-[[type_definitions.TextInputBuffer.Struct.fields]]
-name = "generation"
-field_type = "U64"
 
 [type_definitions.KeyState.Struct]
 name = "KeyState"

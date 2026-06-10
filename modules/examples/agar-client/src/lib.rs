@@ -2,8 +2,7 @@ use crate::bindings::{
     agar_server::{
         HasAgarServerModuleHandle,
         agar_server::{
-            DeadPlayer, Food, HasDeadPlayerHandle, HasFoodHandle, HasPlayerHandle,
-            Player,
+            DeadPlayer, Food, HasDeadPlayerHandle, HasFoodHandle, HasPlayerHandle, Player,
         },
     },
     graphics::*,
@@ -90,7 +89,9 @@ where
     let _ = g.reducers.create_layer(LAYER_BG.to_string(), 1, false);
     let _ = g.reducers.create_layer(LAYER_WORLD.to_string(), 2, false);
     let _ = g.reducers.create_layer(LAYER_NAMES.to_string(), 3, false);
-    let _ = g.reducers.create_layer(LAYER_CURSOR.to_string(), 150, false);
+    let _ = g
+        .reducers
+        .create_layer(LAYER_CURSOR.to_string(), 150, false);
 
     // Initialise client state.
     let _ = ctx.current.tables.clientstate().insert(ClientState {
@@ -119,7 +120,9 @@ where
         + CanRead<SurfaceInfo>
         + CanRead<UiElement>,
 {
-    let Some(mut cs) = ctx.current.tables.clientstate().get(0) else { return };
+    let Some(mut cs) = ctx.current.tables.clientstate().get(0) else {
+        return;
+    };
     let g = ctx.graphics();
     let surface = g.tables.surfaceinfo().get(0);
     let (sw, sh) = match surface {
@@ -136,8 +139,14 @@ where
             let my_id = ctx.current_node_id();
             let dead = ctx.agar_server().agar_server().tables.deadplayer().scan();
             if dead.iter().any(|d| d.id == my_id) {
-                let my_radius = ctx.agar_server().agar_server().tables.player()
-                    .get(my_id).map(|p| p.radius).unwrap_or(0.0);
+                let my_radius = ctx
+                    .agar_server()
+                    .agar_server()
+                    .tables
+                    .player()
+                    .get(my_id)
+                    .map(|p| p.radius)
+                    .unwrap_or(0.0);
                 cs.final_score = my_radius;
                 cs.state = GameState::Dead;
                 let _ = ctx.ui().reducers.clear_focus();
@@ -163,15 +172,27 @@ where
         LAYER_CURSOR.to_string(),
         Vec2 { x: mx, y: my },
         6.0,
-        Color { r: 1.0, g: 1.0, b: 1.0, a: 0.9 },
-        true, 0.0,
+        Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+            a: 0.9,
+        },
+        true,
+        0.0,
     );
     let _ = g.reducers.draw_circle(
         LAYER_CURSOR.to_string(),
         Vec2 { x: mx, y: my },
         6.0,
-        Color { r: 0.0, g: 0.0, b: 0.0, a: 0.6 },
-        false, 1.5,
+        Color {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 0.6,
+        },
+        false,
+        1.5,
     );
 
     let _ = ctx.current.tables.clientstate().update(cs);
@@ -190,29 +211,58 @@ fn build_lobby_ui<Caps>(ctx: &ReducerContext<Caps>) {
 
     let spacer = |id: &str, parent: &str, order: u32| {
         let _ = ui.reducers.create_element(UiElement {
-            id: id.into(), parent: Some(parent.into()), order,
-            width: Size::Grow, height: Size::Grow,
+            id: id.into(),
+            parent: Some(parent.into()),
+            order,
+            width: Size::Grow,
+            height: Size::Grow,
             layout_direction: LayoutDirection::Row,
-            gap: 0.0, padding: 0.0, margin: 0.0,
-            background_color: none, corner_radius: 0.0,
-            border_width: 0.0, border_color: none,
-            text: None, text_size: 0.0, text_color: none,
-            text_wrap: TextWrap::None, is_input: false, cursor_pos: 0,
-            scrollable_x: false, scrollable_y: false, scroll_x: 0.0, scroll_y: 0.0,
+            gap: 0.0,
+            padding: 0.0,
+            margin: 0.0,
+            background_color: none,
+            corner_radius: 0.0,
+            border_width: 0.0,
+            border_color: none,
+            text: None,
+            text_size: 0.0,
+            text_color: none,
+            text_wrap: TextWrap::None,
+            is_input: false,
+            cursor_pos: 0,
+            scrollable_x: false,
+            scrollable_y: false,
+            scroll_x: 0.0,
+            scroll_y: 0.0,
             visible: true,
         });
     };
 
     // Full-screen dark root (Column — vertical centering via spacers).
     let _ = ui.reducers.create_element(UiElement {
-        id: UI_LOBBY_ROOT.into(), parent: None, order: 0,
-        width: Size::Grow, height: Size::Grow, layout_direction: LayoutDirection::Column,
-        gap: 0.0, padding: 0.0, margin: 0.0,
-        background_color: (0.07, 0.07, 0.10, 1.0), corner_radius: 0.0,
-        border_width: 0.0, border_color: none,
-        text: None, text_size: 0.0, text_color: none,
-        text_wrap: TextWrap::None, is_input: false, cursor_pos: 0,
-        scrollable_x: false, scrollable_y: false, scroll_x: 0.0, scroll_y: 0.0,
+        id: UI_LOBBY_ROOT.into(),
+        parent: None,
+        order: 0,
+        width: Size::Grow,
+        height: Size::Grow,
+        layout_direction: LayoutDirection::Column,
+        gap: 0.0,
+        padding: 0.0,
+        margin: 0.0,
+        background_color: (0.07, 0.07, 0.10, 1.0),
+        corner_radius: 0.0,
+        border_width: 0.0,
+        border_color: none,
+        text: None,
+        text_size: 0.0,
+        text_color: none,
+        text_wrap: TextWrap::None,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
 
@@ -221,14 +271,29 @@ fn build_lobby_ui<Caps>(ctx: &ReducerContext<Caps>) {
 
     // Center row — horizontal centering via spacers.
     let _ = ui.reducers.create_element(UiElement {
-        id: "lobby_center_row".into(), parent: Some(UI_LOBBY_ROOT.into()), order: 1,
-        width: Size::Grow, height: Size::Fit, layout_direction: LayoutDirection::Row,
-        gap: 0.0, padding: 0.0, margin: 0.0,
-        background_color: none, corner_radius: 0.0,
-        border_width: 0.0, border_color: none,
-        text: None, text_size: 0.0, text_color: none,
-        text_wrap: TextWrap::None, is_input: false, cursor_pos: 0,
-        scrollable_x: false, scrollable_y: false, scroll_x: 0.0, scroll_y: 0.0,
+        id: "lobby_center_row".into(),
+        parent: Some(UI_LOBBY_ROOT.into()),
+        order: 1,
+        width: Size::Grow,
+        height: Size::Fit,
+        layout_direction: LayoutDirection::Row,
+        gap: 0.0,
+        padding: 0.0,
+        margin: 0.0,
+        background_color: none,
+        corner_radius: 0.0,
+        border_width: 0.0,
+        border_color: none,
+        text: None,
+        text_size: 0.0,
+        text_color: none,
+        text_wrap: TextWrap::None,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
 
@@ -237,14 +302,29 @@ fn build_lobby_ui<Caps>(ctx: &ReducerContext<Caps>) {
 
     // Card itself.
     let _ = ui.reducers.create_element(UiElement {
-        id: UI_LOBBY_CARD.into(), parent: Some("lobby_center_row".into()), order: 1,
-        width: Size::Fixed(360.0), height: Size::Fit, layout_direction: LayoutDirection::Column,
-        gap: 16.0, padding: 28.0, margin: 0.0,
-        background_color: card_bg, corner_radius: 12.0,
-        border_width: 1.0, border_color: (0.28, 0.28, 0.34, 1.0),
-        text: None, text_size: 0.0, text_color: none,
-        text_wrap: TextWrap::None, is_input: false, cursor_pos: 0,
-        scrollable_x: false, scrollable_y: false, scroll_x: 0.0, scroll_y: 0.0,
+        id: UI_LOBBY_CARD.into(),
+        parent: Some("lobby_center_row".into()),
+        order: 1,
+        width: Size::Fixed(360.0),
+        height: Size::Fit,
+        layout_direction: LayoutDirection::Column,
+        gap: 16.0,
+        padding: 28.0,
+        margin: 0.0,
+        background_color: card_bg,
+        corner_radius: 12.0,
+        border_width: 1.0,
+        border_color: (0.28, 0.28, 0.34, 1.0),
+        text: None,
+        text_size: 0.0,
+        text_color: none,
+        text_wrap: TextWrap::None,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
 
@@ -256,47 +336,107 @@ fn build_lobby_ui<Caps>(ctx: &ReducerContext<Caps>) {
 
     // Card contents.
     let _ = ui.reducers.create_element(UiElement {
-        id: UI_LOBBY_TITLE.into(), parent: Some(UI_LOBBY_CARD.into()), order: 0,
-        width: Size::Grow, height: Size::Fit, layout_direction: LayoutDirection::Row,
-        gap: 0.0, padding: 0.0, margin: 0.0,
-        background_color: none, corner_radius: 0.0,
-        border_width: 0.0, border_color: none,
-        text: Some("agar.io".into()), text_size: 28.0, text_color: text_col,
-        text_wrap: TextWrap::None, is_input: false, cursor_pos: 0,
-        scrollable_x: false, scrollable_y: false, scroll_x: 0.0, scroll_y: 0.0,
+        id: UI_LOBBY_TITLE.into(),
+        parent: Some(UI_LOBBY_CARD.into()),
+        order: 0,
+        width: Size::Grow,
+        height: Size::Fit,
+        layout_direction: LayoutDirection::Row,
+        gap: 0.0,
+        padding: 0.0,
+        margin: 0.0,
+        background_color: none,
+        corner_radius: 0.0,
+        border_width: 0.0,
+        border_color: none,
+        text: Some("agar.io".into()),
+        text_size: 28.0,
+        text_color: text_col,
+        text_wrap: TextWrap::None,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
     let _ = ui.reducers.create_element(UiElement {
-        id: "lobby_sub".into(), parent: Some(UI_LOBBY_CARD.into()), order: 1,
-        width: Size::Grow, height: Size::Fit, layout_direction: LayoutDirection::Row,
-        gap: 0.0, padding: 0.0, margin: 0.0,
-        background_color: none, corner_radius: 0.0,
-        border_width: 0.0, border_color: none,
-        text: Some("Enter your name to play".into()), text_size: 13.0, text_color: muted,
-        text_wrap: TextWrap::None, is_input: false, cursor_pos: 0,
-        scrollable_x: false, scrollable_y: false, scroll_x: 0.0, scroll_y: 0.0,
+        id: "lobby_sub".into(),
+        parent: Some(UI_LOBBY_CARD.into()),
+        order: 1,
+        width: Size::Grow,
+        height: Size::Fit,
+        layout_direction: LayoutDirection::Row,
+        gap: 0.0,
+        padding: 0.0,
+        margin: 0.0,
+        background_color: none,
+        corner_radius: 0.0,
+        border_width: 0.0,
+        border_color: none,
+        text: Some("Enter your name to play".into()),
+        text_size: 13.0,
+        text_color: muted,
+        text_wrap: TextWrap::None,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
     let _ = ui.reducers.create_element(UiElement {
-        id: UI_LOBBY_INPUT.into(), parent: Some(UI_LOBBY_CARD.into()), order: 2,
-        width: Size::Grow, height: Size::Fixed(36.0), layout_direction: LayoutDirection::Row,
-        gap: 0.0, padding: 8.0, margin: 0.0,
-        background_color: input_bg, corner_radius: 6.0,
-        border_width: 1.0, border_color: (0.28, 0.28, 0.34, 1.0),
-        text: Some(String::new()), text_size: 14.0, text_color: text_col,
-        text_wrap: TextWrap::None, is_input: true, cursor_pos: 0,
-        scrollable_x: false, scrollable_y: false, scroll_x: 0.0, scroll_y: 0.0,
+        id: UI_LOBBY_INPUT.into(),
+        parent: Some(UI_LOBBY_CARD.into()),
+        order: 2,
+        width: Size::Grow,
+        height: Size::Fixed(36.0),
+        layout_direction: LayoutDirection::Row,
+        gap: 0.0,
+        padding: 8.0,
+        margin: 0.0,
+        background_color: input_bg,
+        corner_radius: 6.0,
+        border_width: 1.0,
+        border_color: (0.28, 0.28, 0.34, 1.0),
+        text: Some(String::new()),
+        text_size: 14.0,
+        text_color: text_col,
+        text_wrap: TextWrap::None,
+        is_input: true,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
     let _ = ui.reducers.create_element(UiElement {
-        id: UI_LOBBY_BTN.into(), parent: Some(UI_LOBBY_CARD.into()), order: 3,
-        width: Size::Grow, height: Size::Fixed(40.0), layout_direction: LayoutDirection::Row,
-        gap: 0.0, padding: 8.0, margin: 0.0,
-        background_color: btn_bg, corner_radius: 8.0,
-        border_width: 0.0, border_color: none,
-        text: Some("Play".into()), text_size: 16.0, text_color: (1.0, 1.0, 1.0, 1.0),
-        text_wrap: TextWrap::None, is_input: false, cursor_pos: 0,
-        scrollable_x: false, scrollable_y: false, scroll_x: 0.0, scroll_y: 0.0,
+        id: UI_LOBBY_BTN.into(),
+        parent: Some(UI_LOBBY_CARD.into()),
+        order: 3,
+        width: Size::Grow,
+        height: Size::Fixed(40.0),
+        layout_direction: LayoutDirection::Row,
+        gap: 0.0,
+        padding: 8.0,
+        margin: 0.0,
+        background_color: btn_bg,
+        corner_radius: 8.0,
+        border_width: 0.0,
+        border_color: none,
+        text: Some("Play".into()),
+        text_size: 16.0,
+        text_color: (1.0, 1.0, 1.0, 1.0),
+        text_wrap: TextWrap::None,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
 
@@ -322,7 +462,10 @@ where
     Caps: CanRead<ClientState> + CanUpdate<ClientState> + CanRead<UiElement>,
 {
     // Read the typed name directly from the UI input element (managed by the UI module).
-    let name = ctx.ui().tables.uielement()
+    let name = ctx
+        .ui()
+        .tables
+        .uielement()
         .get(UI_LOBBY_INPUT.to_string())
         .and_then(|el| el.text)
         .map(|t| t.trim().to_string())
@@ -370,13 +513,25 @@ where
     // Keyboard overlay (additive).
     let keys = ctx.input().tables.keystate().scan();
     let pressed = |code: u32| keys.iter().any(|k| k.code == code && k.pressed);
-    if pressed(KeyCode::KeyA as u32) || pressed(KeyCode::ArrowLeft as u32)  { dx -= sw * 0.5; }
-    if pressed(KeyCode::KeyD as u32) || pressed(KeyCode::ArrowRight as u32) { dx += sw * 0.5; }
-    if pressed(KeyCode::KeyW as u32) || pressed(KeyCode::ArrowUp as u32)    { dy -= sh * 0.5; }
-    if pressed(KeyCode::KeyS as u32) || pressed(KeyCode::ArrowDown as u32)  { dy += sh * 0.5; }
+    if pressed(KeyCode::KeyA as u32) || pressed(KeyCode::ArrowLeft as u32) {
+        dx -= sw * 0.5;
+    }
+    if pressed(KeyCode::KeyD as u32) || pressed(KeyCode::ArrowRight as u32) {
+        dx += sw * 0.5;
+    }
+    if pressed(KeyCode::KeyW as u32) || pressed(KeyCode::ArrowUp as u32) {
+        dy -= sh * 0.5;
+    }
+    if pressed(KeyCode::KeyS as u32) || pressed(KeyCode::ArrowDown as u32) {
+        dy += sh * 0.5;
+    }
 
     let len = (dx * dx + dy * dy).sqrt();
-    if len > 0.001 { (dx / len, dy / len) } else { (0.0, 0.0) }
+    if len > 0.001 {
+        (dx / len, dy / len)
+    } else {
+        (0.0, 0.0)
+    }
 }
 
 fn render_world<Caps>(ctx: &ReducerContext<Caps>, cs: &mut ClientState, sw: f32, sh: f32)
@@ -388,7 +543,8 @@ where
     let foods = server.tables.food().scan();
     let my_id = ctx.current_node_id();
 
-    let camera = players.iter()
+    let camera = players
+        .iter()
         .find(|p| p.id == my_id)
         .map(|p| (p.pos.x, p.pos.y, p.radius))
         .unwrap_or((0.0, 0.0, 18.0));
@@ -402,29 +558,66 @@ where
     let g = ctx.graphics();
 
     // ── Background: dark fill + grid ─────────────────────────────────────────
-    let bg_color = Color { r: 0.05, g: 0.05, b: 0.08, a: 1.0 };
+    let bg_color = Color {
+        r: 0.05,
+        g: 0.05,
+        b: 0.08,
+        a: 1.0,
+    };
     let _ = g.reducers.draw_rect(
         LAYER_BG.to_string(),
-        Rect { x: 0.0, y: 0.0, w: sw, h: sh },
-        bg_color, true, 0.0, None,
+        Rect {
+            x: 0.0,
+            y: 0.0,
+            w: sw,
+            h: sh,
+        },
+        bg_color,
+        true,
+        0.0,
+        None,
     );
 
     // World boundary.
     let bl = world_to_screen(-WORLD_SIZE, -WORLD_SIZE, cam_x, cam_y, zoom, sw, sh);
-    let br = world_to_screen( WORLD_SIZE,  WORLD_SIZE, cam_x, cam_y, zoom, sw, sh);
+    let br = world_to_screen(WORLD_SIZE, WORLD_SIZE, cam_x, cam_y, zoom, sw, sh);
     let boundary_w = br.0 - bl.0;
     let boundary_h = br.1 - bl.1;
     let _ = g.reducers.draw_rect(
         LAYER_BG.to_string(),
-        Rect { x: bl.0, y: bl.1, w: boundary_w, h: boundary_h },
-        Color { r: 0.10, g: 0.10, b: 0.14, a: 1.0 },
-        true, 0.0, None,
+        Rect {
+            x: bl.0,
+            y: bl.1,
+            w: boundary_w,
+            h: boundary_h,
+        },
+        Color {
+            r: 0.10,
+            g: 0.10,
+            b: 0.14,
+            a: 1.0,
+        },
+        true,
+        0.0,
+        None,
     );
     let _ = g.reducers.draw_rect(
         LAYER_BG.to_string(),
-        Rect { x: bl.0, y: bl.1, w: boundary_w, h: boundary_h },
-        Color { r: 0.30, g: 0.30, b: 0.40, a: 1.0 },
-        false, 2.0, None,
+        Rect {
+            x: bl.0,
+            y: bl.1,
+            w: boundary_w,
+            h: boundary_h,
+        },
+        Color {
+            r: 0.30,
+            g: 0.30,
+            b: 0.40,
+            a: 1.0,
+        },
+        false,
+        2.0,
+        None,
     );
 
     // Grid lines (only draw visible portion).
@@ -440,7 +633,15 @@ where
         let _ = g.reducers.draw_polyline(
             LAYER_BG.to_string(),
             vec![Vec2 { x: sx, y: 0.0 }, Vec2 { x: sx, y: sh }],
-            1, Color { r: 0.18, g: 0.18, b: 0.24, a: 1.0 }, false, false,
+            1,
+            Color {
+                r: 0.18,
+                g: 0.18,
+                b: 0.24,
+                a: 1.0,
+            },
+            false,
+            false,
         );
         gx += GRID_SPACING;
     }
@@ -450,7 +651,15 @@ where
         let _ = g.reducers.draw_polyline(
             LAYER_BG.to_string(),
             vec![Vec2 { x: 0.0, y: sy }, Vec2 { x: sw, y: sy }],
-            1, Color { r: 0.18, g: 0.18, b: 0.24, a: 1.0 }, false, false,
+            1,
+            Color {
+                r: 0.18,
+                g: 0.18,
+                b: 0.24,
+                a: 1.0,
+            },
+            false,
+            false,
         );
         gy += GRID_SPACING;
     }
@@ -459,7 +668,12 @@ where
     // Group food by color for batch draws.
     let mut batches: Vec<(Color, Vec<Vec2>, Vec<f32>)> = Vec::new();
     for food in &foods {
-        let color = Color { r: food.color.r, g: food.color.g, b: food.color.b, a: 1.0 };
+        let color = Color {
+            r: food.color.r,
+            g: food.color.g,
+            b: food.color.b,
+            a: 1.0,
+        };
         let pos = world_to_screen(food.pos.x, food.pos.y, cam_x, cam_y, zoom, sw, sh);
         let radius = food.radius * zoom;
         if let Some(batch) = batches.iter_mut().find(|(c, _, _)| colors_eq(c, &color)) {
@@ -470,7 +684,9 @@ where
         }
     }
     for (color, centers, radii) in batches {
-        let _ = g.reducers.draw_circles(LAYER_WORLD.to_string(), centers, radii, color, true, 0.0);
+        let _ = g
+            .reducers
+            .draw_circles(LAYER_WORLD.to_string(), centers, radii, color, true, 0.0);
     }
 
     // ── Players ───────────────────────────────────────────────────────────────
@@ -487,8 +703,14 @@ where
             LAYER_WORLD.to_string(),
             Vec2 { x: pos.0, y: pos.1 },
             radius,
-            Color { r: pr, g: pg, b: pb, a: 1.0 },
-            true, 0.0,
+            Color {
+                r: pr,
+                g: pg,
+                b: pb,
+                a: 1.0,
+            },
+            true,
+            0.0,
         );
         // Outline (slightly darker, thicker for self).
         let outline_w = if is_me { 3.0 } else { 1.5 };
@@ -496,8 +718,14 @@ where
             LAYER_WORLD.to_string(),
             Vec2 { x: pos.0, y: pos.1 },
             radius,
-            Color { r: pr * 0.6, g: pg * 0.6, b: pb * 0.6, a: 1.0 },
-            false, outline_w,
+            Color {
+                r: pr * 0.6,
+                g: pg * 0.6,
+                b: pb * 0.6,
+                a: 1.0,
+            },
+            false,
+            outline_w,
         );
 
         // Name centered above circle.
@@ -509,9 +737,17 @@ where
         let _ = g.reducers.draw_text(
             LAYER_NAMES.to_string(),
             player.name.clone(),
-            Vec2 { x: name_x, y: name_y },
+            Vec2 {
+                x: name_x,
+                y: name_y,
+            },
             name_size,
-            Color { r: 1.0, g: 1.0, b: 1.0, a: 0.9 },
+            Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 0.9,
+            },
             None,
         );
 
@@ -522,9 +758,17 @@ where
         let _ = g.reducers.draw_text(
             LAYER_NAMES.to_string(),
             score_str,
-            Vec2 { x: score_x, y: name_y + name_size },
+            Vec2 {
+                x: score_x,
+                y: name_y + name_size,
+            },
             name_size * 0.85,
-            Color { r: 1.0, g: 1.0, b: 1.0, a: 0.65 },
+            Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 0.65,
+            },
             None,
         );
     }
@@ -540,69 +784,139 @@ fn build_hud_ui<Caps>(ctx: &ReducerContext<Caps>) {
 
     // Single root row spanning the full width at the top.
     let _ = ui.reducers.create_element(UiElement {
-        id: "hud_root".into(), parent: None, order: 10,
-        width: Size::Grow, height: Size::Fit,
+        id: "hud_root".into(),
+        parent: None,
+        order: 10,
+        width: Size::Grow,
+        height: Size::Fit,
         layout_direction: LayoutDirection::Row,
-        gap: 0.0, padding: 12.0, margin: 0.0,
-        background_color: none, corner_radius: 0.0,
-        border_width: 0.0, border_color: none,
-        text: None, text_size: 0.0, text_color: none,
-        text_wrap: TextWrap::None, is_input: false, cursor_pos: 0,
-        scrollable_x: false, scrollable_y: false, scroll_x: 0.0, scroll_y: 0.0,
+        gap: 0.0,
+        padding: 12.0,
+        margin: 0.0,
+        background_color: none,
+        corner_radius: 0.0,
+        border_width: 0.0,
+        border_color: none,
+        text: None,
+        text_size: 0.0,
+        text_color: none,
+        text_wrap: TextWrap::None,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
 
     // Score label (top-left).
     let _ = ui.reducers.create_element(UiElement {
-        id: UI_HUD_SCORE.into(), parent: Some("hud_root".into()), order: 0,
-        width: Size::Fit, height: Size::Fit,
+        id: UI_HUD_SCORE.into(),
+        parent: Some("hud_root".into()),
+        order: 0,
+        width: Size::Fit,
+        height: Size::Fit,
         layout_direction: LayoutDirection::Row,
-        gap: 0.0, padding: 8.0, margin: 0.0,
-        background_color: panel_bg, corner_radius: 6.0,
-        border_width: 0.0, border_color: none,
-        text: Some("Score: 0".into()), text_size: 14.0, text_color: text_col,
-        text_wrap: TextWrap::None, is_input: false, cursor_pos: 0,
-        scrollable_x: false, scrollable_y: false, scroll_x: 0.0, scroll_y: 0.0,
+        gap: 0.0,
+        padding: 8.0,
+        margin: 0.0,
+        background_color: panel_bg,
+        corner_radius: 6.0,
+        border_width: 0.0,
+        border_color: none,
+        text: Some("Score: 0".into()),
+        text_size: 14.0,
+        text_color: text_col,
+        text_wrap: TextWrap::None,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
 
     // Middle spacer — pushes leaderboard to the right.
     let _ = ui.reducers.create_element(UiElement {
-        id: "hud_mid_spacer".into(), parent: Some("hud_root".into()), order: 1,
-        width: Size::Grow, height: Size::Grow,
+        id: "hud_mid_spacer".into(),
+        parent: Some("hud_root".into()),
+        order: 1,
+        width: Size::Grow,
+        height: Size::Grow,
         layout_direction: LayoutDirection::Row,
-        gap: 0.0, padding: 0.0, margin: 0.0,
-        background_color: none, corner_radius: 0.0,
-        border_width: 0.0, border_color: none,
-        text: None, text_size: 0.0, text_color: none,
-        text_wrap: TextWrap::None, is_input: false, cursor_pos: 0,
-        scrollable_x: false, scrollable_y: false, scroll_x: 0.0, scroll_y: 0.0,
+        gap: 0.0,
+        padding: 0.0,
+        margin: 0.0,
+        background_color: none,
+        corner_radius: 0.0,
+        border_width: 0.0,
+        border_color: none,
+        text: None,
+        text_size: 0.0,
+        text_color: none,
+        text_wrap: TextWrap::None,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
 
     // Leaderboard panel (top-right).
     let _ = ui.reducers.create_element(UiElement {
-        id: UI_HUD_LB_ROOT.into(), parent: Some("hud_root".into()), order: 2,
-        width: Size::Fixed(160.0), height: Size::Fit,
+        id: UI_HUD_LB_ROOT.into(),
+        parent: Some("hud_root".into()),
+        order: 2,
+        width: Size::Fit,
+        height: Size::Fit,
         layout_direction: LayoutDirection::Column,
-        gap: 4.0, padding: 10.0, margin: 0.0,
-        background_color: panel_bg, corner_radius: 8.0,
-        border_width: 0.0, border_color: none,
-        text: None, text_size: 0.0, text_color: none,
-        text_wrap: TextWrap::None, is_input: false, cursor_pos: 0,
-        scrollable_x: false, scrollable_y: false, scroll_x: 0.0, scroll_y: 0.0,
+        gap: 4.0,
+        padding: 10.0,
+        margin: 0.0,
+        background_color: panel_bg,
+        corner_radius: 8.0,
+        border_width: 0.0,
+        border_color: none,
+        text: None,
+        text_size: 0.0,
+        text_color: none,
+        text_wrap: TextWrap::None,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
     let _ = ui.reducers.create_element(UiElement {
-        id: UI_HUD_LB_TITLE.into(), parent: Some(UI_HUD_LB_ROOT.into()), order: 0,
-        width: Size::Grow, height: Size::Fit,
+        id: UI_HUD_LB_TITLE.into(),
+        parent: Some(UI_HUD_LB_ROOT.into()),
+        order: 0,
+        width: Size::Fit,
+        height: Size::Fit,
         layout_direction: LayoutDirection::Row,
-        gap: 0.0, padding: 0.0, margin: 0.0,
-        background_color: none, corner_radius: 0.0,
-        border_width: 0.0, border_color: none,
-        text: Some("Leaderboard".into()), text_size: 13.0, text_color: (0.7, 0.7, 0.8, 1.0),
-        text_wrap: TextWrap::None, is_input: false, cursor_pos: 0,
-        scrollable_x: false, scrollable_y: false, scroll_x: 0.0, scroll_y: 0.0,
+        gap: 0.0,
+        padding: 0.0,
+        margin: 0.0,
+        background_color: none,
+        corner_radius: 0.0,
+        border_width: 0.0,
+        border_color: none,
+        text: Some("Leaderboard".into()),
+        text_size: 13.0,
+        text_color: (0.7, 0.7, 0.8, 1.0),
+        text_wrap: TextWrap::None,
+        is_input: false,
+        cursor_pos: 0,
+        scrollable_x: false,
+        scrollable_y: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
         visible: true,
     });
 }
@@ -613,7 +927,11 @@ where
 {
     let my_id = ctx.current_node_id();
     let mut players: Vec<Player> = ctx.agar_server().agar_server().tables.player().scan();
-    players.sort_by(|a, b| b.radius.partial_cmp(&a.radius).unwrap_or(std::cmp::Ordering::Equal));
+    players.sort_by(|a, b| {
+        b.radius
+            .partial_cmp(&a.radius)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let ui = ctx.ui();
     let none = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
@@ -621,16 +939,29 @@ where
     // Update score label.
     if let Some(my_player) = players.iter().find(|p| p.id == my_id) {
         let _ = ui.reducers.update_element(UiElement {
-            id: UI_HUD_SCORE.into(), parent: Some("hud_root".into()), order: 0,
-            width: Size::Fit, height: Size::Fit,
+            id: UI_HUD_SCORE.into(),
+            parent: Some("hud_root".into()),
+            order: 0,
+            width: Size::Fit,
+            height: Size::Fit,
             layout_direction: LayoutDirection::Row,
-            gap: 0.0, padding: 8.0, margin: 0.0,
+            gap: 0.0,
+            padding: 8.0,
+            margin: 0.0,
             background_color: (0.07, 0.07, 0.10, 0.80),
-            corner_radius: 6.0, border_width: 0.0, border_color: none,
+            corner_radius: 6.0,
+            border_width: 0.0,
+            border_color: none,
             text: Some(format!("Score: {}", my_player.radius as u32)),
-            text_size: 14.0, text_color: (0.92, 0.92, 0.95, 1.0),
-            text_wrap: TextWrap::None, is_input: false, cursor_pos: 0,
-            scrollable_x: false, scrollable_y: false, scroll_x: 0.0, scroll_y: 0.0,
+            text_size: 14.0,
+            text_color: (0.92, 0.92, 0.95, 1.0),
+            text_wrap: TextWrap::None,
+            is_input: false,
+            cursor_pos: 0,
+            scrollable_x: false,
+            scrollable_y: false,
+            scroll_x: 0.0,
+            scroll_y: 0.0,
             visible: true,
         });
     }
@@ -643,20 +974,36 @@ where
     let text_col = (0.92f32, 0.92f32, 0.95f32, 1.0f32);
     for (i, p) in players.iter().take(8).enumerate() {
         let is_me = p.id == my_id;
-        let name_color = if is_me { (p.color.r, p.color.g, p.color.b, 1.0) } else { text_col };
+        let name_color = if is_me {
+            (p.color.r, p.color.g, p.color.b, 1.0)
+        } else {
+            text_col
+        };
         let label = format!("{}. {} ({})", i + 1, p.name, p.radius as u32);
         let _ = ui.reducers.create_element(UiElement {
             id: format!("hud_lb_{i}"),
             parent: Some(UI_HUD_LB_ROOT.into()),
             order: (i + 1) as u32,
-            width: Size::Grow, height: Size::Fit,
+            width: Size::Grow,
+            height: Size::Fit,
             layout_direction: LayoutDirection::Row,
-            gap: 0.0, padding: 2.0, margin: 0.0,
-            background_color: none, corner_radius: 0.0,
-            border_width: 0.0, border_color: none,
-            text: Some(label), text_size: 11.0, text_color: name_color,
-            text_wrap: TextWrap::None, is_input: false, cursor_pos: 0,
-            scrollable_x: false, scrollable_y: false, scroll_x: 0.0, scroll_y: 0.0,
+            gap: 0.0,
+            padding: 2.0,
+            margin: 0.0,
+            background_color: none,
+            corner_radius: 0.0,
+            border_width: 0.0,
+            border_color: none,
+            text: Some(label),
+            text_size: 11.0,
+            text_color: name_color,
+            text_wrap: TextWrap::None,
+            is_input: false,
+            cursor_pos: 0,
+            scrollable_x: false,
+            scrollable_y: false,
+            scroll_x: 0.0,
+            scroll_y: 0.0,
             visible: true,
         });
     }
@@ -671,42 +1018,126 @@ fn show_dead_screen<Caps>(ctx: &ReducerContext<Caps>, final_score: f32) {
     let card_bg = (0.14f32, 0.14f32, 0.18f32, 1.0f32);
     let btn_bg = (0.27f32, 0.47f32, 0.87f32, 1.0f32);
 
-    let mk = |id: &str, parent: Option<&str>, order: u32,
-               w: Size, h: Size,
-               gap: f32, pad: f32, mar: f32,
-               bg: (f32,f32,f32,f32), cr: f32,
-               text: Option<String>, ts: f32, tc: (f32,f32,f32,f32)| {
+    let mk = |id: &str,
+              parent: Option<&str>,
+              order: u32,
+              w: Size,
+              h: Size,
+              gap: f32,
+              pad: f32,
+              mar: f32,
+              bg: (f32, f32, f32, f32),
+              cr: f32,
+              text: Option<String>,
+              ts: f32,
+              tc: (f32, f32, f32, f32)| {
         let _ = ui.reducers.create_element(UiElement {
-            id: id.into(), parent: parent.map(|s| s.into()), order,
-            width: w, height: h,
+            id: id.into(),
+            parent: parent.map(|s| s.into()),
+            order,
+            width: w,
+            height: h,
             layout_direction: LayoutDirection::Column,
-            gap, padding: pad, margin: mar,
-            background_color: bg, corner_radius: cr,
-            border_width: 0.0, border_color: none,
-            text, text_size: ts, text_color: tc,
-            text_wrap: TextWrap::None, is_input: false, cursor_pos: 0,
-            scrollable_x: false, scrollable_y: false, scroll_x: 0.0, scroll_y: 0.0,
+            gap,
+            padding: pad,
+            margin: mar,
+            background_color: bg,
+            corner_radius: cr,
+            border_width: 0.0,
+            border_color: none,
+            text,
+            text_size: ts,
+            text_color: tc,
+            text_wrap: TextWrap::None,
+            is_input: false,
+            cursor_pos: 0,
+            scrollable_x: false,
+            scrollable_y: false,
+            scroll_x: 0.0,
+            scroll_y: 0.0,
             visible: true,
         });
     };
 
-    mk(UI_DEAD_ROOT, None, 20, Size::Grow, Size::Grow, 0.0, 0.0, 0.0,
-       (0.0, 0.0, 0.0, 0.6), 0.0, None, 0.0, none);
+    mk(
+        UI_DEAD_ROOT,
+        None,
+        20,
+        Size::Grow,
+        Size::Grow,
+        0.0,
+        0.0,
+        0.0,
+        (0.0, 0.0, 0.0, 0.6),
+        0.0,
+        None,
+        0.0,
+        none,
+    );
 
-    mk(UI_DEAD_CARD, Some(UI_DEAD_ROOT), 0, Size::Fixed(300.0), Size::Fit,
-       20.0, 32.0, 0.0, card_bg, 12.0, None, 0.0, none);
+    mk(
+        UI_DEAD_CARD,
+        Some(UI_DEAD_ROOT),
+        0,
+        Size::Fixed(300.0),
+        Size::Fit,
+        20.0,
+        32.0,
+        0.0,
+        card_bg,
+        12.0,
+        None,
+        0.0,
+        none,
+    );
 
-    mk(UI_DEAD_MSG, Some(UI_DEAD_CARD), 0, Size::Grow, Size::Fit,
-       0.0, 0.0, 0.0, none, 0.0,
-       Some("You were eaten!".into()), 22.0, (0.95, 0.4, 0.4, 1.0));
+    mk(
+        UI_DEAD_MSG,
+        Some(UI_DEAD_CARD),
+        0,
+        Size::Grow,
+        Size::Fit,
+        0.0,
+        0.0,
+        0.0,
+        none,
+        0.0,
+        Some("You were eaten!".into()),
+        22.0,
+        (0.95, 0.4, 0.4, 1.0),
+    );
 
-    mk(UI_DEAD_SCORE, Some(UI_DEAD_CARD), 1, Size::Grow, Size::Fit,
-       0.0, 0.0, 0.0, none, 0.0,
-       Some(format!("Final score: {}", final_score as u32)), 14.0, text_col);
+    mk(
+        UI_DEAD_SCORE,
+        Some(UI_DEAD_CARD),
+        1,
+        Size::Grow,
+        Size::Fit,
+        0.0,
+        0.0,
+        0.0,
+        none,
+        0.0,
+        Some(format!("Final score: {}", final_score as u32)),
+        14.0,
+        text_col,
+    );
 
-    mk(UI_DEAD_BTN, Some(UI_DEAD_CARD), 2, Size::Grow, Size::Fixed(40.0),
-       0.0, 8.0, 0.0, btn_bg, 8.0,
-       Some("Play again".into()), 16.0, (1.0, 1.0, 1.0, 1.0));
+    mk(
+        UI_DEAD_BTN,
+        Some(UI_DEAD_CARD),
+        2,
+        Size::Grow,
+        Size::Fixed(40.0),
+        0.0,
+        8.0,
+        0.0,
+        btn_bg,
+        8.0,
+        Some("Play again".into()),
+        16.0,
+        (1.0, 1.0, 1.0, 1.0),
+    );
 }
 
 fn handle_dead_input<Caps>(ctx: &ReducerContext<Caps>, cs: &mut ClientState)
@@ -727,7 +1158,15 @@ where
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn world_to_screen(wx: f32, wy: f32, cam_x: f32, cam_y: f32, zoom: f32, sw: f32, sh: f32) -> (f32, f32) {
+fn world_to_screen(
+    wx: f32,
+    wy: f32,
+    cam_x: f32,
+    cam_y: f32,
+    zoom: f32,
+    sw: f32,
+    sh: f32,
+) -> (f32, f32) {
     (
         (wx - cam_x) * zoom + sw * 0.5,
         (wy - cam_y) * zoom + sh * 0.5,
@@ -747,8 +1186,5 @@ fn snap_to_grid(v: f32, grid: f32) -> f32 {
 }
 
 fn colors_eq(a: &Color, b: &Color) -> bool {
-    (a.r - b.r).abs() < 0.001
-        && (a.g - b.g).abs() < 0.001
-        && (a.b - b.b).abs() < 0.001
+    (a.r - b.r).abs() < 0.001 && (a.g - b.g).abs() < 0.001 && (a.b - b.b).abs() < 0.001
 }
-

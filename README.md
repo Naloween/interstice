@@ -568,6 +568,7 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 
 ## Robustness and correctness
 
+- Fix SDK on module subscription not checking module and table names for compile error
 - Fix init event not working correctly anymore (doesn't fire when initializing a node wth already added modules, only work when we add them when the node is running)
 - Add doc or dependencies when installing interstice through cargo, check on generated bins
 - Fix agar-client example not working on WSL (no waylands)
