@@ -19,3 +19,4 @@ quote = "1"
 proc-macro2 = "1"
 interstice-abi = { path = "../interstice-abi", version = "0.5.0" }
 interstice-sdk-core = { path = "../interstice-sdk-core", version = "0.5.0" }
+toml = "0.7"

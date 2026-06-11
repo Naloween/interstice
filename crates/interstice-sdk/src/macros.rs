@@ -1,6 +1,7 @@
 use interstice_abi::{
     Authority, ModuleDependency, ModuleSelection, ModuleVisibility, NodeDependency, NodeSelection,
-    QuerySchema, ReducerSchema, ReducerTableRef, ReplicatedTableSchema, encode, pack_ptr_len,
+    QuerySchema, ReducerSchema, ReducerTableRef, ReplicatedTableSchema, SubscriptionEventSchema,
+    SubscriptionSchema, encode, pack_ptr_len,
 };
 use std::collections::HashSet;
 
@@ -250,6 +251,15 @@ pub fn describe_module(
         &replicated_tables,
     );
 
+    validate_subscriptions(
+        name,
+        &subscriptions,
+        &tables,
+        &module_dependencies,
+        &node_dependencies,
+        &replicated_tables,
+    );
+
     let schema = interstice_abi::ModuleSchema {
         abi_version: interstice_abi::ABI_VERSION,
         name: name.to_string(),
@@ -431,6 +441,122 @@ is not declared in `replicated_tables`",
             panic!(
                 "Invalid {owner_kind} `{owner_name}` {op} access: remote node `{node}` must use an explicit module selection"
             );
+        }
+    }
+}
+
+fn validate_subscriptions(
+    current_module: &str,
+    subscriptions: &[SubscriptionSchema],
+    tables: &[interstice_abi::TableSchema],
+    module_dependencies: &[ModuleDependency],
+    node_dependencies: &[NodeDependency],
+    replicated_tables: &[ReplicatedTableSchema],
+) {
+    let local_tables: HashSet<String> = tables.iter().map(|t| t.name.to_lowercase()).collect();
+    let modules: HashSet<String> = module_dependencies
+        .iter()
+        .map(|m| m.module_name.to_lowercase())
+        .collect();
+    let nodes: HashSet<String> = node_dependencies
+        .iter()
+        .map(|n| n.name.to_lowercase())
+        .collect();
+    let replicas: HashSet<(String, String, String)> = replicated_tables
+        .iter()
+        .map(|r| {
+            (
+                r.node_name.to_lowercase(),
+                r.module_name.to_lowercase(),
+                r.table_name.to_lowercase(),
+            )
+        })
+        .collect();
+
+    for sub in subscriptions {
+        match &sub.event {
+            SubscriptionEventSchema::Insert {
+                node_selection,
+                module_name,
+                table_name,
+            }
+            | SubscriptionEventSchema::Update {
+                node_selection,
+                module_name,
+                table_name,
+            }
+            | SubscriptionEventSchema::Delete {
+                node_selection,
+                module_name,
+                table_name,
+            } => {
+                let table_lc = table_name.to_lowercase();
+                match node_selection {
+                    NodeSelection::Current => {
+                        if module_name == current_module {
+                            if !local_tables.contains(&table_lc) {
+                                panic!(
+                                    "Invalid subscription `{}` event: local table `{}` does not exist in module `{}`",
+                                    sub.reducer_name, table_name, current_module
+                                );
+                            }
+                        } else {
+                            if !modules.contains(&module_name.to_lowercase()) {
+                                panic!(
+                                    "Invalid subscription `{}` event: module dependency `{}` is not declared",
+                                    sub.reducer_name, module_name
+                                );
+                            }
+                        }
+                    }
+                    NodeSelection::Other(node) => {
+                        if !nodes.contains(&node.to_lowercase()) {
+                            panic!(
+                                "Invalid subscription `{}` event: node dependency `{}` is not declared",
+                                sub.reducer_name, node
+                            );
+                        }
+                        let key = (
+                            node.to_lowercase(),
+                            module_name.to_lowercase(),
+                            table_lc.clone(),
+                        );
+                        if !replicas.contains(&key) {
+                            panic!(
+                                "Invalid subscription `{}` event: replica `{}.{}. {}` is not declared in `replicated_tables`",
+                                sub.reducer_name, node, module_name, table_name
+                            );
+                        }
+                    }
+                }
+            }
+            SubscriptionEventSchema::ReplicaSync {
+                node_name,
+                module_name,
+                table_name,
+            } => {
+                if !node_dependencies
+                    .iter()
+                    .any(|n| n.name.to_lowercase() == node_name.to_lowercase())
+                {
+                    panic!(
+                        "Invalid subscription `{}` event: node dependency `{}` is not declared",
+                        sub.reducer_name, node_name
+                    );
+                }
+                let key = (
+                    node_name.to_lowercase(),
+                    module_name.to_lowercase(),
+                    table_name.to_lowercase(),
+                );
+                if !replicas.contains(&key) {
+                    panic!(
+                        "Invalid subscription `{}` event: replica `{}.{}. {}` is not declared in `replicated_tables`",
+                        sub.reducer_name, node_name, module_name, table_name
+                    );
+                }
+            }
+            _ => {}
         }
     }
 }

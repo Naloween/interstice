@@ -155,7 +155,10 @@ pub fn on_load(ctx: ReducerContext) {
     });
 
     // Info rows
-    for (i, label) in ["Module: ui-example", "Node: local", "Status: running"].iter().enumerate() {
+    for (i, label) in ["Module: ui-example", "Node: local", "Status: running"]
+        .iter()
+        .enumerate()
+    {
         let _ = ui.reducers.create_element(UiElement {
             id: format!("row_{i}"),
             parent: Some("card".into()),
@@ -174,13 +177,13 @@ pub fn on_load(ctx: ReducerContext) {
             text_size: 13.0,
             text_color: TEXT_COLOR,
             text_wrap: TextWrap::Words,
-        is_input: false,
-        cursor_pos: 0,
-        scrollable_x: false,
-        scrollable_y: false,
-        scroll_x: 0.0,
-        scroll_y: 0.0,
-        visible: true,
+            is_input: false,
+            cursor_pos: 0,
+            scrollable_x: false,
+            scrollable_y: false,
+            scroll_x: 0.0,
+            scroll_y: 0.0,
+            visible: true,
         });
     }
 

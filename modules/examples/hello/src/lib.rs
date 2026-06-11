@@ -60,7 +60,7 @@ where
     }
 }
 
-#[reducer(on = "hello.greetings.insert")]
+#[reducer(on = "greetings.insert")]
 fn on_greeting_insert(ctx: ReducerContext, inserted_row: Greetings) {
     ctx.log(&format!("Inserted greeting: {:?}", inserted_row));
 }
