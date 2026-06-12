@@ -565,6 +565,8 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 
 ## Modules
 
+- Move cursor render to ui instead of only agar-client
+- Make buttons and click events works on ui
 - Desktop module
 - ModuleManager
 - Pages (documents etc.. Replace file system)

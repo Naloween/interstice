@@ -42,7 +42,6 @@ pub fn on_key_input<Caps>(
                 } else {
                     // Insert character at cursor position.
                     let byte_pos = char_to_byte_pos(&text, el.cursor_pos as usize);
-                    ctx.log(&new_buf.character);
                     text.insert_str(byte_pos, &new_buf.character);
                     el.cursor_pos += 1;
                 }
