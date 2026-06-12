@@ -5,18 +5,16 @@ mod lobby;
 mod render;
 mod tables;
 
-use crate::{bindings::graphics::*, lobby::build_lobby_ui, render::init_layers};
-use interstice_sdk::*;
-use tables::*;
-
 use crate::tables::ClientState;
+use crate::{lobby::build_lobby_ui, render::init_layers};
+use interstice_sdk::*;
 
 interstice_module!(
     visibility: Public,
     replicated_tables: [
-        "agar-server.agar-server.player",
-        "agar-server.agar-server.food",
-        "agar-server.agar-server.deadplayer",
+        "agar-server-example.agar-server.player",
+        "agar-server-example.agar-server.food",
+        "agar-server-example.agar-server.deadplayer",
     ]
 );
 

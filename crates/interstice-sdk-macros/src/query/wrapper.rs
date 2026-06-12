@@ -19,6 +19,7 @@ pub fn get_wrapper_function(
     quote! {
         #[unsafe(no_mangle)]
         pub extern "C" fn #wrapper_name(ptr: i32, len: i32) -> i64 {
+            interstice_sdk::macros::install_panic_hook();
             let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
             let (raw_context, interstice_args): (interstice_sdk::RawQueryContext, interstice_sdk::IntersticeValue) = interstice_sdk::decode(bytes).unwrap();
             let query_context: interstice_sdk::QueryContext<#caps_ty> = raw_context.into();

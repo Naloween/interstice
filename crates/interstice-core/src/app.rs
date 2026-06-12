@@ -11,8 +11,8 @@ use crate::{
     },
 };
 use interstice_abi::{Authority, IntersticeValue};
-use pollster::FutureExt;
 use parking_lot::Mutex;
+use pollster::FutureExt;
 use std::{
     hash::{Hash, Hasher},
     sync::{Arc, mpsc::Receiver},
@@ -27,7 +27,10 @@ use winit::{
 
 pub struct App {
     node_id: NodeId,
-    event_sender: UnboundedSender<(EventInstance, Option<crate::runtime::reducer::CompletionToken>)>,
+    event_sender: UnboundedSender<(
+        EventInstance,
+        Option<crate::runtime::reducer::CompletionToken>,
+    )>,
     gpu: Arc<Mutex<Option<GpuState>>>,
     runtime: Arc<Runtime>,
     gpu_call_receiver: Receiver<GpuCallRequest>,
@@ -36,7 +39,10 @@ pub struct App {
 impl App {
     pub fn new(
         node_id: NodeId,
-        event_sender: UnboundedSender<(EventInstance, Option<crate::runtime::reducer::CompletionToken>)>,
+        event_sender: UnboundedSender<(
+            EventInstance,
+            Option<crate::runtime::reducer::CompletionToken>,
+        )>,
         gpu: Arc<Mutex<Option<GpuState>>>,
         runtime: Arc<Runtime>,
         gpu_call_receiver: Receiver<GpuCallRequest>,
@@ -88,7 +94,6 @@ impl ApplicationHandler for App {
                     self.runtime
                         .authority_modules
                         .lock()
-                        
                         .get(&Authority::Gpu)
                         .cloned()
                         .and_then(|entry| match entry {
@@ -118,16 +123,42 @@ impl ApplicationHandler for App {
                 gpu.graphics_end_frame();
                 gpu.configure_surface(size.width.max(1), size.height.max(1));
             }
-            WindowEvent::MouseWheel { device_id, delta, phase: _phase } => self.device_event(event_loop, device_id, DeviceEvent::MouseWheel { delta }),
-            WindowEvent::MouseInput { device_id, state, button } => self.device_event(event_loop, device_id, DeviceEvent::Button { button: match button {
-                winit::event::MouseButton::Left => 0,
-                winit::event::MouseButton::Right => 1,
-                winit::event::MouseButton::Middle => 2,
-                winit::event::MouseButton::Back => 3,
-                winit::event::MouseButton::Forward => 4,
-                winit::event::MouseButton::Other(i) => i as u32,
-            }, state }),
-            WindowEvent::KeyboardInput { device_id, event, is_synthetic: _is_synthetic } => self.device_event(event_loop, device_id, DeviceEvent::Key(RawKeyEvent {physical_key: event.physical_key, state: event.state})),
+            WindowEvent::MouseWheel {
+                device_id,
+                delta,
+                phase: _phase,
+            } => self.device_event(event_loop, device_id, DeviceEvent::MouseWheel { delta }),
+            WindowEvent::MouseInput {
+                device_id,
+                state,
+                button,
+            } => self.device_event(
+                event_loop,
+                device_id,
+                DeviceEvent::Button {
+                    button: match button {
+                        winit::event::MouseButton::Left => 0,
+                        winit::event::MouseButton::Right => 1,
+                        winit::event::MouseButton::Middle => 2,
+                        winit::event::MouseButton::Back => 3,
+                        winit::event::MouseButton::Forward => 4,
+                        winit::event::MouseButton::Other(i) => i as u32,
+                    },
+                    state,
+                },
+            ),
+            WindowEvent::KeyboardInput {
+                device_id,
+                event,
+                is_synthetic: _is_synthetic,
+            } => self.device_event(
+                event_loop,
+                device_id,
+                DeviceEvent::Key(RawKeyEvent {
+                    physical_key: event.physical_key,
+                    state: event.state,
+                }),
+            ),
             // WindowEvent::ActivationTokenDone { serial, token } => todo!(),
             // WindowEvent::Moved(physical_position) => todo!(),
             // WindowEvent::Destroyed => todo!(),
@@ -150,7 +181,7 @@ impl ApplicationHandler for App {
             // WindowEvent::ScaleFactorChanged { scale_factor, inner_size_writer } => todo!(),
             // WindowEvent::ThemeChanged(theme) => todo!(),
             // WindowEvent::Occluded(_) => todo!(),
-            (_) => (),
+            _ => (),
         };
     }
 

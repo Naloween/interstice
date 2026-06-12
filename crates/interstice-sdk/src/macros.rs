@@ -45,6 +45,32 @@ pub const fn validate_replicated_table_literal(value: &str) {
     }
 }
 
+/// Install the module panic hook so guest panics are forwarded to the host log.
+///
+/// Idempotent and `Once`-guarded, so it is safe (and cheap) to call at the top of
+/// every exported entry point. Installing here rather than from `.init_array`/ctors
+/// avoids the "cannot modify the panic hook from a panicking thread" race: entry
+/// points always run before any panic on that call, so `thread::panicking()` is false.
+pub fn install_panic_hook() {
+    static INSTALL_PANIC_HOOK: std::sync::Once = std::sync::Once::new();
+    INSTALL_PANIC_HOOK.call_once(|| {
+        if std::thread::panicking() {
+            return;
+        }
+        std::panic::set_hook(Box::new(|info| {
+            let msg = if let Some(s) = info.payload().downcast_ref::<&str>() {
+                *s
+            } else if let Some(s) = info.payload().downcast_ref::<String>() {
+                s.as_str()
+            } else {
+                "panic occurred"
+            };
+
+            crate::host_calls::log(&format!("Panic Error: {}", msg));
+        }));
+    });
+}
+
 #[macro_export]
 macro_rules! interstice_module {
     () => {
@@ -83,31 +109,9 @@ macro_rules! interstice_module {
         // Global imports (for traits used in macros)
         use std::str::FromStr;
 
-        // Install the panic hook on first allocation, not from `.init_array`.
-        // `std::panic::set_hook` panics with "cannot modify the panic hook from a panicking
-        // thread" if `thread::panicking()` is true; running hook install from ctors can race
-        // another initializer that already panicked, and wasm/thread-local edge cases can
-        // leave that flag set across instances on one OS thread.
         #[unsafe(no_mangle)]
         pub extern "C" fn alloc(size: i32) -> i32 {
-            static INSTALL_PANIC_HOOK: std::sync::Once = std::sync::Once::new();
-            INSTALL_PANIC_HOOK.call_once(|| {
-                if std::thread::panicking() {
-                    return;
-                }
-                std::panic::set_hook(Box::new(|info| {
-                    let msg = if let Some(s) = info.payload().downcast_ref::<&str>() {
-                        *s
-                    } else if let Some(s) = info.payload().downcast_ref::<String>() {
-                        s.as_str()
-                    } else {
-                        "panic occurred"
-                    };
-
-                    interstice_sdk::host_calls::log(&format!("Panic Error: {}", msg));
-                }));
-            });
-
+            interstice_sdk::macros::install_panic_hook();
             let layout = std::alloc::Layout::from_size_align(size as usize, 8).unwrap();
             unsafe { std::alloc::alloc(layout) as i32 }
         }
@@ -134,6 +138,7 @@ macro_rules! interstice_module {
 
         #[unsafe(no_mangle)]
         pub extern "C" fn interstice_describe() -> i64 {
+            interstice_sdk::macros::install_panic_hook();
             let __interstice_replicated_tables: Vec<interstice_sdk::ReplicatedTableSchema> = vec![
                 $(
                     {
