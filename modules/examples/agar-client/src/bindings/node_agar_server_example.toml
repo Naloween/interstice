@@ -197,16 +197,12 @@ Named = "Color"
 name = "id"
 field_type = "U64"
 
-[modules.type_definitions.Vec2.Struct]
-name = "Vec2"
+[modules.type_definitions.DeadPlayer.Struct]
+name = "DeadPlayer"
 
-[[modules.type_definitions.Vec2.Struct.fields]]
-name = "x"
-field_type = "F32"
-
-[[modules.type_definitions.Vec2.Struct.fields]]
-name = "y"
-field_type = "F32"
+[[modules.type_definitions.DeadPlayer.Struct.fields]]
+name = "id"
+field_type = "String"
 
 [modules.type_definitions.Color.Struct]
 name = "Color"
@@ -256,13 +252,6 @@ name = "color"
 [modules.type_definitions.Player.Struct.fields.field_type]
 Named = "Color"
 
-[modules.type_definitions.DeadPlayer.Struct]
-name = "DeadPlayer"
-
-[[modules.type_definitions.DeadPlayer.Struct.fields]]
-name = "id"
-field_type = "String"
-
 [modules.type_definitions.Food.Struct]
 name = "Food"
 
@@ -285,3 +274,14 @@ name = "color"
 
 [modules.type_definitions.Food.Struct.fields.field_type]
 Named = "Color"
+
+[modules.type_definitions.Vec2.Struct]
+name = "Vec2"
+
+[[modules.type_definitions.Vec2.Struct.fields]]
+name = "x"
+field_type = "F32"
+
+[[modules.type_definitions.Vec2.Struct.fields]]
+name = "y"
+field_type = "F32"
