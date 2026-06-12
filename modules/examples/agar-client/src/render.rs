@@ -1,4 +1,6 @@
-use crate::bindings::agar_server_example::agar_server::{Vec2 as Vec2Server, *};
+use crate::bindings::agar_server_example::agar_server::{
+    DeadPlayer, Food, HasDeadPlayerHandle, HasFoodHandle, HasPlayerHandle, Player,
+};
 use crate::bindings::graphics::{Color, Vec2};
 use crate::bindings::{agar_server_example::*, graphics::*, input::*, ui::*, *};
 use crate::death::{handle_dead_input, show_dead_screen};

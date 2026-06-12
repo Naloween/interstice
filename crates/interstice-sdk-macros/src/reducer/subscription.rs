@@ -17,7 +17,6 @@ pub fn get_register_subscription_function(
 ) -> (proc_macro2::TokenStream, bool) {
     // load available bindings from src/bindings to validate node/module/table names
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
-    let bindings_dir = Path::new(&manifest_dir).join("src").join("bindings");
     let mut current_module_name = String::new();
     if let Ok(ct) = fs::read_to_string(Path::new(&manifest_dir).join("Cargo.toml")) {
         if let Ok(v) = toml::from_str::<TomlValue>(&ct) {
