@@ -553,40 +553,33 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 
 ---
 
-## Security and data access
-
-- Table views and row-level security: allow modules to filter rows based on runtime state and requesting node id
-- Time travel host call: should be able to time travel some table, creating timelines and branches (reason: very cool and allow easy time-related effects in games and apps in general). There should be several kind of travels changing the behavior of branching, what is saved and what not etc...
-
-## Runtime and data model
+## Runtime
 
 - Network authority
+- Better Audio authority and host calls
+- Table views and row-level security: allow modules to filter rows based on runtime state and requesting node id
+- Time travel host call: should be able to time travel some table, creating timelines and branches (reason: very cool and allow easy time-related effects in games and apps in general). There should be several kind of travels changing the behavior of branching, what is saved and what not etc...
 - Bundles to ship nodes as a whole program
 - Table migrations and schema evolution without data loss
-- Better Default system modules (ModuleManager, Graphics, Inputs)
-- Better Audio authority and host calls
-
-## Robustness and correctness
-
-- Fix SDK on module subscription not checking module and table names for compile error
-- Fix init event not working correctly anymore (doesn't fire when initializing a node wth already added modules, only work when we add them when the node is running)
-- Add doc or dependencies when installing interstice through cargo, check on generated bins
-- Fix agar-client example not working on WSL (no waylands)
-- Clean runtime, node and engines code (app, network, audio, file)
-- Rename the Input authority to be more explicit (audio also has input subscription)
-- Improve macro checks and error messages (subscription args and types)
-- Harden network reconnections and peer health handling as well as connection workflow (currently always throw a warning when disconnecting)
-- Expand function-level documentation across core and SDK
-
-## Performance and determinism
-
 - Iter-based table scans and more efficient index access
-- Reduce IntersticeValue conversions and avoid unnecessary clones
-- Parallelize reducers when safe under deterministic constraints (almost done, have to be more precise on which reducer do which operation on each table)
 
-## Tooling, diagnostics, and DX
+## Modules
 
-- Benchmarks, profiling tools, and performance budgets (mostly done)
+- Desktop module
+- ModuleManager
+- Pages (documents etc.. Replace file system)
+- Better Graphics
+- Better Inputs (Keyboards)
+
+## Fixes
+
+- Fix SDK module subscription not checking table names for current module at compile time
+- Fix init event not working correctly anymore (doesn't fire when initializing a node wth already added modules, only work when we add them when the node is running)
+- Fix agar-client example not working on WSL (no waylands)
+- Harden network reconnections and peer health handling as well as connection workflow (currently always throw a warning when disconnecting)
+
+## Tooling
+
 - Time travel tooling: rewind and inspect previous node/module states
 
 ---
