@@ -555,6 +555,7 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 
 ## Runtime
 
+- Rename "publish" with "load"
 - Network authority
 - Better Audio authority and host calls
 - Table views and row-level security: allow modules to filter rows based on runtime state and requesting node id
