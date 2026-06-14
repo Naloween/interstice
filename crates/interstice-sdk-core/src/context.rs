@@ -41,6 +41,10 @@ pub struct QueryContextCurrentModule<Caps = ()> {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ReducerContext<Caps = ()> {
     pub caller_node_id: String,
+    /// Schema name of the module that invoked this reducer (empty for
+    /// runtime-originated calls). Distinguishes co-located callers that share a
+    /// `caller_node_id`.
+    pub caller_module_name: String,
     pub current: ReducerContextCurrentModule<Caps>,
 }
 
@@ -48,6 +52,7 @@ impl<Caps> From<RawReducerContext> for ReducerContext<Caps> {
     fn from(raw: RawReducerContext) -> Self {
         Self {
             caller_node_id: raw.caller_node_id,
+            caller_module_name: raw.caller_module_name,
             current: ReducerContextCurrentModule {
                 tables: ReducerContextCurrentModuleTables::default(),
             },
@@ -58,6 +63,8 @@ impl<Caps> From<RawReducerContext> for ReducerContext<Caps> {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct QueryContext<Caps = ()> {
     pub caller_node_id: String,
+    /// See [`ReducerContext::caller_module_name`].
+    pub caller_module_name: String,
     pub current: QueryContextCurrentModule<Caps>,
 }
 
@@ -65,6 +72,7 @@ impl<Caps> From<RawQueryContext> for QueryContext<Caps> {
     fn from(raw: RawQueryContext) -> Self {
         Self {
             caller_node_id: raw.caller_node_id,
+            caller_module_name: raw.caller_module_name,
             current: QueryContextCurrentModule {
                 tables: QueryContextCurrentModuleTables::default(),
             },

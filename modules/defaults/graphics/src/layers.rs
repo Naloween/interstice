@@ -24,7 +24,7 @@ where
         name,
         z,
         clear,
-        owner_module_name: ctx.caller_node_id.clone(),
+        owner_module_name: ctx.caller_module_name.clone(),
     };
 
     if let Err(err) = ctx.current.tables.layer().insert(layer) {

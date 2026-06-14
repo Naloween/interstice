@@ -6,7 +6,7 @@ use crate::tables::{
 };
 
 pub(crate) fn owns_layer<Caps>(ctx: &ReducerContext<Caps>, layer: &Layer) -> bool {
-    layer.owner_module_name == ctx.caller_node_id
+    layer.owner_module_name == ctx.caller_module_name
 }
 
 pub(crate) fn ensure_layer_exists<Caps: CanRead<Layer>>(

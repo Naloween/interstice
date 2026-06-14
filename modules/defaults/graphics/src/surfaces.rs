@@ -2,7 +2,8 @@ use interstice_sdk::*;
 
 use crate::GpuExt;
 use crate::tables::{
-    Compositor, HasCompositorEditHandle, HasSurfaceAssignmentEditHandle, HasSurfaceInfoEditHandle,
+    Compositor, HasCompositorEditHandle, HasSurfaceAssignmentEditHandle,
+    HasSurfaceAssignmentReadHandle, HasSurfaceInfoEditHandle, HasSurfaceInfoReadHandle,
     HasSurfaceTargetEditHandle, SurfaceAssignment, SurfaceInfo, SurfaceTarget,
 };
 
@@ -23,6 +24,35 @@ pub(crate) fn is_compositor<Caps: CanRead<Compositor>>(
         .get(COMPOSITOR_KEY)
         .map(|row| row.module_name == caller)
         .unwrap_or(false)
+}
+
+/// Report the surface the calling module's layers render into, resolved from the
+/// caller's identity. Returns the swapchain surface (id 0) when unassigned. Apps
+/// use this to size their drawing to the surface the compositor gave them; the
+/// desktop assigns each app an offscreen surface before it runs, so the returned
+/// dimensions are real. NOTE: surface 0's dimensions are 0×0 until the first
+/// render frame populates them.
+#[query]
+fn surface_info<Caps>(ctx: QueryContext<Caps>) -> SurfaceInfo
+where
+    Caps: CanRead<SurfaceAssignment> + CanRead<SurfaceInfo>,
+{
+    let surface_id = ctx
+        .current
+        .tables
+        .surfaceassignment()
+        .get(ctx.caller_module_name.clone())
+        .map(|a| a.surface_id)
+        .unwrap_or(SWAPCHAIN_SURFACE_ID);
+    ctx.current
+        .tables
+        .surfaceinfo()
+        .get(surface_id)
+        .unwrap_or(SurfaceInfo {
+            id: surface_id,
+            width: 0,
+            height: 0,
+        })
 }
 
 /// Claim exclusive authority to manage surfaces. The first caller wins; repeat

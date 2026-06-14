@@ -444,6 +444,7 @@ impl Runtime {
                     reducer_name: reducer,
                     input: args,
                     caller_node_id: self.network_handle.node_id,
+                    caller_module_name: String::new(),
                     completion,
                 };
                 let sender = self.reducer_sender.clone();

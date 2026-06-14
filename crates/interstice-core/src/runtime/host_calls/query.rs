@@ -19,6 +19,7 @@ impl Runtime {
                     &call_query_request.query_name,
                     call_query_request.input,
                     self.network_handle.node_id,
+                    caller_module_name,
                 )
             }
             NodeSelection::Other(node_name) => {

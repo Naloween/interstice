@@ -247,6 +247,7 @@ impl Runtime {
                             &job.reducer_name,
                             job.input,
                             job.caller_node_id,
+                            &job.caller_module_name,
                         ) {
                             rt.logger.log(
                                 &format!(
@@ -310,6 +311,7 @@ impl Runtime {
                                 reducer_name,
                                 input: interstice_abi::IntersticeValue::Vec(vec![]),
                                 caller_node_id: timer_node_id,
+                                caller_module_name: String::new(),
                                 completion: None,
                             };
                             let sender = timer_reducer_sender.clone();
@@ -390,6 +392,7 @@ impl Runtime {
                     reducer_name,
                     input,
                     caller_node_id: requesting_node_id,
+                    caller_module_name: String::new(),
                     completion: None,
                 };
                 let sender = runtime.reducer_sender.clone();
@@ -406,7 +409,8 @@ impl Runtime {
             } => {
                 let runtime = runtime.clone();
                 tokio::task::spawn_blocking(move || {
-                    match runtime.call_query(&module_name, &query_name, input, requesting_node_id) {
+                    match runtime.call_query(&module_name, &query_name, input, requesting_node_id, "")
+                    {
                         Ok(value) => {
                             runtime.network_handle.send_packet(
                                 requesting_node_id,

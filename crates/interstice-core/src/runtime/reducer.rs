@@ -28,6 +28,9 @@ pub struct ReducerJob {
     pub reducer_name: String,
     pub input: IntersticeValue,
     pub caller_node_id: crate::node::NodeId,
+    /// Schema name of the calling module, or empty for runtime-originated jobs
+    /// (events, render, network). See [`interstice_abi::RawReducerContext`].
+    pub caller_module_name: String,
     pub completion: Option<CompletionToken>,
 }
 
@@ -152,6 +155,7 @@ impl Runtime {
         reducer_name: &str,
         args: impl Serialize,
         caller_node_id: crate::node::NodeId,
+        caller_module_name: &str,
     ) -> Result<(), IntersticeError> {
         // ── Preamble: module lookup + cycle check + frame push ───────────────
         let module = {
@@ -221,7 +225,8 @@ impl Runtime {
         });
 
         // ── WASM execution ───────────────────────────────────────────────────
-        let reducer_context = ReducerContext::new(caller_node_id.to_string());
+        let reducer_context =
+            ReducerContext::new(caller_node_id.to_string(), caller_module_name.to_string());
         let call_result = module.call_reducer(reducer_name, (reducer_context, args));
         // Pop frame from current thread's stack; remove the entry when stack becomes empty.
         let reducer_frame = CALL_STACK.with(|s| s.borrow_mut().pop().unwrap());

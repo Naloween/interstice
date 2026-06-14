@@ -595,6 +595,7 @@ async fn connection_task(
                                 reducer_name,
                                 input,
                                 caller_node_id: node_id,
+                                caller_module_name: String::new(),
                                 completion: None,
                             };
                             let sender = reducer_sender.clone();

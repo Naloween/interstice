@@ -112,6 +112,7 @@ impl ApplicationHandler for App {
                         reducer_name,
                         input: IntersticeValue::Vec(vec![]),
                         caller_node_id: self.node_id,
+                        caller_module_name: String::new(),
                         completion: Some(token),
                     });
                     self.wait_for_render_completion(done_rx);
