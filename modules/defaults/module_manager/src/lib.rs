@@ -101,7 +101,7 @@ where
         ctx.log(&format!("module_manager: unknown app '{name}'"));
         return;
     };
-    if let Err(err) = ctx.module().remove(NodeSelection::Current, name.clone()) {
+    if let Err(err) = ctx.module().unload(NodeSelection::Current, name.clone()) {
         ctx.log(&format!("module_manager: failed to unload '{name}': {err}"));
         return;
     }

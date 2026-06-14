@@ -330,6 +330,12 @@ impl Node {
                 continue;
             }
 
+            // Skip modules explicitly marked as unloaded — their data stays on
+            // disk and they can be loaded again later.
+            if !crate::runtime::module::module_should_load(&path) {
+                continue;
+            }
+
             let module = Module::from_file(runtime.clone(), &wasm_path).await?;
             modules_to_load.push((module.schema.name.clone(), module));
         }

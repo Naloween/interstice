@@ -91,6 +91,54 @@ impl Runtime {
                     ModuleCallResponse::Ok
                 }
             },
+            ModuleCall::Unload {
+                node_selection,
+                module_name,
+            } => match node_selection {
+                NodeSelection::Current => {
+                    Runtime::unload_module(runtime.clone(), &module_name);
+                    ModuleCallResponse::Ok
+                }
+                NodeSelection::Other(node_name) => {
+                    let node_dependency = caller_module_schema
+                        .node_dependencies
+                        .iter()
+                        .find(|n| n.name == node_name);
+                    let node_address = match node_dependency {
+                        Some(dep) => dep.address.clone(),
+                        None => {
+                            return Ok(Some(
+                                self.send_data_to_module(
+                                    ModuleCallResponse::Err(format!(
+                                        "Couldn't find node {node_name} in node dependencies"
+                                    )),
+                                    _memory,
+                                    _caller,
+                                ),
+                            ));
+                        }
+                    };
+                    let node_id = match self.network_handle.get_node_id_from_adress(&node_address) {
+                        Ok(node_id) => node_id,
+                        Err(err) => {
+                            return Ok(Some(
+                                self.send_data_to_module(
+                                    ModuleCallResponse::Err(err.to_string()),
+                                    _memory,
+                                    _caller,
+                                ),
+                            ));
+                        }
+                    };
+                    self.network_handle.send_packet(
+                        node_id,
+                        crate::network::protocol::NetworkPacket::ModuleEvent(
+                            crate::network::protocol::ModuleEventInstance::Unload { module_name },
+                        ),
+                    );
+                    ModuleCallResponse::Ok
+                }
+            },
             ModuleCall::Remove {
                 node_selection,
                 module_name,

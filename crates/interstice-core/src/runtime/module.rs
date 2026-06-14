@@ -224,6 +224,19 @@ impl Runtime {
     ) -> Result<ModuleSchema, IntersticeError> {
         let module_schema = module.schema.clone();
 
+        // A module is being *reloaded* (rather than loaded for the first time)
+        // when it already has persisted data on disk — its `state.toml` exists.
+        // This happens when re-loading a module that was previously unloaded (or
+        // when re-loading from the module manager). In that case we restore its
+        // tables from disk and skip the once-only `init` event, exactly like a
+        // node restart. The node-startup path (`fire_init == false`) restores via
+        // `replay()` instead, so we only restore in-load for runtime reloads.
+        let is_reload = runtime
+            .modules_path
+            .as_ref()
+            .map(|path| path.join(&module_schema.name).join("state.toml").exists())
+            .unwrap_or(false);
+
         // If the module requires GPU authority and the app is not initialized yet, initialize it
         if module_schema
             .authorities
@@ -497,6 +510,8 @@ impl Runtime {
             std::fs::create_dir_all(module_dir.join("logs")).unwrap();
             std::fs::create_dir_all(module_dir.join("snapshots")).unwrap();
             std::fs::write(module_dir.join("module.wasm"), &module.wasm_bytes).unwrap();
+            // Mark the module as loaded so it is auto-loaded again on node startup.
+            write_module_state(&module_dir, true);
         }
 
         // Count table subscriptions (Insert/Update/Delete) and add to active_subscription_count
@@ -522,6 +537,19 @@ impl Runtime {
             
             .insert(module.schema.name.clone(), Arc::new(module));
         runtime.clear_reducer_access_cache();
+
+        // On a runtime reload (not node startup), repopulate the module's tables
+        // from their persisted data — same restore the startup `replay()` does.
+        if fire_init && is_reload {
+            if let Some(module) = runtime.modules.lock().get(&module_schema.name) {
+                let mut tables = module.tables.lock();
+                for table in tables.values_mut() {
+                    runtime
+                        .persistence
+                        .restore_table(&module_schema.name, table)?;
+                }
+            }
+        }
 
         // Now that the module is registered, request remote replica subscriptions and full sync.
         // Sending these earlier can race with network responses and drop initial sync before
@@ -559,7 +587,8 @@ impl Runtime {
         setup_file_watches(runtime.clone(), &module_schema)?;
 
         // Trigger startup events asynchronously via the runtime event queue.
-        if fire_init {
+        // A reload does not re-run `init` (it already ran on the first load).
+        if fire_init && !is_reload {
             runtime
                 .event_sender
                 .send((EventInstance::Init {
@@ -818,11 +847,16 @@ impl Runtime {
         }
     }
 
-    pub fn remove_module(runtime: Arc<Runtime>, module_name: &str) {
+    /// Tear down a module's live runtime presence: unsubscribe from remote
+    /// tables, drop its subscription counts, remove it from the modules map,
+    /// clear caches and replica bindings, and release any authorities it held.
+    /// Does NOT touch the module's persisted data on disk — shared by both
+    /// `unload_module` (keeps data) and `remove_module` (deletes data after).
+    fn teardown_module(runtime: &Arc<Runtime>, module_name: &str) {
         let module_schema = runtime
             .modules
             .lock()
-            
+
             .get(module_name)
             .map(|module| module.schema.as_ref().clone());
 
@@ -931,18 +965,12 @@ impl Runtime {
             .lock()
             
             .retain(|key| !key.starts_with(&format!("{}|", module_name)));
-        if let Some(modules_path) = &runtime.modules_path {
-            let module_dir = modules_path.join(module_name);
-            if module_dir.exists() {
-                std::fs::remove_dir_all(module_dir).unwrap();
-            }
-        }
 
         // Removing module from authority modules if it has any authority
         let authorities_to_remove = runtime
             .authority_modules
             .lock()
-            
+
             .iter()
             .filter(|(_, entry)| entry.module_name() == module_name)
             .map(|(authority, _)| authority.clone())
@@ -950,12 +978,70 @@ impl Runtime {
         for authority in authorities_to_remove {
             runtime.authority_modules.lock().remove(&authority);
         }
+    }
+
+    /// Unload a module from the runtime while keeping its persisted data on
+    /// disk, so it can be loaded again later and resume with its tables intact.
+    /// Ephemeral tables are wiped (by design — same as a node restart). The
+    /// module is marked unloaded in its `state.toml` so node startup skips it.
+    pub fn unload_module(runtime: Arc<Runtime>, module_name: &str) {
+        Self::teardown_module(&runtime, module_name);
+
+        if let Some(modules_path) = &runtime.modules_path {
+            let module_dir = modules_path.join(module_name);
+            if module_dir.exists() {
+                write_module_state(&module_dir, false);
+            }
+        }
+
+        runtime.logger.log(
+            &format!("Unloaded module '{}'", module_name),
+            LogSource::Runtime,
+            LogLevel::Info,
+        );
+    }
+
+    /// Remove a module and delete all of its persisted data (full uninstall).
+    pub fn remove_module(runtime: Arc<Runtime>, module_name: &str) {
+        Self::teardown_module(&runtime, module_name);
+
+        if let Some(modules_path) = &runtime.modules_path {
+            let module_dir = modules_path.join(module_name);
+            if module_dir.exists() {
+                std::fs::remove_dir_all(module_dir).unwrap();
+            }
+        }
 
         runtime.logger.log(
             &format!("Removed module '{}'", module_name),
             LogSource::Runtime,
             LogLevel::Info,
         );
+    }
+}
+
+/// Persisted per-module state stored as `state.toml` in the module's data dir.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ModuleState {
+    /// Whether the module should be auto-loaded when the node starts.
+    loaded: bool,
+}
+
+/// Write `state.toml` into the given module directory.
+fn write_module_state(module_dir: &Path, loaded: bool) {
+    if let Ok(contents) = toml::to_string(&ModuleState { loaded }) {
+        let _ = std::fs::write(module_dir.join("state.toml"), contents);
+    }
+}
+
+/// Whether the module in `module_dir` should be auto-loaded on node startup.
+/// Defaults to `true` when no `state.toml` is present (backward compatible).
+pub(crate) fn module_should_load(module_dir: &Path) -> bool {
+    match std::fs::read_to_string(module_dir.join("state.toml")) {
+        Ok(contents) => toml::from_str::<ModuleState>(&contents)
+            .map(|state| state.loaded)
+            .unwrap_or(true),
+        Err(_) => true,
     }
 }
 

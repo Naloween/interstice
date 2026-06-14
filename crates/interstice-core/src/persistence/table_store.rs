@@ -374,13 +374,17 @@ impl TableStore {
         let module_paths = self.ensure_module_dirs(root, module)?;
         let snapshot_path = module_paths.snapshots.join(format!("{}.snap", table_name));
         let log_path = module_paths.logs.join(format!("{}.log", table_name));
+        // Track whether a snapshot actually exists. Without one, `last_seq`
+        // defaults to 0, which collides with the first WAL entry's seq (also 0)
+        // — so we must replay every entry, not just those with `seq > 0`.
+        let had_snapshot = snapshot_path.exists();
         let snapshot = Self::read_snapshot_file(&snapshot_path)?;
 
         table.restore_from_rows(snapshot.rows)?;
         let mut last_seq = snapshot.last_seq;
 
         Self::read_log_entries(&log_path, |entry| {
-            if entry.seq > snapshot.last_seq {
+            if !had_snapshot || entry.seq > snapshot.last_seq {
                 TableStore::apply_entry(table, &entry.operation)?;
                 last_seq = entry.seq;
             }

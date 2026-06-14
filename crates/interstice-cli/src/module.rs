@@ -53,6 +53,30 @@ pub async fn load(node_ref: String, module_project_path: &Path) -> Result<(), In
     Ok(())
 }
 
+pub async fn unload(node_ref: String, module_name: &str) -> Result<(), IntersticeError> {
+    // Unload a module from the node without deleting its persisted data, so it
+    // can be loaded again later and resume with its tables intact.
+
+    // connect to node
+    let registry = NodeRegistry::load()?;
+    let node_address = registry
+        .resolve_address(&node_ref)
+        .ok_or_else(|| IntersticeError::Internal("Unknown node".into()))?;
+    let (mut stream, _handshake) = handshake_with_node(&node_address).await?;
+
+    // Send unload request to node
+    let packet = NetworkPacket::ModuleEvent(ModuleEventInstance::Unload {
+        module_name: module_name.into(),
+    });
+    write_packet(&mut stream, &packet).await?;
+
+    // Close connection properly
+    let packet = NetworkPacket::Close;
+    write_packet(&mut stream, &packet).await?;
+
+    Ok(())
+}
+
 pub async fn remove(node_ref: String, module_name: &str) -> Result<(), IntersticeError> {
     // This should take a module name and send a message to the node to delete the module with that name. It should also be able to use saved servers nodes with their adress to easily delete from known nodes.
 

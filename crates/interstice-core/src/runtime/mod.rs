@@ -625,6 +625,14 @@ impl Runtime {
                     });
                 }
             }
+            EventInstance::UnloadModule {
+                module_name,
+                source_node_id: _,
+            } => {
+                // Unload keeps the module's data on disk; it is not routed through
+                // the Module authority (no UnloadRequest subscription event exists).
+                Runtime::unload_module(runtime.clone(), &module_name);
+            }
             EventInstance::RemoveModule {
                 module_name,
                 source_node_id,
@@ -632,7 +640,7 @@ impl Runtime {
                 if runtime
                     .authority_modules
                     .lock()
-                    
+
                     .contains_key(&Authority::Module)
                 {
                     let _ = runtime.event_sender.send((EventInstance::Module(

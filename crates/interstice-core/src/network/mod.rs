@@ -453,6 +453,16 @@ impl Network {
                                     None,
                                 ))
                                 .unwrap(),
+                            protocol::ModuleEventInstance::Unload { module_name } => self
+                                .runtime_event_sender
+                                .send((
+                                    EventInstance::UnloadModule {
+                                        module_name,
+                                        source_node_id: node_id,
+                                    },
+                                    None,
+                                ))
+                                .unwrap(),
                             protocol::ModuleEventInstance::Remove { module_name } => self
                                 .runtime_event_sender
                                 .send((

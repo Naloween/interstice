@@ -94,6 +94,10 @@ pub enum EventInstance {
         wasm_binary: Vec<u8>,
         source_node_id: NodeId,
     },
+    UnloadModule {
+        module_name: String,
+        source_node_id: NodeId,
+    },
     RemoveModule {
         module_name: String,
         source_node_id: NodeId,

@@ -7,6 +7,13 @@ pub enum ModuleCall {
         node_selection: NodeSelection,
         wasm_binary: Vec<u8>,
     },
+    /// Unload a module from the runtime while keeping its persisted table data,
+    /// so it can be loaded again later and resume with its state intact.
+    Unload {
+        node_selection: NodeSelection,
+        module_name: String,
+    },
+    /// Remove a module and delete all of its persisted data (full uninstall).
     Remove {
         node_selection: NodeSelection,
         module_name: String,

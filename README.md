@@ -403,6 +403,8 @@ There is no manual way to load a module onto an already running node. See the CL
 ## CLI flow
 
 - `interstice load <node> <module-rust-project-path>` — build, upload, validate, and install a module on a running node. The node verifies schema compatibility and requested capabilities.
+- `interstice unload <node> <module-name>` — remove a module from the runtime (stop running its reducers) while keeping its persisted table data on disk. The module is marked unloaded so the node does not auto-load it on the next startup; loading it again resumes with its tables intact. Ephemeral tables are wiped (by design — same as a node restart).
+- `interstice remove <node> <module-name>` — fully uninstall a module and delete all of its persisted data.
 
 # CLI usage
 
@@ -441,7 +443,8 @@ These commands fetch **public** schemas from the target node and write TOML file
 ## Module commands
 
 - `interstice load <node> <module_path>`
-- `interstice remove <node> <module_name>`
+- `interstice unload <node> <module_name>` (keeps data)
+- `interstice remove <node> <module_name>` (deletes data)
 - `interstice call_reducer <node> <module_name> <reducer_name> [args...]`
 - `interstice call_query <node> <module_name> <query_name> [args...]`
 - `interstice benchmark <...>`
