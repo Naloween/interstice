@@ -96,7 +96,6 @@ pub enum EventInstance {
     },
     UnloadModule {
         module_name: String,
-        source_node_id: NodeId,
     },
     RemoveModule {
         module_name: String,

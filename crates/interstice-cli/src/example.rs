@@ -146,20 +146,11 @@ pub async fn example(example_name: &str) -> Result<(), IntersticeError> {
         last_seen: None,
     })?;
 
-    // Write module bytes directly to disk (node.start() will load them)
-    let modules_path = nodes_dir().join(node.id.to_string()).join("modules");
-    for (idx, module_config) in config.modules.iter().enumerate() {
-        // Use a simple directory name (actual module name will be read from WASM)
-        let module_dir = modules_path.join(format!("module_{}", idx));
-        std::fs::create_dir_all(&module_dir).map_err(|err| {
-            IntersticeError::Internal(format!("Failed to create module directory: {err}"))
-        })?;
-        std::fs::write(module_dir.join("module.wasm"), module_config.bytes).map_err(|err| {
-            IntersticeError::Internal(format!("Failed to write module WASM: {err}"))
-        })?;
-    }
-
-    // Now start the node, which will load modules from disk
-    node.start().await?;
+    // Start the node and load the example's modules through the normal API.
+    // Each load persists the module to its canonical name-based directory, so a
+    // later restart (`node start <name>`) picks it up from disk — no separate
+    // seed directory is created.
+    let initial_modules: Vec<&[u8]> = config.modules.iter().map(|m| m.bytes).collect();
+    node.start(&initial_modules).await?;
     Ok(())
 }

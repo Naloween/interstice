@@ -220,17 +220,15 @@ impl Runtime {
     pub async fn load_module(
         runtime: Arc<Self>,
         module: Module,
-        fire_init: bool,
     ) -> Result<ModuleSchema, IntersticeError> {
         let module_schema = module.schema.clone();
 
-        // A module is being *reloaded* (rather than loaded for the first time)
-        // when it already has persisted data on disk — its `state.toml` exists.
-        // This happens when re-loading a module that was previously unloaded (or
-        // when re-loading from the module manager). In that case we restore its
-        // tables from disk and skip the once-only `init` event, exactly like a
-        // node restart. The node-startup path (`fire_init == false`) restores via
-        // `replay()` instead, so we only restore in-load for runtime reloads.
+        // Decide first-load vs reload from persistent state, independently of how
+        // the module was loaded (CLI, network, module manager, or node startup).
+        // A module has been loaded here before iff its `state.toml` exists (we
+        // write it on every load and only delete it on `remove`). On a reload we
+        // restore its tables from disk and skip the once-only `init` event,
+        // exactly like a node restart; on a genuine first load we fire `init`.
         let is_reload = runtime
             .modules_path
             .as_ref()
@@ -538,9 +536,8 @@ impl Runtime {
             .insert(module.schema.name.clone(), Arc::new(module));
         runtime.clear_reducer_access_cache();
 
-        // On a runtime reload (not node startup), repopulate the module's tables
-        // from their persisted data — same restore the startup `replay()` does.
-        if fire_init && is_reload {
+        // On a reload, repopulate the module's tables from their persisted data.
+        if is_reload {
             if let Some(module) = runtime.modules.lock().get(&module_schema.name) {
                 let mut tables = module.tables.lock();
                 for table in tables.values_mut() {
@@ -587,8 +584,8 @@ impl Runtime {
         setup_file_watches(runtime.clone(), &module_schema)?;
 
         // Trigger startup events asynchronously via the runtime event queue.
-        // A reload does not re-run `init` (it already ran on the first load).
-        if fire_init && !is_reload {
+        // `init` fires only on the first load; a reload does not re-run it.
+        if !is_reload {
             runtime
                 .event_sender
                 .send((EventInstance::Init {

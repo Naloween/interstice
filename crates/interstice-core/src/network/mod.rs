@@ -456,10 +456,7 @@ impl Network {
                             protocol::ModuleEventInstance::Unload { module_name } => self
                                 .runtime_event_sender
                                 .send((
-                                    EventInstance::UnloadModule {
-                                        module_name,
-                                        source_node_id: node_id,
-                                    },
+                                    EventInstance::UnloadModule { module_name },
                                     None,
                                 ))
                                 .unwrap(),

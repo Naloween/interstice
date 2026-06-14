@@ -91,7 +91,7 @@ async fn fetch_schema_with_local_fallback(
     );
 
     let node_instance = Node::load(&nodes_dir(), node_id, port, address.clone()).await?;
-    let node_task = tokio::spawn(async move { node_instance.start().await });
+    let node_task = tokio::spawn(async move { node_instance.start(&[]).await });
 
     // Retry until the node accepts connections (waits for module loading to complete).
     let mut result = Err(IntersticeError::Internal("Node did not become ready in time".into()));

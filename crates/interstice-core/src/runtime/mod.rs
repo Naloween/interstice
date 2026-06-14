@@ -611,7 +611,7 @@ impl Runtime {
                         }
 
                         if let Err(err) =
-                            Runtime::load_module(runtime_cloned.clone(), module, true).await
+                            Runtime::load_module(runtime_cloned.clone(), module).await
                         {
                             runtime_cloned.logger.log(
                                 &format!(
@@ -625,10 +625,7 @@ impl Runtime {
                     });
                 }
             }
-            EventInstance::UnloadModule {
-                module_name,
-                source_node_id: _,
-            } => {
+            EventInstance::UnloadModule { module_name } => {
                 // Unload keeps the module's data on disk; it is not routed through
                 // the Module authority (no UnloadRequest subscription event exists).
                 Runtime::unload_module(runtime.clone(), &module_name);
@@ -767,25 +764,6 @@ impl Runtime {
                 .map(|m| (*m.schema).clone())
                 .collect(),
         }
-    }
-
-    pub fn replay(&self) -> Result<(), IntersticeError> {
-        let module_entries = self
-            .modules
-            .lock()
-            
-            .iter()
-            .map(|(name, module)| (name.clone(), Arc::clone(module)))
-            .collect::<Vec<_>>();
-
-        for (module_name, module) in module_entries {
-            let mut tables = module.tables.lock();
-            for table in tables.values_mut() {
-                self.persistence.restore_table(&module_name, table)?;
-            }
-        }
-
-        Ok(())
     }
 }
 

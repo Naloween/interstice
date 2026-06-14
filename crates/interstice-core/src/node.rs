@@ -214,7 +214,7 @@ impl Node {
         self.logger.log(message, source, level);
     }
 
-    pub async fn start(self) -> Result<(), IntersticeError> {
+    pub async fn start(self, initial_modules: &[&[u8]]) -> Result<(), IntersticeError> {
         let Node {
             id,
             runtime,
@@ -259,6 +259,15 @@ impl Node {
         // responses required during module loading can be processed.
         Node::load_modules_from_disk(runtime.clone()).await?;
 
+        // Load any modules supplied for this run (e.g. by the `example` command).
+        // Loading goes through the normal path, which persists each module to its
+        // canonical name-based directory — so a later restart picks them up from
+        // disk and no separate seed directory is ever created.
+        for bytes in initial_modules {
+            let module = Module::from_bytes(runtime.clone(), bytes).await?;
+            Runtime::load_module(runtime.clone(), module).await?;
+        }
+
         run_app_notify.notified().await;
         app.run();
         Ok(())
@@ -288,7 +297,7 @@ impl Node {
         path: P,
     ) -> Result<ModuleSchema, IntersticeError> {
         let module = Module::from_file(self.runtime.clone(), path.as_ref()).await?;
-        Runtime::load_module(self.runtime.clone(), module, true).await
+        Runtime::load_module(self.runtime.clone(), module).await
     }
 
     pub async fn load_module_from_bytes(
@@ -296,7 +305,7 @@ impl Node {
         bytes: &[u8],
     ) -> Result<ModuleSchema, IntersticeError> {
         let module = Module::from_bytes(self.runtime.clone(), bytes).await?;
-        Runtime::load_module(self.runtime.clone(), module, true).await
+        Runtime::load_module(self.runtime.clone(), module).await
     }
 
     pub fn get_port(&self) -> u32 {
@@ -363,7 +372,7 @@ impl Node {
                 }
 
                 if deps.iter().all(|d| loaded.contains(d)) {
-                    Runtime::load_module(runtime.clone(), module, false).await?;
+                    Runtime::load_module(runtime.clone(), module).await?;
                     loaded.insert(name);
                     progressed = true;
                 } else {
@@ -380,7 +389,8 @@ impl Node {
             remaining = next_remaining;
         }
 
-        runtime.replay()?;
+        // No separate replay() pass: `load_module` restores each module's tables
+        // from disk in-load (it detects a reload), so state is already rebuilt.
 
         Ok(())
     }

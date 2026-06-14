@@ -25,7 +25,7 @@ impl Runtime {
                         match Module::from_bytes(runtime.clone(), &wasm_binary).await {
                             Ok(module) => {
                                 if let Err(err) =
-                                    Runtime::load_module(runtime.clone(), module, true).await
+                                    Runtime::load_module(runtime.clone(), module).await
                                 {
                                     runtime.logger.log(
                                         &format!(
