@@ -259,6 +259,25 @@ impl ToWgpu<wgpu::TextureDimension> for interstice_abi::TextureDimension {
     }
 }
 
+impl ToWgpu<wgpu::FilterMode> for interstice_abi::FilterMode {
+    fn to_wgpu(&self) -> wgpu::FilterMode {
+        match self {
+            interstice_abi::FilterMode::Nearest => wgpu::FilterMode::Nearest,
+            interstice_abi::FilterMode::Linear => wgpu::FilterMode::Linear,
+        }
+    }
+}
+
+impl ToWgpu<wgpu::AddressMode> for interstice_abi::AddressMode {
+    fn to_wgpu(&self) -> wgpu::AddressMode {
+        match self {
+            interstice_abi::AddressMode::ClampToEdge => wgpu::AddressMode::ClampToEdge,
+            interstice_abi::AddressMode::Repeat => wgpu::AddressMode::Repeat,
+            interstice_abi::AddressMode::MirrorRepeat => wgpu::AddressMode::MirrorRepeat,
+        }
+    }
+}
+
 impl ToWgpu<wgpu::TextureViewDimension> for interstice_abi::TextureViewDimension {
     fn to_wgpu(&self) -> wgpu::TextureViewDimension {
         use interstice_abi::TextureViewDimension::*;

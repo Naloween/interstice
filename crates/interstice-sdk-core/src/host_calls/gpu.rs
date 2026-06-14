@@ -119,6 +119,16 @@ pub fn destroy_texture_view(id: GpuId) -> Result<(), String> {
     expect_gpu_none(unpack_gpu_response(pack)?)
 }
 
+pub fn create_sampler(desc: CreateSampler) -> Result<GpuId, String> {
+    let pack = host_call(HostCall::Gpu(GpuCall::CreateSampler(desc)));
+    expect_gpu_i64(unpack_gpu_response(pack)?)
+}
+
+pub fn destroy_sampler(id: GpuId) -> Result<(), String> {
+    let pack = host_call(HostCall::Gpu(GpuCall::DestroySampler { id }));
+    expect_gpu_none(unpack_gpu_response(pack)?)
+}
+
 pub fn create_shader_module(wgsl_source: String) -> Result<GpuId, String> {
     let pack = host_call(HostCall::Gpu(GpuCall::CreateShaderModule(
         CreateShaderModule { wgsl_source },
@@ -381,6 +391,14 @@ impl Gpu {
 
     pub fn destroy_texture_view(&self, id: GpuId) -> Result<(), String> {
         destroy_texture_view(id)
+    }
+
+    pub fn create_sampler(&self, desc: CreateSampler) -> Result<GpuId, String> {
+        create_sampler(desc)
+    }
+
+    pub fn destroy_sampler(&self, id: GpuId) -> Result<(), String> {
+        destroy_sampler(id)
     }
 
     pub fn create_shader_module(&self, wgsl_source: String) -> Result<GpuId, String> {

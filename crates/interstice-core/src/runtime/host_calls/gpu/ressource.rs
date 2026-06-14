@@ -91,6 +91,28 @@ impl GpuState {
         self.texture_views.remove(&id);
     }
 
+    pub fn create_sampler(&mut self, desc: interstice_abi::CreateSampler) -> GpuId {
+        let address = desc.address_mode.to_wgpu();
+        let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: None,
+            address_mode_u: address,
+            address_mode_v: address,
+            address_mode_w: address,
+            mag_filter: desc.mag_filter.to_wgpu(),
+            min_filter: desc.min_filter.to_wgpu(),
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            ..Default::default()
+        });
+
+        let id = self.alloc_id();
+        self.samplers.insert(id, sampler);
+        id
+    }
+
+    pub fn destroy_sampler(&mut self, id: GpuId) {
+        self.samplers.remove(&id);
+    }
+
     pub fn create_shader_module(&mut self, desc: interstice_abi::CreateShaderModule) -> GpuId {
         let module = self
             .device
@@ -156,7 +178,9 @@ impl GpuState {
                     interstice_abi::BindingResource::TextureView(view) => {
                         wgpu::BindingResource::TextureView(self.texture_views.get(&view).unwrap())
                     }
-                    interstice_abi::BindingResource::Sampler(_) => todo!(),
+                    interstice_abi::BindingResource::Sampler(sampler) => {
+                        wgpu::BindingResource::Sampler(self.samplers.get(&sampler).unwrap())
+                    }
                 };
 
                 wgpu::BindGroupEntry {

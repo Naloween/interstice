@@ -1,11 +1,14 @@
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 use interstice_sdk::*;
 use interstice_sdk::{
-    BeginRenderPass, BlendComponent, BlendFactor, BlendOperation, BlendState, BufferUsage,
-    ColorTargetState, ColorWrites, CreatePipelineLayout, CreateRenderPipeline, CreateTextureView,
+    AddressMode, BeginRenderPass, BindGroupEntry, BindGroupLayoutEntry, BindingResource,
+    BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState, BufferUsage,
+    ColorTargetState, ColorWrites, CreateBindGroup, CreateBindGroupLayout, CreatePipelineLayout,
+    CreateRenderPipeline, CreateSampler, CreateTexture, CreateTextureView, FilterMode,
     FragmentState, FrontFace, Gpu, IndexFormat, LoadOp, MultisampleState, PrimitiveState,
-    PrimitiveTopology, RenderPassColorAttachment, StoreOp, TextureFormat, TextureViewDimension,
-    VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode,
+    PrimitiveTopology, RenderPassColorAttachment, ShaderStage, StoreOp, TextureDimension,
+    TextureFormat, TextureSampleType, TextureUsage, TextureViewDimension, VertexAttribute,
+    VertexBufferLayout, VertexFormat, VertexState, VertexStepMode,
 };
 use std::collections::HashMap;
 
@@ -14,12 +17,14 @@ use crate::tables::{
     ComputeCommand, Draw2DCommand, FrameTick, HasComputeCommandEditHandle,
     HasDraw2DCommandEditHandle, HasFrameTickEditHandle, HasLayerEditHandle,
     HasMeshBindingEditHandle, HasPipelineBindingEditHandle, HasRenderPassCommandEditHandle,
-    HasRendererCacheEditHandle, HasSurfaceInfoEditHandle, Layer, MeshBinding, PipelineBinding,
-    RenderPassCommand, RendererCache, SurfaceInfo,
+    HasRendererCacheEditHandle, HasSurfaceAssignmentEditHandle, HasSurfaceInfoEditHandle,
+    HasSurfaceTargetEditHandle, Layer, MeshBinding, PipelineBinding, RenderPassCommand,
+    RendererCache, SurfaceAssignment, SurfaceInfo, SurfaceTarget,
 };
+use crate::surfaces::SWAPCHAIN_SURFACE_ID;
 use crate::types::{
-    CircleCommand, Color, Draw2DCommandType, MeshDrawCommand, PolylineCommand, RectCommand,
-    TextCommand, Vec2, color_to_array,
+    CircleCommand, Color, Draw2DCommandType, MeshDrawCommand, PolylineCommand, Rect, RectCommand,
+    SurfaceCommand, TextCommand, Vec2, color_to_array,
 };
 use crate::{DEFAULT_CLEAR, DEFAULT_SEGMENTS, GpuExt, MIN_SEGMENTS, RENDERER_CACHE_KEY};
 
@@ -35,6 +40,9 @@ where
         + CanUpdate<FrameTick>
         + CanRead<SurfaceInfo>
         + CanUpdate<SurfaceInfo>
+        + CanRead<SurfaceTarget>
+        + CanUpdate<SurfaceTarget>
+        + CanRead<SurfaceAssignment>
         + CanRead<MeshBinding>
         + CanRead<PipelineBinding>
         + CanDelete<Draw2DCommand>
@@ -74,16 +82,18 @@ where
         + CanUpdate<RendererCache>
         + CanDelete<RendererCache>
         + CanRead<SurfaceInfo>
-        + CanUpdate<SurfaceInfo>,
+        + CanUpdate<SurfaceInfo>
+        + CanRead<SurfaceTarget>
+        + CanUpdate<SurfaceTarget>
+        + CanRead<SurfaceAssignment>,
 {
     let gpu = ctx.gpu();
 
     gpu.begin_frame()?;
 
     let (surface_width, surface_height) = gpu.get_surface_size()?;
-    let surface = RenderSurface::new(surface_width, surface_height);
 
-    if let Some(mut info) = ctx.current.tables.surfaceinfo().get(0) {
+    if let Some(mut info) = ctx.current.tables.surfaceinfo().get(SWAPCHAIN_SURFACE_ID) {
         info.width = surface_width;
         info.height = surface_height;
         let _ = ctx.current.tables.surfaceinfo().update(info);
@@ -106,7 +116,6 @@ where
     layers.sort_by_key(|layer| layer.z);
 
     let draw_rows = ctx.current.tables.draw2dcommand().scan();
-
     let mut commands_by_layer: HashMap<String, Vec<Draw2DCommand>> = HashMap::new();
     for row in draw_rows {
         commands_by_layer
@@ -115,63 +124,84 @@ where
             .push(row);
     }
 
-    let encoder = gpu.create_command_encoder()?;
-    let pipeline = ensure_immediate_pipeline(ctx, &gpu, surface_format)?;
-    let mut created_buffers: Vec<u32> = Vec::new();
-
-    if layers.is_empty() {
-        record_clear_pass(&gpu, encoder, surface_view.id(), DEFAULT_CLEAR)?;
-    } else {
-        let mut first_pass = true;
-        for layer in layers {
-            let layer_commands = commands_by_layer.remove(&layer.name).unwrap_or_default();
-            let mut executed_pass = false;
-
-            if layer.clear || first_pass || !layer_commands.is_empty() {
-                let mut load = LoadOp::Load;
-                let mut clear_color = DEFAULT_CLEAR;
-                if first_pass || layer.clear {
-                    load = LoadOp::Clear;
-                }
-                if layer.clear {
-                    clear_color = DEFAULT_CLEAR;
-                }
-                let pass = gpu.begin_render_pass(BeginRenderPass {
-                    encoder,
-                    color_attachments: vec![RenderPassColorAttachment {
-                        view: surface_view.id(),
-                        resolve_target: None,
-                        load,
-                        store: StoreOp::Store,
-                        clear_color,
-                    }],
-                    depth_stencil: None,
-                })?;
-
-                if !layer_commands.is_empty() {
-                    execute_draw_commands(
-                        ctx,
-                        &gpu,
-                        pass,
-                        &pipeline,
-                        layer_commands,
-                        &mut created_buffers,
-                        surface,
-                    )?;
-                }
-
-                gpu.end_render_pass(pass)?;
-                executed_pass = true;
-            }
-
-            if executed_pass {
-                first_pass = false;
-            }
-        }
+    // Route each layer to its owner module's assigned surface (default: 0).
+    let assignments: HashMap<String, u32> = ctx
+        .current
+        .tables
+        .surfaceassignment()
+        .scan()
+        .into_iter()
+        .map(|a| (a.module_name, a.surface_id))
+        .collect();
+    let mut layers_by_surface: HashMap<u32, Vec<Layer>> = HashMap::new();
+    for layer in layers {
+        let surface_id = assignments
+            .get(&layer.owner_module_name)
+            .copied()
+            .unwrap_or(SWAPCHAIN_SURFACE_ID);
+        layers_by_surface.entry(surface_id).or_default().push(layer);
     }
 
+    let encoder = gpu.create_command_encoder()?;
+    let (pipeline, textured) = ensure_pipelines(ctx, &gpu, surface_format)?;
+    let mut created_buffers: Vec<u32> = Vec::new();
+    let mut created_bind_groups: Vec<u32> = Vec::new();
+
+    // Offscreen surfaces (id >= 1) are rendered FIRST so the compositor can
+    // sample their populated views when compositing the swapchain in this same
+    // frame. Every known offscreen surface is drawn (cleared even when it has no
+    // layers this frame). `surface_views` maps each surface id to its view for
+    // draw_surface to bind.
+    let mut surface_views: HashMap<u32, u32> = HashMap::new();
+    for mut target in ctx.current.tables.surfacetarget().scan() {
+        let view_id = ensure_surface_view(&gpu, surface_format, &mut target)?;
+        let _ = ctx.current.tables.surfacetarget().update(target.clone());
+        surface_views.insert(target.id, view_id);
+
+        let target_layers = layers_by_surface.remove(&target.id).unwrap_or_default();
+        let target_surface = RenderSurface::new(target.width, target.height);
+        render_layers_to_view(
+            ctx,
+            &gpu,
+            encoder,
+            view_id,
+            target_surface,
+            &target_layers,
+            &mut commands_by_layer,
+            &pipeline,
+            &textured,
+            &surface_views,
+            &mut created_buffers,
+            &mut created_bind_groups,
+        )?;
+    }
+
+    // Swapchain surface (id 0): draw its layer group to the presented view,
+    // compositing any offscreen surfaces referenced via draw_surface.
+    let swapchain_layers = layers_by_surface
+        .remove(&SWAPCHAIN_SURFACE_ID)
+        .unwrap_or_default();
+    let swapchain_surface = RenderSurface::new(surface_width, surface_height);
+    render_layers_to_view(
+        ctx,
+        &gpu,
+        encoder,
+        surface_view.id(),
+        swapchain_surface,
+        &swapchain_layers,
+        &mut commands_by_layer,
+        &pipeline,
+        &textured,
+        &surface_views,
+        &mut created_buffers,
+        &mut created_bind_groups,
+    )?;
+
+    // Any layers routed to a surface that no longer exists are dropped silently;
+    // remaining commands belong to layers that were never declared.
+    layers_by_surface.clear();
     if !commands_by_layer.is_empty() {
-        for (layer_name, leftover) in commands_by_layer {
+        for (layer_name, leftover) in &commands_by_layer {
             if !leftover.is_empty() {
                 ctx.log(&format!(
                     "Skipped {} draw commands for missing layer '{}'",
@@ -185,6 +215,9 @@ where
     gpu.submit(encoder)?;
     for buffer in created_buffers {
         let _ = gpu.destroy_buffer(buffer);
+    }
+    for bind_group in created_bind_groups {
+        let _ = gpu.destroy_bind_group(bind_group);
     }
     gpu.present()?;
     // Queue next frame so render continues
@@ -200,6 +233,111 @@ where
     }
 
     Ok(())
+}
+
+/// Render an ordered (z-sorted) subset of layers into a single target view,
+/// applying the per-layer clear/load logic. Used once per surface (swapchain or
+/// offscreen). With no layers, the view is still cleared.
+fn render_layers_to_view<Caps>(
+    ctx: &ReducerContext<Caps>,
+    gpu: &Gpu,
+    encoder: u32,
+    view_id: u32,
+    surface: RenderSurface,
+    layers: &[Layer],
+    commands_by_layer: &mut HashMap<String, Vec<Draw2DCommand>>,
+    pipeline: &ImmediatePipeline,
+    textured: &TexturedPipeline,
+    surface_views: &HashMap<u32, u32>,
+    created_buffers: &mut Vec<u32>,
+    created_bind_groups: &mut Vec<u32>,
+) -> Result<(), String>
+where
+    Caps: CanRead<Layer> + CanRead<MeshBinding> + CanRead<PipelineBinding>,
+{
+    if layers.is_empty() {
+        return record_clear_pass(gpu, encoder, view_id, DEFAULT_CLEAR);
+    }
+
+    let mut first_pass = true;
+    for layer in layers {
+        let layer_commands = commands_by_layer.remove(&layer.name).unwrap_or_default();
+
+        if layer.clear || first_pass || !layer_commands.is_empty() {
+            let load = if first_pass || layer.clear {
+                LoadOp::Clear
+            } else {
+                LoadOp::Load
+            };
+            let pass = gpu.begin_render_pass(BeginRenderPass {
+                encoder,
+                color_attachments: vec![RenderPassColorAttachment {
+                    view: view_id,
+                    resolve_target: None,
+                    load,
+                    store: StoreOp::Store,
+                    clear_color: DEFAULT_CLEAR,
+                }],
+                depth_stencil: None,
+            })?;
+
+            if !layer_commands.is_empty() {
+                execute_draw_commands(
+                    ctx,
+                    gpu,
+                    pass,
+                    pipeline,
+                    textured,
+                    surface_views,
+                    layer_commands,
+                    created_buffers,
+                    created_bind_groups,
+                    surface,
+                )?;
+            }
+
+            gpu.end_render_pass(pass)?;
+            first_pass = false;
+        }
+    }
+
+    Ok(())
+}
+
+/// Lazily allocate the offscreen texture + view for a surface target. Returns
+/// the view id; callers persist the (possibly updated) target row afterwards.
+fn ensure_surface_view(
+    gpu: &Gpu,
+    format: TextureFormat,
+    target: &mut SurfaceTarget,
+) -> Result<u32, String> {
+    if let Some(view) = target.view_id {
+        return Ok(view);
+    }
+
+    let texture = gpu.create_texture(CreateTexture {
+        width: target.width.max(1),
+        height: target.height.max(1),
+        depth: 1,
+        mip_levels: 1,
+        sample_count: 1,
+        dimension: TextureDimension::D2,
+        format,
+        usage: TextureUsage::RENDER_ATTACHMENT | TextureUsage::TEXTURE_BINDING,
+    })?;
+    let view = gpu.create_texture_view(CreateTextureView {
+        texture,
+        format: Some(format),
+        dimension: Some(TextureViewDimension::D2),
+        base_mip_level: 0,
+        mip_level_count: None,
+        base_array_layer: 0,
+        array_layer_count: None,
+    })?;
+
+    target.texture_id = Some(texture);
+    target.view_id = Some(view);
+    Ok(view)
 }
 
 fn record_clear_pass(
@@ -222,17 +360,25 @@ fn record_clear_pass(
     gpu.end_render_pass(pass)
 }
 
-fn ensure_immediate_pipeline<Caps>(
+/// Build (or reuse) both the immediate-mode pipeline and the textured pipeline
+/// used to composite offscreen surfaces. The `RendererCache` row is read once
+/// and written at most once so that a freshly-inserted row is never re-read
+/// within the same reducer transaction (writes only become visible next frame).
+/// A surface-format change invalidates and rebuilds both pipelines.
+fn ensure_pipelines<Caps>(
     ctx: &ReducerContext<Caps>,
     gpu: &Gpu,
     format: TextureFormat,
-) -> Result<ImmediatePipeline, String>
+) -> Result<(ImmediatePipeline, TexturedPipeline), String>
 where
-    Caps: CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>,
+    Caps: CanRead<RendererCache> + CanInsert<RendererCache> + CanUpdate<RendererCache>,
 {
+    let existed = ctx
+        .current
+        .tables
+        .renderercache()
+        .get(RENDERER_CACHE_KEY)
+        .is_some();
     let mut cache = ctx
         .current
         .tables
@@ -244,102 +390,218 @@ where
             shader_module: None,
             pipeline_layout: None,
             pipeline_id: None,
+            tex_shader_module: None,
+            tex_pipeline_layout: None,
+            tex_bind_group_layout: None,
+            tex_pipeline_id: None,
+            sampler: None,
         });
 
     let format_label = format_label(format);
-    if cache
-        .surface_format
-        .as_ref()
-        .map(|current| current == &format_label)
-        .unwrap_or(false)
-        && cache.pipeline_id.is_some()
-        && cache.shader_module.is_some()
-        && cache.pipeline_layout.is_some()
-    {
-        return Ok(ImmediatePipeline {
-            pipeline: cache.pipeline_id.unwrap(),
-        });
+    let mut dirty = false;
+
+    // Surface format changed: invalidate every cached pipeline so both rebuild.
+    if cache.surface_format.as_ref() != Some(&format_label) {
+        cache.surface_format = Some(format_label);
+        cache.shader_module = None;
+        cache.pipeline_layout = None;
+        cache.pipeline_id = None;
+        cache.tex_shader_module = None;
+        cache.tex_pipeline_layout = None;
+        cache.tex_bind_group_layout = None;
+        cache.tex_pipeline_id = None;
+        cache.sampler = None;
+        dirty = true;
     }
 
-    let shader = gpu.create_shader_module(IMMEDIATE_SHADER.into())?;
-    let layout = gpu.create_pipeline_layout(CreatePipelineLayout {
-        bind_group_layouts: vec![],
-    })?;
-    let pipeline = gpu.create_render_pipeline(CreateRenderPipeline {
-        label: Some("graphics.defaults.immediate".into()),
-        layout,
-        vertex: VertexState {
-            module: shader,
-            entry_point: "vs_main".into(),
-            buffers: vec![VertexBufferLayout {
-                array_stride: std::mem::size_of::<ImmediateVertexBytes>() as u64,
-                step_mode: VertexStepMode::Vertex,
-                attributes: vec![
-                    VertexAttribute {
-                        format: VertexFormat::Float32x2,
-                        offset: 0,
-                        shader_location: 0,
-                    },
-                    VertexAttribute {
-                        format: VertexFormat::Float32x4,
-                        offset: 8,
-                        shader_location: 1,
-                    },
-                ],
-            }],
-        },
-        fragment: Some(FragmentState {
-            module: shader,
-            entry_point: "fs_main".into(),
-            targets: vec![ColorTargetState {
-                format,
-                blend: Some(BlendState {
-                    color: BlendComponent {
-                        src_factor: BlendFactor::SrcAlpha,
-                        dst_factor: BlendFactor::OneMinusSrcAlpha,
-                        operation: BlendOperation::Add,
-                    },
-                    alpha: BlendComponent {
-                        src_factor: BlendFactor::One,
-                        dst_factor: BlendFactor::OneMinusSrcAlpha,
-                        operation: BlendOperation::Add,
-                    },
-                }),
-                write_mask: ColorWrites::ALL,
-            }],
-        }),
-        primitive: PrimitiveState {
-            topology: PrimitiveTopology::TriangleList,
-            cull_mode: None,
-            front_face: FrontFace::Ccw,
-        },
-        depth_stencil: None,
-        multisample: MultisampleState {
-            count: 1,
-            mask: !0,
-            alpha_to_coverage_enabled: false,
-        },
-        multiview: None,
-    })?;
+    // Immediate-mode pipeline.
+    if cache.pipeline_id.is_none() {
+        let shader = gpu.create_shader_module(IMMEDIATE_SHADER.into())?;
+        let layout = gpu.create_pipeline_layout(CreatePipelineLayout {
+            bind_group_layouts: vec![],
+        })?;
+        let pipeline = gpu.create_render_pipeline(CreateRenderPipeline {
+            label: Some("graphics.defaults.immediate".into()),
+            layout,
+            vertex: VertexState {
+                module: shader,
+                entry_point: "vs_main".into(),
+                buffers: vec![VertexBufferLayout {
+                    array_stride: std::mem::size_of::<ImmediateVertexBytes>() as u64,
+                    step_mode: VertexStepMode::Vertex,
+                    attributes: vec![
+                        VertexAttribute {
+                            format: VertexFormat::Float32x2,
+                            offset: 0,
+                            shader_location: 0,
+                        },
+                        VertexAttribute {
+                            format: VertexFormat::Float32x4,
+                            offset: 8,
+                            shader_location: 1,
+                        },
+                    ],
+                }],
+            },
+            fragment: Some(FragmentState {
+                module: shader,
+                entry_point: "fs_main".into(),
+                targets: vec![ColorTargetState {
+                    format,
+                    blend: Some(BlendState {
+                        color: BlendComponent {
+                            src_factor: BlendFactor::SrcAlpha,
+                            dst_factor: BlendFactor::OneMinusSrcAlpha,
+                            operation: BlendOperation::Add,
+                        },
+                        alpha: BlendComponent {
+                            src_factor: BlendFactor::One,
+                            dst_factor: BlendFactor::OneMinusSrcAlpha,
+                            operation: BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: ColorWrites::ALL,
+                }],
+            }),
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                front_face: FrontFace::Ccw,
+            },
+            depth_stencil: None,
+            multisample: MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        })?;
 
-    cache.surface_format = Some(format_label);
-    cache.shader_module = Some(shader);
-    cache.pipeline_layout = Some(layout);
-    cache.pipeline_id = Some(pipeline);
+        cache.shader_module = Some(shader);
+        cache.pipeline_layout = Some(layout);
+        cache.pipeline_id = Some(pipeline);
+        dirty = true;
+    }
+    let immediate = ImmediatePipeline {
+        pipeline: cache.pipeline_id.unwrap(),
+    };
 
-    if ctx
-        .current
-        .tables
-        .renderercache()
-        .get(RENDERER_CACHE_KEY)
-        .is_some()
+    // Textured pipeline + shared sampler used to composite offscreen surfaces.
+    if cache.tex_pipeline_id.is_none()
+        || cache.tex_bind_group_layout.is_none()
+        || cache.sampler.is_none()
     {
-        let _ = ctx.current.tables.renderercache().update(cache.clone());
-    } else {
-        let _ = ctx.current.tables.renderercache().insert(cache.clone());
+        let shader = gpu.create_shader_module(TEXTURED_SHADER.into())?;
+        let bind_group_layout = gpu.create_bind_group_layout(CreateBindGroupLayout {
+            entries: vec![
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::Sampler { comparison: false },
+                },
+            ],
+        })?;
+        let layout = gpu.create_pipeline_layout(CreatePipelineLayout {
+            bind_group_layouts: vec![bind_group_layout],
+        })?;
+        let sampler = gpu.create_sampler(CreateSampler {
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Linear,
+            address_mode: AddressMode::ClampToEdge,
+        })?;
+        let pipeline = gpu.create_render_pipeline(CreateRenderPipeline {
+            label: Some("graphics.defaults.textured".into()),
+            layout,
+            vertex: VertexState {
+                module: shader,
+                entry_point: "vs_main".into(),
+                buffers: vec![VertexBufferLayout {
+                    array_stride: std::mem::size_of::<[f32; 8]>() as u64,
+                    step_mode: VertexStepMode::Vertex,
+                    attributes: vec![
+                        VertexAttribute {
+                            format: VertexFormat::Float32x2,
+                            offset: 0,
+                            shader_location: 0,
+                        },
+                        VertexAttribute {
+                            format: VertexFormat::Float32x2,
+                            offset: 8,
+                            shader_location: 1,
+                        },
+                        VertexAttribute {
+                            format: VertexFormat::Float32x4,
+                            offset: 16,
+                            shader_location: 2,
+                        },
+                    ],
+                }],
+            },
+            fragment: Some(FragmentState {
+                module: shader,
+                entry_point: "fs_main".into(),
+                targets: vec![ColorTargetState {
+                    format,
+                    blend: Some(BlendState {
+                        color: BlendComponent {
+                            src_factor: BlendFactor::SrcAlpha,
+                            dst_factor: BlendFactor::OneMinusSrcAlpha,
+                            operation: BlendOperation::Add,
+                        },
+                        alpha: BlendComponent {
+                            src_factor: BlendFactor::One,
+                            dst_factor: BlendFactor::OneMinusSrcAlpha,
+                            operation: BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: ColorWrites::ALL,
+                }],
+            }),
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                front_face: FrontFace::Ccw,
+            },
+            depth_stencil: None,
+            multisample: MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        })?;
+
+        cache.tex_shader_module = Some(shader);
+        cache.tex_pipeline_layout = Some(layout);
+        cache.tex_bind_group_layout = Some(bind_group_layout);
+        cache.tex_pipeline_id = Some(pipeline);
+        cache.sampler = Some(sampler);
+        dirty = true;
+    }
+    let textured = TexturedPipeline {
+        pipeline: cache.tex_pipeline_id.unwrap(),
+        bind_group_layout: cache.tex_bind_group_layout.unwrap(),
+        sampler: cache.sampler.unwrap(),
+    };
+
+    if dirty {
+        if existed {
+            let _ = ctx.current.tables.renderercache().update(cache);
+        } else {
+            let _ = ctx.current.tables.renderercache().insert(cache);
+        }
     }
 
-    Ok(ImmediatePipeline { pipeline })
+    Ok((immediate, textured))
 }
 
 fn execute_draw_commands<Caps>(
@@ -347,8 +609,11 @@ fn execute_draw_commands<Caps>(
     gpu: &Gpu,
     pass: u32,
     immediate_pipeline: &ImmediatePipeline,
+    textured: &TexturedPipeline,
+    surface_views: &HashMap<u32, u32>,
     commands: Vec<Draw2DCommand>,
     created_buffers: &mut Vec<u32>,
+    created_bind_groups: &mut Vec<u32>,
     surface: RenderSurface,
 ) -> Result<(), String>
 where
@@ -414,6 +679,26 @@ where
         }
     }
 
+    // Composite offscreen surfaces (draw_surface). Each references an offscreen
+    // surface's view by id; a per-draw bind group binds that view + the shared
+    // sampler, then a textured quad is drawn into the destination rect.
+    for command in &commands {
+        if command.command_type == Draw2DCommandType::Surface {
+            if let Some(payload) = &command.surface {
+                draw_surface_command(
+                    gpu,
+                    pass,
+                    textured,
+                    surface_views,
+                    payload,
+                    surface,
+                    created_buffers,
+                    created_bind_groups,
+                )?;
+            }
+        }
+    }
+
     // Log for unimplemented image commands
     for command in &commands {
         if command.command_type == Draw2DCommandType::Image {
@@ -421,6 +706,57 @@ where
         }
     }
 
+    Ok(())
+}
+
+/// Draw a single offscreen surface into `payload.dest` using the textured
+/// pipeline. No-op when the referenced surface has no view yet this frame.
+fn draw_surface_command(
+    gpu: &Gpu,
+    pass: u32,
+    textured: &TexturedPipeline,
+    surface_views: &HashMap<u32, u32>,
+    payload: &SurfaceCommand,
+    surface: RenderSurface,
+    created_buffers: &mut Vec<u32>,
+    created_bind_groups: &mut Vec<u32>,
+) -> Result<(), String> {
+    let Some(&view_id) = surface_views.get(&payload.surface_id) else {
+        // The surface is unknown or has not been rendered yet this frame.
+        return Ok(());
+    };
+
+    let bind_group = gpu.create_bind_group(CreateBindGroup {
+        layout: textured.bind_group_layout,
+        entries: vec![
+            BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::TextureView(view_id),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: BindingResource::Sampler(textured.sampler),
+            },
+        ],
+    })?;
+
+    let tint = color_to_array(&payload.tint);
+    let vertices = textured_quad(surface, &payload.dest, tint);
+    let data = encode_textured_vertices(&vertices);
+    let buffer = gpu.create_buffer(
+        data.len() as u64,
+        BufferUsage::VERTEX | BufferUsage::COPY_DST,
+        false,
+    )?;
+    gpu.write_buffer(buffer, 0, data)?;
+
+    gpu.set_render_pipeline(pass, textured.pipeline)?;
+    gpu.set_bind_group(pass, 0, bind_group)?;
+    gpu.set_vertex_buffer(pass, buffer, 0, 0, None)?;
+    gpu.draw(pass, vertices.len() as u32, 1)?;
+
+    created_buffers.push(buffer);
+    created_bind_groups.push(bind_group);
     Ok(())
 }
 
@@ -480,6 +816,49 @@ struct ImmediatePipeline {
 struct ImmediateVertexBytes {
     position: [f32; 2],
     color: [f32; 4],
+}
+
+struct TexturedPipeline {
+    pipeline: u32,
+    bind_group_layout: u32,
+    sampler: u32,
+}
+
+#[derive(Clone, Copy)]
+struct TexturedVertex {
+    position: [f32; 2],
+    uv: [f32; 2],
+    color: [f32; 4],
+}
+
+/// Build the two triangles (6 vertices) of a textured quad covering `dest`
+/// (pixel coordinates in the destination surface) with full 0..1 UVs.
+fn textured_quad(surface: RenderSurface, dest: &Rect, color: [f32; 4]) -> Vec<TexturedVertex> {
+    let (x0, y0) = (dest.x, dest.y);
+    let (x1, y1) = (dest.x + dest.w, dest.y + dest.h);
+    let corner = |x: f32, y: f32, u: f32, v: f32| TexturedVertex {
+        position: to_clip(surface, x, y),
+        uv: [u, v],
+        color,
+    };
+    vec![
+        corner(x0, y0, 0.0, 0.0),
+        corner(x1, y0, 1.0, 0.0),
+        corner(x0, y1, 0.0, 1.0),
+        corner(x0, y1, 0.0, 1.0),
+        corner(x1, y0, 1.0, 0.0),
+        corner(x1, y1, 1.0, 1.0),
+    ]
+}
+
+fn encode_textured_vertices(vertices: &[TexturedVertex]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(vertices.len() * std::mem::size_of::<[f32; 8]>());
+    for v in vertices {
+        for f in v.position.iter().chain(v.uv.iter()).chain(v.color.iter()) {
+            bytes.extend_from_slice(&f.to_le_bytes());
+        }
+    }
+    bytes
 }
 
 fn tessellate_circle(surface: RenderSurface, cmd: &CircleCommand) -> Vec<ImmediateVertexBytes> {
@@ -962,5 +1341,34 @@ fn vs_main(
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     return in.color;
+}
+"#;
+
+const TEXTURED_SHADER: &str = r#"
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) color: vec4<f32>,
+};
+
+@group(0) @binding(0) var tex: texture_2d<f32>;
+@group(0) @binding(1) var samp: sampler;
+
+@vertex
+fn vs_main(
+    @location(0) position: vec2<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) color: vec4<f32>,
+) -> VertexOut {
+    var out: VertexOut;
+    out.position = vec4(position, 0.0, 1.0);
+    out.uv = uv;
+    out.color = color;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    return textureSample(tex, samp, in.uv) * in.color;
 }
 "#;

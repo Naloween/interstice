@@ -12,6 +12,7 @@ mod helpers;
 mod layers;
 mod render;
 mod resources;
+mod surfaces;
 mod tables;
 mod types;
 
@@ -19,6 +20,7 @@ pub use draw::*;
 pub use layers::*;
 pub use render::render;
 pub use resources::*;
+pub use surfaces::*;
 pub use tables::*;
 pub use types::*;
 

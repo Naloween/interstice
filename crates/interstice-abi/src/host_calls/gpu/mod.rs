@@ -25,6 +25,11 @@ pub enum GpuCall {
     WriteTexture(WriteTexture),
     CreateTextureView(CreateTextureView),
 
+    CreateSampler(CreateSampler),
+    DestroySampler {
+        id: GpuId,
+    },
+
     CreateShaderModule(CreateShaderModule),
     DestroyShaderModule {
         id: GpuId,
@@ -166,6 +171,26 @@ pub struct CreateTextureView {
     pub mip_level_count: Option<u32>,
     pub base_array_layer: u32,
     pub array_layer_count: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CreateSampler {
+    pub mag_filter: FilterMode,
+    pub min_filter: FilterMode,
+    pub address_mode: AddressMode,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub enum FilterMode {
+    Nearest,
+    Linear,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub enum AddressMode {
+    ClampToEdge,
+    Repeat,
+    MirrorRepeat,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

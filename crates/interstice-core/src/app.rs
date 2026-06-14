@@ -273,6 +273,14 @@ impl App {
                 gpu.destroy_texture_view(id);
                 Ok(GpuCallResult::None)
             }
+            interstice_abi::GpuCall::CreateSampler(desc) => {
+                let id = gpu.create_sampler(desc);
+                Ok(GpuCallResult::I64(id as i64))
+            }
+            interstice_abi::GpuCall::DestroySampler { id } => {
+                gpu.destroy_sampler(id);
+                Ok(GpuCallResult::None)
+            }
             interstice_abi::GpuCall::CreateShaderModule(s) => {
                 let id = gpu.create_shader_module(s);
                 Ok(GpuCallResult::I64(id as i64))

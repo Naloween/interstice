@@ -42,6 +42,7 @@ pub enum Draw2DCommandType {
     Polyline,
     Rect,
     Image,
+    Surface,
     Text,
     Mesh,
 }
@@ -88,6 +89,17 @@ pub struct PolylineCommand {
 pub struct ImageCommand {
     pub texture: ResourceAddress,
     pub rect: Rect,
+    pub tint: Color,
+}
+
+/// Composite an offscreen surface (rendered by another module) into `dest`,
+/// expressed in the destination surface's pixel coordinates. The producing
+/// module is routed to `surface_id` via `assign_module_surface`.
+#[interstice_type]
+#[derive(Debug)]
+pub struct SurfaceCommand {
+    pub surface_id: u32,
+    pub dest: Rect,
     pub tint: Color,
 }
 

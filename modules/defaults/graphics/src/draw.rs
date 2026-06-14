@@ -11,7 +11,7 @@ use crate::tables::{
 };
 use crate::types::{
     CircleCommand, Color, ComputeSubmission, ImageCommand, MeshDrawCommand, PolylineCommand, Rect,
-    RectCommand, RenderPassSubmission, ResourceAddress, TextCommand, Vec2,
+    RectCommand, RenderPassSubmission, ResourceAddress, SurfaceCommand, TextCommand, Vec2,
 };
 
 #[reducer]
@@ -35,6 +35,7 @@ pub fn draw_circle<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
         id: 0,
         layer,
         command_type: Draw2DCommandType::Circle,
+        surface: None,
         circle: Some(CircleCommand {
             center,
             radius,
@@ -96,6 +97,7 @@ pub fn draw_circles<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
         id: 0,
         layer,
         command_type: Draw2DCommandType::Circles,
+        surface: None,
         circle: None,
         circles: Some(circles),
         polyline: None,
@@ -128,6 +130,7 @@ pub fn draw_polyline<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
         id: 0,
         layer,
         command_type: Draw2DCommandType::Polyline,
+        surface: None,
         circle: None,
         circles: None,
         polyline: Some(PolylineCommand {
@@ -166,6 +169,7 @@ pub fn draw_rect<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
         id: 0,
         layer,
         command_type: Draw2DCommandType::Rect,
+        surface: None,
         circle: None,
         circles: None,
         polyline: None,
@@ -212,6 +216,7 @@ pub fn draw_image<Caps: CanInsert<Draw2DCommand> + CanRead<Layer> + CanRead<Text
         id: 0,
         layer,
         command_type: Draw2DCommandType::Image,
+        surface: None,
         circle: None,
         circles: None,
         polyline: None,
@@ -224,6 +229,41 @@ pub fn draw_image<Caps: CanInsert<Draw2DCommand> + CanRead<Layer> + CanRead<Text
             rect,
             tint,
         }),
+        text: None,
+        mesh: None,
+    };
+    enqueue_draw_command(&ctx, command);
+}
+
+/// Composite an offscreen surface (produced by a module routed to `surface_id`
+/// via `assign_module_surface`) into a sub-rect of the caller's layer. This is
+/// the compositor primitive the desktop uses to embed an app's surface inside a
+/// window. The surface's existence is validated by the render loop.
+#[reducer]
+pub fn draw_surface<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
+    ctx: ReducerContext<Caps>,
+    layer: String,
+    surface_id: u32,
+    dest: Rect,
+    tint: Color,
+) {
+    if !ensure_layer_exists(&ctx, &layer) {
+        return;
+    }
+    let command = Draw2DCommand {
+        id: 0,
+        layer,
+        command_type: Draw2DCommandType::Surface,
+        surface: Some(SurfaceCommand {
+            surface_id,
+            dest,
+            tint,
+        }),
+        circle: None,
+        circles: None,
+        polyline: None,
+        rect: None,
+        image: None,
         text: None,
         mesh: None,
     };
@@ -254,6 +294,7 @@ pub fn draw_text<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
         id: 0,
         layer,
         command_type: Draw2DCommandType::Text,
+        surface: None,
         circle: None,
         circles: None,
         polyline: None,
@@ -325,6 +366,7 @@ pub fn draw_mesh<
         id: 0,
         layer,
         command_type: Draw2DCommandType::Mesh,
+        surface: None,
         circle: None,
         circles: None,
         polyline: None,
