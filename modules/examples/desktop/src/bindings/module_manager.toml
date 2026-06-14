@@ -1,0 +1,174 @@
+abi_version = 6
+name = "module_manager"
+visibility = "Public"
+tables = []
+subscriptions = []
+authorities = ["Module"]
+module_dependencies = []
+node_dependencies = []
+replicated_tables = []
+
+[version]
+major = 0
+minor = 1
+patch = 0
+
+[[reducers]]
+name = "load"
+deletes = []
+
+[[reducers.arguments]]
+name = "name"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "wasm_binary"
+
+[reducers.arguments.field_type]
+Vec = "U8"
+
+[[reducers.arguments]]
+name = "icon"
+
+[reducers.arguments.field_type.Option]
+Vec = "U8"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "app"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "app"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "app"
+
+[[reducers]]
+name = "load_app"
+inserts = []
+deletes = []
+
+[[reducers.arguments]]
+name = "name"
+field_type = "String"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "app"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "app"
+
+[[reducers]]
+name = "remove_app"
+inserts = []
+updates = []
+
+[[reducers.arguments]]
+name = "name"
+field_type = "String"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "app"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "app"
+
+[[reducers]]
+name = "unload_app"
+inserts = []
+deletes = []
+
+[[reducers.arguments]]
+name = "name"
+field_type = "String"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "app"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "app"
+
+[[reducers]]
+name = "register_app"
+deletes = []
+
+[[reducers.arguments]]
+name = "name"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "wasm_binary"
+
+[reducers.arguments.field_type]
+Vec = "U8"
+
+[[reducers.arguments]]
+name = "icon"
+
+[reducers.arguments.field_type.Option]
+Vec = "U8"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "app"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "app"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "app"
+
+[[queries]]
+name = "list_apps"
+arguments = []
+
+[queries.return_type.Vec]
+Named = "AppInfo"
+
+[[queries.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "app"
+
+[type_definitions.AppInfo.Struct]
+name = "AppInfo"
+
+[[type_definitions.AppInfo.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.AppInfo.Struct.fields]]
+name = "name"
+field_type = "String"
+
+[[type_definitions.AppInfo.Struct.fields]]
+name = "icon"
+
+[type_definitions.AppInfo.Struct.fields.field_type.Option]
+Vec = "U8"
+
+[[type_definitions.AppInfo.Struct.fields]]
+name = "loaded"
+field_type = "Bool"

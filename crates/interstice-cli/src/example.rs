@@ -41,6 +41,10 @@ const DEFAULT_UI_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/module_defaults/ui.wasm"
 ));
+const DEFAULT_MODULE_MANAGER_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/module_defaults/module_manager.wasm"
+));
 const UI_EXAMPLE_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/module_examples/ui_example.wasm"
@@ -48,6 +52,10 @@ const UI_EXAMPLE_BYTES: &[u8] = include_bytes!(concat!(
 const BENCHMARK_WORKLOAD_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/module_examples/benchmark_workload.wasm"
+));
+const DESKTOP_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/module_examples/desktop_example.wasm"
 ));
 
 struct ExampleModule {
@@ -119,8 +127,20 @@ fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> 
                 ExampleModule { bytes: UI_EXAMPLE_BYTES },
             ],
         }),
+        "desktop" => Ok(ExampleConfig {
+            name: "desktop-example",
+            port: 8089,
+            modules: vec![
+                ExampleModule {
+                    bytes: DEFAULT_MODULE_MANAGER_BYTES,
+                },
+                ExampleModule {
+                    bytes: DESKTOP_BYTES,
+                },
+            ],
+        }),
         _ => Err(IntersticeError::Internal(format!(
-            "Unknown example '{example_name}'. Expected hello, caller, graphics, audio, agar-server, agar-client or benchmark-workload."
+            "Unknown example '{example_name}'. Expected hello, caller, graphics, audio, agar-server, agar-client, benchmark-workload, ui or desktop."
         ))),
     }
 }

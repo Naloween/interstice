@@ -920,6 +920,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "desktop-example"
+version = "0.1.0"
+dependencies = [
+ "interstice-sdk",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

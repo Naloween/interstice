@@ -578,7 +578,6 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 ## Fixes
 
 - Fix SDK module subscription not checking table names for current module at compile time
-- Fix init event not working correctly anymore (doesn't fire when initializing a node wth already added modules, only work when we add them when the node is running)
 - Fix agar-client example not working on WSL (no waylands)
 - Harden network reconnections and peer health handling as well as connection workflow (currently always throw a warning when disconnecting)
 
