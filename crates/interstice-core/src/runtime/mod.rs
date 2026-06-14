@@ -550,7 +550,7 @@ impl Runtime {
             } => {
                 runtime.apply_replica_full_sync(source_node_id, &module_name, &table_name, rows);
             }
-            EventInstance::PublishModule {
+            EventInstance::LoadModule {
                 wasm_binary,
                 source_node_id,
             } => {
@@ -566,7 +566,7 @@ impl Runtime {
                         Err(err) => {
                             runtime.logger.log(
                                 &format!(
-                                    "Failed to decode published module before forwarding to module authority: {}",
+                                    "Failed to decode loaded module before forwarding to module authority: {}",
                                     err
                                 ),
                                 LogSource::Runtime,
@@ -577,7 +577,7 @@ impl Runtime {
                     };
 
                     let _ = runtime.event_sender.send((EventInstance::Module(
-                        ModuleEvent::PublishRequest {
+                        ModuleEvent::LoadRequest {
                             node_id: source_node_id.to_string(),
                             module_name,
                             wasm_binary,
@@ -592,7 +592,7 @@ impl Runtime {
                             Ok(module) => module,
                             Err(err) => {
                                 runtime_cloned.logger.log(
-                                    &format!("Failed to decode published module bytes: {}", err),
+                                    &format!("Failed to decode loaded module bytes: {}", err),
                                     LogSource::Runtime,
                                     LogLevel::Error,
                                 );
@@ -615,7 +615,7 @@ impl Runtime {
                         {
                             runtime_cloned.logger.log(
                                 &format!(
-                                    "Failed to load published module '{}': {}",
+                                    "Failed to load module '{}': {}",
                                     module_name, err
                                 ),
                                 LogSource::Runtime,

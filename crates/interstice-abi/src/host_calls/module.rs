@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ModuleCall {
-    Publish {
+    Load {
         node_selection: NodeSelection,
         wasm_binary: Vec<u8>,
     },
@@ -21,7 +21,7 @@ pub enum ModuleCallResponse {
 
 #[derive(Debug, Deserialize, Serialize, IntersticeType, Clone)]
 pub enum ModuleEvent {
-    PublishRequest {
+    LoadRequest {
         node_id: String,
         module_name: String,
         wasm_binary: Vec<u8>,

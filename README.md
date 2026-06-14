@@ -8,7 +8,7 @@ Contents
 - Quickstart
 - Module authoring
 - Examples
-- Publishing
+- Loading modules
 - Roadmap & TODOs
 - Contribution & License
 
@@ -385,7 +385,7 @@ Reproduce
 
 ---
 
-# Publishing
+# Loading modules
 
 ## Manual workflow
 
@@ -398,11 +398,11 @@ cargo build -p hello --target wasm32-unknown-unknown --release
 2. Locate the WASM in `target/wasm32-unknown-unknown/release/`.
 3. Use this path to manually add a module from rust code using `Node::load_module()`
 
-There is no manual way to publish to an already running node. See the CLI flow below.
+There is no manual way to load a module onto an already running node. See the CLI flow below.
 
 ## CLI flow
 
-- `interstice publish <node> <module-rust-project-path>` — build, upload, validate, and install a module on a running node. The node verifies schema compatibility and requested capabilities.
+- `interstice load <node> <module-rust-project-path>` — build, upload, validate, and install a module on a running node. The node verifies schema compatibility and requested capabilities.
 
 # CLI usage
 
@@ -440,7 +440,7 @@ These commands fetch **public** schemas from the target node and write TOML file
 
 ## Module commands
 
-- `interstice publish <node> <module_path>`
+- `interstice load <node> <module_path>`
 - `interstice remove <node> <module_name>`
 - `interstice call_reducer <node> <module_name> <reducer_name> [args...]`
 - `interstice call_query <node> <module_name> <query_name> [args...]`
@@ -499,8 +499,8 @@ Suggested reporting set:
 
 # Security
 
-- Publishing doesn't require any privilege by default, so anyone can publish and remove modules, even remotely.
-- To prevent this default behavior, the node should load a module with the Module authority. In this case, all requests are forwarded to this module, which can enforce custom policies for publish/remove and access.
+- Loading doesn't require any privilege by default, so anyone can load and remove modules, even remotely.
+- To prevent this default behavior, the node should load a module with the Module authority. In this case, all requests are forwarded to this module, which can enforce custom policies for load/remove and access.
 
 ---
 
@@ -531,7 +531,7 @@ Authorities are typed tokens granting modules access to privileged host function
 - **Audio** – allows the module to stream audio samples or capture input through host calls. Reducers can subscribe to `audio_output` and `audio_input` events for output ticks and input readiness.
 - **Input** – subscribes the module to keyboard/mouse/controller events and lets it inspect the current input state through the `input` reducer.
 - **File** – provides controlled access to the node's data directory for reading assets, watching paths, or performing limited file IO needed for development workflows.
-- **Module** – designates a module as the module-manager for that node. When present, all publish/remove requests are routed through it (see the Security section) so it can enforce custom policies.
+- **Module** – designates a module as the module-manager for that node. When present, all load/remove requests are routed through it (see the Security section) so it can enforce custom policies.
 
 ## Execution model
 
@@ -555,7 +555,6 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 
 ## Runtime
 
-- Rename "publish" with "load"
 - Network authority
 - Better Audio authority and host calls
 - Table views and row-level security: allow modules to filter rows based on runtime state and requesting node id
@@ -566,7 +565,6 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 
 ## Modules
 
-- Move cursor render to ui instead of only agar-client
 - Make buttons and click events works on ui
 - Desktop module
 - ModuleManager

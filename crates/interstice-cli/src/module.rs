@@ -4,9 +4,9 @@ use interstice_core::{IntersticeError, ModuleEventInstance, NetworkPacket, packe
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-pub async fn publish(node_ref: String, module_project_path: &Path) -> Result<(), IntersticeError> {
-    // This should take a path to a rust project that it will build and publish. The module name is from Cargo.toml. It should build the project using cargo, then read the generated wasm file and send it to the node using the network module.
-    // It should also be able to use saved servers nodes with their adress to easily publish to known nodes.
+pub async fn load(node_ref: String, module_project_path: &Path) -> Result<(), IntersticeError> {
+    // This should take a path to a rust project that it will build and load. The module name is from Cargo.toml. It should build the project using cargo, then read the generated wasm file and send it to the node using the network module.
+    // It should also be able to use saved servers nodes with their adress to easily load to known nodes.
 
     // connect to node
     let registry = NodeRegistry::load()?;
@@ -43,7 +43,7 @@ pub async fn publish(node_ref: String, module_project_path: &Path) -> Result<(),
     let wasm_binary = std::fs::read(wasm_path).expect("Failed to read generated wasm file");
 
     // Send wasm binary to node
-    let packet = NetworkPacket::ModuleEvent(ModuleEventInstance::Publish { wasm_binary });
+    let packet = NetworkPacket::ModuleEvent(ModuleEventInstance::Load { wasm_binary });
     write_packet(&mut stream, &packet).await?;
 
     // Close connection properly

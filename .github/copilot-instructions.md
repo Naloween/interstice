@@ -28,14 +28,14 @@
   - Use `interstice` for user-facing released CLI commands in README/docs.
   - Use `cargo run -p interstice-cli -- ...` when documenting commands run directly from this repository source tree.
 
-- The CLI uses top-level subcommands (`node`, `bindings`, `example`, `init`, `publish`, `remove`, `call_reducer`, `call_query`); entry in [crates/interstice-cli/src/main.rs](crates/interstice-cli/src/main.rs).
+- The CLI uses top-level subcommands (`node`, `bindings`, `example`, `init`, `load`, `remove`, `call_reducer`, `call_query`); entry in [crates/interstice-cli/src/main.rs](crates/interstice-cli/src/main.rs).
 - Typical local node flow:
   - Create/register local node: `cargo run -p interstice-cli -- node create <name> <port>`
   - Start local node: `cargo run -p interstice-cli -- node start <name|id>`
   - Optional quick demo node: `cargo run -p interstice-cli -- example <port>`
 - Build WASM modules from workspace root: `cargo build -p <module> --target wasm32-unknown-unknown --release`.
-- Publish/remove module on a running node:
-  - `cargo run -p interstice-cli -- publish <node> <module_project_path>`
+- Load/remove module on a running node:
+  - `cargo run -p interstice-cli -- load <node> <module_project_path>`
   - `cargo run -p interstice-cli -- remove <node> <module_name>`
 - Add generated bindings from a running node schema:
   - `cargo run -p interstice-cli -- bindings add module <node> <module> [project_path]`

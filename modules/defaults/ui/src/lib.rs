@@ -16,6 +16,11 @@ use crate::bindings::graphics::*;
 pub const UI_LAYER: &str = "ui";
 pub const UI_LAYER_Z: i32 = 100;
 
+// The OS cursor is drawn on its own layer above everything else, so any module
+// using the UI gets a consistent cursor without drawing it itself.
+pub const UI_CURSOR_LAYER: &str = "ui.cursor";
+pub const UI_CURSOR_LAYER_Z: i32 = 200;
+
 // ── Load ─────────────────────────────────────────────────────────────────────
 
 #[reducer(on = "load")]
@@ -29,6 +34,13 @@ where
         .create_layer(UI_LAYER.to_string(), UI_LAYER_Z, false)
     {
         ctx.log(&format!("ui: failed to create layer: {err}"));
+    }
+    if let Err(err) =
+        graphics
+            .reducers
+            .create_layer(UI_CURSOR_LAYER.to_string(), UI_CURSOR_LAYER_Z, false)
+    {
+        ctx.log(&format!("ui: failed to create cursor layer: {err}"));
     }
     let _ = ctx.current.tables.inputfocus().insert(InputFocus {
         id: 0,

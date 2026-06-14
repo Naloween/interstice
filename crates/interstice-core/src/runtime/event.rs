@@ -90,7 +90,7 @@ pub enum EventInstance {
         request_id: String,
         schema: interstice_abi::NodeSchema,
     },
-    PublishModule {
+    LoadModule {
         wasm_binary: Vec<u8>,
         source_node_id: NodeId,
     },
@@ -234,7 +234,7 @@ impl EventInstance {
                 }
             }
             EventInstance::Module(module_event) => match (module_event, event_schema) {
-                (ModuleEvent::PublishRequest { .. }, SubscriptionEventSchema::ModulePublish) => {
+                (ModuleEvent::LoadRequest { .. }, SubscriptionEventSchema::ModuleLoad) => {
                     true
                 }
                 (ModuleEvent::RemoveRequest { .. }, SubscriptionEventSchema::ModuleRemove) => true,

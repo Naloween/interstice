@@ -443,10 +443,10 @@ impl Network {
                     }
                     NetworkPacket::ModuleEvent(module_event_instance) => {
                         match module_event_instance {
-                            protocol::ModuleEventInstance::Publish { wasm_binary } => self
+                            protocol::ModuleEventInstance::Load { wasm_binary } => self
                                 .runtime_event_sender
                                 .send((
-                                    EventInstance::PublishModule {
+                                    EventInstance::LoadModule {
                                         wasm_binary,
                                         source_node_id: node_id,
                                     },

@@ -15,7 +15,7 @@ impl Runtime {
         runtime: Arc<Runtime>,
     ) -> Result<Option<i64>, IntersticeError> {
         let response = match call {
-            ModuleCall::Publish {
+            ModuleCall::Load {
                 node_selection,
                 wasm_binary,
             } => match node_selection {
@@ -29,7 +29,7 @@ impl Runtime {
                                 {
                                     runtime.logger.log(
                                         &format!(
-                                            "Local publish failed while loading module: {}",
+                                            "Local load failed while loading module: {}",
                                             err
                                         ),
                                         crate::logger::LogSource::Runtime,
@@ -40,7 +40,7 @@ impl Runtime {
                             Err(err) => {
                                 runtime.logger.log(
                                     &format!(
-                                        "Local publish failed while instantiating module bytes: {}",
+                                        "Local load failed while instantiating module bytes: {}",
                                         err
                                     ),
                                     crate::logger::LogSource::Runtime,
@@ -85,7 +85,7 @@ impl Runtime {
                     self.network_handle.send_packet(
                         node_id,
                         crate::network::protocol::NetworkPacket::ModuleEvent(
-                            crate::network::protocol::ModuleEventInstance::Publish { wasm_binary },
+                            crate::network::protocol::ModuleEventInstance::Load { wasm_binary },
                         ),
                     );
                     ModuleCallResponse::Ok

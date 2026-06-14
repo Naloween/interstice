@@ -85,6 +85,6 @@ pub enum TableEventInstance {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ModuleEventInstance {
-    Publish { wasm_binary: Vec<u8> },
+    Load { wasm_binary: Vec<u8> },
     Remove { module_name: String },
 }

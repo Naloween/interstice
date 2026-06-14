@@ -1,3 +1,4 @@
+use crate::UI_CURSOR_LAYER;
 use crate::UI_LAYER;
 use crate::bindings::graphics::*;
 use crate::bindings::input::*;
@@ -92,6 +93,45 @@ where
             draw_element(&ctx, node, &focused_id);
         }
     }
+
+    draw_cursor(&ctx, sw, sh);
+}
+
+/// Draw the OS mouse cursor on a dedicated top layer, so every module that uses
+/// the UI gets a consistent cursor without rendering one itself.
+fn draw_cursor<Caps>(ctx: &ReducerContext<Caps>, sw: f32, sh: f32)
+where
+    Caps: CanRead<MouseState>,
+{
+    let mouse = ctx.input().tables.mousestate().get(0);
+    let (mx, my) = mouse.map(|m| m.position).unwrap_or((sw * 0.5, sh * 0.5));
+    let graphics = ctx.graphics();
+    let _ = graphics.reducers.draw_circle(
+        UI_CURSOR_LAYER.to_string(),
+        Vec2 { x: mx, y: my },
+        6.0,
+        Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+            a: 0.9,
+        },
+        true,
+        0.0,
+    );
+    let _ = graphics.reducers.draw_circle(
+        UI_CURSOR_LAYER.to_string(),
+        Vec2 { x: mx, y: my },
+        6.0,
+        Color {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 0.6,
+        },
+        false,
+        1.5,
+    );
 }
 
 fn draw_element<Caps>(

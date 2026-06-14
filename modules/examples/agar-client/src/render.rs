@@ -15,7 +15,6 @@ use interstice_sdk::*;
 const LAYER_BG: &str = "agar.bg";
 const LAYER_WORLD: &str = "agar.world";
 const LAYER_NAMES: &str = "agar.names";
-const LAYER_CURSOR: &str = "agar.cursor";
 
 // ── Camera zoom constants ─────────────────────────────────────────────────────
 
@@ -32,14 +31,12 @@ where
     Caps: CanInsert<ClientState>,
 {
     // Layers above z=0: the graphics "default" layer (z=0, clear) clears the canvas
-    // first, then our layers composite on top. Cursor at z=150 sits above the UI (z=100).
+    // first, then our layers composite on top. The mouse cursor is drawn by the
+    // ui module on its own top layer (z=200), so we don't draw one here.
     let g = ctx.graphics();
     let _ = g.reducers.create_layer(LAYER_BG.to_string(), 1, false);
     let _ = g.reducers.create_layer(LAYER_WORLD.to_string(), 2, false);
     let _ = g.reducers.create_layer(LAYER_NAMES.to_string(), 3, false);
-    let _ = g
-        .reducers
-        .create_layer(LAYER_CURSOR.to_string(), 150, false);
 
     // Initialise client state.
     let _ = ctx.current.tables.clientstate().insert(ClientState {
@@ -113,36 +110,7 @@ where
         }
     }
 
-    // Draw a visible cursor on top of everything (above UI layer at z=100).
-    let mouse = ctx.input().tables.mousestate().get(0);
-    let (mx, my) = mouse.map(|m| m.position).unwrap_or((sw * 0.5, sh * 0.5));
-    let g = ctx.graphics();
-    let _ = g.reducers.draw_circle(
-        LAYER_CURSOR.to_string(),
-        Vec2 { x: mx, y: my },
-        6.0,
-        Color {
-            r: 1.0,
-            g: 1.0,
-            b: 1.0,
-            a: 0.9,
-        },
-        true,
-        0.0,
-    );
-    let _ = g.reducers.draw_circle(
-        LAYER_CURSOR.to_string(),
-        Vec2 { x: mx, y: my },
-        6.0,
-        Color {
-            r: 0.0,
-            g: 0.0,
-            b: 0.0,
-            a: 0.6,
-        },
-        false,
-        1.5,
-    );
+    // The mouse cursor is drawn by the ui module on its own top layer (z=200).
 
     let _ = ctx.current.tables.clientstate().update(cs);
 }

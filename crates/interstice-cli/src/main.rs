@@ -10,7 +10,7 @@ use interstice_cli::{
     call_reducer::call_reducer,
     example::example,
     init::init,
-    module::{publish, remove},
+    module::{load, remove},
     node_utils::handle_node_command,
     update::update,
 };
@@ -39,14 +39,14 @@ async fn main() -> Result<(), IntersticeError> {
             example(&args[2]).await
         }
         "init" => init(),
-        "publish" => {
+        "load" => {
             if args.len() < 4 {
                 print_help();
                 return Ok(());
             }
             let node_ref = args[2].clone();
             let module_project_path = Path::new(&args[3]);
-            publish(node_ref, module_project_path).await
+            load(node_ref, module_project_path).await
         }
         "update" => update(),
         "remove" => {
@@ -125,7 +125,7 @@ fn print_help() {
     println!(
         "  init                                   Initialize a new interstice module project in the current directory"
     );
-    println!("  publish <node> <module_path>   Publish a module to a node");
+    println!("  load <node> <module_path>      Load a module onto a node");
     println!("  remove <node> <module_name>    Remove a module from a node");
     println!("  update                          Update the interstice CLI");
     println!(
