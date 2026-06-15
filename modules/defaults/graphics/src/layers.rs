@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use interstice_sdk::*;
 
-use crate::helpers::{owns_layer, purge_layer_draws};
+use crate::helpers::{layer_key, owns_layer, purge_layer_draws};
 use crate::tables::{Draw2DCommand, HasLayerEditHandle, Layer};
 
 #[reducer]
@@ -15,13 +15,14 @@ where
         return;
     }
 
-    if ctx.current.tables.layer().get(name.clone()).is_some() {
+    let key = layer_key(&ctx, &name);
+    if ctx.current.tables.layer().get(key.clone()).is_some() {
         ctx.log(&format!("Layer '{}' already exists", name));
         return;
     }
 
     let layer = Layer {
-        name,
+        name: key,
         z,
         clear,
         owner_module_name: ctx.caller_module_name.clone(),
@@ -37,7 +38,7 @@ pub fn set_layer_z<Caps>(ctx: ReducerContext<Caps>, name: String, z: i32)
 where
     Caps: CanRead<Layer> + CanUpdate<Layer>,
 {
-    match ctx.current.tables.layer().get(name.clone()) {
+    match ctx.current.tables.layer().get(layer_key(&ctx, &name)) {
         Some(mut layer) => {
             if !owns_layer(&ctx, &layer) {
                 ctx.log(&format!(
@@ -60,7 +61,7 @@ pub fn set_layer_clear<Caps>(ctx: ReducerContext<Caps>, name: String, clear: boo
 where
     Caps: CanRead<Layer> + CanUpdate<Layer>,
 {
-    match ctx.current.tables.layer().get(name.clone()) {
+    match ctx.current.tables.layer().get(layer_key(&ctx, &name)) {
         Some(mut layer) => {
             if !owns_layer(&ctx, &layer) {
                 ctx.log(&format!(
@@ -83,7 +84,8 @@ pub fn destroy_layer<Caps>(ctx: ReducerContext<Caps>, name: String)
 where
     Caps: CanRead<Layer> + CanDelete<Layer> + CanRead<Draw2DCommand> + CanDelete<Draw2DCommand>,
 {
-    match ctx.current.tables.layer().get(name.clone()) {
+    let key = layer_key(&ctx, &name);
+    match ctx.current.tables.layer().get(key.clone()) {
         Some(layer) => {
             if !owns_layer(&ctx, &layer) {
                 ctx.log(&format!(
@@ -92,10 +94,10 @@ where
                 ));
                 return;
             }
-            if let Err(err) = ctx.current.tables.layer().delete(name.clone()) {
+            if let Err(err) = ctx.current.tables.layer().delete(key.clone()) {
                 ctx.log(&format!("Failed to delete layer: {}", err));
             }
-            purge_layer_draws(&ctx, &name);
+            purge_layer_draws(&ctx, &key);
         }
         None => ctx.log(&format!("Layer '{}' not found", name)),
     }

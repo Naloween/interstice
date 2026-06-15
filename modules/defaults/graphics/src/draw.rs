@@ -3,7 +3,7 @@ use std::str::FromStr;
 use interstice_sdk::*;
 
 use crate::Draw2DCommandType;
-use crate::helpers::{enqueue_draw_command, ensure_layer_exists, namespaced_key};
+use crate::helpers::{enqueue_draw_command, ensure_layer_exists, layer_key, namespaced_key};
 use crate::tables::{
     ComputeCommand, Draw2DCommand, HasComputeCommandEditHandle, HasMeshBindingEditHandle,
     HasPipelineBindingEditHandle, HasRenderPassCommandEditHandle, HasTextureBindingEditHandle,
@@ -24,6 +24,7 @@ pub fn draw_circle<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     filled: bool,
     stroke_width: f32,
 ) {
+    let layer = layer_key(&ctx, &layer);
     if !ensure_layer_exists(&ctx, &layer) {
         return;
     }
@@ -63,6 +64,7 @@ pub fn draw_circles<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     filled: bool,
     stroke_width: f32,
 ) {
+    let layer = layer_key(&ctx, &layer);
     if !ensure_layer_exists(&ctx, &layer) {
         return;
     }
@@ -119,6 +121,7 @@ pub fn draw_polyline<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     closed: bool,
     filled: bool,
 ) {
+    let layer = layer_key(&ctx, &layer);
     if !ensure_layer_exists(&ctx, &layer) {
         return;
     }
@@ -158,6 +161,7 @@ pub fn draw_rect<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     stroke_width: f32,
     corner_radius: Option<f32>,
 ) {
+    let layer = layer_key(&ctx, &layer);
     if !ensure_layer_exists(&ctx, &layer) {
         return;
     }
@@ -195,6 +199,7 @@ pub fn draw_image<Caps: CanInsert<Draw2DCommand> + CanRead<Layer> + CanRead<Text
     rect: Rect,
     tint: Color,
 ) {
+    let layer = layer_key(&ctx, &layer);
     if !ensure_layer_exists(&ctx, &layer) {
         return;
     }
@@ -247,6 +252,7 @@ pub fn draw_surface<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     dest: Rect,
     tint: Color,
 ) {
+    let layer = layer_key(&ctx, &layer);
     if !ensure_layer_exists(&ctx, &layer) {
         return;
     }
@@ -280,6 +286,7 @@ pub fn draw_text<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     color: Color,
     font: Option<String>,
 ) {
+    let layer = layer_key(&ctx, &layer);
     if !ensure_layer_exists(&ctx, &layer) {
         return;
     }
@@ -322,6 +329,7 @@ pub fn draw_mesh<
     pipeline_local_id: String,
     instances: u32,
 ) {
+    let layer = layer_key(&ctx, &layer);
     if !ensure_layer_exists(&ctx, &layer) {
         return;
     }
@@ -391,8 +399,9 @@ pub fn draw_mesh<
 #[reducer]
 pub fn submit_render_pass<Caps: CanRead<Layer> + CanInsert<RenderPassCommand>>(
     ctx: ReducerContext<Caps>,
-    submission: RenderPassSubmission,
+    mut submission: RenderPassSubmission,
 ) {
+    submission.layer = layer_key(&ctx, &submission.layer);
     if !ensure_layer_exists(&ctx, &submission.layer) {
         return;
     }

@@ -49,6 +49,17 @@ pub(crate) fn namespaced_key<Caps>(ctx: &ReducerContext<Caps>, local_id: &str) -
     (ctx.caller_node_id.clone(), local_id.to_string())
 }
 
+/// Layer names are scoped to the calling module so two distinct modules (e.g.
+/// two desktop apps that both use the `ui` layer from `ui_subsystem!`) get their
+/// own layers instead of colliding on a single global name. The stored key
+/// `"<module>\u{1}<name>"` is what the renderer matches commands against and what
+/// surface routing keys on (via `owner_module_name`), so namespacing here is
+/// transparent end-to-end: every entry point (create/draw/set/destroy) maps the
+/// caller-provided name through this function.
+pub(crate) fn layer_key<Caps>(ctx: &ReducerContext<Caps>, name: &str) -> String {
+    format!("{}\u{1}{}", ctx.caller_module_name, name)
+}
+
 pub(crate) fn clear_commands_tables<Caps>(ctx: &ReducerContext<Caps>)
 where
     Caps: CanDelete<Draw2DCommand> + CanDelete<RenderPassCommand> + CanDelete<ComputeCommand>,
