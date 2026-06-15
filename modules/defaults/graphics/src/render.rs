@@ -18,13 +18,14 @@ use crate::tables::{
     HasDraw2DCommandEditHandle, HasFrameTickEditHandle, HasLayerEditHandle,
     HasMeshBindingEditHandle, HasPipelineBindingEditHandle, HasRenderPassCommandEditHandle,
     HasRendererCacheEditHandle, HasSurfaceAssignmentEditHandle, HasSurfaceInfoEditHandle,
-    HasSurfaceTargetEditHandle, Layer, MeshBinding, PipelineBinding, RenderPassCommand,
-    RendererCache, SurfaceAssignment, SurfaceInfo, SurfaceTarget,
+    HasSurfaceTargetEditHandle, HasTextureBindingEditHandle, Layer, MeshBinding, PipelineBinding,
+    RenderPassCommand, RendererCache, SurfaceAssignment, SurfaceInfo, SurfaceTarget,
+    TextureBinding,
 };
 use crate::surfaces::SWAPCHAIN_SURFACE_ID;
 use crate::types::{
-    CircleCommand, Color, Draw2DCommandType, MeshDrawCommand, PolylineCommand, Rect, RectCommand,
-    SurfaceCommand, TextCommand, Vec2, color_to_array,
+    CircleCommand, Color, Draw2DCommandType, ImageCommand, MeshDrawCommand, PolylineCommand, Rect,
+    RectCommand, SurfaceCommand, TextCommand, Vec2, color_to_array,
 };
 use crate::{DEFAULT_CLEAR, DEFAULT_SEGMENTS, GpuExt, MIN_SEGMENTS, RENDERER_CACHE_KEY};
 
@@ -45,6 +46,7 @@ where
         + CanRead<SurfaceAssignment>
         + CanRead<MeshBinding>
         + CanRead<PipelineBinding>
+        + CanRead<TextureBinding>
         + CanDelete<Draw2DCommand>
         + CanDelete<RenderPassCommand>
         + CanDelete<ComputeCommand>
@@ -77,6 +79,7 @@ where
         + CanRead<ComputeCommand>
         + CanRead<MeshBinding>
         + CanRead<PipelineBinding>
+        + CanRead<TextureBinding>
         + CanRead<RendererCache>
         + CanInsert<RendererCache>
         + CanUpdate<RendererCache>
@@ -146,6 +149,9 @@ where
     let (pipeline, textured) = ensure_pipelines(ctx, &gpu, surface_format)?;
     let mut created_buffers: Vec<u32> = Vec::new();
     let mut created_bind_groups: Vec<u32> = Vec::new();
+    // Texture views created per-frame for draw_image (one per image command).
+    // Destroyed after submit alongside buffers/bind-groups so they don't leak.
+    let mut created_views: Vec<u32> = Vec::new();
 
     // Offscreen surfaces (id >= 1) are rendered FIRST so the compositor can
     // sample their populated views when compositing the swapchain in this same
@@ -173,6 +179,7 @@ where
             &surface_views,
             &mut created_buffers,
             &mut created_bind_groups,
+            &mut created_views,
         )?;
     }
 
@@ -195,6 +202,7 @@ where
         &surface_views,
         &mut created_buffers,
         &mut created_bind_groups,
+        &mut created_views,
     )?;
 
     // Any layers routed to a surface that no longer exists are dropped silently;
@@ -218,6 +226,9 @@ where
     }
     for bind_group in created_bind_groups {
         let _ = gpu.destroy_bind_group(bind_group);
+    }
+    for view in created_views {
+        let _ = gpu.destroy_texture_view(view);
     }
     gpu.present()?;
     // Queue next frame so render continues
@@ -251,9 +262,13 @@ fn render_layers_to_view<Caps>(
     surface_views: &HashMap<u32, u32>,
     created_buffers: &mut Vec<u32>,
     created_bind_groups: &mut Vec<u32>,
+    created_views: &mut Vec<u32>,
 ) -> Result<(), String>
 where
-    Caps: CanRead<Layer> + CanRead<MeshBinding> + CanRead<PipelineBinding>,
+    Caps: CanRead<Layer>
+        + CanRead<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanRead<TextureBinding>,
 {
     if layers.is_empty() {
         return record_clear_pass(gpu, encoder, view_id, DEFAULT_CLEAR);
@@ -292,6 +307,7 @@ where
                     layer_commands,
                     created_buffers,
                     created_bind_groups,
+                    created_views,
                     surface,
                 )?;
             }
@@ -614,10 +630,14 @@ fn execute_draw_commands<Caps>(
     commands: Vec<Draw2DCommand>,
     created_buffers: &mut Vec<u32>,
     created_bind_groups: &mut Vec<u32>,
+    created_views: &mut Vec<u32>,
     surface: RenderSurface,
 ) -> Result<(), String>
 where
-    Caps: CanRead<Layer> + CanRead<MeshBinding> + CanRead<PipelineBinding>,
+    Caps: CanRead<Layer>
+        + CanRead<MeshBinding>
+        + CanRead<PipelineBinding>
+        + CanRead<TextureBinding>,
 {
     // Batch all immediate draw commands (circle, polyline, rect, text)
     let mut immediate_vertices: Vec<ImmediateVertexBytes> = Vec::new();
@@ -699,10 +719,24 @@ where
         }
     }
 
-    // Log for unimplemented image commands
+    // Composite images (draw_image). Each references a TextureBinding by address;
+    // a per-frame view of that texture is bound with the shared sampler and drawn
+    // as a textured quad into the destination rect.
     for command in &commands {
         if command.command_type == Draw2DCommandType::Image {
-            ctx.log("draw_image is queued but texture sampling render path is not implemented yet");
+            if let Some(payload) = &command.image {
+                draw_image_command(
+                    ctx,
+                    gpu,
+                    pass,
+                    textured,
+                    payload,
+                    surface,
+                    created_buffers,
+                    created_bind_groups,
+                    created_views,
+                )?;
+            }
         }
     }
 
@@ -725,7 +759,85 @@ fn draw_surface_command(
         // The surface is unknown or has not been rendered yet this frame.
         return Ok(());
     };
+    draw_textured_quad(
+        gpu,
+        pass,
+        textured,
+        view_id,
+        &payload.dest,
+        &payload.tint,
+        surface,
+        created_buffers,
+        created_bind_groups,
+    )
+}
 
+/// Draw an image (`draw_image`) into `payload.rect`. Resolves the texture from
+/// its `TextureBinding`, creates a per-frame view (tracked for cleanup), and
+/// binds it through the same textured pipeline used for surface compositing.
+fn draw_image_command<Caps>(
+    ctx: &ReducerContext<Caps>,
+    gpu: &Gpu,
+    pass: u32,
+    textured: &TexturedPipeline,
+    payload: &ImageCommand,
+    surface: RenderSurface,
+    created_buffers: &mut Vec<u32>,
+    created_bind_groups: &mut Vec<u32>,
+    created_views: &mut Vec<u32>,
+) -> Result<(), String>
+where
+    Caps: CanRead<TextureBinding>,
+{
+    let key = (
+        payload.texture.owner_node_id.clone(),
+        payload.texture.local_id.clone(),
+    );
+    let Some(binding) = ctx.current.tables.texturebinding().get(key) else {
+        ctx.log("Skipping draw_image: texture binding not found");
+        return Ok(());
+    };
+
+    // Inherit the texture's own format (None) so we don't need to re-parse it.
+    let view = gpu.create_texture_view(CreateTextureView {
+        texture: binding.gpu_id,
+        format: None,
+        dimension: Some(TextureViewDimension::D2),
+        base_mip_level: 0,
+        mip_level_count: None,
+        base_array_layer: 0,
+        array_layer_count: None,
+    })?;
+    created_views.push(view);
+
+    draw_textured_quad(
+        gpu,
+        pass,
+        textured,
+        view,
+        &payload.rect,
+        &payload.tint,
+        surface,
+        created_buffers,
+        created_bind_groups,
+    )
+}
+
+/// Bind `view_id` + the shared sampler and draw a textured quad covering `dest`
+/// with `tint`. Shared by surface compositing and image drawing. Created GPU
+/// resources are pushed onto the cleanup vecs (destroyed after submit).
+#[allow(clippy::too_many_arguments)]
+fn draw_textured_quad(
+    gpu: &Gpu,
+    pass: u32,
+    textured: &TexturedPipeline,
+    view_id: u32,
+    dest: &Rect,
+    tint: &Color,
+    surface: RenderSurface,
+    created_buffers: &mut Vec<u32>,
+    created_bind_groups: &mut Vec<u32>,
+) -> Result<(), String> {
     let bind_group = gpu.create_bind_group(CreateBindGroup {
         layout: textured.bind_group_layout,
         entries: vec![
@@ -740,8 +852,8 @@ fn draw_surface_command(
         ],
     })?;
 
-    let tint = color_to_array(&payload.tint);
-    let vertices = textured_quad(surface, &payload.dest, tint);
+    let tint = color_to_array(tint);
+    let vertices = textured_quad(surface, dest, tint);
     let data = encode_textured_vertices(&vertices);
     let buffer = gpu.create_buffer(
         data.len() as u64,

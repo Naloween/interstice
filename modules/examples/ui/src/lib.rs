@@ -20,7 +20,7 @@ const MUTED_COLOR: (f32, f32, f32, f32) = (0.60, 0.60, 0.65, 1.0);
 #[reducer(on = "load")]
 pub fn on_load<Caps>(ctx: ReducerContext<Caps>)
 where
-    Caps: CanInsert<ui::InputFocus> + CanInsert<ui::UiElement>,
+    Caps: CanInsert<ui::InputFocus> + CanInsert<ui::UiElement> + CanUpdate<ui::UiElement>,
 {
     ui::install(&ctx);
 

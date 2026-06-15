@@ -10,7 +10,7 @@ const UI_DEAD_BTN: &str = "dead_play_btn";
 
 pub fn show_dead_screen<Caps>(ctx: &ReducerContext<Caps>, final_score: f32)
 where
-    Caps: CanInsert<UiElement>,
+    Caps: CanInsert<UiElement> + CanUpdate<UiElement>,
 {
     let none = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
     let text_col = (0.92f32, 0.92f32, 0.95f32, 1.0f32);
@@ -144,6 +144,7 @@ where
     Caps: CanRead<KeyState>
         + CanRead<ClientState>
         + CanInsert<UiElement>
+        + CanUpdate<UiElement>
         + CanRead<UiElement>
         + CanDelete<UiElement>
         + CanInsert<ui::InputFocus>

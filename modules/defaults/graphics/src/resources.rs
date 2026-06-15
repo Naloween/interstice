@@ -223,7 +223,13 @@ fn allocate_texture<Caps>(
                 bytes.len()
             ));
         }
-        let staging = gpu.create_buffer(bytes.len() as u64, BufferUsage::COPY_SRC, false)?;
+        // Queue writes (`write_buffer`) require COPY_DST on the destination buffer,
+        // and the texture upload uses it as the copy source — so it needs both.
+        let staging = gpu.create_buffer(
+            bytes.len() as u64,
+            BufferUsage::COPY_SRC | BufferUsage::COPY_DST,
+            false,
+        )?;
         gpu.write_buffer(staging, 0, bytes.to_vec())?;
         let encoder = gpu.create_command_encoder()?;
         gpu.copy_buffer_to_texture(CopyBufferToTexture {

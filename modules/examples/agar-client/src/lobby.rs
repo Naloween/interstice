@@ -15,7 +15,10 @@ const UI_LOBBY_BTN: &str = "lobby_play_btn";
 
 pub fn build_lobby_ui<Caps>(ctx: &ReducerContext<Caps>)
 where
-    Caps: CanInsert<UiElement> + CanInsert<ui::InputFocus> + CanUpdate<ui::InputFocus>,
+    Caps: CanInsert<UiElement>
+        + CanUpdate<UiElement>
+        + CanInsert<ui::InputFocus>
+        + CanUpdate<ui::InputFocus>,
 {
     let none = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
     let text_col = (0.92f32, 0.92f32, 0.95f32, 1.0f32);
@@ -265,6 +268,7 @@ where
         + CanRead<KeyState>
         + CanRead<UiElement>
         + CanInsert<UiElement>
+        + CanUpdate<UiElement>
         + CanDelete<UiElement>
         + CanInsert<ui::InputFocus>
         + CanUpdate<ui::InputFocus>,
@@ -285,6 +289,7 @@ where
         + CanUpdate<ClientState>
         + CanRead<UiElement>
         + CanInsert<UiElement>
+        + CanUpdate<UiElement>
         + CanDelete<UiElement>
         + CanInsert<ui::InputFocus>
         + CanUpdate<ui::InputFocus>,

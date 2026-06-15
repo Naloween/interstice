@@ -17,6 +17,16 @@ pub struct MouseState {
     wheel_delta: (f32, f32),
 }
 
+/// Per-button mouse state. `button_id` is semantic (Left=0, Right=1, Middle=2;
+/// see the runtime mapping in interstice-core app.rs). Rows for 0/1/2 are seeded
+/// on load so consumers can always `get()` them.
+#[table(public, ephemeral)]
+pub struct MouseButton {
+    #[primary_key]
+    button_id: u32,
+    pressed: bool,
+}
+
 /// Holds the character typed in the most recent key-press event.
 /// Special values: character = "\x08" means Backspace, "" means no printable input.
 #[table(public, ephemeral)]
@@ -29,7 +39,10 @@ pub struct TextInputBuffer {
 #[reducer(on = "load")]
 fn on_load<Caps>(ctx: ReducerContext<Caps>)
 where
-    Caps: CanInsert<KeyState> + CanInsert<MouseState> + CanInsert<TextInputBuffer>,
+    Caps: CanInsert<KeyState>
+        + CanInsert<MouseState>
+        + CanInsert<MouseButton>
+        + CanInsert<TextInputBuffer>,
 {
     let res = ctx.current.tables.mousestate().insert(MouseState {
         id: 0,
@@ -38,6 +51,13 @@ where
     });
     if let Err(err) = res {
         ctx.log(&format!("Failed to initialize mouse state: {}", err));
+    }
+
+    for button_id in 0..3 {
+        let _ = ctx.current.tables.mousebutton().insert(MouseButton {
+            button_id,
+            pressed: false,
+        });
     }
 
     let _ = ctx
@@ -68,6 +88,9 @@ fn on_input<Caps>(ctx: ReducerContext<Caps>, event: InputEvent)
 where
     Caps: CanRead<MouseState>
         + CanUpdate<MouseState>
+        + CanRead<MouseButton>
+        + CanInsert<MouseButton>
+        + CanUpdate<MouseButton>
         + CanRead<KeyState>
         + CanInsert<KeyState>
         + CanUpdate<KeyState>
@@ -102,7 +125,17 @@ where
             });
         }
         InputEvent::Motion { .. } => {}
-        InputEvent::Button { .. } => {}
+        InputEvent::Button {
+            button_id, state, ..
+        } => {
+            let pressed = matches!(state, ElementState::Pressed);
+            let row = MouseButton { button_id, pressed };
+            if ctx.current.tables.mousebutton().get(button_id).is_some() {
+                let _ = ctx.current.tables.mousebutton().update(row);
+            } else {
+                let _ = ctx.current.tables.mousebutton().insert(row);
+            }
+        }
         InputEvent::Key {
             physical_key,
             state,

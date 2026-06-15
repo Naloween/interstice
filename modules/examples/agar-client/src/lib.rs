@@ -31,6 +31,7 @@ where
     Caps: CanInsert<ClientState>
         + CanInsert<ui::InputFocus>
         + CanInsert<ui::UiElement>
+        + CanUpdate<ui::UiElement>
         + CanRead<ui::InputFocus>
         + CanUpdate<ui::InputFocus>,
 {

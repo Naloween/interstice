@@ -187,12 +187,21 @@ macro_rules! ui_subsystem {
 
             // ── Element helpers ──────────────────────────────────────────────
 
+            // Idempotent upsert. `insert` succeeds the first time the module
+            // runs; if the module is unloaded and loaded again the runtime keeps
+            // its persisted `UiElement` rows, so `on_load`'s inserts would hit a
+            // unique-constraint violation — fall back to `update` in that case so
+            // a reload simply re-establishes the same element. We don't read
+            // first because a same-run insert wouldn't be visible (see the
+            // write-visibility note on `set_focus`).
             pub fn create_element<Caps>(ctx: &ReducerContext<Caps>, element: UiElement)
             where
-                Caps: CanInsert<UiElement>,
+                Caps: CanInsert<UiElement> + CanUpdate<UiElement>,
             {
-                if let Err(err) = ctx.current.tables.uielement().insert(element) {
-                    ctx.log(&format!("ui: create_element failed: {err}"));
+                if ctx.current.tables.uielement().insert(element.clone()).is_err() {
+                    if let Err(err) = ctx.current.tables.uielement().update(element) {
+                        ctx.log(&format!("ui: create_element failed: {err}"));
+                    }
                 }
             }
 

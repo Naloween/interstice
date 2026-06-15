@@ -11,7 +11,7 @@ const UI_HUD_LB_TITLE: &str = "hud_lb_title";
 
 pub fn build_hud_ui<Caps>(ctx: &ReducerContext<Caps>)
 where
-    Caps: CanInsert<UiElement>,
+    Caps: CanInsert<UiElement> + CanUpdate<UiElement>,
 {
     let none = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
     let text_col = (0.92f32, 0.92f32, 0.95f32, 1.0f32);

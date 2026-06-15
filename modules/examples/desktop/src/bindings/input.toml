@@ -55,6 +55,22 @@ name = "id"
 field_type = "U32"
 
 [[tables]]
+name = "mousebutton"
+type_name = "MouseButton"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Ephemeral"
+
+[[tables.fields]]
+name = "pressed"
+field_type = "Bool"
+
+[tables.primary_key]
+name = "button_id"
+field_type = "U32"
+
+[[tables]]
 name = "textinputbuffer"
 type_name = "TextInputBuffer"
 visibility = "Public"
@@ -70,16 +86,16 @@ field_type = "String"
 name = "id"
 field_type = "U32"
 
-[type_definitions.KeyState.Struct]
-name = "KeyState"
+[type_definitions.TextInputBuffer.Struct]
+name = "TextInputBuffer"
 
-[[type_definitions.KeyState.Struct.fields]]
-name = "code"
+[[type_definitions.TextInputBuffer.Struct.fields]]
+name = "id"
 field_type = "U32"
 
-[[type_definitions.KeyState.Struct.fields]]
-name = "pressed"
-field_type = "Bool"
+[[type_definitions.TextInputBuffer.Struct.fields]]
+name = "character"
+field_type = "String"
 
 [type_definitions.MouseState.Struct]
 name = "MouseState"
@@ -100,13 +116,24 @@ name = "wheel_delta"
 [type_definitions.MouseState.Struct.fields.field_type]
 Tuple = ["F32", "F32"]
 
-[type_definitions.TextInputBuffer.Struct]
-name = "TextInputBuffer"
+[type_definitions.KeyState.Struct]
+name = "KeyState"
 
-[[type_definitions.TextInputBuffer.Struct.fields]]
-name = "id"
+[[type_definitions.KeyState.Struct.fields]]
+name = "code"
 field_type = "U32"
 
-[[type_definitions.TextInputBuffer.Struct.fields]]
-name = "character"
-field_type = "String"
+[[type_definitions.KeyState.Struct.fields]]
+name = "pressed"
+field_type = "Bool"
+
+[type_definitions.MouseButton.Struct]
+name = "MouseButton"
+
+[[type_definitions.MouseButton.Struct.fields]]
+name = "button_id"
+field_type = "U32"
+
+[[type_definitions.MouseButton.Struct.fields]]
+name = "pressed"
+field_type = "Bool"
