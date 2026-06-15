@@ -41,6 +41,10 @@ const DEFAULT_MODULE_MANAGER_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/module_defaults/module_manager.wasm"
 ));
+const DEFAULT_NETWORK_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/module_defaults/network.wasm"
+));
 const UI_EXAMPLE_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/module_examples/ui_example.wasm"
@@ -139,6 +143,9 @@ fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> 
                     bytes: DEFAULT_MODULE_MANAGER_BYTES,
                 },
                 ExampleModule {
+                    bytes: DEFAULT_NETWORK_BYTES,
+                },
+                ExampleModule {
                     bytes: DESKTOP_BYTES,
                 },
             ],
@@ -146,9 +153,14 @@ fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> 
         "http-get" => Ok(ExampleConfig {
             name: "http-get-example",
             port: 8090,
-            modules: vec![ExampleModule {
-                bytes: HTTP_GET_BYTES,
-            }],
+            modules: vec![
+                ExampleModule {
+                    bytes: DEFAULT_NETWORK_BYTES,
+                },
+                ExampleModule {
+                    bytes: HTTP_GET_BYTES,
+                },
+            ],
         }),
         _ => Err(IntersticeError::Internal(format!(
             "Unknown example '{example_name}'. Expected hello, caller, graphics, audio, agar-server, agar-client, benchmark-workload, ui, desktop or http-get."

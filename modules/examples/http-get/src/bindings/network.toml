@@ -1,0 +1,407 @@
+abi_version = 6
+name = "network"
+visibility = "Public"
+queries = []
+subscriptions = []
+authorities = ["Network"]
+module_dependencies = []
+node_dependencies = []
+replicated_tables = []
+
+[version]
+major = 0
+minor = 1
+patch = 0
+
+[[reducers]]
+name = "send"
+inserts = []
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "handle"
+field_type = "U64"
+
+[[reducers.arguments]]
+name = "data"
+
+[reducers.arguments.field_type]
+Vec = "U8"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "tcppending"
+
+[[reducers]]
+name = "close"
+inserts = []
+updates = []
+
+[[reducers.arguments]]
+name = "handle"
+field_type = "U64"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "tcppending"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "tcppending"
+
+[[reducers]]
+name = "connect"
+reads = []
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "req_id"
+field_type = "U64"
+
+[[reducers.arguments]]
+name = "ip"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "port"
+field_type = "U32"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "tcppending"
+
+[[reducers]]
+name = "resolve"
+deletes = []
+
+[[reducers.arguments]]
+name = "req_id"
+field_type = "U64"
+
+[[reducers.arguments]]
+name = "host"
+field_type = "String"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "netcfg"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "dnspending"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "netcfg"
+
+[[reducers]]
+name = "http_get"
+deletes = []
+
+[[reducers.arguments]]
+name = "req_id"
+field_type = "U64"
+
+[[reducers.arguments]]
+name = "host"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "path"
+field_type = "String"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "netcfg"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "dnspending"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "httpjob"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "netcfg"
+
+[[tables]]
+name = "inbound"
+type_name = "Inbound"
+visibility = "Public"
+primary_key_auto_inc = true
+indexes = []
+persistence = "Logged"
+
+[[tables.fields]]
+name = "owner"
+field_type = "String"
+
+[[tables.fields]]
+name = "handle"
+field_type = "U64"
+
+[[tables.fields]]
+name = "data"
+
+[tables.fields.field_type]
+Vec = "U8"
+
+[tables.primary_key]
+name = "id"
+field_type = "U64"
+
+[[tables]]
+name = "resolved"
+type_name = "Resolved"
+visibility = "Public"
+primary_key_auto_inc = true
+indexes = []
+persistence = "Logged"
+
+[[tables.fields]]
+name = "owner"
+field_type = "String"
+
+[[tables.fields]]
+name = "req_id"
+field_type = "U64"
+
+[[tables.fields]]
+name = "host"
+field_type = "String"
+
+[[tables.fields]]
+name = "ip"
+field_type = "String"
+
+[[tables.fields]]
+name = "error"
+field_type = "String"
+
+[tables.primary_key]
+name = "id"
+field_type = "U64"
+
+[[tables]]
+name = "connclosed"
+type_name = "ConnClosed"
+visibility = "Public"
+primary_key_auto_inc = true
+indexes = []
+persistence = "Logged"
+
+[[tables.fields]]
+name = "owner"
+field_type = "String"
+
+[[tables.fields]]
+name = "handle"
+field_type = "U64"
+
+[tables.primary_key]
+name = "id"
+field_type = "U64"
+
+[[tables]]
+name = "connection"
+type_name = "Connection"
+visibility = "Public"
+primary_key_auto_inc = true
+indexes = []
+persistence = "Logged"
+
+[[tables.fields]]
+name = "owner"
+field_type = "String"
+
+[[tables.fields]]
+name = "req_id"
+field_type = "U64"
+
+[[tables.fields]]
+name = "handle"
+field_type = "U64"
+
+[[tables.fields]]
+name = "status"
+field_type = "String"
+
+[[tables.fields]]
+name = "error"
+field_type = "String"
+
+[tables.primary_key]
+name = "id"
+field_type = "U64"
+
+[[tables]]
+name = "httpresponse"
+type_name = "HttpResponse"
+visibility = "Public"
+primary_key_auto_inc = true
+indexes = []
+persistence = "Logged"
+
+[[tables.fields]]
+name = "owner"
+field_type = "String"
+
+[[tables.fields]]
+name = "req_id"
+field_type = "U64"
+
+[[tables.fields]]
+name = "status_line"
+field_type = "String"
+
+[[tables.fields]]
+name = "body"
+field_type = "String"
+
+[[tables.fields]]
+name = "error"
+field_type = "String"
+
+[[tables.fields]]
+name = "done"
+field_type = "Bool"
+
+[tables.primary_key]
+name = "id"
+field_type = "U64"
+
+[type_definitions.ConnClosed.Struct]
+name = "ConnClosed"
+
+[[type_definitions.ConnClosed.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.ConnClosed.Struct.fields]]
+name = "owner"
+field_type = "String"
+
+[[type_definitions.ConnClosed.Struct.fields]]
+name = "handle"
+field_type = "U64"
+
+[type_definitions.Inbound.Struct]
+name = "Inbound"
+
+[[type_definitions.Inbound.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.Inbound.Struct.fields]]
+name = "owner"
+field_type = "String"
+
+[[type_definitions.Inbound.Struct.fields]]
+name = "handle"
+field_type = "U64"
+
+[[type_definitions.Inbound.Struct.fields]]
+name = "data"
+
+[type_definitions.Inbound.Struct.fields.field_type]
+Vec = "U8"
+
+[type_definitions.Connection.Struct]
+name = "Connection"
+
+[[type_definitions.Connection.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.Connection.Struct.fields]]
+name = "owner"
+field_type = "String"
+
+[[type_definitions.Connection.Struct.fields]]
+name = "req_id"
+field_type = "U64"
+
+[[type_definitions.Connection.Struct.fields]]
+name = "handle"
+field_type = "U64"
+
+[[type_definitions.Connection.Struct.fields]]
+name = "status"
+field_type = "String"
+
+[[type_definitions.Connection.Struct.fields]]
+name = "error"
+field_type = "String"
+
+[type_definitions.HttpResponse.Struct]
+name = "HttpResponse"
+
+[[type_definitions.HttpResponse.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.HttpResponse.Struct.fields]]
+name = "owner"
+field_type = "String"
+
+[[type_definitions.HttpResponse.Struct.fields]]
+name = "req_id"
+field_type = "U64"
+
+[[type_definitions.HttpResponse.Struct.fields]]
+name = "status_line"
+field_type = "String"
+
+[[type_definitions.HttpResponse.Struct.fields]]
+name = "body"
+field_type = "String"
+
+[[type_definitions.HttpResponse.Struct.fields]]
+name = "error"
+field_type = "String"
+
+[[type_definitions.HttpResponse.Struct.fields]]
+name = "done"
+field_type = "Bool"
+
+[type_definitions.Resolved.Struct]
+name = "Resolved"
+
+[[type_definitions.Resolved.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.Resolved.Struct.fields]]
+name = "owner"
+field_type = "String"
+
+[[type_definitions.Resolved.Struct.fields]]
+name = "req_id"
+field_type = "U64"
+
+[[type_definitions.Resolved.Struct.fields]]
+name = "host"
+field_type = "String"
+
+[[type_definitions.Resolved.Struct.fields]]
+name = "ip"
+field_type = "String"
+
+[[type_definitions.Resolved.Struct.fields]]
+name = "error"
+field_type = "String"

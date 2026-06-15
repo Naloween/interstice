@@ -430,7 +430,7 @@ There is no manual way to load a module onto an already running node. See the CL
 
 - `interstice example <hello|caller|graphics|audio|agar-server|agar-client|ui|desktop|benchmark-workload|http-get>`
 - Built-in ports are fixed by example name: `hello=8080`, `caller=8081`, `graphics=8082`, `audio=8083`, `agar-server=8086`, `agar-client=8084`, `ui=8088`, `desktop=8089`, `benchmark-workload=8087`, `http-get=8090`.
-- `http-get` demonstrates the `Network` authority: it opens a raw TCP socket to a hard-coded IP and performs a plain HTTP/1.1 GET over port 80, assembling the response into a table (see [modules/examples/http-get](modules/examples/http-get)).
+- `http-get` demonstrates the **shared network broker**: instead of holding the `Network` authority itself, it asks the default `network` module to `http_get("example.com", "/")`. The broker resolves DNS, opens the TCP socket, sends the request and assembles the response, then returns it as a row in its public `HttpResponse` table (see [modules/examples/http-get](modules/examples/http-get) and [modules/defaults/network](modules/defaults/network)).
 - Running the same example command multiple times recreates the example node (removes existing data and registry entry, then creates the node afresh with the example modules).
 - **Important**: Stop any running example instance (Ctrl+C) before running the command again to avoid conflicts.
 
@@ -561,9 +561,9 @@ This roadmap is a living checklist of the main directions for Interstice. It fav
 
 ## Runtime
 
-- Network authority
+- Network authority — done: raw TCP/UDP sockets, plus a default `network` broker module (TCP + DNS + HTTP) that holds the authority and shares it across apps
 - Better Audio authority and host calls
-- Table views and row-level security: allow modules to filter rows based on runtime state and requesting node id
+- Table views and row-level security: allow modules to filter rows based on runtime state and requesting node id. NOTE: the `network` broker currently stamps each result row with an `owner` and apps filter client-side; once table views exist, move this to runtime-enforced per-app visibility so apps can't read each other's traffic
 - Time travel host call: should be able to time travel some table, creating timelines and branches (reason: very cool and allow easy time-related effects in games and apps in general). There should be several kind of travels changing the behavior of branching, what is saved and what not etc...
 - Bundles to ship nodes as a whole program
 - Table migrations and schema evolution without data loss
