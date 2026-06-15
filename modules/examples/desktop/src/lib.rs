@@ -13,11 +13,17 @@ const UI_EXAMPLE_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../crates/interstice-cli/module_examples/ui_example.wasm"
 ));
+const AGAR_CLIENT_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../crates/interstice-cli/module_examples/agar_client.wasm"
+));
 
-/// Schema name of the bundled app (also its surface-routing key).
+/// Schema name of a bundled app (also its surface-routing key).
 const APP_UI_EXAMPLE: &str = "ui-example";
-/// Texture `local_id` for the bundled app's procedurally-generated icon.
-const ICON_UI_EXAMPLE: &str = "icon_ui-example";
+/// The agar.io-style client. NOTE: it replicates tables from a separate
+/// `agar-server-example` node (bound to 127.0.0.1:8086), so opening it only
+/// works while `cargo run -p interstice-cli -- example agar-server` is running.
+const APP_AGAR_CLIENT: &str = "agar-client";
 const ICON_PX: u32 = 64;
 
 /// The swapchain-facing layer the desktop draws its background + window chrome
@@ -31,6 +37,17 @@ const LAUNCHER_LAYER: &str = "desktop_launcher";
 /// into a lower layer would sit *behind* a window; its own high-z layer keeps
 /// it above everything.
 const CURSOR_LAYER: &str = "desktop_cursor";
+
+/// Base z for per-window layers. Each window gets two layers ranked by focus
+/// order: a *content* layer (backdrop + the app's composited surface) and a
+/// *chrome* layer one z above it (titlebar, title, close box, resize grip,
+/// border). Two layers are required because within a single layer the renderer
+/// always composites `draw_surface` *after* all immediate geometry — so chrome
+/// drawn in the same layer as the surface would end up behind the content, and a
+/// lower window's surface would cover a higher window's frame. Separate, z-ranked
+/// layers make stacking correct: backdrop < content < chrome, per window, in
+/// focus order. Window z bands live between DESKTOP_LAYER (0) and LAUNCHER (900).
+const WIN_Z_BASE: i32 = 10;
 
 const TOPBAR_H: f32 = 36.0;
 const TITLEBAR_H: f32 = 32.0;
@@ -113,32 +130,21 @@ where
         .reducers
         .create_layer(CURSOR_LAYER.to_string(), 1000, false);
 
-    // Register (don't load) the bundled app, with a procedurally-generated icon,
-    // and upload that icon as a texture so the launcher can `draw_image` it.
-    let icon = make_icon();
-    let mm = ctx.module_manager();
-    let _ = mm.reducers.register_app(
-        APP_UI_EXAMPLE.to_string(),
-        UI_EXAMPLE_BYTES.to_vec(),
-        Some(icon.clone()),
+    // Register (don't load) the bundled apps, each with a procedurally-generated
+    // icon uploaded as a texture so the launcher can `draw_image` it. Apps are
+    // distinguished by a base colour. The launcher + open/close paths are generic
+    // over `list_apps()`, so adding an app here is all that's needed.
+    register_app_with_icon(
+        &ctx,
+        APP_UI_EXAMPLE,
+        UI_EXAMPLE_BYTES,
+        make_icon((60.0, 70.0, 160.0)),
     );
-    let _ = g.reducers.create_texture(
-        ICON_UI_EXAMPLE.to_string(),
-        TextureDescriptorInput {
-            width: ICON_PX,
-            height: ICON_PX,
-            format: "rgba8unorm".to_string(),
-            mip_levels: 1,
-            sample_count: 1,
-            usage: TextureUsageFlags {
-                copy_src: false,
-                copy_dst: true,
-                texture_binding: true,
-                storage_binding: false,
-                render_attachment: false,
-            },
-        },
-        icon,
+    register_app_with_icon(
+        &ctx,
+        APP_AGAR_CLIENT,
+        AGAR_CLIENT_BYTES,
+        make_icon((40.0, 150.0, 70.0)),
     );
 
     // Seed singletons. Apps start closed — the launcher is shown first.
@@ -358,6 +364,9 @@ where
             let _ = mm.reducers.load_app(name.clone());
             let _ = g.reducers.create_surface(sid, content_w, content_h);
             let _ = g.reducers.assign_module_surface(name.clone(), sid);
+            // Per-window content/chrome layers (z assigned each frame by rank).
+            let _ = g.reducers.create_layer(win_content_layer(sid), WIN_Z_BASE, false);
+            let _ = g.reducers.create_layer(win_chrome_layer(sid), WIN_Z_BASE + 1, false);
 
             windows.push(Window {
                 id: sid,
@@ -387,6 +396,8 @@ where
             let _ = mm.reducers.unload_app(name.clone());
             let _ = g.reducers.assign_module_surface(name, 0);
             let _ = g.reducers.destroy_surface(surface_id);
+            let _ = g.reducers.destroy_layer(win_content_layer(surface_id));
+            let _ = g.reducers.destroy_layer(win_chrome_layer(surface_id));
         }
         interaction.mode = 0;
     }
@@ -407,7 +418,7 @@ where
         .filter(|&i| Some(windows[i].id) != closed_id)
         .collect();
     draw_order.sort_by(|&a, &b| windows[a].z.cmp(&windows[b].z));
-    for &i in &draw_order {
+    for (rank, &i) in draw_order.iter().enumerate() {
         // Resize the app's surface to the content rect's native resolution so the
         // composite is 1:1 (no stretch). Only on change.
         let content_w = windows[i].w.max(1.0) as u32;
@@ -421,18 +432,42 @@ where
         }
         let win = &windows[i];
 
-        // Window backdrop.
+        // Per-window layers, z-ranked so a higher window's content/chrome always
+        // sits above a lower window's. Content (backdrop + surface) below; chrome
+        // (titlebar/title/close/resize/border) one z above so it draws on top of
+        // the composited surface rather than behind it.
+        let content_layer = win_content_layer(win.surface_id);
+        let chrome_layer = win_chrome_layer(win.surface_id);
+        let base_z = WIN_Z_BASE + (rank as i32) * 2;
+        let _ = g.reducers.set_layer_z(content_layer.clone(), base_z);
+        let _ = g.reducers.set_layer_z(chrome_layer.clone(), base_z + 1);
+
+        // Window backdrop (content layer, below the app surface).
         let _ = g.reducers.draw_rect(
-            DESKTOP_LAYER.to_string(),
+            content_layer.clone(),
             Rect { x: win.x, y: win.y, w: win.w, h: win.h },
             Color { r: 0.15, g: 0.16, b: 0.20, a: 1.0 },
             true,
             0.0,
             Some(8.0),
         );
-        // Titlebar.
+        // Composite the app's offscreen surface into the content area.
+        let content = Rect {
+            x: win.x,
+            y: win.y + TITLEBAR_H,
+            w: win.w,
+            h: win.h - TITLEBAR_H,
+        };
+        let _ = g.reducers.draw_surface(
+            content_layer,
+            win.surface_id,
+            content,
+            Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 },
+        );
+
+        // Titlebar (chrome layer, above the surface).
         let _ = g.reducers.draw_rect(
-            DESKTOP_LAYER.to_string(),
+            chrome_layer.clone(),
             Rect { x: win.x, y: win.y, w: win.w, h: TITLEBAR_H },
             Color { r: 0.22, g: 0.24, b: 0.32, a: 1.0 },
             true,
@@ -441,7 +476,7 @@ where
         );
         // Title text.
         let _ = g.reducers.draw_text(
-            DESKTOP_LAYER.to_string(),
+            chrome_layer.clone(),
             win.title.clone(),
             Vec2 { x: win.x + 12.0, y: win.y + 8.0 },
             15.0,
@@ -450,7 +485,7 @@ where
         );
         // Close box.
         let _ = g.reducers.draw_rect(
-            DESKTOP_LAYER.to_string(),
+            chrome_layer.clone(),
             Rect {
                 x: win.x + win.w - TITLEBAR_H + 6.0,
                 y: win.y + 6.0,
@@ -462,22 +497,9 @@ where
             0.0,
             Some(4.0),
         );
-        // Composite the app's offscreen surface into the content area.
-        let content = Rect {
-            x: win.x,
-            y: win.y + TITLEBAR_H,
-            w: win.w,
-            h: win.h - TITLEBAR_H,
-        };
-        let _ = g.reducers.draw_surface(
-            DESKTOP_LAYER.to_string(),
-            win.surface_id,
-            content,
-            Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 },
-        );
         // Resize handle (bottom-right grip).
         let _ = g.reducers.draw_rect(
-            DESKTOP_LAYER.to_string(),
+            chrome_layer.clone(),
             Rect {
                 x: win.x + win.w - RESIZE_HANDLE,
                 y: win.y + win.h - RESIZE_HANDLE,
@@ -491,7 +513,7 @@ where
         );
         // Border on top.
         let _ = g.reducers.draw_rect(
-            DESKTOP_LAYER.to_string(),
+            chrome_layer,
             Rect { x: win.x, y: win.y, w: win.w, h: win.h },
             Color { r: 0.35, g: 0.38, b: 0.48, a: 1.0 },
             false,
@@ -634,11 +656,20 @@ pub fn unload(ctx: ReducerContext) {
     ctx.log("desktop: unloading open apps via module_manager");
     let mm = ctx.module_manager();
     let _ = mm.reducers.unload_app(APP_UI_EXAMPLE.to_string());
+    let _ = mm.reducers.unload_app(APP_AGAR_CLIENT.to_string());
 }
 
 /// Texture `local_id` convention for an app's launcher icon.
 fn icon_texture_id(app_name: &str) -> String {
     format!("icon_{app_name}")
+}
+
+/// Per-window layer names (content below, chrome above). See [`WIN_Z_BASE`].
+fn win_content_layer(id: u32) -> String {
+    format!("win_content_{id}")
+}
+fn win_chrome_layer(id: u32) -> String {
+    format!("win_chrome_{id}")
 }
 
 /// Returns the installed apps in a stable order (by id) for the launcher grid.
@@ -685,9 +716,39 @@ fn in_rect(px: f32, py: f32, x: f32, y: f32, w: f32, h: f32) -> bool {
     px >= x && px <= x + w && py >= y && py <= y + h
 }
 
-/// Builds the bundled app's icon as raw RGBA8 (`ICON_PX`×`ICON_PX`, 4 bytes/px):
-/// a vertical gradient with a soft white disc in the middle.
-fn make_icon() -> Vec<u8> {
+/// Registers an app with the module manager (without loading it) and uploads its
+/// launcher icon as a texture under the `icon_<name>` convention. Cross-module
+/// reducer calls (`register_app`, `create_texture`) need no table capabilities.
+fn register_app_with_icon<Caps>(ctx: &ReducerContext<Caps>, name: &str, bytes: &[u8], icon: Vec<u8>) {
+    let _ = ctx.module_manager().reducers.register_app(
+        name.to_string(),
+        bytes.to_vec(),
+        Some(icon.clone()),
+    );
+    let _ = ctx.graphics().reducers.create_texture(
+        icon_texture_id(name),
+        TextureDescriptorInput {
+            width: ICON_PX,
+            height: ICON_PX,
+            format: "rgba8unorm".to_string(),
+            mip_levels: 1,
+            sample_count: 1,
+            usage: TextureUsageFlags {
+                copy_src: false,
+                copy_dst: true,
+                texture_binding: true,
+                storage_binding: false,
+                render_attachment: false,
+            },
+        },
+        icon,
+    );
+}
+
+/// Builds an app icon as raw RGBA8 (`ICON_PX`×`ICON_PX`, 4 bytes/px): a vertical
+/// gradient from `base` (top) brightening downward, with a soft white disc in the
+/// middle. `base` is the per-app accent colour so tiles are distinguishable.
+fn make_icon(base: (f32, f32, f32)) -> Vec<u8> {
     let n = ICON_PX as usize;
     let mut data = vec![0u8; n * n * 4];
     let c = (n as f32 - 1.0) / 2.0;
@@ -695,9 +756,9 @@ fn make_icon() -> Vec<u8> {
         for x in 0..n {
             let idx = (y * n + x) * 4;
             let t = y as f32 / n as f32;
-            let mut r = (60.0 + 40.0 * t) as u8;
-            let mut gg = (70.0 + 60.0 * t) as u8;
-            let mut b = (160.0 + 60.0 * t) as u8;
+            let mut r = (base.0 + 40.0 * t) as u8;
+            let mut gg = (base.1 + 60.0 * t) as u8;
+            let mut b = (base.2 + 60.0 * t) as u8;
             let dx = x as f32 - c;
             let dy = y as f32 - c;
             let d = (dx * dx + dy * dy).sqrt();
