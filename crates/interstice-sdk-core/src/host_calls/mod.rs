@@ -3,6 +3,7 @@ mod core;
 mod file;
 mod gpu;
 mod module;
+mod network;
 
 pub use audio::*;
 pub use core::*;
@@ -10,6 +11,7 @@ pub use file::*;
 pub use gpu::*;
 use interstice_abi::{HostCall, decode, encode, unpack_ptr_len};
 pub use module::*;
+pub use network::*;
 use serde::Deserialize;
 
 // 1. Only import the real WebAssembly module when compiling for WASM

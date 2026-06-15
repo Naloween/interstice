@@ -262,6 +262,67 @@ impl Runtime {
                 let runtime = caller.data().runtime.clone();
                 self.handle_module_call(module_call, memory, caller, caller_module_schema, runtime)
             }
+            HostCall::Network(network_call) => {
+                let network_auth_module = {
+                    let auth_modules = self.authority_modules.lock();
+                    auth_modules
+                        .get(&Authority::Network)
+                        .map(|entry| entry.module_name().to_string())
+                };
+
+                // The caller is decoding a response type specific to the call variant, so on
+                // the rejection paths we must reply with the matching `*Response::Err`.
+                let rejection = match &network_auth_module {
+                    None => Some("No Network authority module".to_string()),
+                    Some(module_name) if *module_name != caller_module_schema.name => {
+                        Some(IntersticeError::Unauthorized(Authority::Network).to_string())
+                    }
+                    Some(_) => None,
+                };
+
+                if let Some(err) = rejection {
+                    let result = match &network_call {
+                        interstice_abi::NetworkCall::TcpConnect(_) => self.send_data_to_module(
+                            interstice_abi::TcpConnectResponse::Err(err),
+                            memory,
+                            caller,
+                        ),
+                        interstice_abi::NetworkCall::TcpListen(_) => self.send_data_to_module(
+                            interstice_abi::TcpListenResponse::Err(err),
+                            memory,
+                            caller,
+                        ),
+                        interstice_abi::NetworkCall::TcpSend(_) => self.send_data_to_module(
+                            interstice_abi::TcpSendResponse::Err(err),
+                            memory,
+                            caller,
+                        ),
+                        interstice_abi::NetworkCall::TcpClose(_) => self.send_data_to_module(
+                            interstice_abi::TcpCloseResponse::Err(err),
+                            memory,
+                            caller,
+                        ),
+                        interstice_abi::NetworkCall::UdpBind(_) => self.send_data_to_module(
+                            interstice_abi::UdpBindResponse::Err(err),
+                            memory,
+                            caller,
+                        ),
+                        interstice_abi::NetworkCall::UdpSendTo(_) => self.send_data_to_module(
+                            interstice_abi::UdpSendToResponse::Err(err),
+                            memory,
+                            caller,
+                        ),
+                        interstice_abi::NetworkCall::UdpClose(_) => self.send_data_to_module(
+                            interstice_abi::UdpCloseResponse::Err(err),
+                            memory,
+                            caller,
+                        ),
+                    };
+                    return Ok(Some(result));
+                }
+
+                self.handle_network_call(network_call, memory, caller)
+            }
         };
     }
 

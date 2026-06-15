@@ -8,6 +8,7 @@ pub enum Authority {
     Input,
     File,
     Module,
+    Network,
 }
 
 impl Into<String> for Authority {
@@ -18,6 +19,7 @@ impl Into<String> for Authority {
             Authority::Input => "Input".into(),
             Authority::File => "File".into(),
             Authority::Module => "Module".into(),
+            Authority::Network => "Network".into(),
         }
     }
 }
@@ -32,6 +34,7 @@ impl TryInto<Authority> for String {
             "Input" => Ok(Authority::Input),
             "File" => Ok(Authority::File),
             "Module" => Ok(Authority::Module),
+            "Network" => Ok(Authority::Network),
             _ => Err(IntersticeAbiError::ConversionError(
                 "Couldn't convert String to Authority".into(),
             )),

@@ -3,12 +3,14 @@ mod file;
 mod gpu;
 mod input;
 mod module;
+mod network;
 
 pub use audio::*;
 pub use file::*;
 pub use gpu::*;
 pub use input::*;
 pub use module::*;
+pub use network::*;
 
 use crate::{IndexKey, IntersticeValue, Row};
 use serde::{Deserialize, Serialize};
@@ -25,6 +27,7 @@ pub enum HostCall {
     Audio(AudioCall),
     File(FileCall),
     Module(ModuleCall),
+    Network(NetworkCall),
     CurrentNodeId,
 }
 

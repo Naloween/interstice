@@ -19,6 +19,10 @@ pub enum AuthorityEntry {
     Module {
         module_name: String,
     },
+    Network {
+        module_name: String,
+        on_event_reducer: Option<String>,
+    },
 }
 
 impl AuthorityEntry {
@@ -28,7 +32,8 @@ impl AuthorityEntry {
             | AuthorityEntry::Audio { module_name, .. }
             | AuthorityEntry::Input { module_name, .. }
             | AuthorityEntry::File { module_name }
-            | AuthorityEntry::Module { module_name } => module_name,
+            | AuthorityEntry::Module { module_name }
+            | AuthorityEntry::Network { module_name, .. } => module_name,
         }
     }
 }

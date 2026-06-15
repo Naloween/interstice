@@ -337,6 +337,16 @@ pub fn get_register_subscription_function(
                                             }
                                         );
                                 },
+                                "network" => {
+                                    return Some(
+                                            quote! {
+                                                interstice_sdk::SubscriptionSchema {
+                                                    reducer_name: stringify!(#reducer_ident).to_string(),
+                                                    event: interstice_sdk::SubscriptionEventSchema::Network
+                                                }
+                                            }
+                                        );
+                                },
                                 "module_load" => {
                                     return Some(
                                             quote! {

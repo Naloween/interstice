@@ -29,6 +29,7 @@ pub enum SubscriptionEventSchema {
     AudioOutput,
     AudioInput,
     Render,
+    Network,
     File {
         path: String,
         recursive: bool,

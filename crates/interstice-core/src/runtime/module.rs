@@ -297,6 +297,14 @@ impl Runtime {
                     },
                     Authority::File => AuthorityEntry::File { module_name },
                     Authority::Module => AuthorityEntry::Module { module_name },
+                    Authority::Network => AuthorityEntry::Network {
+                        module_name,
+                        on_event_reducer: module_schema
+                            .subscriptions
+                            .iter()
+                            .find(|sub| sub.event == SubscriptionEventSchema::Network)
+                            .map(|sub| sub.reducer_name.clone()),
+                    },
                 };
                 runtime
                     .authority_modules

@@ -428,8 +428,9 @@ There is no manual way to load a module onto an already running node. See the CL
 
 ## Example command
 
-- `interstice example <hello|caller|graphics|audio|agar-server|agar-client|benchmark>`
-- Built-in ports are fixed by example name: `hello=8080`, `caller=8081`, `graphics=8082`, `audio=8083`, `agar-server=8080`, `agar-client=8084`, `benchmark=8085`.
+- `interstice example <hello|caller|graphics|audio|agar-server|agar-client|ui|desktop|benchmark-workload|http-get>`
+- Built-in ports are fixed by example name: `hello=8080`, `caller=8081`, `graphics=8082`, `audio=8083`, `agar-server=8086`, `agar-client=8084`, `ui=8088`, `desktop=8089`, `benchmark-workload=8087`, `http-get=8090`.
+- `http-get` demonstrates the `Network` authority: it opens a raw TCP socket to a hard-coded IP and performs a plain HTTP/1.1 GET over port 80, assembling the response into a table (see [modules/examples/http-get](modules/examples/http-get)).
 - Running the same example command multiple times recreates the example node (removes existing data and registry entry, then creates the node afresh with the example modules).
 - **Important**: Stop any running example instance (Ctrl+C) before running the command again to avoid conflicts.
 

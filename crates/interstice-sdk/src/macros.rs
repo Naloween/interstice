@@ -182,6 +182,11 @@ macro_rules! interstice_module {
     (@impl_authority Input) => {
     };
 
+    // Network is used through free host functions (tcp_connect, tcp_send, …),
+    // so it needs no ctx extension trait — same shape as Input.
+    (@impl_authority Network) => {
+    };
+
     (@impl_authority Audio) => {
         pub trait AudioExt {
             fn audio(&self) -> Audio;

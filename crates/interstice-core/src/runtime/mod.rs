@@ -23,6 +23,7 @@ use crate::{
         host_calls::{
             audio::AudioState,
             gpu::{GpuCallRequest, GpuState},
+            network::NetworkState,
         },
         module::Module,
         reducer::{ACTIVE_COMPLETION, CompletionToken, ReducerJob},
@@ -78,6 +79,7 @@ pub struct Runtime {
     pub(crate) replica_bindings: Arc<Mutex<Vec<ReplicaBinding>>>,
     pub(crate) emitted_replica_sync_events: Arc<Mutex<HashSet<String>>>,
     pub(crate) file_watchers: Arc<Mutex<Vec<RecommendedWatcher>>>,
+    pub(crate) network_state: Arc<NetworkState>,
     pub(crate) call_sequence: AtomicU64,
     pub(crate) active_subscription_count: AtomicI32,
     pub(crate) timer_tx: tokio::sync::mpsc::UnboundedSender<(std::time::Instant, String, String)>,
@@ -150,6 +152,7 @@ impl Runtime {
             emitted_replica_sync_events: Arc::new(Mutex::new(HashSet::new())),
             logger,
             file_watchers: Arc::new(Mutex::new(Vec::new())),
+            network_state: Arc::new(NetworkState::new()),
             call_sequence: AtomicU64::new(0),
             active_subscription_count: AtomicI32::new(0),
             timer_tx,

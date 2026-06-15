@@ -5,7 +5,8 @@ use crate::{
     runtime::{Runtime, authority::AuthorityEntry},
 };
 use interstice_abi::{
-    Authority, FileEvent, InputEvent, IntersticeValue, ModuleEvent, Row, SubscriptionEventSchema,
+    Authority, FileEvent, InputEvent, IntersticeValue, ModuleEvent, NetworkEvent, Row,
+    SubscriptionEventSchema,
 };
 
 #[derive(Debug, Clone)]
@@ -48,6 +49,7 @@ pub enum EventInstance {
     },
     File(FileEvent),
     Module(ModuleEvent),
+    Network(NetworkEvent),
     RequestAppInitialization,
     AppInitialized,
     RequestSubscription {
@@ -211,6 +213,13 @@ impl EventInstance {
                     return false;
                 }
             }
+            EventInstance::Network(_network_event) => {
+                if let SubscriptionEventSchema::Network = event_schema {
+                    return true;
+                } else {
+                    return false;
+                }
+            }
             EventInstance::AudioInput { .. } => {
                 if let SubscriptionEventSchema::AudioInput = event_schema {
                     return true;
@@ -313,6 +322,21 @@ impl Runtime {
                     reducer: on_input_reducer_name,
                 });
             }
+        } else if let EventInstance::Network(_) = event {
+            if let Some(AuthorityEntry::Network {
+                module_name,
+                on_event_reducer: Some(on_network_reducer_name),
+            }) = self
+                .authority_modules
+                .lock()
+                .get(&Authority::Network)
+                .cloned()
+            {
+                out.push(SubscriptionTarget::Local {
+                    module: module_name,
+                    reducer: on_network_reducer_name,
+                });
+            }
         } else if let EventInstance::AudioOutput = event {
             if let Some(AuthorityEntry::Audio {
                 module_name,
@@ -321,7 +345,7 @@ impl Runtime {
             }) = self
                 .authority_modules
                 .lock()
-                
+
                 .get(&Authority::Audio)
                 .cloned()
             {
@@ -430,6 +454,9 @@ impl Runtime {
                     EventInstance::File(file_event) => {
                         IntersticeValue::Vec(vec![file_event.into()])
                     }
+                    EventInstance::Network(network_event) => {
+                        IntersticeValue::Vec(vec![network_event.into()])
+                    }
                     EventInstance::Module(module_event) => {
                         IntersticeValue::Vec(vec![module_event.into()])
                     }
@@ -491,6 +518,7 @@ impl Runtime {
                     }),
                     EventInstance::File(_)
                     | EventInstance::Input(_)
+                    | EventInstance::Network(_)
                     | EventInstance::Module(_)
                     | EventInstance::NodeConnect { .. }
                     | EventInstance::NodeDisconnect { .. } => {
