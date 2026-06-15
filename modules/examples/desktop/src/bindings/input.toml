@@ -70,17 +70,6 @@ field_type = "String"
 name = "id"
 field_type = "U32"
 
-[type_definitions.TextInputBuffer.Struct]
-name = "TextInputBuffer"
-
-[[type_definitions.TextInputBuffer.Struct.fields]]
-name = "id"
-field_type = "U32"
-
-[[type_definitions.TextInputBuffer.Struct.fields]]
-name = "character"
-field_type = "String"
-
 [type_definitions.KeyState.Struct]
 name = "KeyState"
 
@@ -110,3 +99,14 @@ name = "wheel_delta"
 
 [type_definitions.MouseState.Struct.fields.field_type]
 Tuple = ["F32", "F32"]
+
+[type_definitions.TextInputBuffer.Struct]
+name = "TextInputBuffer"
+
+[[type_definitions.TextInputBuffer.Struct.fields]]
+name = "id"
+field_type = "U32"
+
+[[type_definitions.TextInputBuffer.Struct.fields]]
+name = "character"
+field_type = "String"

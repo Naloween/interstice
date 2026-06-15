@@ -2,12 +2,13 @@ use crate::bindings::agar_server_example::agar_server::{
     DeadPlayer, Food, HasDeadPlayerHandle, HasFoodHandle, HasPlayerHandle, Player,
 };
 use crate::bindings::graphics::{Color, Vec2};
-use crate::bindings::{agar_server_example::*, graphics::*, input::*, ui::*, *};
+use crate::bindings::{agar_server_example::*, graphics::*, input::*, *};
 use crate::death::{handle_dead_input, show_dead_screen};
 use crate::hud::update_hud;
 use crate::input::handle_ingame_input;
 use crate::lobby::handle_lobby_input;
 use crate::tables::*;
+use crate::ui::{self, UiElement};
 use interstice_sdk::*;
 
 // ── Layers ────────────────────────────────────────────────────────────────────
@@ -31,12 +32,12 @@ where
     Caps: CanInsert<ClientState>,
 {
     // Layers above z=0: the graphics "default" layer (z=0, clear) clears the canvas
-    // first, then our layers composite on top. The mouse cursor is drawn by the
-    // ui module on its own top layer (z=200), so we don't draw one here.
+    // first, then our layers composite on top.
     let g = ctx.graphics();
     let _ = g.reducers.create_layer(LAYER_BG.to_string(), 1, false);
     let _ = g.reducers.create_layer(LAYER_WORLD.to_string(), 2, false);
     let _ = g.reducers.create_layer(LAYER_NAMES.to_string(), 3, false);
+    // The UI layer (z=100) is created by `ui::install` in `init`.
 
     // Initialise client state.
     let _ = ctx.current.tables.clientstate().insert(ClientState {
@@ -59,7 +60,13 @@ where
         + CanRead<Food>
         + CanRead<DeadPlayer>
         + CanRead<SurfaceInfo>
-        + CanRead<UiElement>,
+        + CanRead<UiElement>
+        + CanInsert<UiElement>
+        + CanUpdate<UiElement>
+        + CanDelete<UiElement>
+        + CanRead<ui::InputFocus>
+        + CanInsert<ui::InputFocus>
+        + CanUpdate<ui::InputFocus>,
 {
     let Some(mut cs) = ctx.current.tables.clientstate().get(0) else {
         return;
@@ -95,8 +102,8 @@ where
                     .unwrap_or(0.0);
                 cs.final_score = my_radius;
                 cs.state = GameState::Dead;
-                let _ = ctx.ui().reducers.clear_focus();
-                let _ = ctx.ui().reducers.clear_elements();
+                ui::clear_focus(&ctx);
+                ui::clear_elements(&ctx);
                 show_dead_screen(&ctx, cs.final_score);
                 let _ = ctx.current.tables.clientstate().update(cs);
                 return;
@@ -110,7 +117,8 @@ where
         }
     }
 
-    // The mouse cursor is drawn by the ui module on its own top layer (z=200).
+    // Lay out + draw our UI tree (lobby / HUD / death) into our own layer/surface.
+    ui::render(&ctx);
 
     let _ = ctx.current.tables.clientstate().update(cs);
 }

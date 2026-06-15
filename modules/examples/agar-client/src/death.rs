@@ -1,4 +1,5 @@
-use crate::{bindings::input::*, bindings::ui::*, lobby::build_lobby_ui, tables::*};
+use crate::ui::{self, LayoutDirection, Size, TextWrap, UiElement};
+use crate::{bindings::input::*, lobby::build_lobby_ui, tables::*};
 use interstice_sdk::{key_code::KeyCode, *};
 
 const UI_DEAD_ROOT: &str = "dead_root";
@@ -7,8 +8,10 @@ const UI_DEAD_MSG: &str = "dead_msg";
 const UI_DEAD_SCORE: &str = "dead_score";
 const UI_DEAD_BTN: &str = "dead_play_btn";
 
-pub fn show_dead_screen<Caps>(ctx: &ReducerContext<Caps>, final_score: f32) {
-    let ui = ctx.ui();
+pub fn show_dead_screen<Caps>(ctx: &ReducerContext<Caps>, final_score: f32)
+where
+    Caps: CanInsert<UiElement>,
+{
     let none = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
     let text_col = (0.92f32, 0.92f32, 0.95f32, 1.0f32);
     let card_bg = (0.14f32, 0.14f32, 0.18f32, 1.0f32);
@@ -27,7 +30,7 @@ pub fn show_dead_screen<Caps>(ctx: &ReducerContext<Caps>, final_score: f32) {
               text: Option<String>,
               ts: f32,
               tc: (f32, f32, f32, f32)| {
-        let _ = ui.reducers.create_element(UiElement {
+        ui::create_element(ctx, UiElement {
             id: id.into(),
             parent: parent.map(|s| s.into()),
             order,
@@ -138,15 +141,21 @@ pub fn show_dead_screen<Caps>(ctx: &ReducerContext<Caps>, final_score: f32) {
 
 pub fn handle_dead_input<Caps>(ctx: &ReducerContext<Caps>, cs: &mut ClientState)
 where
-    Caps: CanRead<KeyState> + CanRead<ClientState>,
+    Caps: CanRead<KeyState>
+        + CanRead<ClientState>
+        + CanInsert<UiElement>
+        + CanRead<UiElement>
+        + CanDelete<UiElement>
+        + CanInsert<ui::InputFocus>
+        + CanUpdate<ui::InputFocus>,
 {
     let key_states = ctx.input().tables.keystate().scan();
     let enter = key_states.iter().any(|k| {
         k.pressed && (k.code == KeyCode::Enter as u32 || k.code == KeyCode::NumpadEnter as u32)
     });
     if enter {
-        let _ = ctx.ui().reducers.clear_focus();
-        let _ = ctx.ui().reducers.clear_elements();
+        ui::clear_focus(ctx);
+        ui::clear_elements(ctx);
         build_lobby_ui(ctx);
         cs.state = GameState::Lobby;
     }

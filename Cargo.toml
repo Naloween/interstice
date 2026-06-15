@@ -8,3 +8,4 @@ interstice-abi-macros = { path = "crates/interstice-abi-macros" }
 interstice-sdk = { path = "crates/interstice-sdk" }
 interstice-sdk-core = { path = "crates/interstice-sdk-core" }
 interstice-sdk-macros = { path = "crates/interstice-sdk-macros" }
+interstice-ui = { path = "crates/interstice-ui" }

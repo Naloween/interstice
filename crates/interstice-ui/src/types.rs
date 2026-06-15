@@ -1,9 +1,33 @@
-use crate::types::*;
 use interstice_sdk::*;
 
-#[table(public)]
+#[interstice_type]
+#[derive(Debug, PartialEq)]
+pub enum LayoutDirection {
+    Row,
+    Column,
+}
+
+#[interstice_type]
+#[derive(Debug, PartialEq)]
+pub enum Size {
+    Fixed(f32),
+    Grow,
+    Fit,
+}
+
+#[interstice_type]
+#[derive(Debug, PartialEq)]
+pub enum TextWrap {
+    None,
+    Words,
+    Newlines,
+}
+
+/// The canonical UI element used by the layout and draw engine. Each consuming
+/// module declares its own `#[table]` row with the identical field set (emitted
+/// by [`crate::ui_subsystem`]) and converts into this type before laying out.
+#[derive(Clone)]
 pub struct UiElement {
-    #[primary_key]
     pub id: String,
     pub parent: Option<String>,
     pub order: u32,
@@ -21,29 +45,11 @@ pub struct UiElement {
     pub text_size: f32,
     pub text_color: (f32, f32, f32, f32),
     pub text_wrap: TextWrap,
-    // Text input
     pub is_input: bool,
     pub cursor_pos: u32,
-    // Scroll
     pub scrollable_x: bool,
     pub scrollable_y: bool,
     pub scroll_x: f32,
     pub scroll_y: f32,
     pub visible: bool,
-}
-
-/// Which element currently has keyboard focus.
-#[table(ephemeral)]
-pub struct InputFocus {
-    #[primary_key]
-    pub id: u32,
-    pub focused_element: Option<String>,
-}
-
-/// Persistent bookkeeping to detect new input events each frame.
-#[table]
-pub struct UiInputState {
-    #[primary_key]
-    pub id: u32,
-    pub last_input_generation: u64,
 }

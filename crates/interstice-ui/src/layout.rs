@@ -1,7 +1,5 @@
-use crate::tables::*;
 use crate::text::*;
 use crate::types::*;
-use interstice_sdk::*;
 
 type ClipRect = (f32, f32, f32, f32);
 
@@ -328,23 +326,4 @@ pub fn find_scrollable_at<'a>(
             best,
         );
     }
-}
-
-pub fn delete_recursive<Caps>(ctx: &ReducerContext<Caps>, id: &str)
-where
-    Caps: CanRead<UiElement> + CanDelete<UiElement>,
-{
-    let children: Vec<String> = ctx
-        .current
-        .tables
-        .uielement()
-        .scan()
-        .into_iter()
-        .filter(|e| e.parent.as_deref() == Some(id))
-        .map(|e| e.id)
-        .collect();
-    for child_id in children {
-        delete_recursive(ctx, &child_id);
-    }
-    let _ = ctx.current.tables.uielement().delete(id.to_string());
 }

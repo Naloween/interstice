@@ -1,9 +1,9 @@
 use crate::bindings::input::*;
-use crate::bindings::ui::*;
 use crate::bindings::{agar_server_example::*, *};
 use crate::hud::build_hud_ui;
 use crate::render::BASE_ZOOM;
 use crate::tables::*;
+use crate::ui::{self, HasUiElementEditHandle, LayoutDirection, Size, TextWrap, UiElement};
 use interstice_sdk::key_code::KeyCode;
 use interstice_sdk::*;
 
@@ -13,8 +13,10 @@ const UI_LOBBY_TITLE: &str = "lobby_title";
 const UI_LOBBY_INPUT: &str = "lobby_name_input";
 const UI_LOBBY_BTN: &str = "lobby_play_btn";
 
-pub fn build_lobby_ui<Caps>(ctx: &ReducerContext<Caps>) {
-    let ui = ctx.ui();
+pub fn build_lobby_ui<Caps>(ctx: &ReducerContext<Caps>)
+where
+    Caps: CanInsert<UiElement> + CanInsert<ui::InputFocus> + CanUpdate<ui::InputFocus>,
+{
     let none = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
     let text_col = (0.92f32, 0.92f32, 0.95f32, 1.0f32);
     let muted = (0.55f32, 0.55f32, 0.62f32, 1.0f32);
@@ -23,7 +25,7 @@ pub fn build_lobby_ui<Caps>(ctx: &ReducerContext<Caps>) {
     let btn_bg = (0.27f32, 0.47f32, 0.87f32, 1.0f32);
 
     let spacer = |id: &str, parent: &str, order: u32| {
-        let _ = ui.reducers.create_element(UiElement {
+        ui::create_element(ctx, UiElement {
             id: id.into(),
             parent: Some(parent.into()),
             order,
@@ -52,7 +54,7 @@ pub fn build_lobby_ui<Caps>(ctx: &ReducerContext<Caps>) {
     };
 
     // Full-screen dark root (Column — vertical centering via spacers).
-    let _ = ui.reducers.create_element(UiElement {
+    ui::create_element(ctx, UiElement {
         id: UI_LOBBY_ROOT.into(),
         parent: None,
         order: 0,
@@ -83,7 +85,7 @@ pub fn build_lobby_ui<Caps>(ctx: &ReducerContext<Caps>) {
     spacer("lobby_v_top", UI_LOBBY_ROOT, 0);
 
     // Center row — horizontal centering via spacers.
-    let _ = ui.reducers.create_element(UiElement {
+    ui::create_element(ctx, UiElement {
         id: "lobby_center_row".into(),
         parent: Some(UI_LOBBY_ROOT.into()),
         order: 1,
@@ -114,7 +116,7 @@ pub fn build_lobby_ui<Caps>(ctx: &ReducerContext<Caps>) {
     spacer("lobby_h_left", "lobby_center_row", 0);
 
     // Card itself.
-    let _ = ui.reducers.create_element(UiElement {
+    ui::create_element(ctx, UiElement {
         id: UI_LOBBY_CARD.into(),
         parent: Some("lobby_center_row".into()),
         order: 1,
@@ -148,7 +150,7 @@ pub fn build_lobby_ui<Caps>(ctx: &ReducerContext<Caps>) {
     spacer("lobby_v_bot", UI_LOBBY_ROOT, 2);
 
     // Card contents.
-    let _ = ui.reducers.create_element(UiElement {
+    ui::create_element(ctx, UiElement {
         id: UI_LOBBY_TITLE.into(),
         parent: Some(UI_LOBBY_CARD.into()),
         order: 0,
@@ -174,7 +176,7 @@ pub fn build_lobby_ui<Caps>(ctx: &ReducerContext<Caps>) {
         scroll_y: 0.0,
         visible: true,
     });
-    let _ = ui.reducers.create_element(UiElement {
+    ui::create_element(ctx, UiElement {
         id: "lobby_sub".into(),
         parent: Some(UI_LOBBY_CARD.into()),
         order: 1,
@@ -200,7 +202,7 @@ pub fn build_lobby_ui<Caps>(ctx: &ReducerContext<Caps>) {
         scroll_y: 0.0,
         visible: true,
     });
-    let _ = ui.reducers.create_element(UiElement {
+    ui::create_element(ctx, UiElement {
         id: UI_LOBBY_INPUT.into(),
         parent: Some(UI_LOBBY_CARD.into()),
         order: 2,
@@ -226,7 +228,7 @@ pub fn build_lobby_ui<Caps>(ctx: &ReducerContext<Caps>) {
         scroll_y: 0.0,
         visible: true,
     });
-    let _ = ui.reducers.create_element(UiElement {
+    ui::create_element(ctx, UiElement {
         id: UI_LOBBY_BTN.into(),
         parent: Some(UI_LOBBY_CARD.into()),
         order: 3,
@@ -253,12 +255,19 @@ pub fn build_lobby_ui<Caps>(ctx: &ReducerContext<Caps>) {
         visible: true,
     });
 
-    let _ = ui.reducers.set_focus(UI_LOBBY_INPUT.into());
+    ui::set_focus(ctx, UI_LOBBY_INPUT);
 }
 
 pub fn handle_lobby_input<Caps>(ctx: &ReducerContext<Caps>, cs: &mut ClientState, sw: f32, sh: f32)
 where
-    Caps: CanRead<ClientState> + CanUpdate<ClientState> + CanRead<KeyState> + CanRead<UiElement>,
+    Caps: CanRead<ClientState>
+        + CanUpdate<ClientState>
+        + CanRead<KeyState>
+        + CanRead<UiElement>
+        + CanInsert<UiElement>
+        + CanDelete<UiElement>
+        + CanInsert<ui::InputFocus>
+        + CanUpdate<ui::InputFocus>,
 {
     // Check Enter or NumpadEnter to submit.
     let key_states = ctx.input().tables.keystate().scan();
@@ -272,11 +281,17 @@ where
 
 fn start_game<Caps>(ctx: &ReducerContext<Caps>, cs: &mut ClientState, _sw: f32, _sh: f32)
 where
-    Caps: CanRead<ClientState> + CanUpdate<ClientState> + CanRead<UiElement>,
+    Caps: CanRead<ClientState>
+        + CanUpdate<ClientState>
+        + CanRead<UiElement>
+        + CanInsert<UiElement>
+        + CanDelete<UiElement>
+        + CanInsert<ui::InputFocus>
+        + CanUpdate<ui::InputFocus>,
 {
-    // Read the typed name directly from the UI input element (managed by the UI module).
+    // Read the typed name directly from our own UI input element.
     let name = ctx
-        .ui()
+        .current
         .tables
         .uielement()
         .get(UI_LOBBY_INPUT.to_string())
@@ -291,10 +306,10 @@ where
         return;
     }
 
-    // Clear focus BEFORE clearing elements so the UI module doesn't try to
+    // Clear focus BEFORE clearing elements so the render pass doesn't try to
     // update the focused (now-deleted) lobby input element on subsequent frames.
-    let _ = ctx.ui().reducers.clear_focus();
-    let _ = ctx.ui().reducers.clear_elements();
+    ui::clear_focus(ctx);
+    ui::clear_elements(ctx);
     build_hud_ui(ctx);
 
     cs.state = GameState::InGame;

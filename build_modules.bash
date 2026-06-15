@@ -3,7 +3,7 @@ set -e
 
 # Build default example modules in release mode and copy to CLI module_defaults folder
 
-MODULES=("graphics" "audio" "input" "module_manager" "ui")
+MODULES=("graphics" "audio" "input" "module_manager")
 TARGET_DIR="target/wasm32-unknown-unknown/release"
 DEST_DIR="crates/interstice-cli/module_defaults"
 

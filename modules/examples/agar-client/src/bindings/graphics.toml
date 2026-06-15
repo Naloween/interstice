@@ -1,7 +1,6 @@
 abi_version = 6
 name = "graphics"
 visibility = "Private"
-queries = []
 subscriptions = []
 authorities = ["Gpu"]
 module_dependencies = []
@@ -273,6 +272,41 @@ module_selection = "Current"
 table_name = "draw2dcommand"
 
 [[reducers]]
+name = "draw_surface"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "layer"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "surface_id"
+field_type = "U32"
+
+[[reducers.arguments]]
+name = "dest"
+
+[reducers.arguments.field_type]
+Named = "Rect"
+
+[[reducers.arguments]]
+name = "tint"
+
+[reducers.arguments.field_type]
+Named = "Color"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
+[[reducers]]
 name = "draw_polyline"
 updates = []
 deletes = []
@@ -509,6 +543,195 @@ module_selection = "Current"
 table_name = "bindgroupbinding"
 
 [[reducers]]
+name = "create_surface"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "id"
+field_type = "U32"
+
+[[reducers.arguments]]
+name = "width"
+field_type = "U32"
+
+[[reducers.arguments]]
+name = "height"
+field_type = "U32"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "compositor"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceinfo"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfacetarget"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceinfo"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfacetarget"
+
+[[reducers]]
+name = "resize_surface"
+inserts = []
+deletes = []
+
+[[reducers.arguments]]
+name = "id"
+field_type = "U32"
+
+[[reducers.arguments]]
+name = "width"
+field_type = "U32"
+
+[[reducers.arguments]]
+name = "height"
+field_type = "U32"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "compositor"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceinfo"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfacetarget"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceinfo"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfacetarget"
+
+[[reducers]]
+name = "destroy_surface"
+inserts = []
+
+[[reducers.arguments]]
+name = "id"
+field_type = "U32"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "compositor"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceinfo"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfacetarget"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceassignment"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceassignment"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceinfo"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfacetarget"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceassignment"
+
+[[reducers]]
+name = "claim_compositor"
+arguments = []
+updates = []
+deletes = []
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "compositor"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "compositor"
+
+[[reducers]]
+name = "assign_module_surface"
+
+[[reducers.arguments]]
+name = "module_name"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "surface_id"
+field_type = "U32"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "compositor"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfacetarget"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceassignment"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceassignment"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceassignment"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceassignment"
+
+[[reducers]]
 name = "set_layer_z"
 inserts = []
 deletes = []
@@ -610,6 +833,23 @@ node_selection = "Current"
 module_selection = "Current"
 table_name = "layer"
 
+[[queries]]
+name = "surface_info"
+arguments = []
+
+[queries.return_type]
+Named = "SurfaceInfo"
+
+[[queries.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceassignment"
+
+[[queries.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceinfo"
+
 [[tables]]
 name = "frametick"
 type_name = "FrameTick"
@@ -646,6 +886,21 @@ field_type = "U32"
 name = "id"
 field_type = "U32"
 
+[type_definitions.Vec3.Struct]
+name = "Vec3"
+
+[[type_definitions.Vec3.Struct.fields]]
+name = "x"
+field_type = "F32"
+
+[[type_definitions.Vec3.Struct.fields]]
+name = "y"
+field_type = "F32"
+
+[[type_definitions.Vec3.Struct.fields]]
+name = "z"
+field_type = "F32"
+
 [type_definitions.Color.Struct]
 name = "Color"
 
@@ -665,53 +920,6 @@ field_type = "F32"
 name = "a"
 field_type = "F32"
 
-[type_definitions.ComputeSubmission.Struct]
-name = "ComputeSubmission"
-
-[[type_definitions.ComputeSubmission.Struct.fields]]
-name = "debug_label"
-
-[type_definitions.ComputeSubmission.Struct.fields.field_type]
-Option = "String"
-
-[type_definitions.Vec3.Struct]
-name = "Vec3"
-
-[[type_definitions.Vec3.Struct.fields]]
-name = "x"
-field_type = "F32"
-
-[[type_definitions.Vec3.Struct.fields]]
-name = "y"
-field_type = "F32"
-
-[[type_definitions.Vec3.Struct.fields]]
-name = "z"
-field_type = "F32"
-
-[type_definitions.TextureUsageFlags.Struct]
-name = "TextureUsageFlags"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "copy_src"
-field_type = "Bool"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "copy_dst"
-field_type = "Bool"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "texture_binding"
-field_type = "Bool"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "storage_binding"
-field_type = "Bool"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "render_attachment"
-field_type = "Bool"
-
 [type_definitions.MeshDescriptor.Struct]
 name = "MeshDescriptor"
 
@@ -726,83 +934,6 @@ name = "indices"
 
 [type_definitions.MeshDescriptor.Struct.fields.field_type.Option]
 Vec = "U32"
-
-[type_definitions.Rect.Struct]
-name = "Rect"
-
-[[type_definitions.Rect.Struct.fields]]
-name = "x"
-field_type = "F32"
-
-[[type_definitions.Rect.Struct.fields]]
-name = "y"
-field_type = "F32"
-
-[[type_definitions.Rect.Struct.fields]]
-name = "w"
-field_type = "F32"
-
-[[type_definitions.Rect.Struct.fields]]
-name = "h"
-field_type = "F32"
-
-[type_definitions.MeshVertex.Struct]
-name = "MeshVertex"
-
-[[type_definitions.MeshVertex.Struct.fields]]
-name = "position"
-
-[type_definitions.MeshVertex.Struct.fields.field_type]
-Named = "Vec3"
-
-[[type_definitions.MeshVertex.Struct.fields]]
-name = "color"
-
-[type_definitions.MeshVertex.Struct.fields.field_type]
-Named = "Color"
-
-[[type_definitions.MeshVertex.Struct.fields]]
-name = "uv"
-
-[type_definitions.MeshVertex.Struct.fields.field_type]
-Named = "Vec2"
-
-[type_definitions.SurfaceInfo.Struct]
-name = "SurfaceInfo"
-
-[[type_definitions.SurfaceInfo.Struct.fields]]
-name = "id"
-field_type = "U32"
-
-[[type_definitions.SurfaceInfo.Struct.fields]]
-name = "width"
-field_type = "U32"
-
-[[type_definitions.SurfaceInfo.Struct.fields]]
-name = "height"
-field_type = "U32"
-
-[type_definitions.Vec2.Struct]
-name = "Vec2"
-
-[[type_definitions.Vec2.Struct.fields]]
-name = "x"
-field_type = "F32"
-
-[[type_definitions.Vec2.Struct.fields]]
-name = "y"
-field_type = "F32"
-
-[type_definitions.FrameTick.Struct]
-name = "FrameTick"
-
-[[type_definitions.FrameTick.Struct.fields]]
-name = "id"
-field_type = "U32"
-
-[[type_definitions.FrameTick.Struct.fields]]
-name = "frame"
-field_type = "U64"
 
 [type_definitions.TextureDescriptorInput.Struct]
 name = "TextureDescriptorInput"
@@ -833,6 +964,40 @@ name = "usage"
 [type_definitions.TextureDescriptorInput.Struct.fields.field_type]
 Named = "TextureUsageFlags"
 
+[type_definitions.TextureUsageFlags.Struct]
+name = "TextureUsageFlags"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "copy_src"
+field_type = "Bool"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "copy_dst"
+field_type = "Bool"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "texture_binding"
+field_type = "Bool"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "storage_binding"
+field_type = "Bool"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "render_attachment"
+field_type = "Bool"
+
+[type_definitions.FrameTick.Struct]
+name = "FrameTick"
+
+[[type_definitions.FrameTick.Struct.fields]]
+name = "id"
+field_type = "U32"
+
+[[type_definitions.FrameTick.Struct.fields]]
+name = "frame"
+field_type = "U64"
+
 [type_definitions.PipelineDescriptorInput.Struct]
 name = "PipelineDescriptorInput"
 
@@ -856,6 +1021,27 @@ name = "fragment_entry"
 [type_definitions.PipelineDescriptorInput.Struct.fields.field_type]
 Option = "String"
 
+[type_definitions.MeshVertex.Struct]
+name = "MeshVertex"
+
+[[type_definitions.MeshVertex.Struct.fields]]
+name = "position"
+
+[type_definitions.MeshVertex.Struct.fields.field_type]
+Named = "Vec3"
+
+[[type_definitions.MeshVertex.Struct.fields]]
+name = "color"
+
+[type_definitions.MeshVertex.Struct.fields.field_type]
+Named = "Color"
+
+[[type_definitions.MeshVertex.Struct.fields]]
+name = "uv"
+
+[type_definitions.MeshVertex.Struct.fields.field_type]
+Named = "Vec2"
+
 [type_definitions.BindGroupDescriptorInput.Struct]
 name = "BindGroupDescriptorInput"
 
@@ -876,4 +1062,58 @@ field_type = "String"
 name = "debug_label"
 
 [type_definitions.RenderPassSubmission.Struct.fields.field_type]
+Option = "String"
+
+[type_definitions.Rect.Struct]
+name = "Rect"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "x"
+field_type = "F32"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "y"
+field_type = "F32"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "w"
+field_type = "F32"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "h"
+field_type = "F32"
+
+[type_definitions.SurfaceInfo.Struct]
+name = "SurfaceInfo"
+
+[[type_definitions.SurfaceInfo.Struct.fields]]
+name = "id"
+field_type = "U32"
+
+[[type_definitions.SurfaceInfo.Struct.fields]]
+name = "width"
+field_type = "U32"
+
+[[type_definitions.SurfaceInfo.Struct.fields]]
+name = "height"
+field_type = "U32"
+
+[type_definitions.Vec2.Struct]
+name = "Vec2"
+
+[[type_definitions.Vec2.Struct.fields]]
+name = "x"
+field_type = "F32"
+
+[[type_definitions.Vec2.Struct.fields]]
+name = "y"
+field_type = "F32"
+
+[type_definitions.ComputeSubmission.Struct]
+name = "ComputeSubmission"
+
+[[type_definitions.ComputeSubmission.Struct.fields]]
+name = "debug_label"
+
+[type_definitions.ComputeSubmission.Struct.fields.field_type]
 Option = "String"

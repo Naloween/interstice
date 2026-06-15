@@ -440,6 +440,8 @@ There is no manual way to load a module onto an already running node. See the CL
 
 These commands fetch **public** schemas from the target node and write TOML files into `src/bindings/`.
 
+If the target node is a local node that is not currently running, the command **starts it automatically**, waits for it to become ready, fetches the schema, and shuts it back down — you do not need to `node start`/`node stop` yourself. (A GPU-holding module may log a `winit` event-loop panic on its render thread during this temporary headless start; that is harmless noise — the binding is still written.)
+
 ## Module commands
 
 - `interstice load <node> <module_path>`

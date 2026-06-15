@@ -37,10 +37,6 @@ const DEFAULT_INPUT_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/module_defaults/input.wasm"
 ));
-const DEFAULT_UI_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/module_defaults/ui.wasm"
-));
 const DEFAULT_MODULE_MANAGER_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/module_defaults/module_manager.wasm"
@@ -108,7 +104,6 @@ fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> 
             modules: vec![
                 ExampleModule { bytes: DEFAULT_INPUT_BYTES },
                 ExampleModule { bytes: DEFAULT_GRAPHICS_BYTES },
-                ExampleModule { bytes: DEFAULT_UI_BYTES },
                 ExampleModule { bytes: AGAR_CLIENT_BYTES },
             ],
         }),
@@ -123,7 +118,6 @@ fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> 
             modules: vec![
                 ExampleModule { bytes: DEFAULT_INPUT_BYTES },
                 ExampleModule { bytes: DEFAULT_GRAPHICS_BYTES },
-                ExampleModule { bytes: DEFAULT_UI_BYTES },
                 ExampleModule { bytes: UI_EXAMPLE_BYTES },
             ],
         }),
@@ -131,6 +125,12 @@ fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> 
             name: "desktop-example",
             port: 8089,
             modules: vec![
+                ExampleModule {
+                    bytes: DEFAULT_INPUT_BYTES,
+                },
+                ExampleModule {
+                    bytes: DEFAULT_GRAPHICS_BYTES,
+                },
                 ExampleModule {
                     bytes: DEFAULT_MODULE_MANAGER_BYTES,
                 },
