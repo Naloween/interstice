@@ -266,27 +266,29 @@ pub fn get_by_primary_key(
     table_name: &str,
     primary_key: IndexKey,
 ) -> Result<Option<Row>, String> {
-    match module_selection {
-        ModuleSelection::Current => {
-            let table_bytes = table_name.as_bytes();
-            let pk_buf = encode_scratch(&primary_key)?;
-            let (pk_ptr, pk_len) = pk_buf.ptr_len();
-            let written = unsafe {
-                let resp_ptr =
-                    std::ptr::addr_of_mut!(crate::host_calls::DIRECT_RESP_BUF) as *mut u8 as i32;
-                let resp_cap = 8192i32;
-                crate::host_calls::interstice_get_by_pk(
-                    table_bytes.as_ptr() as i32,
-                    table_bytes.len() as i32,
-                    pk_ptr,
-                    pk_len,
-                    resp_ptr,
-                    resp_cap,
-                )
-            };
-            if written < 0 {
-                return Err("get_by_pk: response buffer too small".into());
-            }
+    // Fast path for the current module: write straight into the fixed direct
+    // buffer to avoid an allocation. If the row doesn't fit, fall through to the
+    // general host-call path below, which is dynamically sized.
+    if let ModuleSelection::Current = module_selection {
+        let table_bytes = table_name.as_bytes();
+        let pk_buf = encode_scratch(&primary_key)?;
+        let (pk_ptr, pk_len) = pk_buf.ptr_len();
+        let written = unsafe {
+            let resp_ptr =
+                std::ptr::addr_of_mut!(crate::host_calls::DIRECT_RESP_BUF) as *mut u8 as i32;
+            let resp_cap = crate::host_calls::DIRECT_RESP_BUF_CAP as i32;
+            crate::host_calls::interstice_get_by_pk(
+                table_bytes.as_ptr() as i32,
+                table_bytes.len() as i32,
+                pk_ptr,
+                pk_len,
+                resp_ptr,
+                resp_cap,
+            )
+        };
+        // `written < 0` means the row was larger than the direct buffer; rather
+        // than failing, retry through the general (allocating) path below.
+        if written >= 0 {
             let resp: TableGetByPrimaryKeyResponse = unsafe {
                 let buf = std::slice::from_raw_parts(
                     std::ptr::addr_of!(crate::host_calls::DIRECT_RESP_BUF) as *const u8,
@@ -294,24 +296,23 @@ pub fn get_by_primary_key(
                 );
                 decode(buf).map_err(|e| e.to_string())?
             };
-            match resp {
+            return match resp {
                 TableGetByPrimaryKeyResponse::Ok(row) => Ok(row),
                 TableGetByPrimaryKeyResponse::Err(err) => Err(err),
-            }
+            };
         }
-        other => {
-            let call = HostCall::TableGetByPrimaryKey(TableGetByPrimaryKeyRequest {
-                module_selection: other,
-                table_name: table_name.to_string(),
-                primary_key,
-            });
-            let pack = host_call(call);
-            let response: TableGetByPrimaryKeyResponse = unpack(pack);
-            match response {
-                TableGetByPrimaryKeyResponse::Ok(row) => Ok(row),
-                TableGetByPrimaryKeyResponse::Err(err) => Err(err),
-            }
-        }
+    }
+
+    let call = HostCall::TableGetByPrimaryKey(TableGetByPrimaryKeyRequest {
+        module_selection,
+        table_name: table_name.to_string(),
+        primary_key,
+    });
+    let pack = host_call(call);
+    let response: TableGetByPrimaryKeyResponse = unpack(pack);
+    match response {
+        TableGetByPrimaryKeyResponse::Ok(row) => Ok(row),
+        TableGetByPrimaryKeyResponse::Err(err) => Err(err),
     }
 }
 

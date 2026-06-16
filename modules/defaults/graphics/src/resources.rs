@@ -214,8 +214,8 @@ fn allocate_texture<Caps>(
     })?;
 
     if !bytes.is_empty() {
-        let expected_len =
-            (desc.width as usize) * (desc.height as usize) * bytes_per_pixel(format) as usize;
+        let bpp = bytes_per_pixel(format);
+        let expected_len = (desc.width as usize) * (desc.height as usize) * bpp as usize;
         if bytes.len() != expected_len {
             return Err(format!(
                 "Texture data size mismatch (expected {} bytes, got {})",
@@ -223,20 +223,42 @@ fn allocate_texture<Caps>(
                 bytes.len()
             ));
         }
+
+        // wgpu requires the buffer's `bytes_per_row` to be a multiple of
+        // COPY_BYTES_PER_ROW_ALIGNMENT (256). The caller's pixels are tightly
+        // packed, so pad each row up to that alignment in the staging buffer when
+        // needed (e.g. a 20px-wide RGBA image has an 80-byte row).
+        const ALIGN: u32 = 256;
+        let unpadded_row = desc.width * bpp;
+        let padded_row = unpadded_row.div_ceil(ALIGN) * ALIGN;
+
+        let staged: Vec<u8> = if padded_row == unpadded_row {
+            bytes.to_vec()
+        } else {
+            let urow = unpadded_row as usize;
+            let prow = padded_row as usize;
+            let mut buf = vec![0u8; prow * desc.height as usize];
+            for y in 0..desc.height as usize {
+                let src = &bytes[y * urow..y * urow + urow];
+                buf[y * prow..y * prow + urow].copy_from_slice(src);
+            }
+            buf
+        };
+
         // Queue writes (`write_buffer`) require COPY_DST on the destination buffer,
         // and the texture upload uses it as the copy source — so it needs both.
         let staging = gpu.create_buffer(
-            bytes.len() as u64,
+            staged.len() as u64,
             BufferUsage::COPY_SRC | BufferUsage::COPY_DST,
             false,
         )?;
-        gpu.write_buffer(staging, 0, bytes.to_vec())?;
+        gpu.write_buffer(staging, 0, staged)?;
         let encoder = gpu.create_command_encoder()?;
         gpu.copy_buffer_to_texture(CopyBufferToTexture {
             encoder,
             src_buffer: staging,
             src_offset: 0,
-            bytes_per_row: desc.width * bytes_per_pixel(format),
+            bytes_per_row: padded_row,
             rows_per_image: desc.height,
             dst_texture: texture,
             mip_level: 0,

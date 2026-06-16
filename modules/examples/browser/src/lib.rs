@@ -31,8 +31,6 @@ use crate::ui::*;
 /// Our schema name — the broker stamps `HttpResponse.owner` with the caller, so we
 /// ignore responses belonging to other apps.
 const ME: &str = "browser-example";
-/// Where we point on first load.
-const DEFAULT_URL: &str = "http://info.cern.ch/";
 
 const ROOT_BG: (f32, f32, f32, f32) = (0.08, 0.08, 0.10, 1.0);
 const BAR_BG: (f32, f32, f32, f32) = (0.16, 0.16, 0.20, 1.0);
@@ -43,6 +41,11 @@ const IMG_PLACEHOLDER_BG: (f32, f32, f32, f32) = (0.16, 0.16, 0.20, 1.0);
 
 const URLBAR_ID: &str = "urlbar";
 const VIEWPORT_ID: &str = "viewport";
+
+/// Cap on distinct image fetches per page. Keeps a pathological page (hundreds of
+/// unique-URL images) from exhausting GPU textures or flooding the broker; v1 just
+/// drops the surplus. Repeated images share a fetch and don't count against this.
+const MAX_PAGE_IMAGES: usize = 40;
 
 // ── Module state ─────────────────────────────────────────────────────────────
 
@@ -73,12 +76,23 @@ pub struct LinkMap {
     pub href: String,
 }
 
-/// An in-flight image fetch: which element the decoded texture belongs to.
+/// An in-flight image fetch, one per *distinct* resolved URL on the page. Many
+/// `<img>` elements often point at the same URL (icons, repeated graphics), so we
+/// fetch and decode each URL just once and share the resulting texture.
 #[table]
-pub struct PendingImage {
+pub struct ImageReq {
     #[primary_key]
     pub req_id: u64,
+    pub url: String,
+}
+
+/// An element waiting on an `ImageReq`: when the fetch decodes, every waiter for
+/// that `req_id` gets the shared texture.
+#[table]
+pub struct ImageWaiter {
+    #[primary_key]
     pub element_id: String,
+    pub req_id: u64,
 }
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
@@ -127,7 +141,7 @@ where
     );
 
     // URL bar — an editable text input. Focused below so typing edits it and
-    // Enter navigates. Seeded with the default URL so it matches the first load.
+    // Enter navigates. Starts empty; the user types a URL to load a page.
     ui::create_element(
         &ctx,
         UiElement {
@@ -144,13 +158,13 @@ where
             corner_radius: 6.0,
             border_width: 1.0,
             border_color: (0.30, 0.30, 0.36, 1.0),
-            text: Some(DEFAULT_URL.to_string()),
+            text: Some(String::new()),
             text_size: 14.0,
             text_color: BAR_TEXT,
             text_wrap: TextWrap::None,
             image: None,
             is_input: true,
-            cursor_pos: DEFAULT_URL.chars().count() as u32,
+            cursor_pos: 0,
             scrollable_x: false,
             scrollable_y: false,
             scroll_x: 0.0,
@@ -193,11 +207,11 @@ where
 
     ui::set_focus(&ctx, URLBAR_ID);
 
-    // Kick off the first navigation. NavState is built fresh and inserted once at
-    // the end (a row inserted this run isn't visible to a same-run read).
-    let mut nav = NavState {
+    // Start blank — no page loaded. The user types a URL and presses Enter to
+    // navigate (handled in `on_frame`).
+    let nav = NavState {
         id: 0,
-        url: DEFAULT_URL.to_string(),
+        url: String::new(),
         host: String::new(),
         path: String::new(),
         main_req_id: 0,
@@ -206,7 +220,6 @@ where
         prev_left: false,
         prev_enter: false,
     };
-    start_navigation(&ctx, &mut nav, DEFAULT_URL);
     if let Err(err) = ctx.current.tables.navstate().insert(nav) {
         ctx.log(&format!("browser: failed to seed NavState: {err}"));
     }
@@ -250,9 +263,12 @@ where
         + CanRead<LinkMap>
         + CanInsert<LinkMap>
         + CanDelete<LinkMap>
-        + CanRead<PendingImage>
-        + CanInsert<PendingImage>
-        + CanDelete<PendingImage>,
+        + CanRead<ImageReq>
+        + CanInsert<ImageReq>
+        + CanDelete<ImageReq>
+        + CanRead<ImageWaiter>
+        + CanInsert<ImageWaiter>
+        + CanDelete<ImageWaiter>,
 {
     if row.owner != ME {
         return; // another app's request
@@ -263,12 +279,12 @@ where
 
     if row.req_id == nav.main_req_id {
         render_page(&ctx, &mut nav, &row);
-    } else if let Some(pending) = ctx.current.tables.pendingimage().get(row.req_id) {
-        // A stale or current image arrived. Drop the pending record either way.
-        let _ = ctx.current.tables.pendingimage().delete(row.req_id);
-        if row.error.is_empty() {
-            place_image(&ctx, &pending.element_id, row.req_id, &row.body);
-        }
+    } else if ctx.current.tables.imagereq().get(row.req_id).is_some() {
+        // An image fetch completed. Drop the request record (so a duplicate
+        // delivery is ignored) and hand the decoded texture to every element that
+        // was waiting on this URL.
+        let _ = ctx.current.tables.imagereq().delete(row.req_id);
+        place_image(&ctx, row.req_id, &row.body, row.error.is_empty());
     }
 }
 
@@ -282,12 +298,15 @@ where
         + CanRead<LinkMap>
         + CanInsert<LinkMap>
         + CanDelete<LinkMap>
-        + CanRead<PendingImage>
-        + CanInsert<PendingImage>
-        + CanDelete<PendingImage>
+        + CanRead<ImageReq>
+        + CanInsert<ImageReq>
+        + CanDelete<ImageReq>
+        + CanRead<ImageWaiter>
+        + CanInsert<ImageWaiter>
+        + CanDelete<ImageWaiter>
         + CanUpdate<NavState>,
 {
-    // Tear down the previous page: viewport children, link map, pending images.
+    // Tear down the previous page: viewport children, link map, image bookkeeping.
     // All are committed (older generation), so these are pure deletes — the new
     // elements we insert below carry the bumped generation in their ids and so
     // never collide with the rows still being deleted this run.
@@ -299,8 +318,11 @@ where
     for lm in ctx.current.tables.linkmap().scan() {
         let _ = ctx.current.tables.linkmap().delete(lm.element_id);
     }
-    for pi in ctx.current.tables.pendingimage().scan() {
-        let _ = ctx.current.tables.pendingimage().delete(pi.req_id);
+    for r in ctx.current.tables.imagereq().scan() {
+        let _ = ctx.current.tables.imagereq().delete(r.req_id);
+    }
+    for w in ctx.current.tables.imagewaiter().scan() {
+        let _ = ctx.current.tables.imagewaiter().delete(w.element_id);
     }
 
     // Reset scroll to the top of the new page.
@@ -309,6 +331,12 @@ where
         let _ = ctx.current.tables.uielement().update(vp);
     }
 
+    // Bump the generation for every render, not just every navigation. The teardown
+    // above deletes the previous page's (committed) elements while we insert the new
+    // ones in the same run; giving the new elements a fresh generation guarantees
+    // their ids can't collide with the rows still being deleted — even if this same
+    // response is delivered (or retried) more than once.
+    nav.nav_gen += 1;
     let generation = nav.nav_gen;
 
     if !row.error.is_empty() {
@@ -330,6 +358,9 @@ where
     let html = String::from_utf8_lossy(&row.body);
     let blocks = html::parse_html(&html);
 
+    // Maps a resolved image URL to the in-flight request id fetching it, so repeated
+    // images on the page share a single fetch + decoded texture.
+    let mut url_reqs: Vec<(String, u64)> = Vec::new();
     let mut next_req = nav.next_req_id;
     for (i, block) in blocks.iter().enumerate() {
         let id = format!("c{generation}_{i}");
@@ -350,33 +381,81 @@ where
                 ui::create_element(ctx, space_el(id, i as u32, *height));
             }
             Block::Image { url } => {
+                let Some(loc) = url::resolve(&nav.host, &nav.path, url) else {
+                    continue;
+                };
+                let key = loc.to_url();
+                // Reuse an existing fetch for the same URL, or start a new one —
+                // but cap distinct fetches per page so a pathological page (e.g.
+                // hundreds of unique-URL images) can't exhaust the GPU or flood the
+                // broker. Repeated images share a fetch and don't count against it.
+                let req_id = match url_reqs.iter().find(|(u, _)| *u == key) {
+                    Some((_, rid)) => *rid,
+                    None => {
+                        if url_reqs.len() >= MAX_PAGE_IMAGES {
+                            continue; // skip surplus images entirely
+                        }
+                        let rid = next_req;
+                        next_req += 1;
+                        url_reqs.push((key, rid));
+                        let _ = ctx.current.tables.imagereq().insert(ImageReq {
+                            req_id: rid,
+                            url: url.clone(),
+                        });
+                        let _ = ctx
+                            .network()
+                            .reducers
+                            .http_get(rid, loc.host, loc.path);
+                        rid
+                    }
+                };
                 ui::create_element(ctx, image_placeholder_el(id.clone(), i as u32));
-                if let Some(loc) = url::resolve(&nav.host, &nav.path, url) {
-                    let req_id = next_req;
-                    next_req += 1;
-                    let _ = ctx.current.tables.pendingimage().insert(PendingImage {
-                        req_id,
-                        element_id: id,
-                    });
-                    let _ = ctx
-                        .network()
-                        .reducers
-                        .http_get(req_id, loc.host, loc.path);
-                }
+                let _ = ctx.current.tables.imagewaiter().insert(ImageWaiter {
+                    element_id: id,
+                    req_id,
+                });
             }
         }
     }
 
     nav.next_req_id = next_req;
+    // Consume the main request: the runtime may deliver the same insert to this
+    // subscription more than once (we re-enter the broker via http_get mid-run),
+    // and clearing main_req_id makes any duplicate delivery a no-op instead of a
+    // full wasteful re-render + re-fetch of every image. (Image responses already
+    // self-dedupe by deleting their ImageReq row on first delivery.)
+    nav.main_req_id = 0;
     let _ = ctx.current.tables.navstate().update(nav.clone());
 }
 
-/// Decode `bytes` into a texture and swap it into the placeholder element.
-fn place_image<Caps>(ctx: &ReducerContext<Caps>, element_id: &str, req_id: u64, bytes: &[u8])
+/// Handle a completed image fetch for `req_id`: decode it once into a shared
+/// texture, then attach that texture to every element that was waiting on it. If
+/// the fetch errored or the bytes don't decode, just drop the waiters (the
+/// placeholder stays). Either way the `ImageWaiter` rows for this request are
+/// cleared.
+fn place_image<Caps>(ctx: &ReducerContext<Caps>, req_id: u64, bytes: &[u8], ok: bool)
 where
-    Caps: CanRead<ui::UiElement> + CanUpdate<ui::UiElement>,
+    Caps: CanRead<ui::UiElement>
+        + CanUpdate<ui::UiElement>
+        + CanRead<ImageWaiter>
+        + CanDelete<ImageWaiter>,
 {
-    let Ok(img) = image::load_from_memory(bytes) else {
+    // Which elements were waiting on this fetch.
+    let waiters: Vec<String> = ctx
+        .current
+        .tables
+        .imagewaiter()
+        .scan()
+        .into_iter()
+        .filter(|w| w.req_id == req_id)
+        .map(|w| w.element_id)
+        .collect();
+    for id in &waiters {
+        let _ = ctx.current.tables.imagewaiter().delete(id.clone());
+    }
+
+    let decoded = if ok { image::load_from_memory(bytes).ok() } else { None };
+    let Some(img) = decoded else {
         return;
     };
     let rgba = img.to_rgba8();
@@ -384,6 +463,8 @@ where
     if w == 0 || h == 0 {
         return;
     }
+
+    // One texture per distinct fetch, shared by every waiter.
     let tex_id = format!("imgtex_{req_id}");
     let _ = ctx.graphics().reducers.create_texture(
         tex_id.clone(),
@@ -404,14 +485,16 @@ where
         rgba.into_raw(),
     );
 
-    // Only attach if the element still exists (the user may have navigated away).
-    if let Some(mut el) = ctx.current.tables.uielement().get(element_id.to_string()) {
-        let (dw, dh) = display_size(w, h);
-        el.width = Size::Fixed(dw);
-        el.height = Size::Fixed(dh);
-        el.background_color = TRANSPARENT;
-        el.image = Some(tex_id);
-        let _ = ctx.current.tables.uielement().update(el);
+    let (dw, dh) = display_size(w, h);
+    for id in &waiters {
+        // Only attach if the element still exists (the user may have navigated away).
+        if let Some(mut el) = ctx.current.tables.uielement().get(id.clone()) {
+            el.width = Size::Fixed(dw);
+            el.height = Size::Fixed(dh);
+            el.background_color = TRANSPARENT;
+            el.image = Some(tex_id.clone());
+            let _ = ctx.current.tables.uielement().update(el);
+        }
     }
 }
 

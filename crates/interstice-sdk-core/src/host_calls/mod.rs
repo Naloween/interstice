@@ -104,8 +104,10 @@ pub unsafe extern "C" fn interstice_get_by_pk(
 }
 
 // Pre-allocated response buffer for direct host function calls.
-// WASM is single-threaded so a module-level static is safe.
-static mut DIRECT_RESP_BUF: [u8; 8192] = [0u8; 8192];
+// WASM is single-threaded so a module-level static is safe. Rows larger than
+// this fall back to the general (allocating) host-call path.
+pub(crate) const DIRECT_RESP_BUF_CAP: usize = 8192;
+static mut DIRECT_RESP_BUF: [u8; DIRECT_RESP_BUF_CAP] = [0u8; DIRECT_RESP_BUF_CAP];
 
 pub fn host_call(call: HostCall) -> i64 {
     let bytes = encode(&call).unwrap();
