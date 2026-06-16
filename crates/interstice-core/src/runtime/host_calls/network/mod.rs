@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use interstice_abi::{
     NetworkCall, NetworkEvent, TcpCloseRequest, TcpCloseResponse, TcpConnectRequest,
@@ -8,10 +9,13 @@ use interstice_abi::{
     UdpSendToResponse,
 };
 use parking_lot::Mutex;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::mpsc::{UnboundedSender as TokioSender, unbounded_channel};
 use tokio::task::AbortHandle;
+use tokio_rustls::TlsConnector;
+use tokio_rustls::rustls::pki_types::ServerName;
+use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 use wasmtime::{Caller, Memory};
 
 use crate::error::IntersticeError;
@@ -76,11 +80,43 @@ fn emit(sender: &EventSender, event: NetworkEvent) {
     let _ = sender.send((EventInstance::Network(event), None));
 }
 
-/// Drive a connected TCP stream: pump incoming bytes out as `Received` events and
-/// apply queued `Send`/`Close` control messages, until EOF, error, or close.
-async fn run_tcp_conn(
+/// Process-wide TLS client config (Mozilla root store), built once. Reused for
+/// every `https` connection so we don't re-parse the root certificates per request.
+fn tls_client_config() -> Arc<ClientConfig> {
+    static CONFIG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
+    CONFIG
+        .get_or_init(|| {
+            let mut roots = RootCertStore::empty();
+            roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            let config = ClientConfig::builder()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            Arc::new(config)
+        })
+        .clone()
+}
+
+/// Perform a TLS client handshake over an already-connected TCP stream, validating
+/// the server certificate against `server_name` (also sent as SNI).
+async fn tls_handshake(
+    stream: TcpStream,
+    server_name: &str,
+) -> Result<tokio_rustls::client::TlsStream<TcpStream>, String> {
+    let connector = TlsConnector::from(tls_client_config());
+    let dnsname = ServerName::try_from(server_name.to_string())
+        .map_err(|err| format!("invalid server name `{server_name}`: {err}"))?;
+    connector
+        .connect(dnsname, stream)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+/// Drive a connected stream (plain TCP or TLS): pump incoming bytes out as
+/// `Received` events and apply queued `Send`/`Close` control messages, until EOF,
+/// error, or close. Generic over the stream so the same loop serves both.
+async fn run_tcp_conn<S: AsyncRead + AsyncWrite + Unpin>(
     handle: u64,
-    mut stream: TcpStream,
+    mut stream: S,
     mut control: tokio::sync::mpsc::UnboundedReceiver<TcpControl>,
     sender: EventSender,
 ) {
@@ -93,6 +129,14 @@ async fn run_tcp_conn(
                     break;
                 }
                 Ok(n) => emit(&sender, NetworkEvent::Received { handle, data: buf[..n].to_vec() }),
+                Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    // A TLS peer that closes without sending `close_notify` surfaces here
+                    // as UnexpectedEof. For HTTP/1.1 `Connection: close` the connection
+                    // closing *is* the end-of-message signal, so treat it as a graceful
+                    // close (deliver the body) rather than a hard failure. Very common.
+                    emit(&sender, NetworkEvent::Closed { handle });
+                    break;
+                }
                 Err(err) => {
                     emit(&sender, NetworkEvent::Failed { handle, error: err.to_string() });
                     break;
@@ -166,11 +210,29 @@ impl Runtime {
             .insert(handle, SocketHandle::Tcp(tx));
         let sender = self.event_sender.clone();
         let net = self.network_state.clone();
+        let tls = req.tls;
+        let server_name = req.server_name;
         self.tokio_handle.spawn(async move {
             match TcpStream::connect(&addr).await {
                 Ok(stream) => {
-                    emit(&sender, NetworkEvent::Connected { handle });
-                    run_tcp_conn(handle, stream, rx, sender.clone()).await;
+                    if tls {
+                        match tls_handshake(stream, &server_name).await {
+                            Ok(stream) => {
+                                emit(&sender, NetworkEvent::Connected { handle });
+                                run_tcp_conn(handle, stream, rx, sender.clone()).await;
+                            }
+                            Err(err) => emit(
+                                &sender,
+                                NetworkEvent::ConnectFailed {
+                                    handle,
+                                    error: format!("TLS handshake failed: {err}"),
+                                },
+                            ),
+                        }
+                    } else {
+                        emit(&sender, NetworkEvent::Connected { handle });
+                        run_tcp_conn(handle, stream, rx, sender.clone()).await;
+                    }
                 }
                 Err(err) => {
                     emit(

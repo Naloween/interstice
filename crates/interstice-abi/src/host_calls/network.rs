@@ -22,6 +22,15 @@ pub enum NetworkCall {
 pub struct TcpConnectRequest {
     pub ip: String,
     pub port: u16,
+    /// When true, the host performs a TLS client handshake over the connected TCP
+    /// stream before delivering `Connected` (so the whole conversation is
+    /// encrypted). TLS terminates host-side: wasm modules can't carry a crypto
+    /// provider, so an `https://` browser still speaks plaintext to the broker and
+    /// the authority does the TLS.
+    pub tls: bool,
+    /// SNI / certificate hostname to validate against when `tls` is set. Ignored
+    /// otherwise. This is the DNS name (not the resolved IP) the request targets.
+    pub server_name: String,
 }
 
 /// `Ok(handle)` = the connection attempt was registered and a handle reserved.

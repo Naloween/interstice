@@ -119,6 +119,10 @@ field_type = "String"
 name = "path"
 field_type = "String"
 
+[[reducers.arguments]]
+name = "tls"
+field_type = "Bool"
+
 [[reducers.reads]]
 node_selection = "Current"
 module_selection = "Current"
@@ -287,42 +291,6 @@ field_type = "Bool"
 name = "id"
 field_type = "U64"
 
-[type_definitions.ConnClosed.Struct]
-name = "ConnClosed"
-
-[[type_definitions.ConnClosed.Struct.fields]]
-name = "id"
-field_type = "U64"
-
-[[type_definitions.ConnClosed.Struct.fields]]
-name = "owner"
-field_type = "String"
-
-[[type_definitions.ConnClosed.Struct.fields]]
-name = "handle"
-field_type = "U64"
-
-[type_definitions.Inbound.Struct]
-name = "Inbound"
-
-[[type_definitions.Inbound.Struct.fields]]
-name = "id"
-field_type = "U64"
-
-[[type_definitions.Inbound.Struct.fields]]
-name = "owner"
-field_type = "String"
-
-[[type_definitions.Inbound.Struct.fields]]
-name = "handle"
-field_type = "U64"
-
-[[type_definitions.Inbound.Struct.fields]]
-name = "data"
-
-[type_definitions.Inbound.Struct.fields.field_type]
-Vec = "U8"
-
 [type_definitions.Connection.Struct]
 name = "Connection"
 
@@ -383,6 +351,27 @@ field_type = "String"
 name = "done"
 field_type = "Bool"
 
+[type_definitions.Inbound.Struct]
+name = "Inbound"
+
+[[type_definitions.Inbound.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.Inbound.Struct.fields]]
+name = "owner"
+field_type = "String"
+
+[[type_definitions.Inbound.Struct.fields]]
+name = "handle"
+field_type = "U64"
+
+[[type_definitions.Inbound.Struct.fields]]
+name = "data"
+
+[type_definitions.Inbound.Struct.fields.field_type]
+Vec = "U8"
+
 [type_definitions.Resolved.Struct]
 name = "Resolved"
 
@@ -409,3 +398,18 @@ field_type = "String"
 [[type_definitions.Resolved.Struct.fields]]
 name = "error"
 field_type = "String"
+
+[type_definitions.ConnClosed.Struct]
+name = "ConnClosed"
+
+[[type_definitions.ConnClosed.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.ConnClosed.Struct.fields]]
+name = "owner"
+field_type = "String"
+
+[[type_definitions.ConnClosed.Struct.fields]]
+name = "handle"
+field_type = "U64"

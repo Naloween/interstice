@@ -21,6 +21,10 @@ interstice_module!(visibility: Public, authorities: [Network]);
 const DNS_SERVER: &str = "1.1.1.1";
 const DNS_PORT: u16 = 53;
 const HTTP_PORT: u16 = 80;
+const HTTPS_PORT: u16 = 443;
+/// How many `3xx Location` hops a single HTTP job will follow before giving up.
+/// Guards against redirect loops (e.g. a misconfigured site bouncing forever).
+const MAX_REDIRECTS: u32 = 10;
 
 // ── Internal bookkeeping (ephemeral; not meant for apps) ────────────────────────
 
@@ -58,7 +62,9 @@ pub struct DnsPending {
 }
 
 /// In-flight HTTP GET, keyed by its DNS transaction id. `stage` 0 = resolving,
-/// 1 = connecting, 2 = receiving. `handle` fills in once connected.
+/// 1 = connecting, 2 = receiving. `handle` fills in once connected. `tls` picks
+/// port 443 + a host-side TLS handshake; `redirects` counts `3xx` hops followed so
+/// far (capped at `MAX_REDIRECTS`).
 #[table(ephemeral)]
 pub struct HttpJob {
     #[primary_key]
@@ -70,6 +76,8 @@ pub struct HttpJob {
     handle: u64,
     stage: u32,
     buffer: Vec<u8>,
+    tls: bool,
+    redirects: u32,
 }
 
 // ── Public result tables (apps subscribe, filter by `owner`) ────────────────────
@@ -234,12 +242,29 @@ where
 // ── HTTP GET helper ─────────────────────────────────────────────────────────────
 
 #[reducer]
-fn http_get<Caps>(ctx: ReducerContext<Caps>, req_id: u64, host: String, path: String)
+fn http_get<Caps>(ctx: ReducerContext<Caps>, req_id: u64, host: String, path: String, tls: bool)
 where
     Caps: CanRead<NetCfg> + CanUpdate<NetCfg> + CanInsert<DnsPending> + CanInsert<HttpJob>,
 {
     let owner = ctx.caller_module_name.clone();
-    let Some(txid) = send_dns_query(&ctx, &host) else {
+    start_http_job(&ctx, owner, req_id, host, path, tls, 0);
+}
+
+/// Kick off (or continue, after a redirect) an HTTP job: fire the DNS query and
+/// record the pending DNS + HTTP rows keyed by its txid. `redirects` carries the
+/// hop count forward so a redirect chain stays bounded.
+fn start_http_job<Caps>(
+    ctx: &ReducerContext<Caps>,
+    owner: String,
+    req_id: u64,
+    host: String,
+    path: String,
+    tls: bool,
+    redirects: u32,
+) where
+    Caps: CanRead<NetCfg> + CanUpdate<NetCfg> + CanInsert<DnsPending> + CanInsert<HttpJob>,
+{
+    let Some(txid) = send_dns_query(ctx, &host) else {
         return;
     };
     let _ = ctx.current.tables.dnspending().insert(DnsPending {
@@ -258,6 +283,8 @@ where
         handle: 0,
         stage: 0,
         buffer: Vec::new(),
+        tls,
+        redirects,
     });
 }
 
@@ -270,9 +297,13 @@ where
         + CanDelete<TcpPending>
         + CanRead<DnsPending>
         + CanInsert<TcpPending>
+        + CanInsert<DnsPending>
         + CanDelete<DnsPending>
+        + CanRead<NetCfg>
+        + CanUpdate<NetCfg>
         + CanRead<HttpJob>
         + CanUpdate<HttpJob>
+        + CanInsert<HttpJob>
         + CanDelete<HttpJob>
         + CanInsert<Connection>
         + CanInsert<Inbound>
@@ -296,7 +327,12 @@ where
                 });
             } else if let Some(mut job) = ctx.current.tables.httpjob().get(p.job_txid) {
                 let request = format!(
-                    "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+                    "GET {} HTTP/1.1\r\n\
+                     Host: {}\r\n\
+                     User-Agent: Interstice-Browser/0.1\r\n\
+                     Accept: text/html,*/*\r\n\
+                     Accept-Encoding: gzip, deflate\r\n\
+                     Connection: close\r\n\r\n",
                     job.path, job.host
                 );
                 if let Err(err) = tcp_send(handle, request.into_bytes()) {
@@ -358,17 +394,45 @@ where
                     handle,
                 });
             } else if let Some(job) = ctx.current.tables.httpjob().get(p.job_txid) {
-                let (status_line, body) = split_http(&job.buffer);
+                let _ = ctx.current.tables.httpjob().delete(job.txid);
+                let parsed = parse_http(&job.buffer);
+
+                // Follow a 3xx redirect (but not 304 Not Modified) by re-issuing the
+                // request at its Location, reusing the caller's req_id so the app sees
+                // one logical response. Bounded by MAX_REDIRECTS.
+                if (300..400).contains(&parsed.status)
+                    && parsed.status != 304
+                    && job.redirects < MAX_REDIRECTS
+                {
+                    if let Some(location) = header(&parsed.headers, "location") {
+                        if let Some((host, path, tls)) =
+                            parse_redirect(&job.host, &job.path, job.tls, location)
+                        {
+                            start_http_job(
+                                &ctx,
+                                job.owner.clone(),
+                                job.req_id,
+                                host,
+                                path,
+                                tls,
+                                job.redirects + 1,
+                            );
+                            let _ = ctx.current.tables.tcppending().delete(handle);
+                            return;
+                        }
+                    }
+                }
+
+                let body = decode_body(&parsed);
                 let _ = ctx.current.tables.httpresponse().insert(HttpResponse {
                     id: 0,
                     owner: job.owner,
                     req_id: job.req_id,
-                    status_line,
+                    status_line: parsed.status_line,
                     body,
                     error: String::new(),
                     done: true,
                 });
-                let _ = ctx.current.tables.httpjob().delete(job.txid);
             }
             let _ = ctx.current.tables.tcppending().delete(handle);
         }
@@ -403,7 +467,16 @@ where
                 return;
             };
             match ip_opt {
-                Some(ip) => match tcp_connect(ip, HTTP_PORT) {
+                Some(ip) => {
+                    // For https, terminate TLS host-side: connect on 443 and pass the
+                    // hostname for SNI + certificate validation (we resolved an IP, but
+                    // the cert is issued to the name).
+                    let connect = if job.tls {
+                        tcp_connect_tls(ip, HTTPS_PORT, job.host.clone())
+                    } else {
+                        tcp_connect(ip, HTTP_PORT)
+                    };
+                    match connect {
                     Ok(handle) => {
                         job.handle = handle;
                         job.stage = 1;
@@ -422,7 +495,8 @@ where
                         finish_http_error(&ctx, &job, &format!("connect failed: {err}"));
                         let _ = ctx.current.tables.httpjob().delete(txid as u64);
                     }
-                },
+                    }
+                }
                 None => {
                     finish_http_error(&ctx, &job, "DNS resolution failed");
                     let _ = ctx.current.tables.httpjob().delete(txid as u64);
@@ -474,19 +548,182 @@ where
     });
 }
 
-/// Split a raw HTTP/1.1 response into (status line, body). Operates on raw bytes
-/// so binary bodies (e.g. images) survive intact. Tolerates a missing body or
-/// header/body separator.
-fn split_http(raw: &[u8]) -> (String, Vec<u8>) {
-    let status_line = match raw.iter().position(|&b| b == b'\r' || b == b'\n') {
-        Some(idx) => String::from_utf8_lossy(&raw[..idx]).into_owned(),
-        None => String::from_utf8_lossy(raw).into_owned(),
+/// A raw HTTP/1.1 response split into its parts. Headers keep their original
+/// casing in `headers` but are matched case-insensitively via [`header`]. `body`
+/// is the still-encoded payload (possibly chunked and/or gzip/deflate).
+struct ParsedResponse {
+    status_line: String,
+    status: u16,
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+}
+
+/// Parse a raw HTTP/1.1 response into status line, status code, headers, and the
+/// (still-encoded) body. Operates on raw bytes so binary bodies survive intact.
+/// Tolerates a missing body or header/body separator.
+fn parse_http(raw: &[u8]) -> ParsedResponse {
+    let (head, body) = match find_subslice(raw, b"\r\n\r\n") {
+        Some(idx) => (&raw[..idx], raw[idx + 4..].to_vec()),
+        None => (raw, Vec::new()),
     };
-    let body = match find_subslice(raw, b"\r\n\r\n") {
-        Some(idx) => raw[idx + 4..].to_vec(),
-        None => Vec::new(),
+    let head = String::from_utf8_lossy(head);
+    let mut lines = head.split("\r\n");
+    let status_line = lines.next().unwrap_or("").to_string();
+    // Status line: "HTTP/1.1 301 Moved Permanently" → 301.
+    let status = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|code| code.parse::<u16>().ok())
+        .unwrap_or(0);
+    let headers = lines
+        .filter_map(|line| {
+            line.split_once(':')
+                .map(|(name, value)| (name.trim().to_string(), value.trim().to_string()))
+        })
+        .collect();
+    ParsedResponse {
+        status_line,
+        status,
+        headers,
+        body,
+    }
+}
+
+/// Case-insensitive lookup of the first header named `name`.
+fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.as_str())
+}
+
+/// Decode a response body per its headers: undo `Transfer-Encoding: chunked`, then
+/// `Content-Encoding: gzip`/`deflate`. Anything unrecognised is returned as-is so a
+/// surprising encoding degrades to garbled-but-present rather than empty.
+fn decode_body(parsed: &ParsedResponse) -> Vec<u8> {
+    let mut body = parsed.body.clone();
+    if header(&parsed.headers, "transfer-encoding")
+        .map(|v| v.to_ascii_lowercase().contains("chunked"))
+        .unwrap_or(false)
+    {
+        body = dechunk(&body);
+    }
+    match header(&parsed.headers, "content-encoding").map(|v| v.to_ascii_lowercase()) {
+        Some(enc) if enc.contains("gzip") => decompress_gzip(&body),
+        Some(enc) if enc.contains("deflate") => decompress_deflate(&body),
+        _ => body,
+    }
+}
+
+/// Decode HTTP/1.1 chunked transfer-encoding into the raw byte stream. Tolerates a
+/// truncated final chunk (returns what was decoded so far).
+fn dechunk(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < data.len() {
+        let Some(rel) = find_subslice(&data[i..], b"\r\n") else {
+            break;
+        };
+        let line_end = i + rel;
+        // The size line may carry chunk extensions after a ';' — ignore them.
+        let size_str = String::from_utf8_lossy(&data[i..line_end]);
+        let size_hex = size_str.split(';').next().unwrap_or("").trim();
+        let Ok(size) = usize::from_str_radix(size_hex, 16) else {
+            break;
+        };
+        i = line_end + 2;
+        if size == 0 {
+            break; // last chunk
+        }
+        let end = (i + size).min(data.len());
+        out.extend_from_slice(&data[i..end]);
+        i = end;
+        // Skip the CRLF trailing each chunk's data.
+        if data.len() >= i + 2 && &data[i..i + 2] == b"\r\n" {
+            i += 2;
+        }
+    }
+    out
+}
+
+/// Inflate a gzip-encoded body; on error return the input untouched.
+fn decompress_gzip(data: &[u8]) -> Vec<u8> {
+    use std::io::Read;
+    let mut out = Vec::new();
+    let mut decoder = flate2::read::GzDecoder::new(data);
+    match decoder.read_to_end(&mut out) {
+        Ok(_) => out,
+        Err(_) => data.to_vec(),
+    }
+}
+
+/// Inflate a `Content-Encoding: deflate` body. Servers disagree on whether this is
+/// zlib-wrapped or raw DEFLATE, so try zlib first and fall back to raw.
+fn decompress_deflate(data: &[u8]) -> Vec<u8> {
+    use std::io::Read;
+    let mut out = Vec::new();
+    if flate2::read::ZlibDecoder::new(data)
+        .read_to_end(&mut out)
+        .is_ok()
+    {
+        return out;
+    }
+    out.clear();
+    match flate2::read::DeflateDecoder::new(data).read_to_end(&mut out) {
+        Ok(_) => out,
+        Err(_) => data.to_vec(),
+    }
+}
+
+/// Resolve a `Location` header against the request that produced it, yielding the
+/// next `(host, path, tls)`. Handles absolute (`http`/`https`), protocol-relative
+/// (`//host`), root-relative (`/path`), and document-relative redirects.
+fn parse_redirect(
+    cur_host: &str,
+    cur_path: &str,
+    cur_tls: bool,
+    location: &str,
+) -> Option<(String, String, bool)> {
+    let loc = location.split('#').next().unwrap_or(location).trim();
+    if loc.is_empty() {
+        return None;
+    }
+    if let Some(rest) = loc.strip_prefix("https://") {
+        let (host, path) = split_host_path(rest);
+        return Some((host, path, true));
+    }
+    if let Some(rest) = loc.strip_prefix("http://") {
+        let (host, path) = split_host_path(rest);
+        return Some((host, path, false));
+    }
+    if let Some(rest) = loc.strip_prefix("//") {
+        let (host, path) = split_host_path(rest);
+        return Some((host, path, cur_tls));
+    }
+    if loc.starts_with('/') {
+        return Some((cur_host.to_string(), loc.to_string(), cur_tls));
+    }
+    // Document-relative: resolve against the current path's directory.
+    let dir = match cur_path.rfind('/') {
+        Some(i) => &cur_path[..=i],
+        None => "/",
     };
-    (status_line, body)
+    Some((cur_host.to_string(), format!("{dir}{loc}"), cur_tls))
+}
+
+/// Split `host[:port]/path` (no scheme) into `(host, path)`, dropping the port and
+/// defaulting an absent path to `/`.
+fn split_host_path(s: &str) -> (String, String) {
+    match s.find('/') {
+        Some(i) => {
+            let host = s[..i].split(':').next().unwrap_or(&s[..i]).to_string();
+            (host, s[i..].to_string())
+        }
+        None => {
+            let host = s.split(':').next().unwrap_or(s).to_string();
+            (host, "/".to_string())
+        }
+    }
 }
 
 /// Index of the first occurrence of `needle` in `haystack`.

@@ -61,6 +61,9 @@ pub struct NavState {
     pub url: String,
     pub host: String,
     pub path: String,
+    /// Scheme of the current page: true = https (the broker terminates TLS
+    /// host-side). Relative links/images inherit it.
+    pub tls: bool,
     pub main_req_id: u64,
     pub next_req_id: u64,
     pub nav_gen: u32,
@@ -214,6 +217,7 @@ where
         url: String::new(),
         host: String::new(),
         path: String::new(),
+        tls: false,
         main_req_id: 0,
         next_req_id: 1,
         nav_gen: 0,
@@ -239,11 +243,12 @@ fn start_navigation<Caps>(ctx: &ReducerContext<Caps>, nav: &mut NavState, raw_ur
     nav.nav_gen += 1;
     nav.host = loc.host.clone();
     nav.path = loc.path.clone();
+    nav.tls = loc.tls;
     nav.url = loc.to_url();
     if let Err(err) = ctx
         .network()
         .reducers
-        .http_get(req_id, loc.host, loc.path)
+        .http_get(req_id, loc.host, loc.path, loc.tls)
     {
         ctx.log(&format!("browser: http_get failed: {err}"));
     }
@@ -381,7 +386,7 @@ where
                 ui::create_element(ctx, space_el(id, i as u32, *height));
             }
             Block::Image { url } => {
-                let Some(loc) = url::resolve(&nav.host, &nav.path, url) else {
+                let Some(loc) = url::resolve(&nav.host, &nav.path, nav.tls, url) else {
                     continue;
                 };
                 let key = loc.to_url();
@@ -405,7 +410,7 @@ where
                         let _ = ctx
                             .network()
                             .reducers
-                            .http_get(rid, loc.host, loc.path);
+                            .http_get(rid, loc.host, loc.path, loc.tls);
                         rid
                     }
                 };
@@ -545,7 +550,7 @@ where
     if left_edge {
         if let Some(id) = ui::element_at(&ctx, (mx, my)) {
             if let Some(link) = ctx.current.tables.linkmap().get(id) {
-                if let Some(loc) = url::resolve(&nav.host, &nav.path, &link.href) {
+                if let Some(loc) = url::resolve(&nav.host, &nav.path, nav.tls, &link.href) {
                     start_navigation(&ctx, &mut nav, &loc.to_url());
                     if let Some(mut bar) = ctx.current.tables.uielement().get(URLBAR_ID.to_string())
                     {

@@ -9,6 +9,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 interstice-sdk = "0.5.0"
+# Pure-Rust (miniz_oxide) backend so it compiles to wasm32-unknown-unknown — used
+# to inflate gzip/deflate Content-Encoding response bodies.
+flate2 = "1.0"
 
 [build-dependencies]
 interstice-sdk = "0.5.0"

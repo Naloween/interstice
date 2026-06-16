@@ -9,8 +9,30 @@ use interstice_abi::{
 /// the connection is established asynchronously and reported via
 /// `NetworkEvent::Connected` / `ConnectFailed` to the module's `on_network` reducer.
 pub fn tcp_connect(ip: String, port: u16) -> Result<u64, String> {
+    tcp_connect_inner(ip, port, false, String::new())
+}
+
+/// Like [`tcp_connect`], but the host wraps the connection in TLS (a client
+/// handshake validated against `server_name`) before reporting `Connected`. All
+/// subsequent `tcp_send` / `Received` bytes are plaintext to the module — the
+/// authority encrypts/decrypts on the wire. Use this for `https://`.
+pub fn tcp_connect_tls(ip: String, port: u16, server_name: String) -> Result<u64, String> {
+    tcp_connect_inner(ip, port, true, server_name)
+}
+
+fn tcp_connect_inner(
+    ip: String,
+    port: u16,
+    tls: bool,
+    server_name: String,
+) -> Result<u64, String> {
     let pack = host_call(HostCall::Network(NetworkCall::TcpConnect(
-        TcpConnectRequest { ip, port },
+        TcpConnectRequest {
+            ip,
+            port,
+            tls,
+            server_name,
+        },
     )));
     match unpack::<TcpConnectResponse>(pack) {
         TcpConnectResponse::Ok(handle) => Ok(handle),
