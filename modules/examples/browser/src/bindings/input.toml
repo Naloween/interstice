@@ -1,0 +1,139 @@
+abi_version = 6
+name = "input"
+visibility = "Private"
+reducers = []
+queries = []
+subscriptions = []
+authorities = ["Input"]
+module_dependencies = []
+node_dependencies = []
+replicated_tables = []
+
+[version]
+major = 0
+minor = 1
+patch = 0
+
+[[tables]]
+name = "keystate"
+type_name = "KeyState"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Ephemeral"
+
+[[tables.fields]]
+name = "pressed"
+field_type = "Bool"
+
+[tables.primary_key]
+name = "code"
+field_type = "U32"
+
+[[tables]]
+name = "mousestate"
+type_name = "MouseState"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Ephemeral"
+
+[[tables.fields]]
+name = "position"
+
+[tables.fields.field_type]
+Tuple = ["F32", "F32"]
+
+[[tables.fields]]
+name = "wheel_delta"
+
+[tables.fields.field_type]
+Tuple = ["F32", "F32"]
+
+[tables.primary_key]
+name = "id"
+field_type = "U32"
+
+[[tables]]
+name = "mousebutton"
+type_name = "MouseButton"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Ephemeral"
+
+[[tables.fields]]
+name = "pressed"
+field_type = "Bool"
+
+[tables.primary_key]
+name = "button_id"
+field_type = "U32"
+
+[[tables]]
+name = "textinputbuffer"
+type_name = "TextInputBuffer"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Ephemeral"
+
+[[tables.fields]]
+name = "character"
+field_type = "String"
+
+[tables.primary_key]
+name = "id"
+field_type = "U32"
+
+[type_definitions.TextInputBuffer.Struct]
+name = "TextInputBuffer"
+
+[[type_definitions.TextInputBuffer.Struct.fields]]
+name = "id"
+field_type = "U32"
+
+[[type_definitions.TextInputBuffer.Struct.fields]]
+name = "character"
+field_type = "String"
+
+[type_definitions.MouseState.Struct]
+name = "MouseState"
+
+[[type_definitions.MouseState.Struct.fields]]
+name = "id"
+field_type = "U32"
+
+[[type_definitions.MouseState.Struct.fields]]
+name = "position"
+
+[type_definitions.MouseState.Struct.fields.field_type]
+Tuple = ["F32", "F32"]
+
+[[type_definitions.MouseState.Struct.fields]]
+name = "wheel_delta"
+
+[type_definitions.MouseState.Struct.fields.field_type]
+Tuple = ["F32", "F32"]
+
+[type_definitions.KeyState.Struct]
+name = "KeyState"
+
+[[type_definitions.KeyState.Struct.fields]]
+name = "code"
+field_type = "U32"
+
+[[type_definitions.KeyState.Struct.fields]]
+name = "pressed"
+field_type = "Bool"
+
+[type_definitions.MouseButton.Struct]
+name = "MouseButton"
+
+[[type_definitions.MouseButton.Struct.fields]]
+name = "button_id"
+field_type = "U32"
+
+[[type_definitions.MouseButton.Struct.fields]]
+name = "pressed"
+field_type = "Bool"

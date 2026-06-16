@@ -61,6 +61,10 @@ const HTTP_GET_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/module_examples/http_get_example.wasm"
 ));
+const BROWSER_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/module_examples/browser_example.wasm"
+));
 
 struct ExampleModule {
     bytes: &'static [u8],
@@ -162,8 +166,26 @@ fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> 
                 },
             ],
         }),
+        "browser" => Ok(ExampleConfig {
+            name: "browser-example",
+            port: 8091,
+            modules: vec![
+                ExampleModule {
+                    bytes: DEFAULT_INPUT_BYTES,
+                },
+                ExampleModule {
+                    bytes: DEFAULT_GRAPHICS_BYTES,
+                },
+                ExampleModule {
+                    bytes: DEFAULT_NETWORK_BYTES,
+                },
+                ExampleModule {
+                    bytes: BROWSER_BYTES,
+                },
+            ],
+        }),
         _ => Err(IntersticeError::Internal(format!(
-            "Unknown example '{example_name}'. Expected hello, caller, graphics, audio, agar-server, agar-client, benchmark-workload, ui, desktop or http-get."
+            "Unknown example '{example_name}'. Expected hello, caller, graphics, audio, agar-server, agar-client, benchmark-workload, ui, desktop, http-get or browser."
         ))),
     }
 }

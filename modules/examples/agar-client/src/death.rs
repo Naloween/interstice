@@ -48,6 +48,7 @@ where
             text_size: ts,
             text_color: tc,
             text_wrap: TextWrap::None,
+            image: None,
             is_input: false,
             cursor_pos: 0,
             scrollable_x: false,

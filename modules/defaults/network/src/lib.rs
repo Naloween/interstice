@@ -69,7 +69,7 @@ pub struct HttpJob {
     path: String,
     handle: u64,
     stage: u32,
-    buffer: String,
+    buffer: Vec<u8>,
 }
 
 // ── Public result tables (apps subscribe, filter by `owner`) ────────────────────
@@ -125,7 +125,7 @@ pub struct HttpResponse {
     pub owner: String,
     pub req_id: u64,
     pub status_line: String,
-    pub body: String,
+    pub body: Vec<u8>,
     pub error: String,
     pub done: bool,
 }
@@ -257,7 +257,7 @@ where
         path,
         handle: 0,
         stage: 0,
-        buffer: String::new(),
+        buffer: Vec::new(),
     });
 }
 
@@ -342,7 +342,7 @@ where
                     data,
                 });
             } else if let Some(mut job) = ctx.current.tables.httpjob().get(p.job_txid) {
-                job.buffer.push_str(&String::from_utf8_lossy(&data));
+                job.buffer.extend_from_slice(&data);
                 let _ = ctx.current.tables.httpjob().update(job);
             }
         }
@@ -468,19 +468,30 @@ where
         owner: job.owner.clone(),
         req_id: job.req_id,
         status_line: String::new(),
-        body: String::new(),
+        body: Vec::new(),
         error: error.to_string(),
         done: true,
     });
 }
 
-/// Split a raw HTTP/1.1 response into (status line, body). Tolerates a missing
-/// body or header/body separator.
-fn split_http(raw: &str) -> (String, String) {
-    let status_line = raw.lines().next().unwrap_or("").to_string();
-    let body = match raw.find("\r\n\r\n") {
-        Some(idx) => raw[idx + 4..].to_string(),
-        None => String::new(),
+/// Split a raw HTTP/1.1 response into (status line, body). Operates on raw bytes
+/// so binary bodies (e.g. images) survive intact. Tolerates a missing body or
+/// header/body separator.
+fn split_http(raw: &[u8]) -> (String, Vec<u8>) {
+    let status_line = match raw.iter().position(|&b| b == b'\r' || b == b'\n') {
+        Some(idx) => String::from_utf8_lossy(&raw[..idx]).into_owned(),
+        None => String::from_utf8_lossy(raw).into_owned(),
+    };
+    let body = match find_subslice(raw, b"\r\n\r\n") {
+        Some(idx) => raw[idx + 4..].to_vec(),
+        None => Vec::new(),
     };
     (status_line, body)
+}
+
+/// Index of the first occurrence of `needle` in `haystack`.
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|w| w == needle)
 }

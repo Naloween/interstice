@@ -45,6 +45,9 @@ pub struct UiElement {
     pub text_size: f32,
     pub text_color: (f32, f32, f32, f32),
     pub text_wrap: TextWrap,
+    /// Texture local_id of an image to draw into this element's content box.
+    /// `None` for ordinary boxes; set for `<img>`-style elements.
+    pub image: Option<String>,
     pub is_input: bool,
     pub cursor_pos: u32,
     pub scrollable_x: bool,

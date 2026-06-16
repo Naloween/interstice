@@ -25,6 +25,8 @@ pub trait DrawTarget {
     fn text(&mut self, content: &str, x: f32, y: f32, size: f32, color: Rgba);
     /// Filled or stroked circle centred at `(x, y)`.
     fn circle(&mut self, x: f32, y: f32, r: f32, color: Rgba, filled: bool, stroke_width: f32);
+    /// Draw the texture `local_id` into the box `(x, y, w, h)`.
+    fn image(&mut self, local_id: &str, x: f32, y: f32, w: f32, h: f32);
 }
 
 /// Lay out every root in `all` against a `sw`x`sh` surface and draw it into
@@ -91,6 +93,20 @@ fn draw_element<T: DrawTarget>(node: &ComputedElement, focused_id: Option<&str>,
                 el.border_width,
                 corner,
             );
+        }
+    }
+
+    // Image fills the content box (inside padding). Drawn after the background
+    // so it sits on top of any backdrop, below text.
+    if let Some(img) = &el.image {
+        if !img.is_empty() {
+            let ix = node.x + el.padding;
+            let iy = node.y + el.padding;
+            let iw = (node.width - el.padding * 2.0).max(0.0);
+            let ih = (node.height - el.padding * 2.0).max(0.0);
+            if iw > 0.0 && ih > 0.0 && ix < cx + cw && iy < cy + ch {
+                target.image(img, ix, iy, iw, ih);
+            }
         }
     }
 

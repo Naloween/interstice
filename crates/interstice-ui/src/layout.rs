@@ -260,6 +260,33 @@ pub fn layout_element<'a>(
     result
 }
 
+/// Lay out every root against a `sw`×`sh` surface and return the id of the
+/// innermost (top-most) visible element whose drawn, clipped box contains
+/// `cursor`. Mirrors [`crate::render`]'s layout so hit-testing matches what was
+/// drawn. Used by apps to resolve a click to an element (e.g. a link).
+pub fn find_element_at(all: &[UiElement], sw: f32, sh: f32, cursor: (f32, f32)) -> Option<String> {
+    let mut roots: Vec<&UiElement> = all.iter().filter(|e| e.parent.is_none()).collect();
+    roots.sort_by_key(|e| e.order);
+
+    let full_surface = (0.0, 0.0, sw, sh);
+    let mut found: Option<String> = None;
+    for root in roots {
+        let computed = layout_element(all, root, 0.0, 0.0, sw, sh, full_surface);
+        // Parents precede their children in `computed`, so keeping the last
+        // containing element yields the innermost match.
+        for node in &computed {
+            let (cx, cy, cw, ch) = node.clip;
+            if cw <= 0.0 || ch <= 0.0 {
+                continue;
+            }
+            if cursor.0 >= cx && cursor.0 < cx + cw && cursor.1 >= cy && cursor.1 < cy + ch {
+                found = Some(node.schema.id.clone());
+            }
+        }
+    }
+    found
+}
+
 /// Walk the layout tree to find the innermost scrollable element containing `cursor`.
 pub fn find_scrollable_at<'a>(
     all: &'a [UiElement],

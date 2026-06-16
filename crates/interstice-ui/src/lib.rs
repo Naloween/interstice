@@ -61,6 +61,7 @@ macro_rules! ui_subsystem {
                 pub text_size: f32,
                 pub text_color: (f32, f32, f32, f32),
                 pub text_wrap: TextWrap,
+                pub image: Option<String>,
                 pub is_input: bool,
                 pub cursor_pos: u32,
                 pub scrollable_x: bool,
@@ -101,6 +102,7 @@ macro_rules! ui_subsystem {
                     text_size: e.text_size,
                     text_color: e.text_color,
                     text_wrap: e.text_wrap.clone(),
+                    image: e.image.clone(),
                     is_input: e.is_input,
                     cursor_pos: e.cursor_pos,
                     scrollable_x: e.scrollable_x,
@@ -168,6 +170,14 @@ macro_rules! ui_subsystem {
                         Color { r, g, b, a },
                         filled,
                         stroke_width,
+                    );
+                }
+                fn image(&mut self, local_id: &str, x: f32, y: f32, w: f32, h: f32) {
+                    let _ = self.ctx.graphics().reducers.draw_image(
+                        self.layer.clone(),
+                        local_id.to_string(),
+                        Rect { x, y, w, h },
+                        Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 },
                     );
                 }
             }
@@ -293,6 +303,23 @@ macro_rules! ui_subsystem {
                         focused_element: None,
                     });
                 }
+            }
+
+            /// Hit-test: id of the innermost UI element under `cursor`, sized
+            /// from this module's own surface. Used by apps to resolve a click to
+            /// an element (e.g. a browser link). Mirrors [`render`]'s layout.
+            pub fn element_at<Caps>(ctx: &ReducerContext<Caps>, cursor: (f32, f32)) -> Option<String>
+            where
+                Caps: CanRead<UiElement>,
+            {
+                let info = ctx.graphics().queries.surface_info().ok()?;
+                let (sw, sh) = (info.width as f32, info.height as f32);
+                if sw < 1.0 || sh < 1.0 {
+                    return None;
+                }
+                let rows = ctx.current.tables.uielement().scan();
+                let all: Vec<interstice_ui::UiElement> = rows.iter().map(to_lib).collect();
+                interstice_ui::find_element_at(&all, sw, sh, cursor)
             }
 
             // ── Per-frame render ─────────────────────────────────────────────

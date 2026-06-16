@@ -428,9 +428,10 @@ There is no manual way to load a module onto an already running node. See the CL
 
 ## Example command
 
-- `interstice example <hello|caller|graphics|audio|agar-server|agar-client|ui|desktop|benchmark-workload|http-get>`
-- Built-in ports are fixed by example name: `hello=8080`, `caller=8081`, `graphics=8082`, `audio=8083`, `agar-server=8086`, `agar-client=8084`, `ui=8088`, `desktop=8089`, `benchmark-workload=8087`, `http-get=8090`.
+- `interstice example <hello|caller|graphics|audio|agar-server|agar-client|ui|desktop|benchmark-workload|http-get|browser>`
+- Built-in ports are fixed by example name: `hello=8080`, `caller=8081`, `graphics=8082`, `audio=8083`, `agar-server=8086`, `agar-client=8084`, `ui=8088`, `desktop=8089`, `benchmark-workload=8087`, `http-get=8090`, `browser=8091`.
 - `http-get` demonstrates the **shared network broker**: instead of holding the `Network` authority itself, it asks the default `network` module to `http_get("example.com", "/")`. The broker resolves DNS, opens the TCP socket, sends the request and assembles the response, then returns it as a row in its public `HttpResponse` table (see [modules/examples/http-get](modules/examples/http-get) and [modules/defaults/network](modules/defaults/network)).
+- `browser` is the flagship app tying the whole model together: it fetches pages over the shared `network` broker, parses static HTML with `tl`, translates the DOM into a `UiElement` tree (via the reusable [`interstice-ui`](crates/interstice-ui) engine) and renders through the graphics ABI. Click links to navigate, type a URL and press Enter to go there, scroll with the wheel; `<img>` tags are really fetched and decoded (PNG/JPEG) into textures. Scope is static HTML only — no JavaScript or CSS engine; styling is a small built-in user-agent stylesheet plus inline `style="color:…"` (see [modules/examples/browser](modules/examples/browser)). Starts pointed at `http://info.cern.ch/`.
 - Running the same example command multiple times recreates the example node (removes existing data and registry entry, then creates the node afresh with the example modules).
 - **Important**: Stop any running example instance (Ctrl+C) before running the command again to avoid conflicts.
 

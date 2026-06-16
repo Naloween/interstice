@@ -129,7 +129,7 @@ fn print_help() {
     println!("  bindings add module <node> <module> [project_path]  Add module binding");
     println!("  bindings add node <node> [project_path]            Add node binding");
     println!(
-        "  example <hello|caller|graphics|audio|agar-server|agar-client|ui|desktop|http-get>  Start a named example (ports: hello=8080, caller=8081, graphics=8082, audio=8083, agar-server=8086, agar-client=8084, ui=8088, desktop=8089, http-get=8090)"
+        "  example <hello|caller|graphics|audio|agar-server|agar-client|ui|desktop|http-get|browser>  Start a named example (ports: hello=8080, caller=8081, graphics=8082, audio=8083, agar-server=8086, agar-client=8084, ui=8088, desktop=8089, http-get=8090, browser=8091)"
     );
     println!(
         "  init                                   Initialize a new interstice module project in the current directory"

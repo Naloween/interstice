@@ -1,0 +1,1119 @@
+abi_version = 6
+name = "graphics"
+visibility = "Private"
+subscriptions = []
+authorities = ["Gpu"]
+module_dependencies = []
+node_dependencies = []
+replicated_tables = []
+
+[version]
+major = 0
+minor = 1
+patch = 0
+
+[[reducers]]
+name = "draw_mesh"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "layer"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "mesh_local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "pipeline_local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "instances"
+field_type = "U32"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "meshbinding"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "pipelinebinding"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
+[[reducers]]
+name = "draw_rect"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "layer"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "rect"
+
+[reducers.arguments.field_type]
+Named = "Rect"
+
+[[reducers.arguments]]
+name = "color"
+
+[reducers.arguments.field_type]
+Named = "Color"
+
+[[reducers.arguments]]
+name = "filled"
+field_type = "Bool"
+
+[[reducers.arguments]]
+name = "stroke_width"
+field_type = "F32"
+
+[[reducers.arguments]]
+name = "corner_radius"
+
+[reducers.arguments.field_type]
+Option = "F32"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
+[[reducers]]
+name = "draw_text"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "layer"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "content"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "position"
+
+[reducers.arguments.field_type]
+Named = "Vec2"
+
+[[reducers.arguments]]
+name = "size"
+field_type = "F32"
+
+[[reducers.arguments]]
+name = "color"
+
+[reducers.arguments.field_type]
+Named = "Color"
+
+[[reducers.arguments]]
+name = "font"
+
+[reducers.arguments.field_type]
+Option = "String"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
+[[reducers]]
+name = "draw_image"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "layer"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "texture_local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "rect"
+
+[reducers.arguments.field_type]
+Named = "Rect"
+
+[[reducers.arguments]]
+name = "tint"
+
+[reducers.arguments.field_type]
+Named = "Color"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "texturebinding"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
+[[reducers]]
+name = "draw_circle"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "layer"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "center"
+
+[reducers.arguments.field_type]
+Named = "Vec2"
+
+[[reducers.arguments]]
+name = "radius"
+field_type = "F32"
+
+[[reducers.arguments]]
+name = "color"
+
+[reducers.arguments.field_type]
+Named = "Color"
+
+[[reducers.arguments]]
+name = "filled"
+field_type = "Bool"
+
+[[reducers.arguments]]
+name = "stroke_width"
+field_type = "F32"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
+[[reducers]]
+name = "draw_circles"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "layer"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "centers"
+
+[reducers.arguments.field_type.Vec]
+Named = "Vec2"
+
+[[reducers.arguments]]
+name = "radii"
+
+[reducers.arguments.field_type]
+Vec = "F32"
+
+[[reducers.arguments]]
+name = "color"
+
+[reducers.arguments.field_type]
+Named = "Color"
+
+[[reducers.arguments]]
+name = "filled"
+field_type = "Bool"
+
+[[reducers.arguments]]
+name = "stroke_width"
+field_type = "F32"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
+[[reducers]]
+name = "draw_surface"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "layer"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "surface_id"
+field_type = "U32"
+
+[[reducers.arguments]]
+name = "dest"
+
+[reducers.arguments.field_type]
+Named = "Rect"
+
+[[reducers.arguments]]
+name = "tint"
+
+[reducers.arguments.field_type]
+Named = "Color"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
+[[reducers]]
+name = "draw_polyline"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "layer"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "points"
+
+[reducers.arguments.field_type.Vec]
+Named = "Vec2"
+
+[[reducers.arguments]]
+name = "width"
+field_type = "U32"
+
+[[reducers.arguments]]
+name = "color"
+
+[reducers.arguments.field_type]
+Named = "Color"
+
+[[reducers.arguments]]
+name = "closed"
+field_type = "Bool"
+
+[[reducers.arguments]]
+name = "filled"
+field_type = "Bool"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
+[[reducers]]
+name = "submit_compute"
+reads = []
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "submission"
+
+[reducers.arguments.field_type]
+Named = "ComputeSubmission"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "computecommand"
+
+[[reducers]]
+name = "submit_render_pass"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "submission"
+
+[reducers.arguments.field_type]
+Named = "RenderPassSubmission"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "renderpasscommand"
+
+[[reducers]]
+name = "create_mesh"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "mesh"
+
+[reducers.arguments.field_type]
+Named = "MeshDescriptor"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "meshbinding"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "meshbinding"
+
+[[reducers]]
+name = "create_texture"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "desc"
+
+[reducers.arguments.field_type]
+Named = "TextureDescriptorInput"
+
+[[reducers.arguments]]
+name = "bytes"
+
+[reducers.arguments.field_type]
+Vec = "U8"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "texturebinding"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "texturebinding"
+
+[[reducers]]
+name = "create_pipeline"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "descriptor"
+
+[reducers.arguments.field_type]
+Named = "PipelineDescriptorInput"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "pipelinebinding"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "pipelinebinding"
+
+[[reducers]]
+name = "destroy_resource"
+inserts = []
+updates = []
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "texturebinding"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "meshbinding"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "pipelinebinding"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "bindgroupbinding"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "texturebinding"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "meshbinding"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "pipelinebinding"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "bindgroupbinding"
+
+[[reducers]]
+name = "create_bind_group"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "descriptor"
+
+[reducers.arguments.field_type]
+Named = "BindGroupDescriptorInput"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "bindgroupbinding"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "bindgroupbinding"
+
+[[reducers]]
+name = "create_surface"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "id"
+field_type = "U32"
+
+[[reducers.arguments]]
+name = "width"
+field_type = "U32"
+
+[[reducers.arguments]]
+name = "height"
+field_type = "U32"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "compositor"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceinfo"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfacetarget"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceinfo"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfacetarget"
+
+[[reducers]]
+name = "resize_surface"
+inserts = []
+deletes = []
+
+[[reducers.arguments]]
+name = "id"
+field_type = "U32"
+
+[[reducers.arguments]]
+name = "width"
+field_type = "U32"
+
+[[reducers.arguments]]
+name = "height"
+field_type = "U32"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "compositor"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceinfo"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfacetarget"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceinfo"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfacetarget"
+
+[[reducers]]
+name = "destroy_surface"
+inserts = []
+
+[[reducers.arguments]]
+name = "id"
+field_type = "U32"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "compositor"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceinfo"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfacetarget"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceassignment"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceassignment"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceinfo"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfacetarget"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceassignment"
+
+[[reducers]]
+name = "claim_compositor"
+arguments = []
+updates = []
+deletes = []
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "compositor"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "compositor"
+
+[[reducers]]
+name = "assign_module_surface"
+
+[[reducers.arguments]]
+name = "module_name"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "surface_id"
+field_type = "U32"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "compositor"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfacetarget"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceassignment"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceassignment"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceassignment"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceassignment"
+
+[[reducers]]
+name = "set_layer_z"
+inserts = []
+deletes = []
+
+[[reducers.arguments]]
+name = "name"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "z"
+field_type = "I32"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers]]
+name = "create_layer"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "name"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "z"
+field_type = "I32"
+
+[[reducers.arguments]]
+name = "clear"
+field_type = "Bool"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers]]
+name = "destroy_layer"
+inserts = []
+updates = []
+
+[[reducers.arguments]]
+name = "name"
+field_type = "String"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "draw2dcommand"
+
+[[reducers]]
+name = "set_layer_clear"
+inserts = []
+deletes = []
+
+[[reducers.arguments]]
+name = "name"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "clear"
+field_type = "Bool"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "layer"
+
+[[queries]]
+name = "surface_info"
+arguments = []
+
+[queries.return_type]
+Named = "SurfaceInfo"
+
+[[queries.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceassignment"
+
+[[queries.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "surfaceinfo"
+
+[[tables]]
+name = "frametick"
+type_name = "FrameTick"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Ephemeral"
+
+[[tables.fields]]
+name = "frame"
+field_type = "U64"
+
+[tables.primary_key]
+name = "id"
+field_type = "U32"
+
+[[tables]]
+name = "surfaceinfo"
+type_name = "SurfaceInfo"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Ephemeral"
+
+[[tables.fields]]
+name = "width"
+field_type = "U32"
+
+[[tables.fields]]
+name = "height"
+field_type = "U32"
+
+[tables.primary_key]
+name = "id"
+field_type = "U32"
+
+[type_definitions.PipelineDescriptorInput.Struct]
+name = "PipelineDescriptorInput"
+
+[[type_definitions.PipelineDescriptorInput.Struct.fields]]
+name = "label"
+
+[type_definitions.PipelineDescriptorInput.Struct.fields.field_type]
+Option = "String"
+
+[[type_definitions.PipelineDescriptorInput.Struct.fields]]
+name = "shader_source"
+field_type = "String"
+
+[[type_definitions.PipelineDescriptorInput.Struct.fields]]
+name = "vertex_entry"
+field_type = "String"
+
+[[type_definitions.PipelineDescriptorInput.Struct.fields]]
+name = "fragment_entry"
+
+[type_definitions.PipelineDescriptorInput.Struct.fields.field_type]
+Option = "String"
+
+[type_definitions.SurfaceInfo.Struct]
+name = "SurfaceInfo"
+
+[[type_definitions.SurfaceInfo.Struct.fields]]
+name = "id"
+field_type = "U32"
+
+[[type_definitions.SurfaceInfo.Struct.fields]]
+name = "width"
+field_type = "U32"
+
+[[type_definitions.SurfaceInfo.Struct.fields]]
+name = "height"
+field_type = "U32"
+
+[type_definitions.BindGroupDescriptorInput.Struct]
+name = "BindGroupDescriptorInput"
+
+[[type_definitions.BindGroupDescriptorInput.Struct.fields]]
+name = "label"
+
+[type_definitions.BindGroupDescriptorInput.Struct.fields.field_type]
+Option = "String"
+
+[type_definitions.TextureUsageFlags.Struct]
+name = "TextureUsageFlags"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "copy_src"
+field_type = "Bool"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "copy_dst"
+field_type = "Bool"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "texture_binding"
+field_type = "Bool"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "storage_binding"
+field_type = "Bool"
+
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "render_attachment"
+field_type = "Bool"
+
+[type_definitions.Vec2.Struct]
+name = "Vec2"
+
+[[type_definitions.Vec2.Struct.fields]]
+name = "x"
+field_type = "F32"
+
+[[type_definitions.Vec2.Struct.fields]]
+name = "y"
+field_type = "F32"
+
+[type_definitions.MeshDescriptor.Struct]
+name = "MeshDescriptor"
+
+[[type_definitions.MeshDescriptor.Struct.fields]]
+name = "vertices"
+
+[type_definitions.MeshDescriptor.Struct.fields.field_type.Vec]
+Named = "MeshVertex"
+
+[[type_definitions.MeshDescriptor.Struct.fields]]
+name = "indices"
+
+[type_definitions.MeshDescriptor.Struct.fields.field_type.Option]
+Vec = "U32"
+
+[type_definitions.ComputeSubmission.Struct]
+name = "ComputeSubmission"
+
+[[type_definitions.ComputeSubmission.Struct.fields]]
+name = "debug_label"
+
+[type_definitions.ComputeSubmission.Struct.fields.field_type]
+Option = "String"
+
+[type_definitions.FrameTick.Struct]
+name = "FrameTick"
+
+[[type_definitions.FrameTick.Struct.fields]]
+name = "id"
+field_type = "U32"
+
+[[type_definitions.FrameTick.Struct.fields]]
+name = "frame"
+field_type = "U64"
+
+[type_definitions.MeshVertex.Struct]
+name = "MeshVertex"
+
+[[type_definitions.MeshVertex.Struct.fields]]
+name = "position"
+
+[type_definitions.MeshVertex.Struct.fields.field_type]
+Named = "Vec3"
+
+[[type_definitions.MeshVertex.Struct.fields]]
+name = "color"
+
+[type_definitions.MeshVertex.Struct.fields.field_type]
+Named = "Color"
+
+[[type_definitions.MeshVertex.Struct.fields]]
+name = "uv"
+
+[type_definitions.MeshVertex.Struct.fields.field_type]
+Named = "Vec2"
+
+[type_definitions.Vec3.Struct]
+name = "Vec3"
+
+[[type_definitions.Vec3.Struct.fields]]
+name = "x"
+field_type = "F32"
+
+[[type_definitions.Vec3.Struct.fields]]
+name = "y"
+field_type = "F32"
+
+[[type_definitions.Vec3.Struct.fields]]
+name = "z"
+field_type = "F32"
+
+[type_definitions.RenderPassSubmission.Struct]
+name = "RenderPassSubmission"
+
+[[type_definitions.RenderPassSubmission.Struct.fields]]
+name = "layer"
+field_type = "String"
+
+[[type_definitions.RenderPassSubmission.Struct.fields]]
+name = "debug_label"
+
+[type_definitions.RenderPassSubmission.Struct.fields.field_type]
+Option = "String"
+
+[type_definitions.Color.Struct]
+name = "Color"
+
+[[type_definitions.Color.Struct.fields]]
+name = "r"
+field_type = "F32"
+
+[[type_definitions.Color.Struct.fields]]
+name = "g"
+field_type = "F32"
+
+[[type_definitions.Color.Struct.fields]]
+name = "b"
+field_type = "F32"
+
+[[type_definitions.Color.Struct.fields]]
+name = "a"
+field_type = "F32"
+
+[type_definitions.TextureDescriptorInput.Struct]
+name = "TextureDescriptorInput"
+
+[[type_definitions.TextureDescriptorInput.Struct.fields]]
+name = "width"
+field_type = "U32"
+
+[[type_definitions.TextureDescriptorInput.Struct.fields]]
+name = "height"
+field_type = "U32"
+
+[[type_definitions.TextureDescriptorInput.Struct.fields]]
+name = "format"
+field_type = "String"
+
+[[type_definitions.TextureDescriptorInput.Struct.fields]]
+name = "mip_levels"
+field_type = "U32"
+
+[[type_definitions.TextureDescriptorInput.Struct.fields]]
+name = "sample_count"
+field_type = "U32"
+
+[[type_definitions.TextureDescriptorInput.Struct.fields]]
+name = "usage"
+
+[type_definitions.TextureDescriptorInput.Struct.fields.field_type]
+Named = "TextureUsageFlags"
+
+[type_definitions.Rect.Struct]
+name = "Rect"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "x"
+field_type = "F32"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "y"
+field_type = "F32"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "w"
+field_type = "F32"
+
+[[type_definitions.Rect.Struct.fields]]
+name = "h"
+field_type = "F32"

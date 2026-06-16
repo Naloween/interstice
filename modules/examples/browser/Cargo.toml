@@ -1,0 +1,20 @@
+[package]
+name = "browser-example"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+interstice-sdk = "0.5.0"
+interstice-ui = "0.5.0"
+# Pure-Rust HTML parser (no_std-friendly, builds for wasm).
+tl = "0.7"
+# Image decoding for <img>. Pure-Rust PNG + JPEG decoders only — keeps the wasm
+# small and avoids C dependencies.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+[build-dependencies]
+interstice-sdk = "0.5.0"
