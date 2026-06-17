@@ -56,6 +56,7 @@ where
             scroll_x: 0.0,
             scroll_y: 0.0,
             visible: true,
+            ..Default::default()
         });
     };
 

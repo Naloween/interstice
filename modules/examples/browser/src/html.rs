@@ -1,20 +1,45 @@
 //! HTML → flat render-block translation. We parse with `tl`, walk the DOM, and
-//! flatten it into a linear list of [`Block`]s (the document flow). Inline runs
-//! are concatenated per block; links and images become their own blocks so they
-//! can be hit-tested / fetched individually (see the plan: v1 keeps inline flow
-//! simple). The caller turns blocks into `UiElement`s under the viewport.
+//! flatten it into a linear list of [`Block`]s (the document flow). Each element's
+//! computed style comes from the cascade: a built-in UA layer ([`style`]) under
+//! the page's author CSS ([`crate::css`]) under inline `style=""`. Inline runs
+//! (plain text, links, colour-styled spans) are accumulated into ONE block-level
+//! [`Block::Text`] per block element, carrying per-run [`Span`]s so the whole
+//! paragraph wraps as a single flowing line box (links sit inline). Images stay
+//! their own block. The caller turns blocks into `UiElement`s under the viewport.
 
+use crate::css;
 use crate::style::{self, Rgba, TextStyle};
+
+/// An inline style run within a [`Block::Text`]: char range `[start, end)` over
+/// the block's `text`, a colour override, and an optional link `href`.
+pub struct Span {
+    pub start: u32,
+    pub end: u32,
+    pub color: Rgba,
+    pub href: Option<String>,
+}
 
 /// One laid-out piece of the document, in reading order.
 pub enum Block {
-    /// A run of text. `href` set ⇒ it is a link (link-coloured, clickable).
+    /// A block of flowing text. `color`/`size` are the block defaults; `spans`
+    /// override colour and mark links for sub-ranges (links/inline-styled runs).
+    /// `align` is the text-align factor (0 left / 0.5 centre / 1 right);
+    /// `background` is an optional backdrop colour for the text box. `margin` and
+    /// `padding` are per-side `(top, right, bottom, left)` px from the box model
+    /// (the left margin already folds in any list/quote indent). `width` is the
+    /// CSS width; `border_w`/`border_c` give an optional box border.
     Text {
         text: String,
         size: f32,
         color: Rgba,
-        indent: f32,
-        href: Option<String>,
+        align: f32,
+        background: Option<Rgba>,
+        margin: (f32, f32, f32, f32),
+        padding: (f32, f32, f32, f32),
+        width: css::WidthVal,
+        border_w: f32,
+        border_c: Rgba,
+        spans: Vec<Span>,
     },
     /// An `<img>` to fetch + decode. `url` is as authored (resolved later).
     Image { url: String },
@@ -22,31 +47,136 @@ pub enum Block {
     Space { height: f32 },
 }
 
-struct State {
+struct State<'a> {
+    /// Author cascade (UA defaults applied separately via [`style`]).
+    sheet: &'a css::Stylesheet,
+    /// Ancestor chain for descendant-selector matching (outermost first; the
+    /// current element is not yet on the stack while it is being processed).
+    stack: Vec<css::ElemCtx>,
+
     blocks: Vec<Block>,
+    /// Accumulated text for the current block (whitespace already collapsed).
     buf: String,
+    /// Style runs recorded for `buf` so far.
+    spans: Vec<Span>,
+    /// A whitespace boundary is pending: insert a single space before the next
+    /// word so inline runs separated by whitespace don't run together, while
+    /// adjacent runs with no whitespace (`<b>foo</b>bar`) stay joined.
+    pending_space: bool,
+
+    /// Current block's base style (size + base colour). `style.color` is the
+    /// fallback the engine draws and the baseline against which a run gets a span.
     style: TextStyle,
+    /// Current inline colour (differs from `style.color` inside coloured inline
+    /// elements / links).
+    cur_color: Rgba,
+    /// Current inline link target (set inside `<a>`).
+    cur_href: Option<String>,
+    /// Current block's backdrop colour and text alignment.
+    cur_bg: Option<Rgba>,
+    cur_align: f32,
     indent: f32,
+    /// Current block's box model: per-side margin/padding `(t, r, b, l)`, CSS
+    /// width, and border. Reset per block (saved/restored around each block).
+    cur_margin: (f32, f32, f32, f32),
+    cur_padding: (f32, f32, f32, f32),
+    cur_width: css::WidthVal,
+    cur_border_w: f32,
+    cur_border_c: Rgba,
 }
 
-/// Parse a document and return its blocks. Invalid HTML yields an empty list.
-pub fn parse_html(html: &str) -> Vec<Block> {
+/// Parse a document against `sheet` and return its blocks. Invalid HTML yields
+/// an empty list.
+pub fn parse_html(html: &str, sheet: &css::Stylesheet) -> Vec<Block> {
     let dom = match tl::parse(html, tl::ParserOptions::default()) {
         Ok(d) => d,
         Err(_) => return Vec::new(),
     };
     let parser = dom.parser();
     let mut st = State {
+        sheet,
+        stack: Vec::new(),
         blocks: Vec::new(),
         buf: String::new(),
+        spans: Vec::new(),
+        pending_space: false,
         style: TextStyle::body(),
+        cur_color: TextStyle::body().color,
+        cur_href: None,
+        cur_bg: None,
+        cur_align: 0.0,
         indent: 0.0,
+        cur_margin: (0.0, 0.0, 0.0, 0.0),
+        cur_padding: (0.0, 0.0, 0.0, 0.0),
+        cur_width: css::WidthVal::Auto,
+        cur_border_w: 0.0,
+        cur_border_c: (0.0, 0.0, 0.0, 0.0),
     };
     for handle in dom.children() {
         walk(parser, *handle, &mut st);
     }
     flush(&mut st);
     st.blocks
+}
+
+/// Scan a document for stylesheet sources: external `<link rel=stylesheet href>`
+/// targets (resolved later) and inline `<style>` text, in source order.
+pub fn collect_stylesheets(html: &str) -> (Vec<String>, Vec<String>) {
+    let dom = match tl::parse(html, tl::ParserOptions::default()) {
+        Ok(d) => d,
+        Err(_) => return (Vec::new(), Vec::new()),
+    };
+    let parser = dom.parser();
+    let mut links = Vec::new();
+    let mut inline = Vec::new();
+    for handle in dom.children() {
+        collect_walk(parser, *handle, &mut links, &mut inline);
+    }
+    (links, inline)
+}
+
+fn collect_walk(
+    parser: &tl::Parser,
+    handle: tl::NodeHandle,
+    links: &mut Vec<String>,
+    inline: &mut Vec<String>,
+) {
+    let node = match handle.get(parser) {
+        Some(n) => n,
+        None => return,
+    };
+    if let tl::Node::Tag(tag) = node {
+        let name = tag.name().as_utf8_str().to_ascii_lowercase();
+        match name.as_str() {
+            "link" => {
+                let rel = tag
+                    .attributes()
+                    .get("rel")
+                    .flatten()
+                    .map(|b| b.as_utf8_str().to_ascii_lowercase())
+                    .unwrap_or_default();
+                if rel.split_whitespace().any(|t| t == "stylesheet") {
+                    if let Some(Some(href)) = tag.attributes().get("href") {
+                        let h = href.as_utf8_str().trim().to_string();
+                        if !h.is_empty() {
+                            links.push(h);
+                        }
+                    }
+                }
+            }
+            "style" => {
+                let css_text = tag.inner_text(parser).to_string();
+                if !css_text.trim().is_empty() {
+                    inline.push(css_text);
+                }
+            }
+            _ => {}
+        }
+        let kids: Vec<tl::NodeHandle> = tag.children().top().iter().copied().collect();
+        for k in kids {
+            collect_walk(parser, k, links, inline);
+        }
+    }
 }
 
 fn walk(parser: &tl::Parser, handle: tl::NodeHandle, st: &mut State) {
@@ -56,7 +186,7 @@ fn walk(parser: &tl::Parser, handle: tl::NodeHandle, st: &mut State) {
     };
     match node {
         tl::Node::Raw(bytes) => {
-            st.buf.push_str(&decode_entities(&bytes.as_utf8_str()));
+            push_run(st, &decode_entities(&bytes.as_utf8_str()));
         }
         tl::Node::Comment(_) => {}
         tl::Node::Tag(tag) => {
@@ -66,38 +196,62 @@ fn walk(parser: &tl::Parser, handle: tl::NodeHandle, st: &mut State) {
     }
 }
 
+/// Build the selector-matching context (tag/id/classes) for an element.
+fn elem_ctx(name: &str, tag: &tl::HTMLTag) -> css::ElemCtx {
+    let id = tag
+        .attributes()
+        .get("id")
+        .flatten()
+        .map(|b| b.as_utf8_str().trim().to_string())
+        .filter(|s| !s.is_empty());
+    let classes = tag
+        .attributes()
+        .get("class")
+        .flatten()
+        .map(|b| {
+            b.as_utf8_str()
+                .split_whitespace()
+                .map(|s| s.to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    css::ElemCtx {
+        tag: name.to_string(),
+        id,
+        classes,
+    }
+}
+
+/// The UA default `display` for a tag (author CSS may override it).
+fn ua_display(name: &str) -> css::Display {
+    if name == "a" || style::is_inline(name) {
+        css::Display::Inline
+    } else {
+        css::Display::Block
+    }
+}
+
 fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) {
     if style::is_skipped(name) {
         return;
     }
 
-    // Inline `style="color: …"` override (the only CSS we honour — see plan).
-    let color_override = tag
-        .attributes()
-        .get("style")
-        .flatten()
-        .and_then(|b| style::inline_color(&b.as_utf8_str()));
+    let ctx = elem_ctx(name, tag);
+    let base_font = st.style.size;
+    let mut applied = st.sheet.applied(&ctx, &st.stack, base_font);
+    // Inline `style="…"` wins over author rules.
+    if let Some(Some(style_attr)) = tag.attributes().get("style") {
+        let inline = css::parse_inline(&style_attr.as_utf8_str(), base_font);
+        applied.overlay(&inline);
+    }
 
+    let display = applied.display.unwrap_or_else(|| ua_display(name));
+    if display == css::Display::None {
+        return; // skip the whole subtree
+    }
+
+    // Replaced / void elements (handled regardless of display, aside from none).
     match name {
-        "a" => {
-            flush(st);
-            let href = tag
-                .attributes()
-                .get("href")
-                .flatten()
-                .map(|b| b.as_utf8_str().to_string());
-            let text = collapse_ws(&decode_entities(&tag.inner_text(parser)));
-            if !text.is_empty() {
-                st.blocks.push(Block::Text {
-                    text,
-                    size: st.style.size,
-                    color: style::LINK,
-                    indent: st.indent,
-                    href,
-                });
-            }
-            return;
-        }
         "img" => {
             flush(st);
             if let Some(Some(src)) = tag.attributes().get("src") {
@@ -118,31 +272,43 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
             st.blocks.push(Block::Space { height: 14.0 });
             return;
         }
+        "a" => {
+            // Inline link: descend so nested formatting (and nested colours) is
+            // preserved, tagging every run with this href + the link colour.
+            let href = tag
+                .attributes()
+                .get("href")
+                .flatten()
+                .map(|b| b.as_utf8_str().to_string());
+            let saved_color = st.cur_color;
+            let saved_href = st.cur_href.clone();
+            st.cur_color = applied.color.unwrap_or(style::LINK);
+            st.cur_href = href;
+            st.stack.push(ctx);
+            walk_children(parser, tag, st);
+            st.stack.pop();
+            st.cur_color = saved_color;
+            st.cur_href = saved_href;
+            return;
+        }
         _ => {}
     }
 
-    // Inline formatting: fold the children's text into the current run, unless a
-    // colour override is present — then emit the span as its own coloured run.
-    if style::is_inline(name) {
-        if let Some(color) = color_override {
-            flush(st);
-            let text = collapse_ws(&decode_entities(&tag.inner_text(parser)));
-            if !text.is_empty() {
-                st.blocks.push(Block::Text {
-                    text,
-                    size: st.style.size,
-                    color,
-                    indent: st.indent,
-                    href: None,
-                });
-            }
-        } else {
-            walk_children(parser, tag, st);
+    if matches!(display, css::Display::Inline | css::Display::InlineBlock) {
+        // Inline element: fold children into the current run, optionally applying
+        // a colour override (font-size on inline boxes isn't modelled yet).
+        let saved_color = st.cur_color;
+        if let Some(c) = applied.color {
+            st.cur_color = c;
         }
+        st.stack.push(ctx);
+        walk_children(parser, tag, st);
+        st.stack.pop();
+        st.cur_color = saved_color;
         return;
     }
 
-    // Block-level text: start a fresh run with this tag's style.
+    // Block-level text element (p, h1, li, …): start a fresh styled block.
     if let Some(bs) = style::block_style(name, &st.style) {
         flush(st);
         if bs.space_before > 0.0 {
@@ -152,23 +318,82 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         }
         let saved_style = st.style;
         let saved_indent = st.indent;
+        let saved_align = st.cur_align;
+        let saved_bg = st.cur_bg;
+        let saved_color = st.cur_color;
+        let saved_href = st.cur_href.clone();
+        let saved_margin = st.cur_margin;
+        let saved_padding = st.cur_padding;
+        let saved_width = st.cur_width;
+        let saved_border_w = st.cur_border_w;
+        let saved_border_c = st.cur_border_c;
+
         st.style = bs;
-        if let Some(color) = color_override {
-            st.style.color = color;
+        st.style.size = applied.font_size.unwrap_or(bs.size);
+        st.style.color = applied.color.unwrap_or(bs.color);
+        st.cur_color = st.style.color;
+        st.cur_href = None;
+        st.cur_bg = applied.background;
+        if let Some(al) = applied.text_align {
+            st.cur_align = al.factor();
         }
         st.indent += bs.indent_step;
+
+        // Box model: CSS margin/padding/width/border for this block. The left
+        // margin folds in the accumulated list/quote indent so both stack.
+        let (mt, mr, mb, ml) = applied.margin_px();
+        st.cur_margin = (mt, mr, mb, ml + st.indent);
+        st.cur_padding = applied.padding_px();
+        st.cur_width = applied.width.unwrap_or(css::WidthVal::Auto);
+        st.cur_border_w = applied.border_width.unwrap_or(0.0);
+        // `border-color` defaults to the text colour (CSS currentColor).
+        st.cur_border_c = applied.border_color.unwrap_or(st.style.color);
+
         if name == "li" {
-            st.buf.push_str("• ");
+            push_run(st, "• "); // bullet inherits the block colour ⇒ no span
         }
+        st.stack.push(ctx);
         walk_children(parser, tag, st);
+        st.stack.pop();
         flush(st);
+
         st.style = saved_style;
         st.indent = saved_indent;
+        st.cur_align = saved_align;
+        st.cur_bg = saved_bg;
+        st.cur_color = saved_color;
+        st.cur_href = saved_href;
+        st.cur_margin = saved_margin;
+        st.cur_padding = saved_padding;
+        st.cur_width = saved_width;
+        st.cur_border_w = saved_border_w;
+        st.cur_border_c = saved_border_c;
         return;
     }
 
-    // Container or unknown tag: descend without emitting a run boundary.
+    // Block container (div, section, unknown): a flow boundary that still passes
+    // inherited properties (colour, font-size, text-align) down to its children.
+    flush(st);
+    let saved_style = st.style;
+    let saved_align = st.cur_align;
+    let saved_color = st.cur_color;
+    if let Some(c) = applied.color {
+        st.style.color = c;
+        st.cur_color = c;
+    }
+    if let Some(s) = applied.font_size {
+        st.style.size = s;
+    }
+    if let Some(al) = applied.text_align {
+        st.cur_align = al.factor();
+    }
+    st.stack.push(ctx);
     walk_children(parser, tag, st);
+    st.stack.pop();
+    flush(st);
+    st.style = saved_style;
+    st.cur_align = saved_align;
+    st.cur_color = saved_color;
 }
 
 fn walk_children(parser: &tl::Parser, tag: &tl::HTMLTag, st: &mut State) {
@@ -180,18 +405,67 @@ fn walk_children(parser: &tl::Parser, tag: &tl::HTMLTag, st: &mut State) {
     }
 }
 
-/// Emit the pending text buffer as a Text block, collapsing whitespace.
+/// Append `raw` to the current block in the current inline colour/href,
+/// collapsing its internal whitespace and inserting a single separating space
+/// when a whitespace boundary sits between this run and the previous one. Records
+/// a [`Span`] for the appended range when it's a link or its colour differs from
+/// the block default. Char offsets into `buf` stay stable (it's already
+/// collapsed), so spans line up with what the engine draws and hit-tests.
+fn push_run(st: &mut State, raw: &str) {
+    let color = st.cur_color;
+    let href = st.cur_href.clone();
+
+    let lead = raw.starts_with(|c: char| c.is_whitespace());
+    let trail = raw.ends_with(|c: char| c.is_whitespace());
+    let collapsed = collapse_ws(raw);
+
+    if collapsed.is_empty() {
+        // Pure whitespace: remember the boundary so runs stay separated.
+        if !st.buf.is_empty() && (lead || trail) {
+            st.pending_space = true;
+        }
+        return;
+    }
+
+    if !st.buf.is_empty() && (st.pending_space || lead) {
+        st.buf.push(' ');
+    }
+    let start = st.buf.chars().count() as u32;
+    st.buf.push_str(&collapsed);
+    let end = st.buf.chars().count() as u32;
+    if href.is_some() || color != st.style.color {
+        st.spans.push(Span {
+            start,
+            end,
+            color,
+            href,
+        });
+    }
+    st.pending_space = trail;
+}
+
+/// Emit the pending block as a Text block. `buf` is already collapsed/trimmed.
 fn flush(st: &mut State) {
-    let collapsed = collapse_ws(&st.buf);
-    st.buf.clear();
-    if !collapsed.is_empty() {
+    let text = std::mem::take(&mut st.buf);
+    let spans = std::mem::take(&mut st.spans);
+    st.pending_space = false;
+    if !text.is_empty() {
         st.blocks.push(Block::Text {
-            text: collapsed,
+            text,
             size: st.style.size,
             color: st.style.color,
-            indent: st.indent,
-            href: None,
+            align: st.cur_align,
+            background: st.cur_bg,
+            margin: st.cur_margin,
+            padding: st.cur_padding,
+            width: st.cur_width,
+            border_w: st.cur_border_w,
+            border_c: st.cur_border_c,
+            spans,
         });
+    } else {
+        // Drop orphan spans (shouldn't happen: spans only added alongside text).
+        let _ = spans;
     }
 }
 

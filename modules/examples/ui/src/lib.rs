@@ -53,6 +53,7 @@ where
             scroll_x: 0.0,
             scroll_y: 0.0,
             visible: true,
+            ..Default::default()
         },
     );
 
@@ -85,6 +86,7 @@ where
             scroll_x: 0.0,
             scroll_y: 0.0,
             visible: true,
+            ..Default::default()
         },
     );
 
@@ -117,6 +119,7 @@ where
             scroll_x: 0.0,
             scroll_y: 0.0,
             visible: true,
+            ..Default::default()
         },
     );
 
@@ -149,6 +152,7 @@ where
             scroll_x: 0.0,
             scroll_y: 0.0,
             visible: true,
+            ..Default::default()
         },
     );
 
@@ -181,6 +185,7 @@ where
             scroll_x: 0.0,
             scroll_y: 0.0,
             visible: true,
+            ..Default::default()
         },
     );
 
@@ -217,6 +222,7 @@ where
                 scroll_x: 0.0,
                 scroll_y: 0.0,
                 visible: true,
+                ..Default::default()
             },
         );
     }
@@ -278,6 +284,7 @@ fn button_element(bg: (f32, f32, f32, f32)) -> UiElement {
         scroll_x: 0.0,
         scroll_y: 0.0,
         visible: true,
+        ..Default::default()
     }
 }
 

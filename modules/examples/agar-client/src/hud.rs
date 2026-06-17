@@ -44,6 +44,7 @@ where
         scroll_x: 0.0,
         scroll_y: 0.0,
         visible: true,
+        ..Default::default()
     });
 
     // Score label (top-left).
@@ -73,6 +74,7 @@ where
         scroll_x: 0.0,
         scroll_y: 0.0,
         visible: true,
+        ..Default::default()
     });
 
     // Middle spacer — pushes leaderboard to the right.
@@ -102,6 +104,7 @@ where
         scroll_x: 0.0,
         scroll_y: 0.0,
         visible: true,
+        ..Default::default()
     });
 
     // Leaderboard panel (top-right).
@@ -131,6 +134,7 @@ where
         scroll_x: 0.0,
         scroll_y: 0.0,
         visible: true,
+        ..Default::default()
     });
     ui::create_element(ctx, UiElement {
         id: UI_HUD_LB_TITLE.into(),
@@ -158,6 +162,7 @@ where
         scroll_x: 0.0,
         scroll_y: 0.0,
         visible: true,
+        ..Default::default()
     });
 
     // Pre-create 8 leaderboard row slots, initially hidden. update_hud only
@@ -190,6 +195,7 @@ where
             scroll_x: 0.0,
             scroll_y: 0.0,
             visible: false,
+            ..Default::default()
         });
     }
 }
@@ -241,6 +247,7 @@ where
             scroll_x: 0.0,
             scroll_y: 0.0,
             visible: true,
+            ..Default::default()
         });
     }
 
@@ -288,6 +295,7 @@ where
             scroll_x: 0.0,
             scroll_y: 0.0,
             visible,
+            ..Default::default()
         });
     }
 }

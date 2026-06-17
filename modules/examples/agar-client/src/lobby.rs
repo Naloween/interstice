@@ -54,6 +54,7 @@ where
             scroll_x: 0.0,
             scroll_y: 0.0,
             visible: true,
+            ..Default::default()
         });
     };
 
@@ -84,6 +85,7 @@ where
         scroll_x: 0.0,
         scroll_y: 0.0,
         visible: true,
+        ..Default::default()
     });
 
     // Top spacer — pushes center row down.
@@ -116,6 +118,7 @@ where
         scroll_x: 0.0,
         scroll_y: 0.0,
         visible: true,
+        ..Default::default()
     });
 
     // Left spacer — pushes card right.
@@ -148,6 +151,7 @@ where
         scroll_x: 0.0,
         scroll_y: 0.0,
         visible: true,
+        ..Default::default()
     });
 
     // Right spacer — pushes card left.
@@ -183,6 +187,7 @@ where
         scroll_x: 0.0,
         scroll_y: 0.0,
         visible: true,
+        ..Default::default()
     });
     ui::create_element(ctx, UiElement {
         id: "lobby_sub".into(),
@@ -210,6 +215,7 @@ where
         scroll_x: 0.0,
         scroll_y: 0.0,
         visible: true,
+        ..Default::default()
     });
     ui::create_element(ctx, UiElement {
         id: UI_LOBBY_INPUT.into(),
@@ -237,6 +243,7 @@ where
         scroll_x: 0.0,
         scroll_y: 0.0,
         visible: true,
+        ..Default::default()
     });
     ui::create_element(ctx, UiElement {
         id: UI_LOBBY_BTN.into(),
@@ -264,6 +271,7 @@ where
         scroll_x: 0.0,
         scroll_y: 0.0,
         visible: true,
+        ..Default::default()
     });
 
     ui::set_focus(ctx, UI_LOBBY_INPUT);

@@ -73,20 +73,6 @@ pub fn block_style(tag: &str, base: &TextStyle) -> Option<TextStyle> {
     Some(s)
 }
 
-/// Parse an inline `style="..."` attribute for a `color:` override only.
-pub fn inline_color(style_attr: &str) -> Option<Rgba> {
-    for decl in style_attr.split(';') {
-        let mut kv = decl.splitn(2, ':');
-        let key = kv.next()?.trim().to_ascii_lowercase();
-        if key == "color" {
-            if let Some(val) = kv.next() {
-                return parse_color(val.trim());
-            }
-        }
-    }
-    None
-}
-
 /// Parse `#rgb` / `#rrggbb` / a few named colours into RGBA.
 pub fn parse_color(s: &str) -> Option<Rgba> {
     let s = s.trim();

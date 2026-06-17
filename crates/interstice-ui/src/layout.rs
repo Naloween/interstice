@@ -33,7 +33,7 @@ fn fit_width(all: &[UiElement], el: &UiElement, avail_w: f32) -> f32 {
         .collect();
     children.sort_by_key(|c| c.order);
 
-    let inner_avail = (avail_w - el.padding * 2.0).max(0.0);
+    let inner_avail = (avail_w - el.pad_x()).max(0.0);
     let visible_n = children.len();
     let gap_total = if visible_n > 1 {
         el.gap * (visible_n - 1) as f32
@@ -45,22 +45,23 @@ fn fit_width(all: &[UiElement], el: &UiElement, avail_w: f32) -> f32 {
         LayoutDirection::Row => {
             let sum: f32 = children
                 .iter()
-                .map(|c| child_min_w(all, c, inner_avail) + c.margin * 2.0)
+                .map(|c| child_min_w(all, c, inner_avail) + c.mrg_x())
                 .sum();
             sum + gap_total
         }
         LayoutDirection::Column => children
             .iter()
-            .map(|c| child_min_w(all, c, inner_avail) + c.margin * 2.0)
+            .map(|c| child_min_w(all, c, inner_avail) + c.mrg_x())
             .fold(0.0f32, f32::max),
     };
 
-    (text_min_w.max(children_w) + el.padding * 2.0).max(0.0)
+    (text_min_w.max(children_w) + el.pad_x()).max(0.0)
 }
 
 fn child_min_w(all: &[UiElement], child: &UiElement, parent_inner_avail: f32) -> f32 {
     match child.width {
         Size::Fixed(px) => px.max(0.0),
+        Size::Percent(f) => (parent_inner_avail * f).max(0.0),
         Size::Grow | Size::Fit => fit_width(all, child, parent_inner_avail),
     }
 }
@@ -92,31 +93,34 @@ fn fit_height(all: &[UiElement], el: &UiElement, inner_w: f32) -> f32 {
         LayoutDirection::Column => {
             let sum: f32 = children
                 .iter()
-                .map(|c| child_resolved_h(all, c, inner_w) + c.margin * 2.0)
+                .map(|c| child_resolved_h(all, c, inner_w) + c.mrg_y())
                 .sum();
             sum + gap_total
         }
         LayoutDirection::Row => children
             .iter()
-            .map(|c| child_resolved_h(all, c, inner_w) + c.margin * 2.0)
+            .map(|c| child_resolved_h(all, c, inner_w) + c.mrg_y())
             .fold(0.0f32, f32::max),
     };
 
-    (text_h.max(children_h) + el.padding * 2.0).max(0.0)
+    (text_h.max(children_h) + el.pad_y()).max(0.0)
 }
 
 fn child_resolved_h(all: &[UiElement], child: &UiElement, parent_inner_w: f32) -> f32 {
     let child_outer_w = match child.width {
         Size::Fixed(px) => px.max(0.0),
+        Size::Percent(f) => (parent_inner_w * f).max(0.0),
         Size::Grow | Size::Fit => {
             let min_w = fit_width(all, child, parent_inner_w);
-            (parent_inner_w - child.margin * 2.0).max(0.0).max(min_w)
+            (parent_inner_w - child.mrg_x()).max(0.0).max(min_w)
         }
     };
-    let child_inner_w = (child_outer_w - child.padding * 2.0).max(0.0);
+    let child_inner_w = (child_outer_w - child.pad_x()).max(0.0);
     match child.height {
         Size::Fixed(px) => px.max(0.0),
-        Size::Grow | Size::Fit => fit_height(all, child, child_inner_w),
+        // A percent height against an indefinite (content-sized) parent resolves
+        // to auto in CSS — treat it like Fit/Grow here.
+        Size::Percent(_) | Size::Grow | Size::Fit => fit_height(all, child, child_inner_w),
     }
 }
 
@@ -133,32 +137,34 @@ pub fn layout_element<'a>(
         return Vec::new();
     }
 
-    let x = origin_x + el.margin;
-    let y = origin_y + el.margin;
+    let x = origin_x + el.mrg_l();
+    let y = origin_y + el.mrg_t();
 
     let own_w = match el.width {
         Size::Fixed(px) => px.max(0.0),
-        Size::Grow => (avail_w - el.margin * 2.0)
+        Size::Percent(f) => (avail_w * f).max(0.0),
+        Size::Grow => (avail_w - el.mrg_x())
             .max(0.0)
             .max(fit_width(all, el, avail_w)),
         Size::Fit => fit_width(all, el, avail_w),
     };
-    let inner_w = (own_w - el.padding * 2.0).max(0.0);
+    let inner_w = (own_w - el.pad_x()).max(0.0);
 
     let own_h = match el.height {
         Size::Fixed(px) => px.max(0.0),
-        Size::Grow => (avail_h - el.margin * 2.0)
+        Size::Percent(f) => (avail_h * f).max(0.0),
+        Size::Grow => (avail_h - el.mrg_y())
             .max(0.0)
             .max(fit_height(all, el, inner_w)),
         Size::Fit => fit_height(all, el, inner_w),
     };
-    let inner_h = (own_h - el.padding * 2.0).max(0.0);
+    let inner_h = (own_h - el.pad_y()).max(0.0);
 
     let self_clip = intersect_clip(clip, (x, y, own_w, own_h));
     // Content clip also accounts for scroll offset (children are shifted up/left by scroll).
     let content_clip = intersect_clip(
         self_clip,
-        (x + el.padding, y + el.padding, inner_w, inner_h),
+        (x + el.pad_l(), y + el.pad_t(), inner_w, inner_h),
     );
 
     let mut children: Vec<&UiElement> = all
@@ -172,18 +178,20 @@ pub fn layout_element<'a>(
             match el.layout_direction {
                 LayoutDirection::Row => match child.width {
                     Size::Grow => (acc, gc + 1),
-                    Size::Fixed(px) => (acc + px.max(0.0) + child.margin * 2.0, gc),
+                    Size::Fixed(px) => (acc + px.max(0.0) + child.mrg_x(), gc),
+                    Size::Percent(f) => (acc + (inner_w * f).max(0.0) + child.mrg_x(), gc),
                     Size::Fit => {
                         let w = fit_width(all, child, inner_w);
-                        (acc + w + child.margin * 2.0, gc)
+                        (acc + w + child.mrg_x(), gc)
                     }
                 },
                 LayoutDirection::Column => match child.height {
                     Size::Grow => (acc, gc + 1),
-                    Size::Fixed(px) => (acc + px.max(0.0) + child.margin * 2.0, gc),
+                    Size::Fixed(px) => (acc + px.max(0.0) + child.mrg_y(), gc),
+                    Size::Percent(f) => (acc + (inner_h * f).max(0.0) + child.mrg_y(), gc),
                     Size::Fit => {
                         let h = child_resolved_h(all, child, inner_w);
-                        (acc + h + child.margin * 2.0, gc)
+                        (acc + h + child.mrg_y(), gc)
                     }
                 },
             }
@@ -210,8 +218,8 @@ pub fn layout_element<'a>(
     let scroll_oy = if el.scrollable_y { el.scroll_y } else { 0.0 };
 
     let mut cursor = 0.0f32;
-    let content_x = x + el.padding - scroll_ox;
-    let content_y = y + el.padding - scroll_oy;
+    let content_x = x + el.pad_l() - scroll_ox;
+    let content_y = y + el.pad_t() - scroll_oy;
     let mut result = Vec::new();
     result.push(ComputedElement {
         schema: el,
@@ -245,11 +253,11 @@ pub fn layout_element<'a>(
         let child_main = match el.layout_direction {
             LayoutDirection::Row => child_nodes
                 .first()
-                .map(|c| c.width + child.margin * 2.0)
+                .map(|c| c.width + child.mrg_x())
                 .unwrap_or(0.0),
             LayoutDirection::Column => child_nodes
                 .first()
-                .map(|c| c.height + child.margin * 2.0)
+                .map(|c| c.height + child.mrg_y())
                 .unwrap_or(0.0),
         };
 
@@ -287,6 +295,69 @@ pub fn find_element_at(all: &[UiElement], sw: f32, sh: f32, cursor: (f32, f32)) 
     found
 }
 
+/// Lay out every root and, if `cursor` falls on a link [`TextSpan`] of some
+/// rich-text element, return that span's `href`. Mirrors [`crate::render`]'s
+/// span layout so hit-testing matches the underlined text the user clicked.
+/// Returns `None` for clicks on plain text or non-link spans.
+pub fn link_at(all: &[UiElement], sw: f32, sh: f32, cursor: (f32, f32)) -> Option<String> {
+    let mut roots: Vec<&UiElement> = all.iter().filter(|e| e.parent.is_none()).collect();
+    roots.sort_by_key(|e| e.order);
+
+    let full_surface = (0.0, 0.0, sw, sh);
+    let mut found: Option<String> = None;
+    for root in roots {
+        let computed = layout_element(all, root, 0.0, 0.0, sw, sh, full_surface);
+        for node in &computed {
+            let el = node.schema;
+            if el.spans.is_empty() {
+                continue;
+            }
+            let Some(text) = el.text.as_deref() else {
+                continue;
+            };
+            let (cx, cy, cw, ch) = node.clip;
+            if cw <= 0.0 || ch <= 0.0 {
+                continue;
+            }
+            if !(cursor.0 >= cx && cursor.0 < cx + cw && cursor.1 >= cy && cursor.1 < cy + ch) {
+                continue;
+            }
+
+            let inner_w = (node.width - el.pad_x()).max(0.0);
+            let lh = text_line_height(el.text_size);
+            let advance = glyph_advance(el.text_size);
+            let text_x = node.x + el.pad_l();
+            let text_y0 = node.y + el.pad_t();
+
+            let rel_y = cursor.1 - text_y0;
+            if rel_y < 0.0 {
+                continue;
+            }
+            let line_idx = (rel_y / lh).floor() as usize;
+
+            let words = layout_words(text, el.text_size, inner_w);
+            let offsets = line_align_offsets(&words, inner_w, advance, el.text_align);
+            for w in &words {
+                if w.line != line_idx {
+                    continue;
+                }
+                let ax = offsets.get(w.line).copied().unwrap_or(0.0);
+                let wlen = w.text.chars().count();
+                let wx0 = text_x + ax + w.x;
+                let wx1 = wx0 + wlen as f32 * advance;
+                if cursor.0 >= wx0 && cursor.0 < wx1 {
+                    let off = ((cursor.0 - wx0) / advance).floor() as usize;
+                    let idx = w.char_start + off.min(wlen.saturating_sub(1));
+                    if let Some(href) = span_href_at(&el.spans, idx) {
+                        found = Some(href);
+                    }
+                }
+            }
+        }
+    }
+    found
+}
+
 /// Walk the layout tree to find the innermost scrollable element containing `cursor`.
 pub fn find_scrollable_at<'a>(
     all: &'a [UiElement],
@@ -303,17 +374,19 @@ pub fn find_scrollable_at<'a>(
         return;
     }
 
-    let x = origin_x + el.margin;
-    let y = origin_y + el.margin;
+    let x = origin_x + el.mrg_l();
+    let y = origin_y + el.mrg_t();
     let own_w = match el.width {
         Size::Fixed(px) => px.max(0.0),
-        Size::Grow => (avail_w - el.margin * 2.0).max(0.0),
+        Size::Percent(f) => (avail_w * f).max(0.0),
+        Size::Grow => (avail_w - el.mrg_x()).max(0.0),
         Size::Fit => fit_width(all, el, avail_w),
     };
-    let inner_w = (own_w - el.padding * 2.0).max(0.0);
+    let inner_w = (own_w - el.pad_x()).max(0.0);
     let own_h = match el.height {
         Size::Fixed(px) => px.max(0.0),
-        Size::Grow => (avail_h - el.margin * 2.0).max(0.0),
+        Size::Percent(f) => (avail_h * f).max(0.0),
+        Size::Grow => (avail_h - el.mrg_y()).max(0.0),
         Size::Fit => fit_height(all, el, inner_w),
     };
 
@@ -329,10 +402,10 @@ pub fn find_scrollable_at<'a>(
     }
 
     // Recurse into children.
-    let inner_h = (own_h - el.padding * 2.0).max(0.0);
+    let inner_h = (own_h - el.pad_y()).max(0.0);
     let content_clip = intersect_clip(
         self_clip,
-        (x + el.padding, y + el.padding, inner_w, inner_h),
+        (x + el.pad_l(), y + el.pad_t(), inner_w, inner_h),
     );
     let mut children: Vec<&UiElement> = all
         .iter()
@@ -345,8 +418,8 @@ pub fn find_scrollable_at<'a>(
             all,
             child,
             cursor,
-            x + el.padding,
-            y + el.padding,
+            x + el.pad_l(),
+            y + el.pad_t(),
             inner_w,
             inner_h,
             content_clip,

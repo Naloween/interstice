@@ -37,7 +37,7 @@ macro_rules! ui_subsystem {
 
             // Layout primitives come straight from the engine so element literals
             // read identically to the old shared-module API.
-            pub use interstice_ui::{LayoutDirection, Size, TextWrap};
+            pub use interstice_ui::{LayoutDirection, Size, TextSpan, TextWrap};
 
             /// The retained UI tree for this module. Identical field set to
             /// [`interstice_ui::UiElement`]; converted via [`to_lib`] before layout.
@@ -53,6 +53,8 @@ macro_rules! ui_subsystem {
                 pub gap: f32,
                 pub padding: f32,
                 pub margin: f32,
+                pub padding_sides: Option<(f32, f32, f32, f32)>,
+                pub margin_sides: Option<(f32, f32, f32, f32)>,
                 pub background_color: (f32, f32, f32, f32),
                 pub corner_radius: f32,
                 pub border_width: f32,
@@ -61,6 +63,8 @@ macro_rules! ui_subsystem {
                 pub text_size: f32,
                 pub text_color: (f32, f32, f32, f32),
                 pub text_wrap: TextWrap,
+                pub spans: Vec<TextSpan>,
+                pub text_align: f32,
                 pub image: Option<String>,
                 pub is_input: bool,
                 pub cursor_pos: u32,
@@ -69,6 +73,44 @@ macro_rules! ui_subsystem {
                 pub scroll_x: f32,
                 pub scroll_y: f32,
                 pub visible: bool,
+            }
+
+            /// Neutral defaults so element literals can use `..Default::default()`
+            /// and stay source-compatible as the engine grows new layout fields.
+            impl Default for UiElement {
+                fn default() -> Self {
+                    UiElement {
+                        id: String::new(),
+                        parent: None,
+                        order: 0,
+                        width: Size::Fit,
+                        height: Size::Fit,
+                        layout_direction: LayoutDirection::Column,
+                        gap: 0.0,
+                        padding: 0.0,
+                        margin: 0.0,
+                        padding_sides: None,
+                        margin_sides: None,
+                        background_color: (0.0, 0.0, 0.0, 0.0),
+                        corner_radius: 0.0,
+                        border_width: 0.0,
+                        border_color: (0.0, 0.0, 0.0, 0.0),
+                        text: None,
+                        text_size: 0.0,
+                        text_color: (0.0, 0.0, 0.0, 0.0),
+                        text_wrap: TextWrap::None,
+                        spans: Vec::new(),
+                        text_align: 0.0,
+                        image: None,
+                        is_input: false,
+                        cursor_pos: 0,
+                        scrollable_x: false,
+                        scrollable_y: false,
+                        scroll_x: 0.0,
+                        scroll_y: 0.0,
+                        visible: true,
+                    }
+                }
             }
 
             /// Which element currently holds keyboard focus.
@@ -94,6 +136,8 @@ macro_rules! ui_subsystem {
                     gap: e.gap,
                     padding: e.padding,
                     margin: e.margin,
+                    padding_sides: e.padding_sides,
+                    margin_sides: e.margin_sides,
                     background_color: e.background_color,
                     corner_radius: e.corner_radius,
                     border_width: e.border_width,
@@ -102,6 +146,8 @@ macro_rules! ui_subsystem {
                     text_size: e.text_size,
                     text_color: e.text_color,
                     text_wrap: e.text_wrap.clone(),
+                    spans: e.spans.clone(),
+                    text_align: e.text_align,
                     image: e.image.clone(),
                     is_input: e.is_input,
                     cursor_pos: e.cursor_pos,
@@ -320,6 +366,24 @@ macro_rules! ui_subsystem {
                 let rows = ctx.current.tables.uielement().scan();
                 let all: Vec<interstice_ui::UiElement> = rows.iter().map(to_lib).collect();
                 interstice_ui::find_element_at(&all, sw, sh, cursor)
+            }
+
+            /// Hit-test for inline links: the `href` of the link span under
+            /// `cursor`, or `None` if the click landed on plain text. Mirrors
+            /// [`render`]'s span layout. Use for clickable inline text (e.g. a
+            /// browser anchor wrapped mid-paragraph).
+            pub fn link_at<Caps>(ctx: &ReducerContext<Caps>, cursor: (f32, f32)) -> Option<String>
+            where
+                Caps: CanRead<UiElement>,
+            {
+                let info = ctx.graphics().queries.surface_info().ok()?;
+                let (sw, sh) = (info.width as f32, info.height as f32);
+                if sw < 1.0 || sh < 1.0 {
+                    return None;
+                }
+                let rows = ctx.current.tables.uielement().scan();
+                let all: Vec<interstice_ui::UiElement> = rows.iter().map(to_lib).collect();
+                interstice_ui::link_at(&all, sw, sh, cursor)
             }
 
             // ── Per-frame render ─────────────────────────────────────────────

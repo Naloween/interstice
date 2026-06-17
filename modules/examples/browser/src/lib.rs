@@ -13,6 +13,7 @@ use crate::bindings::{graphics::*, input::*, network::*};
 use interstice_sdk::key_code::KeyCode;
 use interstice_sdk::*;
 
+mod css;
 mod html;
 mod style;
 mod url;
@@ -85,6 +86,15 @@ pub struct NavState {
     /// or clicking a link) truncates everything after `hist_pos` and appends.
     pub hist_len: u32,
     pub hist_pos: u32,
+    /// Number of external stylesheets still being fetched for the current page.
+    /// CSS is render-blocking: the page is rebuilt only once `pending_css` hits 0,
+    /// so content is laid out once (images aren't re-fetched on a later re-render).
+    pub pending_css: u32,
+    /// Identity of the page currently being assembled, bumped once per main-page
+    /// load. Stylesheet rows + the stored document are tagged with it so a late
+    /// stylesheet response for a page the user already navigated away from is
+    /// ignored.
+    pub page_gen: u32,
 }
 
 /// One entry in the back/forward stack, keyed by its position `idx` (0-based).
@@ -145,6 +155,45 @@ pub struct ImageFetchQueue {
     pub tls: bool,
 }
 
+/// The current page's source HTML, stashed so the page can be re-parsed once its
+/// render-blocking stylesheets arrive (the first parse only collects stylesheet
+/// refs; the real layout happens in `rebuild`). Singleton (`id` always 0).
+#[table]
+pub struct PageDoc {
+    #[primary_key]
+    pub id: u32,
+    pub html: String,
+    pub host: String,
+    pub path: String,
+    pub tls: bool,
+    pub page_gen: u32,
+}
+
+/// One stylesheet contributing to the current page's cascade. External sheets
+/// start `ready = false` with empty `css` and are filled in when their fetch
+/// completes; inline `<style>` sheets are stored `ready = true`. `order` gives the
+/// source order within the cascade (externals before inline `<style>`).
+#[table]
+pub struct StyleSheet {
+    #[primary_key]
+    pub req_id: u64,
+    pub page_gen: u32,
+    pub order: u32,
+    pub css: String,
+    pub ready: bool,
+}
+
+/// A queued external stylesheet fetch, drained by `on_frame` (same re-entrancy
+/// rule as [`ImageFetchQueue`] — never call the broker from inside `on_http`).
+#[table]
+pub struct CssFetchQueue {
+    #[primary_key]
+    pub req_id: u64,
+    pub host: String,
+    pub path: String,
+    pub tls: bool,
+}
+
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 
 #[reducer(on = "load")]
@@ -187,6 +236,7 @@ where
             scroll_x: 0.0,
             scroll_y: 0.0,
             visible: true,
+            ..Default::default()
         },
     );
 
@@ -219,6 +269,7 @@ where
             scroll_x: 0.0,
             scroll_y: 0.0,
             visible: true,
+            ..Default::default()
         },
     );
     // Back / forward buttons (start dimmed — no history yet).
@@ -255,6 +306,7 @@ where
             scroll_x: 0.0,
             scroll_y: 0.0,
             visible: true,
+            ..Default::default()
         },
     );
 
@@ -287,6 +339,7 @@ where
             scroll_x: 0.0,
             scroll_y: 0.0,
             visible: true,
+            ..Default::default()
         },
     );
 
@@ -307,6 +360,8 @@ where
         prev_enter: false,
         hist_len: 0,
         hist_pos: 0,
+        pending_css: 0,
+        page_gen: 0,
     };
     if let Err(err) = ctx.current.tables.navstate().insert(nav) {
         ctx.log(&format!("browser: failed to seed NavState: {err}"));
@@ -402,7 +457,16 @@ where
         + CanRead<ImageWaiter>
         + CanInsert<ImageWaiter>
         + CanDelete<ImageWaiter>
-        + CanInsert<ImageFetchQueue>,
+        + CanInsert<ImageFetchQueue>
+        + CanRead<PageDoc>
+        + CanInsert<PageDoc>
+        + CanUpdate<PageDoc>
+        + CanDelete<PageDoc>
+        + CanRead<StyleSheet>
+        + CanInsert<StyleSheet>
+        + CanUpdate<StyleSheet>
+        + CanDelete<StyleSheet>
+        + CanInsert<CssFetchQueue>,
 {
     if row.owner != ME {
         return; // another app's request
@@ -412,7 +476,9 @@ where
     };
 
     if row.req_id == nav.main_req_id {
-        render_page(&ctx, &mut nav, &row);
+        prepare_page(&ctx, &mut nav, &row);
+    } else if ctx.current.tables.stylesheet().get(row.req_id).is_some() {
+        on_css_response(&ctx, &mut nav, &row);
     } else if ctx.current.tables.imagereq().get(row.req_id).is_some() {
         // An image fetch completed. Drop the request record (so a duplicate
         // delivery is ignored) and hand the decoded texture to every element that
@@ -422,15 +488,18 @@ where
     }
 }
 
-/// Replace the viewport contents with the freshly fetched page.
-fn render_page<Caps>(ctx: &ReducerContext<Caps>, nav: &mut NavState, row: &HttpResponse)
+/// Handle the main document response: adopt the final URL, stash the HTML, and
+/// gather the page's render-blocking stylesheets. If there are no external sheets
+/// the page is built immediately; otherwise the externals are queued and the build
+/// is deferred to [`rebuild`] once they arrive (CSS is render-blocking, so the page
+/// is laid out exactly once — images aren't re-fetched on a later re-render).
+fn prepare_page<Caps>(ctx: &ReducerContext<Caps>, nav: &mut NavState, row: &HttpResponse)
 where
     Caps: CanRead<ui::UiElement>
         + CanInsert<ui::UiElement>
         + CanUpdate<ui::UiElement>
         + CanDelete<ui::UiElement>
         + CanRead<LinkMap>
-        + CanInsert<LinkMap>
         + CanDelete<LinkMap>
         + CanRead<ImageReq>
         + CanInsert<ImageReq>
@@ -439,6 +508,13 @@ where
         + CanInsert<ImageWaiter>
         + CanDelete<ImageWaiter>
         + CanInsert<ImageFetchQueue>
+        + CanRead<PageDoc>
+        + CanInsert<PageDoc>
+        + CanUpdate<PageDoc>
+        + CanRead<StyleSheet>
+        + CanInsert<StyleSheet>
+        + CanDelete<StyleSheet>
+        + CanInsert<CssFetchQueue>
         + CanUpdate<NavState>,
 {
     // Adopt the post-redirect URL as the document base. The broker may have
@@ -466,10 +542,219 @@ where
         }
     }
 
-    // Tear down the previous page: viewport children, link map, image bookkeeping.
-    // All are committed (older generation), so these are pure deletes — the new
-    // elements we insert below carry the bumped generation in their ids and so
-    // never collide with the rows still being deleted this run.
+    // A new page is being assembled: stamp its identity and discard any stylesheet
+    // rows left over from the previous page (late responses for them are ignored
+    // via the page_gen check in `on_css_response`).
+    nav.page_gen += 1;
+    let pg = nav.page_gen;
+    for s in ctx.current.tables.stylesheet().scan() {
+        let _ = ctx.current.tables.stylesheet().delete(s.req_id);
+    }
+
+    // Consume the main request: the runtime may deliver this insert more than once
+    // (we re-enter the broker mid-run); clearing it makes duplicates a no-op.
+    nav.main_req_id = 0;
+
+    if !row.error.is_empty() {
+        teardown_viewport(ctx);
+        nav.nav_gen += 1;
+        let generation = nav.nav_gen;
+        ui::create_element(
+            ctx,
+            text_el(
+                format!("c{generation}_0"),
+                0,
+                format!("Failed to load {}: {}", nav.url, row.error),
+                15.0,
+                (0.90, 0.45, 0.45, 1.0),
+                0.0,
+                None,
+                (0.0, 0.0, 0.0, 0.0),
+                (0.0, 0.0, 0.0, 0.0),
+                Size::Grow,
+                0.0,
+                TRANSPARENT,
+                Vec::new(),
+            ),
+        );
+        ctx.log(&format!("browser: load error for {}: {}", nav.url, row.error));
+        nav.pending_css = 0;
+        let _ = ctx.current.tables.navstate().update(nav.clone());
+        return;
+    }
+
+    let html = String::from_utf8_lossy(&row.body).to_string();
+
+    // Stash the document so `rebuild` can re-parse it once stylesheets are ready.
+    let doc = PageDoc {
+        id: 0,
+        html: html.clone(),
+        host: nav.host.clone(),
+        path: nav.path.clone(),
+        tls: nav.tls,
+        page_gen: pg,
+    };
+    if ctx.current.tables.pagedoc().insert(doc.clone()).is_err() {
+        let _ = ctx.current.tables.pagedoc().update(doc);
+    }
+
+    // Collect this page's stylesheets in cascade order: external `<link>` sheets
+    // (queued for fetch) first, then inline `<style>` text (immediately ready).
+    let (links, inline_styles) = html::collect_stylesheets(&html);
+    let mut next = nav.next_req_id;
+    let mut order = 0u32;
+    let mut pending = 0u32;
+    for href in &links {
+        let Some(loc) = url::resolve(&nav.host, &nav.path, nav.tls, href) else {
+            continue;
+        };
+        let rid = next;
+        next += 1;
+        let _ = ctx.current.tables.stylesheet().insert(StyleSheet {
+            req_id: rid,
+            page_gen: pg,
+            order,
+            css: String::new(),
+            ready: false,
+        });
+        // Queue the fetch — DO NOT call http_get here (re-entrant; see docs).
+        let _ = ctx.current.tables.cssfetchqueue().insert(CssFetchQueue {
+            req_id: rid,
+            host: loc.host,
+            path: loc.path,
+            tls: loc.tls,
+        });
+        pending += 1;
+        order += 1;
+    }
+    for css_text in &inline_styles {
+        let rid = next;
+        next += 1;
+        let _ = ctx.current.tables.stylesheet().insert(StyleSheet {
+            req_id: rid,
+            page_gen: pg,
+            order,
+            css: css_text.clone(),
+            ready: true,
+        });
+        order += 1;
+    }
+    nav.next_req_id = next;
+    nav.pending_css = pending;
+
+    if pending == 0 {
+        // No render-blocking external sheets: build now (inline `<style>` only).
+        // Pass the document fields directly — the PageDoc row we just inserted is
+        // NOT visible to a read in this same run (write-visibility).
+        let (host, path, tls) = (nav.host.clone(), nav.path.clone(), nav.tls);
+        rebuild(ctx, nav, &html, &host, &path, tls, &inline_styles);
+    }
+    let _ = ctx.current.tables.navstate().update(nav.clone());
+}
+
+/// Handle a completed stylesheet fetch: fill in its text, and once every
+/// render-blocking sheet for this page has arrived, build the page.
+fn on_css_response<Caps>(ctx: &ReducerContext<Caps>, nav: &mut NavState, row: &HttpResponse)
+where
+    Caps: CanRead<ui::UiElement>
+        + CanInsert<ui::UiElement>
+        + CanUpdate<ui::UiElement>
+        + CanDelete<ui::UiElement>
+        + CanRead<LinkMap>
+        + CanDelete<LinkMap>
+        + CanRead<ImageReq>
+        + CanInsert<ImageReq>
+        + CanDelete<ImageReq>
+        + CanRead<ImageWaiter>
+        + CanInsert<ImageWaiter>
+        + CanDelete<ImageWaiter>
+        + CanInsert<ImageFetchQueue>
+        + CanRead<PageDoc>
+        + CanRead<StyleSheet>
+        + CanUpdate<StyleSheet>
+        + CanUpdate<NavState>,
+{
+    let Some(mut sheet) = ctx.current.tables.stylesheet().get(row.req_id) else {
+        return;
+    };
+    // Stale: already filled, or belongs to a page the user has navigated away from.
+    if sheet.ready || sheet.page_gen != nav.page_gen {
+        return;
+    }
+
+    let css = if row.error.is_empty() {
+        String::from_utf8_lossy(&row.body).to_string()
+    } else {
+        String::new() // a failed sheet just contributes nothing
+    };
+    sheet.css = css.clone();
+    sheet.ready = true;
+    let _ = ctx.current.tables.stylesheet().update(sheet);
+
+    if nav.pending_css > 0 {
+        nav.pending_css -= 1;
+    }
+    if nav.pending_css == 0 {
+        // All render-blocking sheets are in. The just-updated row isn't visible to
+        // a scan in this same run (write-visibility), so substitute its fresh text.
+        // The PageDoc was stored in a prior run (prepare_page) so it reads back fine.
+        let Some(doc) = ctx.current.tables.pagedoc().get(0) else {
+            let _ = ctx.current.tables.navstate().update(nav.clone());
+            return;
+        };
+        let sheets = collect_sheet_texts(ctx, nav.page_gen, row.req_id, &css);
+        rebuild(ctx, nav, &doc.html, &doc.host, &doc.path, doc.tls, &sheets);
+    }
+    let _ = ctx.current.tables.navstate().update(nav.clone());
+}
+
+/// Gather the current page's stylesheet texts in cascade order, substituting
+/// `fresh_css` for the row `fresh_id` (whose in-run update isn't yet visible).
+fn collect_sheet_texts<Caps>(
+    ctx: &ReducerContext<Caps>,
+    page_gen: u32,
+    fresh_id: u64,
+    fresh_css: &str,
+) -> Vec<String>
+where
+    Caps: CanRead<StyleSheet>,
+{
+    let mut rows: Vec<StyleSheet> = ctx
+        .current
+        .tables
+        .stylesheet()
+        .scan()
+        .into_iter()
+        .filter(|s| s.page_gen == page_gen)
+        .collect();
+    rows.sort_by_key(|s| s.order);
+    rows.into_iter()
+        .map(|s| {
+            if s.req_id == fresh_id {
+                fresh_css.to_string()
+            } else {
+                s.css
+            }
+        })
+        .collect()
+}
+
+/// Tear down the previous page's content: viewport children, link map, and image
+/// bookkeeping, and reset the scroll to the top. All targets are committed (older
+/// generation), so these are pure deletes — content inserted afterwards carries a
+/// bumped generation in its ids and never collides with the rows being deleted.
+fn teardown_viewport<Caps>(ctx: &ReducerContext<Caps>)
+where
+    Caps: CanRead<ui::UiElement>
+        + CanUpdate<ui::UiElement>
+        + CanDelete<ui::UiElement>
+        + CanRead<LinkMap>
+        + CanDelete<LinkMap>
+        + CanRead<ImageReq>
+        + CanDelete<ImageReq>
+        + CanRead<ImageWaiter>
+        + CanDelete<ImageWaiter>,
+{
     for el in ctx.current.tables.uielement().scan() {
         if el.parent.as_deref() == Some(VIEWPORT_ID) {
             let _ = ctx.current.tables.uielement().delete(el.id);
@@ -484,39 +769,49 @@ where
     for w in ctx.current.tables.imagewaiter().scan() {
         let _ = ctx.current.tables.imagewaiter().delete(w.element_id);
     }
-
-    // Reset scroll to the top of the new page.
     if let Some(mut vp) = ctx.current.tables.uielement().get(VIEWPORT_ID.to_string()) {
         vp.scroll_y = 0.0;
         let _ = ctx.current.tables.uielement().update(vp);
     }
+}
 
-    // Bump the generation for every render, not just every navigation. The teardown
-    // above deletes the previous page's (committed) elements while we insert the new
-    // ones in the same run; giving the new elements a fresh generation guarantees
-    // their ids can't collide with the rows still being deleted — even if this same
-    // response is delivered (or retried) more than once.
+/// Build the viewport from the document (`html` served by `host`/`path`/`tls`) and
+/// the resolved cascade (`sheets`, lowest priority first). Bumps the generation so
+/// freshly created elements get collision-free ids. Mutates `nav` (generation +
+/// next request id); the caller writes it back. The document is passed in rather
+/// than read from `PageDoc` because, on the immediate (no-external-CSS) path, that
+/// row was just inserted this run and isn't yet visible to a read.
+#[allow(clippy::too_many_arguments)]
+fn rebuild<Caps>(
+    ctx: &ReducerContext<Caps>,
+    nav: &mut NavState,
+    html: &str,
+    host: &str,
+    path: &str,
+    tls: bool,
+    sheets: &[String],
+) where
+    Caps: CanRead<ui::UiElement>
+        + CanInsert<ui::UiElement>
+        + CanUpdate<ui::UiElement>
+        + CanDelete<ui::UiElement>
+        + CanRead<LinkMap>
+        + CanDelete<LinkMap>
+        + CanRead<ImageReq>
+        + CanInsert<ImageReq>
+        + CanDelete<ImageReq>
+        + CanRead<ImageWaiter>
+        + CanInsert<ImageWaiter>
+        + CanDelete<ImageWaiter>
+        + CanInsert<ImageFetchQueue>,
+{
+    let stylesheet = css::parse_all(sheets);
+    let blocks = html::parse_html(html, &stylesheet);
+
+    teardown_viewport(ctx);
+
     nav.nav_gen += 1;
     let generation = nav.nav_gen;
-
-    if !row.error.is_empty() {
-        ui::create_element(
-            ctx,
-            text_el(
-                format!("c{generation}_0"),
-                0,
-                format!("Failed to load {}: {}", nav.url, row.error),
-                15.0,
-                (0.90, 0.45, 0.45, 1.0),
-                0.0,
-            ),
-        );
-        ctx.log(&format!("browser: load error for {}: {}", nav.url, row.error));
-        return;
-    }
-
-    let html = String::from_utf8_lossy(&row.body);
-    let blocks = html::parse_html(&html);
 
     // Maps a resolved image URL to the in-flight request id fetching it, so repeated
     // images on the page share a single fetch + decoded texture.
@@ -525,23 +820,59 @@ where
     for (i, block) in blocks.iter().enumerate() {
         let id = format!("c{generation}_{i}");
         match block {
-            Block::Text { text, size, color, indent, href } => {
+            Block::Text {
+                text,
+                size,
+                color,
+                align,
+                background,
+                margin,
+                padding,
+                width,
+                border_w,
+                border_c,
+                spans,
+            } => {
+                // Inline links live as spans on the element now; hit-testing uses
+                // `ui::link_at` (no per-element LinkMap row needed).
+                let spans: Vec<ui::TextSpan> = spans
+                    .iter()
+                    .map(|s| ui::TextSpan {
+                        start: s.start,
+                        end: s.end,
+                        color: s.color,
+                        href: s.href.clone(),
+                    })
+                    .collect();
+                let w = match width {
+                    css::WidthVal::Auto => Size::Grow,
+                    css::WidthVal::Px(px) => Size::Fixed(px.max(0.0)),
+                    css::WidthVal::Pct(f) => Size::Percent(*f),
+                };
                 ui::create_element(
                     ctx,
-                    text_el(id.clone(), i as u32, text.clone(), *size, *color, *indent),
+                    text_el(
+                        id.clone(),
+                        i as u32,
+                        text.clone(),
+                        *size,
+                        *color,
+                        *align,
+                        *background,
+                        *margin,
+                        *padding,
+                        w,
+                        *border_w,
+                        *border_c,
+                        spans,
+                    ),
                 );
-                if let Some(href) = href {
-                    let _ = ctx.current.tables.linkmap().insert(LinkMap {
-                        element_id: id,
-                        href: href.clone(),
-                    });
-                }
             }
             Block::Space { height } => {
                 ui::create_element(ctx, space_el(id, i as u32, *height));
             }
             Block::Image { url } => {
-                let Some(loc) = url::resolve(&nav.host, &nav.path, nav.tls, url) else {
+                let Some(loc) = url::resolve(host, path, tls, url) else {
                     continue;
                 };
                 let key = loc.to_url();
@@ -583,13 +914,6 @@ where
     }
 
     nav.next_req_id = next_req;
-    // Consume the main request: the runtime may deliver the same insert to this
-    // subscription more than once (we re-enter the broker via http_get mid-run),
-    // and clearing main_req_id makes any duplicate delivery a no-op instead of a
-    // full wasteful re-render + re-fetch of every image. (Image responses already
-    // self-dedupe by deleting their ImageReq row on first delivery.)
-    nav.main_req_id = 0;
-    let _ = ctx.current.tables.navstate().update(nav.clone());
 }
 
 /// Handle a completed image fetch for `req_id`: decode it once into a shared
@@ -678,14 +1002,23 @@ where
         + CanDelete<History>
         + CanRead<ImageFetchQueue>
         + CanDelete<ImageFetchQueue>
+        + CanRead<CssFetchQueue>
+        + CanDelete<CssFetchQueue>
         + CanRead<MouseState>
         + CanRead<MouseButton>
         + CanRead<KeyState>,
 {
-    // Drain queued image fetches OUTSIDE the on_http re-entrant path: render_page
-    // (which runs inside the network subscription reducer) only enqueues fetches;
-    // we issue the actual http_get here, where re-entering the broker can't make
-    // it re-deliver a response and double-fire fetches. See ImageFetchQueue docs.
+    // Drain queued fetches OUTSIDE the on_http re-entrant path: prepare_page/rebuild
+    // (which run inside the network subscription reducer) only enqueue fetches; we
+    // issue the actual http_get here, where re-entering the broker can't make it
+    // re-deliver a response and double-fire fetches. See ImageFetchQueue docs.
+    for q in ctx.current.tables.cssfetchqueue().scan() {
+        let _ = ctx
+            .network()
+            .reducers
+            .http_get(q.req_id, q.host.clone(), q.path.clone(), q.tls);
+        let _ = ctx.current.tables.cssfetchqueue().delete(q.req_id);
+    }
     for q in ctx.current.tables.imagefetchqueue().scan() {
         let _ = ctx
             .network()
@@ -738,9 +1071,9 @@ where
                 if let Some(url) = load_current_history(&ctx, &mut nav) {
                     set_urlbar(&ctx, &url);
                 }
-            } else if let Some(link) = ctx.current.tables.linkmap().get(id) {
-                // Click a link → resolve + navigate, and reflect the new URL.
-                if let Some(loc) = url::resolve(&nav.host, &nav.path, nav.tls, &link.href) {
+            } else if let Some(href) = ui::link_at(&ctx, (mx, my)) {
+                // Click an inline link span → resolve + navigate, reflect the URL.
+                if let Some(loc) = url::resolve(&nav.host, &nav.path, nav.tls, &href) {
                     start_navigation(&ctx, &mut nav, &loc.to_url());
                     set_urlbar(&ctx, &nav.url.clone());
                 }
@@ -769,34 +1102,49 @@ where
 
 // ── Element builders ─────────────────────────────────────────────────────────
 
+/// A block-level text element with the box model resolved by the CSS engine:
+/// per-side `margin`/`padding` (each `(top, right, bottom, left)` px), a `width`
+/// (px / % / fill), and an optional border. `None`/zero box values collapse to
+/// today's flush, full-width behaviour.
+#[allow(clippy::too_many_arguments)]
 fn text_el(
     id: String,
     order: u32,
     text: String,
     size: f32,
     color: (f32, f32, f32, f32),
-    indent: f32,
+    align: f32,
+    background: Option<(f32, f32, f32, f32)>,
+    margin: (f32, f32, f32, f32),
+    padding: (f32, f32, f32, f32),
+    width: Size,
+    border_width: f32,
+    border_color: (f32, f32, f32, f32),
+    spans: Vec<ui::TextSpan>,
 ) -> UiElement {
+    let zero = (0.0, 0.0, 0.0, 0.0);
     UiElement {
         id,
         parent: Some(VIEWPORT_ID.into()),
         order,
-        width: Size::Grow,
+        width,
         height: Size::Fit,
         layout_direction: LayoutDirection::Row,
         gap: 0.0,
         padding: 0.0,
-        // Uniform margin approximates a left indent for lists/quotes. Precise
-        // per-side insets are out of scope for v1 (see the plan).
-        margin: indent,
-        background_color: TRANSPARENT,
+        margin: 0.0,
+        padding_sides: if padding != zero { Some(padding) } else { None },
+        margin_sides: if margin != zero { Some(margin) } else { None },
+        background_color: background.unwrap_or(TRANSPARENT),
         corner_radius: 0.0,
-        border_width: 0.0,
-        border_color: TRANSPARENT,
+        border_width,
+        border_color,
         text: Some(text),
         text_size: size,
         text_color: color,
         text_wrap: TextWrap::Words,
+        text_align: align,
+        spans,
         image: None,
         is_input: false,
         cursor_pos: 0,
@@ -805,6 +1153,7 @@ fn text_el(
         scroll_x: 0.0,
         scroll_y: 0.0,
         visible: true,
+        ..Default::default()
     }
 }
 
@@ -835,6 +1184,7 @@ fn space_el(id: String, order: u32, height: f32) -> UiElement {
         scroll_x: 0.0,
         scroll_y: 0.0,
         visible: true,
+        ..Default::default()
     }
 }
 
@@ -867,6 +1217,7 @@ fn nav_button_el(id: String, order: u32, label: &str) -> UiElement {
         scroll_x: 0.0,
         scroll_y: 0.0,
         visible: true,
+        ..Default::default()
     }
 }
 
@@ -923,6 +1274,7 @@ fn image_placeholder_el(id: String, order: u32) -> UiElement {
         scroll_x: 0.0,
         scroll_y: 0.0,
         visible: true,
+        ..Default::default()
     }
 }
 
