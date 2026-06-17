@@ -372,9 +372,11 @@ macro_rules! ui_subsystem {
                         if let Some((sid, sx, sy)) = best {
                             if let Some(mut el) = ctx.current.tables.uielement().get(sid) {
                                 // Wheel deltas arrive already normalised to pixels by
-                                // the input authority, so move the content one pixel per
-                                // unit. (Tweak this factor to taste for faster/slower.)
-                                const SCROLL_SPEED: f32 = 0.5;
+                                // the input authority. Touchpads (PixelDelta) report
+                                // large raw pixel deltas per gesture, so we damp them
+                                // well below 1:1 to keep two-finger scrolling gentle.
+                                // (Tweak this factor to taste for faster/slower.)
+                                const SCROLL_SPEED: f32 = 0.15;
                                 if sx {
                                     el.scroll_x = (el.scroll_x - wx * SCROLL_SPEED).max(0.0);
                                 }

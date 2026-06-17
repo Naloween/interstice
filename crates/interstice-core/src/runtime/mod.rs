@@ -71,6 +71,17 @@ pub struct Runtime {
     pub(crate) tokio_handle: tokio::runtime::Handle,
     pub(crate) reducer_sender: CbSender<ReducerJob>,
     reducer_receiver: CbReceiver<ReducerJob>,
+    /// Ordered staging queue feeding `reducer_sender`. Producers push here
+    /// inline — it's unbounded so the send never blocks the async runtime — and
+    /// a single forwarder thread (spawned in `run`) drains it in order and does
+    /// the blocking, never-drop bounded send into `reducer_sender`.
+    ///
+    /// This exists purely to preserve emission order. The previous approach
+    /// spawned one OS thread per send to avoid blocking on the bounded channel;
+    /// those threads raced, so e.g. a connection's final `Received` event could
+    /// reach the scheduler *after* its `Closed`, truncating the buffered body.
+    pub(crate) reducer_ingress: CbSender<ReducerJob>,
+    reducer_ingress_rx: Mutex<Option<CbReceiver<ReducerJob>>>,
     pub(crate) gpu_call_sender: mpsc::Sender<GpuCallRequest>,
     gpu_call_receiver: Mutex<Option<mpsc::Receiver<GpuCallRequest>>>,
     pub(crate) modules_path: Option<PathBuf>,
@@ -126,6 +137,7 @@ impl Runtime {
         define_host_calls(&mut linker).map_err(|err| {
             IntersticeError::Internal(format!("Couldn't add host calls to the linker: {}", err))
         })?;
+        let (reducer_ingress, reducer_ingress_rx) = crossbeam_channel::unbounded::<ReducerJob>();
         Ok(Self {
             node_id,
             gpu,
@@ -142,6 +154,8 @@ impl Runtime {
             pending_schema_responses: Arc::new(Mutex::new(HashMap::new())),
             reducer_sender,
             reducer_receiver,
+            reducer_ingress,
+            reducer_ingress_rx: Mutex::new(Some(reducer_ingress_rx)),
             gpu_call_sender,
             gpu_call_receiver: Mutex::new(Some(gpu_call_receiver)),
             modules_path,
@@ -217,6 +231,30 @@ impl Runtime {
                 .expect("Failed to spawn reducer scheduler thread");
         }
 
+        // Ordered ingress forwarder: drains the unbounded staging queue
+        // (`reducer_ingress`) in FIFO order and does the blocking, never-drop
+        // send into the bounded `reducer_sender`. A single thread guarantees
+        // events reach the scheduler in their emission order — critical for
+        // e.g. a connection's `Received` chunks preceding its `Closed`.
+        {
+            let staging_rx = runtime
+                .reducer_ingress_rx
+                .lock()
+                .take()
+                .expect("reducer_ingress_rx already taken");
+            let bounded_tx = runtime.reducer_sender.clone();
+            std::thread::Builder::new()
+                .name("reducer-ingress-forwarder".to_string())
+                .spawn(move || {
+                    while let Ok(job) = staging_rx.recv() {
+                        if bounded_tx.send(job).is_err() {
+                            break;
+                        }
+                    }
+                })
+                .expect("Failed to spawn reducer ingress forwarder thread");
+        }
+
         // crossbeam Receiver is Clone — each thread gets its own handle to the same
         // MPMC queue with no mutex overhead.
         let num_reducer_threads = std::thread::available_parallelism()
@@ -285,7 +323,7 @@ impl Runtime {
         // Timer task pool: single task manages all scheduled timers via a min-heap,
         // avoiding the overhead of spawning a task per ctx.schedule() call.
         let timer_rx = runtime.timer_rx.lock().take().expect("timer_rx already taken");
-        let timer_reducer_sender = runtime.reducer_sender.clone();
+        let timer_reducer_sender = runtime.reducer_ingress.clone();
         let timer_node_id = runtime.network_handle.node_id;
         tokio::spawn(async move {
             let mut rx = timer_rx;
@@ -317,10 +355,7 @@ impl Runtime {
                                 caller_module_name: String::new(),
                                 completion: None,
                             };
-                            let sender = timer_reducer_sender.clone();
-                            std::thread::spawn(move || {
-                                let _ = sender.send(job);
-                            });
+                            let _ = timer_reducer_sender.send(job);
                         }
                     }
                     msg = rx.recv() => {
@@ -398,10 +433,7 @@ impl Runtime {
                     caller_module_name: String::new(),
                     completion: None,
                 };
-                let sender = runtime.reducer_sender.clone();
-                std::thread::spawn(move || {
-                    let _ = sender.send(job);
-                });
+                let _ = runtime.reducer_ingress.send(job);
             }
             EventInstance::RemoteQueryCall {
                 requesting_node_id,

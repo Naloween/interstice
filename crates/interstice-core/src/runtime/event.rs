@@ -474,13 +474,12 @@ impl Runtime {
                     caller_module_name: String::new(),
                     completion,
                 };
-                let sender = self.reducer_sender.clone();
-                // Subscription dispatch runs on the node's dedicated current-thread runtime;
-                // `spawn_blocking` / `block_in_place` cannot be used there. Enqueue from an OS
-                // thread so the bounded reducer ingress can apply backpressure without dropping.
-                std::thread::spawn(move || {
-                    let _ = sender.send(job);
-                });
+                // Push to the ordered ingress (unbounded → never blocks this
+                // current-thread runtime). A single forwarder thread does the
+                // blocking, never-drop bounded send. Sending inline here keeps
+                // events in emission order; spawning a thread per send raced and
+                // could reorder a connection's final `Received` past its `Closed`.
+                let _ = self.reducer_ingress.send(job);
             }
             SubscriptionTarget::Remote(uuid) => {
                 let packet = match event {
