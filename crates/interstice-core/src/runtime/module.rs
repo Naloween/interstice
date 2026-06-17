@@ -61,10 +61,7 @@ impl Module {
         for _ in 0..REDUCER_POOL_SIZE {
             let mut store = Store::new(
                 &runtime.engine,
-                StoreState {
-                    runtime: runtime.clone(),
-                    module_schema: Arc::new(ModuleSchema::empty()),
-                },
+                StoreState::new(runtime.clone()),
             );
             let raw = runtime.linker.instantiate(&mut store, &wasm_module).unwrap();
             instances.push(WasmInstance::new(store, raw)?);
@@ -72,10 +69,7 @@ impl Module {
 
         let mut query_store = Store::new(
             &runtime.engine,
-            StoreState {
-                runtime: runtime.clone(),
-                module_schema: Arc::new(ModuleSchema::empty()),
-            },
+            StoreState::new(runtime.clone()),
         );
         let query_raw = runtime
             .linker
@@ -97,10 +91,7 @@ impl Module {
         for _ in 0..REDUCER_POOL_SIZE {
             let mut store = Store::new(
                 &runtime.engine,
-                StoreState {
-                    runtime: runtime.clone(),
-                    module_schema: Arc::new(ModuleSchema::empty()),
-                },
+                StoreState::new(runtime.clone()),
             );
             let raw = runtime.linker.instantiate(&mut store, &wasm_module).unwrap();
             instances.push(WasmInstance::new(store, raw)?);
@@ -108,10 +99,7 @@ impl Module {
 
         let mut query_store = Store::new(
             &runtime.engine,
-            StoreState {
-                runtime: runtime.clone(),
-                module_schema: Arc::new(ModuleSchema::empty()),
-            },
+            StoreState::new(runtime.clone()),
         );
         let query_raw = runtime
             .linker

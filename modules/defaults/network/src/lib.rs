@@ -136,6 +136,13 @@ pub struct HttpResponse {
     pub body: Vec<u8>,
     pub error: String,
     pub done: bool,
+    /// The URL the response actually came from after following any redirects.
+    /// Equals the requested URL when there were none. Apps should treat this as
+    /// the document's base when resolving relative sub-resources/links, otherwise
+    /// a redirected page's relative URLs resolve against the wrong (original) host.
+    pub final_host: String,
+    pub final_path: String,
+    pub final_tls: bool,
 }
 
 // ── Lifecycle ───────────────────────────────────────────────────────────────────
@@ -432,6 +439,12 @@ where
                     body,
                     error: String::new(),
                     done: true,
+                    // `job` already reflects the final hop: each redirect re-issues a
+                    // fresh job carrying the Location's host/path/tls, so these are the
+                    // URL the body actually came from.
+                    final_host: job.host,
+                    final_path: job.path,
+                    final_tls: job.tls,
                 });
             }
             let _ = ctx.current.tables.tcppending().delete(handle);
@@ -545,6 +558,9 @@ where
         body: Vec::new(),
         error: error.to_string(),
         done: true,
+        final_host: job.host.clone(),
+        final_path: job.path.clone(),
+        final_tls: job.tls,
     });
 }
 

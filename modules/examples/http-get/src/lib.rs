@@ -30,7 +30,7 @@ fn on_load(ctx: ReducerContext) {
     // Fetch over HTTPS: the broker terminates TLS host-side (the wasm app speaks
     // plaintext to the broker), follows any 3xx redirects, and de-chunks /
     // decompresses the body before handing it back.
-    ctx.log("http-get: requesting https://example.com/ via the network broker");
+    ctx.log("http-get: requesting https://example.com/");
     if let Err(err) = ctx.network().reducers.http_get(
         1,
         "example.com".to_string(),
@@ -40,14 +40,14 @@ fn on_load(ctx: ReducerContext) {
         ctx.log(&format!("http-get: http_get call failed: {err}"));
     }
 
-    // Second request over plain HTTP to a host that 301-redirects to https — proves
-    // the broker follows redirects (and upgrades the scheme along the way).
-    ctx.log("http-get: requesting http://iana.org/ (expecting a redirect to https)");
+    // Plain HTTP that redirects to HTTPS — exercises the broker's 3xx follow +
+    // scheme upgrade (http://iana.org → https://www.iana.org).
+    ctx.log("http-get: requesting http://iana.org/ (redirects to https)");
     if let Err(err) = ctx.network().reducers.http_get(
         2,
         "iana.org".to_string(),
         "/".to_string(),
-        false, // tls — starts plaintext, redirect upgrades it
+        false, // plain http
     ) {
         ctx.log(&format!("http-get: http_get call failed: {err}"));
     }

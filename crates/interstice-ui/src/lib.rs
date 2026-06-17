@@ -344,8 +344,20 @@ macro_rules! ui_subsystem {
                 }
 
                 // Scroll: nudge the innermost scrollable under the cursor.
+                //
+                // `wheel_delta` from the input authority is a running *cumulative*
+                // total (it's never reset at the source), so we keep the last value
+                // we saw and act only on the per-frame increment — otherwise every
+                // frame would re-apply the whole history and the page would fly off.
+                // The wasm instance persists between frame calls, so a module-local
+                // static is the right place for this tiny bit of bookkeeping (no
+                // table / capability needed).
                 if let Some(mouse) = ctx.input().tables.mousestate().get(0) {
-                    let (wx, wy) = mouse.wheel_delta;
+                    static mut PREV_WHEEL: (f32, f32) = (0.0, 0.0);
+                    let (cum_x, cum_y) = mouse.wheel_delta;
+                    let (prev_x, prev_y) = unsafe { PREV_WHEEL };
+                    unsafe { PREV_WHEEL = (cum_x, cum_y) };
+                    let (wx, wy) = (cum_x - prev_x, cum_y - prev_y);
                     if wx != 0.0 || wy != 0.0 {
                         let cursor = mouse.position;
                         let rows = ctx.current.tables.uielement().scan();
@@ -359,7 +371,10 @@ macro_rules! ui_subsystem {
                         }
                         if let Some((sid, sx, sy)) = best {
                             if let Some(mut el) = ctx.current.tables.uielement().get(sid) {
-                                const SCROLL_SPEED: f32 = 30.0;
+                                // Wheel deltas arrive already normalised to pixels by
+                                // the input authority, so move the content one pixel per
+                                // unit. (Tweak this factor to taste for faster/slower.)
+                                const SCROLL_SPEED: f32 = 0.5;
                                 if sx {
                                     el.scroll_x = (el.scroll_x - wx * SCROLL_SPEED).max(0.0);
                                 }

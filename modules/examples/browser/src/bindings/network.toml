@@ -287,30 +287,48 @@ field_type = "String"
 name = "done"
 field_type = "Bool"
 
+[[tables.fields]]
+name = "final_host"
+field_type = "String"
+
+[[tables.fields]]
+name = "final_path"
+field_type = "String"
+
+[[tables.fields]]
+name = "final_tls"
+field_type = "Bool"
+
 [tables.primary_key]
 name = "id"
 field_type = "U64"
 
-[type_definitions.Inbound.Struct]
-name = "Inbound"
+[type_definitions.Resolved.Struct]
+name = "Resolved"
 
-[[type_definitions.Inbound.Struct.fields]]
+[[type_definitions.Resolved.Struct.fields]]
 name = "id"
 field_type = "U64"
 
-[[type_definitions.Inbound.Struct.fields]]
+[[type_definitions.Resolved.Struct.fields]]
 name = "owner"
 field_type = "String"
 
-[[type_definitions.Inbound.Struct.fields]]
-name = "handle"
+[[type_definitions.Resolved.Struct.fields]]
+name = "req_id"
 field_type = "U64"
 
-[[type_definitions.Inbound.Struct.fields]]
-name = "data"
+[[type_definitions.Resolved.Struct.fields]]
+name = "host"
+field_type = "String"
 
-[type_definitions.Inbound.Struct.fields.field_type]
-Vec = "U8"
+[[type_definitions.Resolved.Struct.fields]]
+name = "ip"
+field_type = "String"
+
+[[type_definitions.Resolved.Struct.fields]]
+name = "error"
+field_type = "String"
 
 [type_definitions.Connection.Struct]
 name = "Connection"
@@ -338,6 +356,21 @@ field_type = "String"
 [[type_definitions.Connection.Struct.fields]]
 name = "error"
 field_type = "String"
+
+[type_definitions.ConnClosed.Struct]
+name = "ConnClosed"
+
+[[type_definitions.ConnClosed.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.ConnClosed.Struct.fields]]
+name = "owner"
+field_type = "String"
+
+[[type_definitions.ConnClosed.Struct.fields]]
+name = "handle"
+field_type = "U64"
 
 [type_definitions.HttpResponse.Struct]
 name = "HttpResponse"
@@ -372,44 +405,35 @@ field_type = "String"
 name = "done"
 field_type = "Bool"
 
-[type_definitions.ConnClosed.Struct]
-name = "ConnClosed"
+[[type_definitions.HttpResponse.Struct.fields]]
+name = "final_host"
+field_type = "String"
 
-[[type_definitions.ConnClosed.Struct.fields]]
+[[type_definitions.HttpResponse.Struct.fields]]
+name = "final_path"
+field_type = "String"
+
+[[type_definitions.HttpResponse.Struct.fields]]
+name = "final_tls"
+field_type = "Bool"
+
+[type_definitions.Inbound.Struct]
+name = "Inbound"
+
+[[type_definitions.Inbound.Struct.fields]]
 name = "id"
 field_type = "U64"
 
-[[type_definitions.ConnClosed.Struct.fields]]
+[[type_definitions.Inbound.Struct.fields]]
 name = "owner"
 field_type = "String"
 
-[[type_definitions.ConnClosed.Struct.fields]]
+[[type_definitions.Inbound.Struct.fields]]
 name = "handle"
 field_type = "U64"
 
-[type_definitions.Resolved.Struct]
-name = "Resolved"
+[[type_definitions.Inbound.Struct.fields]]
+name = "data"
 
-[[type_definitions.Resolved.Struct.fields]]
-name = "id"
-field_type = "U64"
-
-[[type_definitions.Resolved.Struct.fields]]
-name = "owner"
-field_type = "String"
-
-[[type_definitions.Resolved.Struct.fields]]
-name = "req_id"
-field_type = "U64"
-
-[[type_definitions.Resolved.Struct.fields]]
-name = "host"
-field_type = "String"
-
-[[type_definitions.Resolved.Struct.fields]]
-name = "ip"
-field_type = "String"
-
-[[type_definitions.Resolved.Struct.fields]]
-name = "error"
-field_type = "String"
+[type_definitions.Inbound.Struct.fields.field_type]
+Vec = "U8"

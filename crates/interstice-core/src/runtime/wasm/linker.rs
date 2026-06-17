@@ -132,6 +132,26 @@ pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> 
                     Err(_) => return -1,
                 }
             };
+            // Retry path: a prior call overflowed the wasm's fast-path buffer and
+            // stashed its encoded response.  The SDK's `insert_row` retries with a
+            // larger buffer immediately and synchronously — no other host call can
+            // run in between — so the very next insert_row IS that retry.  Return
+            // the stashed bytes WITHOUT re-running the side-effecting insert, so the
+            // transaction is applied exactly once.
+            if let Some(pending) = caller.data_mut().pending_insert_response.take() {
+                if pending.len() > resp_cap as usize {
+                    // Caller still didn't size the buffer correctly — re-stash and
+                    // ask again.  (The SDK always allocates the exact size, so this
+                    // should not happen.)
+                    let needed = pending.len();
+                    caller.data_mut().pending_insert_response = Some(pending);
+                    return -(needed as i32);
+                }
+                if memory.write(&mut caller, (resp_ptr as u32) as usize, &pending).is_err() {
+                    return -1;
+                }
+                return pending.len() as i32;
+            }
             let module_schema = caller.data().module_schema.clone();
             let runtime = caller.data().runtime.clone();
             let response = runtime.handle_insert_row(&*module_schema, InsertRowRequest { table_name: table_name.to_string(), row });
@@ -151,7 +171,12 @@ pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> 
                         Err(_) => return -1,
                     };
                     if encoded.len() > resp_cap as usize {
-                        return -(encoded.len() as i32);
+                        // Response doesn't fit.  The insert side effect has already
+                        // been applied; stash the encoded response so the SDK's
+                        // immediate retry returns it without re-applying.
+                        let needed = encoded.len();
+                        caller.data_mut().pending_insert_response = Some(encoded);
+                        return -(needed as i32);
                     }
                     if memory.write(&mut caller, (resp_ptr as u32) as usize, &encoded).is_err() {
                         return -1;

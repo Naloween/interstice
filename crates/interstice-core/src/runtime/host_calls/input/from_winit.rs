@@ -7,8 +7,16 @@ pub fn get_input_event_from_device_event(device_id: u32, event: DeviceEvent) -> 
         DeviceEvent::Removed => InputEvent::Removed { device_id },
         DeviceEvent::MouseMotion { delta } => InputEvent::MouseMotion { device_id, delta },
         DeviceEvent::MouseWheel { delta } => {
+            // Normalise both wheel kinds to *pixels* so consumers don't have to guess
+            // the unit. A mouse wheel reports discrete lines (≈1 per notch); a
+            // touchpad/precision device reports raw pixels already. Without this a
+            // pixel device scrolls ~tens of units per event where a line device
+            // scrolls ~1, so any fixed multiplier is wildly wrong for one of them.
+            const PIXELS_PER_LINE: f64 = 40.0;
             let delta = match delta {
-                MouseScrollDelta::LineDelta(a, b) => (a as f64, b as f64),
+                MouseScrollDelta::LineDelta(a, b) => {
+                    (a as f64 * PIXELS_PER_LINE, b as f64 * PIXELS_PER_LINE)
+                }
                 MouseScrollDelta::PixelDelta(p) => (p.x, p.y),
             };
             InputEvent::MouseWheel { device_id, delta }
