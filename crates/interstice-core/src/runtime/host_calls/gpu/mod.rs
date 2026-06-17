@@ -217,14 +217,22 @@ impl GpuState {
             ..
         } = self.encoders.remove(&encoder_id).unwrap();
 
-        if self.current_frame.is_none() {
-            return;
-        }
+        // `current_frame` is only acquired during the render-loop frame window.
+        // Render passes draw into the frame's surface view, so they can't run
+        // without it. But buffer/texture COPIES (e.g. a texture upload issued
+        // from an ordinary reducer like the browser's `place_image`) are
+        // independent of the frame and MUST still execute — otherwise the
+        // texture is created but never populated (all-zero → transparent) and
+        // the image silently never shows. So only skip render passes when there
+        // is no frame; always run copies/computes and submit the encoder.
+        let have_frame = self.current_frame.is_some();
 
         for cmd in commands {
             match cmd {
                 EncoderCommand::RenderPass(rp) => {
-                    self.execute_render_pass(&mut encoder, rp);
+                    if have_frame {
+                        self.execute_render_pass(&mut encoder, rp);
+                    }
                 }
                 EncoderCommand::ComputePass(cp) => {
                     self.execute_compute_pass(&mut encoder, cp);

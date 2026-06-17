@@ -376,12 +376,14 @@ macro_rules! ui_subsystem {
                                 // large raw pixel deltas per gesture, so we damp them
                                 // well below 1:1 to keep two-finger scrolling gentle.
                                 // (Tweak this factor to taste for faster/slower.)
-                                const SCROLL_SPEED: f32 = 0.15;
+                                // Natural direction: dragging content up (delta up)
+                                // scrolls the view down, so we ADD the delta.
+                                const SCROLL_SPEED: f32 = 0.08;
                                 if sx {
-                                    el.scroll_x = (el.scroll_x - wx * SCROLL_SPEED).max(0.0);
+                                    el.scroll_x = (el.scroll_x + wx * SCROLL_SPEED).max(0.0);
                                 }
                                 if sy {
-                                    el.scroll_y = (el.scroll_y - wy * SCROLL_SPEED).max(0.0);
+                                    el.scroll_y = (el.scroll_y + wy * SCROLL_SPEED).max(0.0);
                                 }
                                 let _ = ctx.current.tables.uielement().update(el);
                             }
