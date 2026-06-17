@@ -40,11 +40,48 @@ pub enum Block {
         border_w: f32,
         border_c: Rgba,
         spans: Vec<Span>,
+        /// `clear` set ⇒ this box drops below any preceding float instead of
+        /// sitting beside it (ends the float context in [`group_floats`]).
+        clears: bool,
     },
     /// An `<img>` to fetch + decode. `url` is as authored (resolved later).
-    Image { url: String },
+    /// `float`/`clears` carry the CSS float context (see [`group_floats`]).
+    Image {
+        url: String,
+        float: css::Float,
+        clears: bool,
+    },
     /// Vertical whitespace (paragraph spacing, `<br>`, `<hr>`).
     Space { height: f32 },
+    /// A flex container (`display:flex`): its `children` lay out along the main
+    /// axis per `direction`/`justify`/`align`, separated by `gap`. `margin`,
+    /// `padding` are per-side `(t, r, b, l)`; `background` is an optional backdrop.
+    /// Contiguous inline content among the children collapses into a single
+    /// anonymous text child (one flex item), matching CSS anonymous flex items.
+    Container {
+        direction: css::FlexDirection,
+        justify: css::Justify,
+        align: css::Align,
+        gap: f32,
+        margin: (f32, f32, f32, f32),
+        padding: (f32, f32, f32, f32),
+        background: Option<Rgba>,
+        children: Vec<Block>,
+        /// `float` ⇒ this box is taken out of normal flow (see [`group_floats`]);
+        /// `clears` ⇒ it drops below a preceding float.
+        float: css::Float,
+        clears: bool,
+    },
+    /// A float context produced by [`group_floats`]: `float_box` sits at the
+    /// `side` (left/right) edge while `flow` (the following in-flow blocks)
+    /// occupies the remaining width beside it. The beside-content keeps its
+    /// narrowed column for its whole height (it does not reflow to full width
+    /// below the float, unlike true CSS float).
+    FloatRow {
+        side: css::Float,
+        float_box: Box<Block>,
+        flow: Vec<Block>,
+    },
 }
 
 struct State<'a> {
@@ -83,6 +120,8 @@ struct State<'a> {
     cur_width: css::WidthVal,
     cur_border_w: f32,
     cur_border_c: Rgba,
+    /// Current block's `clear`: drops the block below any preceding float.
+    cur_clears: bool,
 }
 
 /// Parse a document against `sheet` and return its blocks. Invalid HTML yields
@@ -111,12 +150,67 @@ pub fn parse_html(html: &str, sheet: &css::Stylesheet) -> Vec<Block> {
         cur_width: css::WidthVal::Auto,
         cur_border_w: 0.0,
         cur_border_c: (0.0, 0.0, 0.0, 0.0),
+        cur_clears: false,
     };
     for handle in dom.children() {
         walk(parser, *handle, &mut st);
     }
     flush(&mut st);
     st.blocks
+}
+
+/// The float side of a block (`None` for in-flow blocks).
+fn block_float(b: &Block) -> css::Float {
+    match b {
+        Block::Image { float, .. } => *float,
+        Block::Container { float, .. } => *float,
+        _ => css::Float::None,
+    }
+}
+
+/// Whether a block `clear`s — it must drop below a preceding float rather than
+/// sit beside it, ending the float context.
+fn block_clears(b: &Block) -> bool {
+    match b {
+        Block::Text { clears, .. } => *clears,
+        Block::Image { clears, .. } => *clears,
+        Block::Container { clears, .. } => *clears,
+        _ => false,
+    }
+}
+
+/// Post-pass over a flow's blocks: pair each `float`ed box with the in-flow
+/// blocks that follow it (until a `clear` or the next float) into a
+/// [`Block::FloatRow`], so the renderer can place the float at its edge with the
+/// following content beside it. A lone float (no in-flow content after it) is
+/// left as a normal block.
+pub fn group_floats(blocks: Vec<Block>) -> Vec<Block> {
+    let mut q: std::collections::VecDeque<Block> = blocks.into();
+    let mut out = Vec::new();
+    while let Some(b) = q.pop_front() {
+        let side = block_float(&b);
+        if side == css::Float::None {
+            out.push(b);
+            continue;
+        }
+        let mut flow = Vec::new();
+        while let Some(next) = q.front() {
+            if block_clears(next) || block_float(next) != css::Float::None {
+                break;
+            }
+            flow.push(q.pop_front().unwrap());
+        }
+        if flow.is_empty() {
+            out.push(b);
+        } else {
+            out.push(Block::FloatRow {
+                side,
+                float_box: Box::new(b),
+                flow,
+            });
+        }
+    }
+    out
 }
 
 /// Scan a document for stylesheet sources: external `<link rel=stylesheet href>`
@@ -257,7 +351,11 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
             if let Some(Some(src)) = tag.attributes().get("src") {
                 let url = src.as_utf8_str().to_string();
                 if !url.is_empty() {
-                    st.blocks.push(Block::Image { url });
+                    st.blocks.push(Block::Image {
+                        url,
+                        float: applied.float.unwrap_or(css::Float::None),
+                        clears: applied.clear.unwrap_or(false),
+                    });
                 }
             }
             return;
@@ -294,6 +392,106 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         _ => {}
     }
 
+    if display == css::Display::Flex {
+        // Flex container: collect its children into a nested block list instead
+        // of flattening them into the document flow, so the renderer can lay
+        // them out along the flex axis.
+        flush(st);
+        let saved_style = st.style;
+        let saved_align = st.cur_align;
+        let saved_color = st.cur_color;
+        let saved_href = st.cur_href.clone();
+        if let Some(c) = applied.color {
+            st.style.color = c;
+            st.cur_color = c;
+        }
+        if let Some(s) = applied.font_size {
+            st.style.size = s;
+        }
+        if let Some(al) = applied.text_align {
+            st.cur_align = al.factor();
+        }
+
+        // Divert child blocks into a fresh list, then restore the parent's.
+        let saved_blocks = std::mem::take(&mut st.blocks);
+        st.stack.push(ctx);
+        walk_children(parser, tag, st);
+        st.stack.pop();
+        flush(st);
+        let children = std::mem::replace(&mut st.blocks, saved_blocks);
+
+        st.style = saved_style;
+        st.cur_align = saved_align;
+        st.cur_color = saved_color;
+        st.cur_href = saved_href;
+
+        if !children.is_empty() {
+            st.blocks.push(Block::Container {
+                direction: applied.flex_direction.unwrap_or(css::FlexDirection::Row),
+                justify: applied.justify.unwrap_or(css::Justify::Start),
+                align: applied.align.unwrap_or(css::Align::Stretch),
+                gap: applied.gap.unwrap_or(0.0),
+                margin: applied.margin_px(),
+                padding: applied.padding_px(),
+                background: applied.background,
+                children,
+                float: applied.float.unwrap_or(css::Float::None),
+                clears: applied.clear.unwrap_or(false),
+            });
+        }
+        return;
+    }
+
+    // Floated block (non-flex): a discrete column box pulled out of normal flow.
+    // `group_floats` later places it beside the following in-flow content. Float
+    // computes `display:block`, so this also catches floated inline elements.
+    let float = applied.float.unwrap_or(css::Float::None);
+    if float != css::Float::None {
+        flush(st);
+        let saved_style = st.style;
+        let saved_align = st.cur_align;
+        let saved_color = st.cur_color;
+        let saved_href = st.cur_href.clone();
+        if let Some(c) = applied.color {
+            st.style.color = c;
+            st.cur_color = c;
+        }
+        if let Some(s) = applied.font_size {
+            st.style.size = s;
+        }
+        if let Some(al) = applied.text_align {
+            st.cur_align = al.factor();
+        }
+
+        let saved_blocks = std::mem::take(&mut st.blocks);
+        st.stack.push(ctx);
+        walk_children(parser, tag, st);
+        st.stack.pop();
+        flush(st);
+        let children = std::mem::replace(&mut st.blocks, saved_blocks);
+
+        st.style = saved_style;
+        st.cur_align = saved_align;
+        st.cur_color = saved_color;
+        st.cur_href = saved_href;
+
+        if !children.is_empty() {
+            st.blocks.push(Block::Container {
+                direction: css::FlexDirection::Column,
+                justify: css::Justify::Start,
+                align: css::Align::Stretch,
+                gap: 0.0,
+                margin: applied.margin_px(),
+                padding: applied.padding_px(),
+                background: applied.background,
+                children,
+                float,
+                clears: applied.clear.unwrap_or(false),
+            });
+        }
+        return;
+    }
+
     if matches!(display, css::Display::Inline | css::Display::InlineBlock) {
         // Inline element: fold children into the current run, optionally applying
         // a colour override (font-size on inline boxes isn't modelled yet).
@@ -327,6 +525,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         let saved_width = st.cur_width;
         let saved_border_w = st.cur_border_w;
         let saved_border_c = st.cur_border_c;
+        let saved_clears = st.cur_clears;
 
         st.style = bs;
         st.style.size = applied.font_size.unwrap_or(bs.size);
@@ -348,6 +547,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         st.cur_border_w = applied.border_width.unwrap_or(0.0);
         // `border-color` defaults to the text colour (CSS currentColor).
         st.cur_border_c = applied.border_color.unwrap_or(st.style.color);
+        st.cur_clears = applied.clear.unwrap_or(false);
 
         if name == "li" {
             push_run(st, "• "); // bullet inherits the block colour ⇒ no span
@@ -368,6 +568,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         st.cur_width = saved_width;
         st.cur_border_w = saved_border_w;
         st.cur_border_c = saved_border_c;
+        st.cur_clears = saved_clears;
         return;
     }
 
@@ -377,6 +578,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
     let saved_style = st.style;
     let saved_align = st.cur_align;
     let saved_color = st.cur_color;
+    let saved_clears = st.cur_clears;
     if let Some(c) = applied.color {
         st.style.color = c;
         st.cur_color = c;
@@ -387,6 +589,9 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
     if let Some(al) = applied.text_align {
         st.cur_align = al.factor();
     }
+    if let Some(cl) = applied.clear {
+        st.cur_clears = cl;
+    }
     st.stack.push(ctx);
     walk_children(parser, tag, st);
     st.stack.pop();
@@ -394,6 +599,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
     st.style = saved_style;
     st.cur_align = saved_align;
     st.cur_color = saved_color;
+    st.cur_clears = saved_clears;
 }
 
 fn walk_children(parser: &tl::Parser, tag: &tl::HTMLTag, st: &mut State) {
@@ -462,6 +668,7 @@ fn flush(st: &mut State) {
             border_w: st.cur_border_w,
             border_c: st.cur_border_c,
             spans,
+            clears: st.cur_clears,
         });
     } else {
         // Drop orphan spans (shouldn't happen: spans only added alongside text).

@@ -90,6 +90,11 @@ pub struct ImageCommand {
     pub texture: ResourceAddress,
     pub rect: Rect,
     pub tint: Color,
+    /// Source sub-rectangle of the texture to sample, in normalised UV space
+    /// (`x`,`y` = top-left u,v; `w`,`h` = u,v extent; full image = 0,0,1,1).
+    /// Lets the caller crop a partially-clipped image (e.g. scrolled under a
+    /// toolbar) instead of squashing the whole texture into a shrunken rect.
+    pub src_uv: Rect,
 }
 
 /// Composite an offscreen surface (rendered by another module) into `dest`,

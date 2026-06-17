@@ -198,6 +198,7 @@ pub fn draw_image<Caps: CanInsert<Draw2DCommand> + CanRead<Layer> + CanRead<Text
     texture_local_id: String,
     rect: Rect,
     tint: Color,
+    src_uv: Rect,
 ) {
     let layer = layer_key(&ctx, &layer);
     if !ensure_layer_exists(&ctx, &layer) {
@@ -233,6 +234,7 @@ pub fn draw_image<Caps: CanInsert<Draw2DCommand> + CanRead<Layer> + CanRead<Text
             },
             rect,
             tint,
+            src_uv,
         }),
         text: None,
         mesh: None,

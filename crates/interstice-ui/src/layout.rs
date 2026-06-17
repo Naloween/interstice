@@ -217,7 +217,19 @@ pub fn layout_element<'a>(
     let scroll_ox = if el.scrollable_x { el.scroll_x } else { 0.0 };
     let scroll_oy = if el.scrollable_y { el.scroll_y } else { 0.0 };
 
-    let mut cursor = 0.0f32;
+    // Main-axis distribution (CSS `justify-content`). Only meaningful when a
+    // grow child hasn't already consumed all the slack.
+    let (lead, extra_gap) = if grow_count == 0 && remaining > 0.0 {
+        justify_offsets(&el.justify_content, remaining, children.len())
+    } else {
+        (0.0, 0.0)
+    };
+    let inner_cross = match el.layout_direction {
+        LayoutDirection::Row => inner_h,
+        LayoutDirection::Column => inner_w,
+    };
+
+    let mut cursor = lead;
     let content_x = x + el.pad_l() - scroll_ox;
     let content_y = y + el.pad_t() - scroll_oy;
     let mut result = Vec::new();
@@ -240,7 +252,11 @@ pub fn layout_element<'a>(
             LayoutDirection::Column => (content_x, content_y + cursor),
         };
 
-        let child_nodes = layout_element(
+        // Lay out once at the cross-start. For `Center`/`End` we then need the
+        // child's resolved cross size to compute its offset and re-lay it out at
+        // the final origin so its clip is computed correctly (Start/Stretch keep
+        // the single-pass path).
+        let mut child_nodes = layout_element(
             all,
             child,
             child_origin_x,
@@ -249,6 +265,26 @@ pub fn layout_element<'a>(
             child_avail_h,
             content_clip,
         );
+
+        let child_cross = match el.layout_direction {
+            LayoutDirection::Row => child_nodes
+                .first()
+                .map(|c| c.height + child.mrg_y())
+                .unwrap_or(0.0),
+            LayoutDirection::Column => child_nodes
+                .first()
+                .map(|c| c.width + child.mrg_x())
+                .unwrap_or(0.0),
+        };
+        let cross_off = cross_offset(&el.align_items, inner_cross, child_cross);
+        if cross_off > 0.0 {
+            let (ox, oy) = match el.layout_direction {
+                LayoutDirection::Row => (child_origin_x, child_origin_y + cross_off),
+                LayoutDirection::Column => (child_origin_x + cross_off, child_origin_y),
+            };
+            child_nodes =
+                layout_element(all, child, ox, oy, child_avail_w, child_avail_h, content_clip);
+        }
 
         let child_main = match el.layout_direction {
             LayoutDirection::Row => child_nodes
@@ -261,11 +297,48 @@ pub fn layout_element<'a>(
                 .unwrap_or(0.0),
         };
 
-        cursor += child_main + el.gap;
+        cursor += child_main + el.gap + extra_gap;
         result.extend(child_nodes);
     }
 
     result
+}
+
+/// Leading offset + extra inter-child gap implementing CSS `justify-content`
+/// over `free` main-axis pixels shared between `n` children.
+fn justify_offsets(j: &JustifyContent, free: f32, n: usize) -> (f32, f32) {
+    match j {
+        JustifyContent::Start => (0.0, 0.0),
+        JustifyContent::Center => (free / 2.0, 0.0),
+        JustifyContent::End => (free, 0.0),
+        JustifyContent::SpaceBetween => {
+            if n > 1 {
+                (0.0, free / (n - 1) as f32)
+            } else {
+                (free / 2.0, 0.0)
+            }
+        }
+        JustifyContent::SpaceAround => {
+            let unit = free / n as f32;
+            (unit / 2.0, unit)
+        }
+        JustifyContent::SpaceEvenly => {
+            let unit = free / (n + 1) as f32;
+            (unit, unit)
+        }
+    }
+}
+
+/// Cross-axis offset for a child of outer cross size `child_cross` within a
+/// container whose inner cross extent is `inner_cross` (CSS `align-items`).
+/// `Start`/`Stretch` ⇒ 0 (a `Grow` cross size already filled the extent).
+fn cross_offset(a: &AlignItems, inner_cross: f32, child_cross: f32) -> f32 {
+    let free = (inner_cross - child_cross).max(0.0);
+    match a {
+        AlignItems::Start | AlignItems::Stretch => 0.0,
+        AlignItems::Center => free / 2.0,
+        AlignItems::End => free,
+    }
 }
 
 /// Lay out every root against a `sw`×`sh` surface and return the id of the

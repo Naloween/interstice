@@ -759,12 +759,20 @@ fn draw_surface_command(
         // The surface is unknown or has not been rendered yet this frame.
         return Ok(());
     };
+    // Surfaces are always composited whole: sample the full texture (0,0,1,1).
+    let full_uv = Rect {
+        x: 0.0,
+        y: 0.0,
+        w: 1.0,
+        h: 1.0,
+    };
     draw_textured_quad(
         gpu,
         pass,
         textured,
         view_id,
         &payload.dest,
+        &full_uv,
         &payload.tint,
         surface,
         created_buffers,
@@ -816,6 +824,7 @@ where
         textured,
         view,
         &payload.rect,
+        &payload.src_uv,
         &payload.tint,
         surface,
         created_buffers,
@@ -833,6 +842,7 @@ fn draw_textured_quad(
     textured: &TexturedPipeline,
     view_id: u32,
     dest: &Rect,
+    uv: &Rect,
     tint: &Color,
     surface: RenderSurface,
     created_buffers: &mut Vec<u32>,
@@ -853,7 +863,7 @@ fn draw_textured_quad(
     })?;
 
     let tint = color_to_array(tint);
-    let vertices = textured_quad(surface, dest, tint);
+    let vertices = textured_quad(surface, dest, uv, tint);
     let data = encode_textured_vertices(&vertices);
     let buffer = gpu.create_buffer(
         data.len() as u64,
@@ -945,21 +955,28 @@ struct TexturedVertex {
 
 /// Build the two triangles (6 vertices) of a textured quad covering `dest`
 /// (pixel coordinates in the destination surface) with full 0..1 UVs.
-fn textured_quad(surface: RenderSurface, dest: &Rect, color: [f32; 4]) -> Vec<TexturedVertex> {
+fn textured_quad(
+    surface: RenderSurface,
+    dest: &Rect,
+    uv: &Rect,
+    color: [f32; 4],
+) -> Vec<TexturedVertex> {
     let (x0, y0) = (dest.x, dest.y);
     let (x1, y1) = (dest.x + dest.w, dest.y + dest.h);
+    let (u0, v0) = (uv.x, uv.y);
+    let (u1, v1) = (uv.x + uv.w, uv.y + uv.h);
     let corner = |x: f32, y: f32, u: f32, v: f32| TexturedVertex {
         position: to_clip(surface, x, y),
         uv: [u, v],
         color,
     };
     vec![
-        corner(x0, y0, 0.0, 0.0),
-        corner(x1, y0, 1.0, 0.0),
-        corner(x0, y1, 0.0, 1.0),
-        corner(x0, y1, 0.0, 1.0),
-        corner(x1, y0, 1.0, 0.0),
-        corner(x1, y1, 1.0, 1.0),
+        corner(x0, y0, u0, v0),
+        corner(x1, y0, u1, v0),
+        corner(x0, y1, u0, v1),
+        corner(x0, y1, u0, v1),
+        corner(x1, y0, u1, v0),
+        corner(x1, y1, u1, v1),
     ]
 }
 

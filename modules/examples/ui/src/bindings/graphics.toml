@@ -168,6 +168,12 @@ name = "tint"
 [reducers.arguments.field_type]
 Named = "Color"
 
+[[reducers.arguments]]
+name = "src_uv"
+
+[reducers.arguments.field_type]
+Named = "Rect"
+
 [[reducers.reads]]
 node_selection = "Current"
 module_selection = "Current"

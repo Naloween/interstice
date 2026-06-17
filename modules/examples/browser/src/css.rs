@@ -14,7 +14,46 @@ pub enum Display {
     Block,
     Inline,
     InlineBlock,
+    /// A flex container — its children are laid out along the main axis with
+    /// `flex-direction` / `justify-content` / `align-items` (see [`FlexDirection`]
+    /// etc.). `inline-flex` collapses to this too.
+    Flex,
     None,
+}
+
+/// CSS `flex-direction` (only the two non-reversed axes are modelled).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum FlexDirection {
+    Row,
+    Column,
+}
+
+/// CSS `justify-content` — main-axis distribution of flex children.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Justify {
+    Start,
+    Center,
+    End,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
+}
+
+/// CSS `align-items` — cross-axis alignment of flex children.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Align {
+    Start,
+    Center,
+    End,
+    Stretch,
+}
+
+/// CSS `float`. `None` ⇒ in normal flow.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Float {
+    None,
+    Left,
+    Right,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -69,6 +108,16 @@ pub struct Applied {
     pub width: Option<WidthVal>,
     pub border_width: Option<f32>,
     pub border_color: Option<Rgba>,
+    pub flex_direction: Option<FlexDirection>,
+    pub justify: Option<Justify>,
+    pub align: Option<Align>,
+    /// `gap` (or `row-gap`/`column-gap`) in px — child spacing in a flex box.
+    pub gap: Option<f32>,
+    /// `float: left | right | none`.
+    pub float: Option<Float>,
+    /// `clear: left | right | both` ⇒ `true`; `none` ⇒ `false`. Breaks the
+    /// preceding float context so this box drops below the float.
+    pub clear: Option<bool>,
 }
 
 impl Applied {
@@ -105,6 +154,24 @@ impl Applied {
         }
         if o.border_color.is_some() {
             self.border_color = o.border_color;
+        }
+        if o.flex_direction.is_some() {
+            self.flex_direction = o.flex_direction;
+        }
+        if o.justify.is_some() {
+            self.justify = o.justify;
+        }
+        if o.align.is_some() {
+            self.align = o.align;
+        }
+        if o.gap.is_some() {
+            self.gap = o.gap;
+        }
+        if o.float.is_some() {
+            self.float = o.float;
+        }
+        if o.clear.is_some() {
+            self.clear = o.clear;
         }
     }
 
@@ -565,6 +632,38 @@ fn apply_decl(a: &mut Applied, prop: &str, value: &str, base_font: f32) {
                 a.border_width = Some(0.0);
             }
         }
+        "flex-direction" => {
+            if let Some(d) = parse_flex_direction(value) {
+                a.flex_direction = Some(d);
+            }
+        }
+        "justify-content" => {
+            if let Some(j) = parse_justify(value) {
+                a.justify = Some(j);
+            }
+        }
+        "align-items" => {
+            if let Some(al) = parse_align_items(value) {
+                a.align = Some(al);
+            }
+        }
+        // `gap` shorthand is `row-gap column-gap`; we model a single spacing, so
+        // take the first length for any of the three properties.
+        "gap" | "row-gap" | "column-gap" | "grid-gap" => {
+            let first = value.split_whitespace().next().unwrap_or(value);
+            if let Some(px) = parse_len_px(first, base_font) {
+                a.gap = Some(px.max(0.0));
+            }
+        }
+        "float" => {
+            if let Some(f) = parse_float(value) {
+                a.float = Some(f);
+            }
+        }
+        "clear" => {
+            let v = value.trim().to_ascii_lowercase();
+            a.clear = Some(matches!(v.as_str(), "left" | "right" | "both"));
+        }
         _ => {}
     }
 }
@@ -747,8 +846,49 @@ fn parse_display(value: &str) -> Option<Display> {
         "inline" => Some(Display::Inline),
         "inline-block" => Some(Display::InlineBlock),
         "block" => Some(Display::Block),
-        // flex/grid/table/etc. aren't laid out yet — render as block so content
-        // still shows (flex arrives in a later phase).
+        "flex" | "inline-flex" => Some(Display::Flex),
+        // grid/table/etc. aren't laid out yet — render as block so content
+        // still shows.
         _ => Some(Display::Block),
+    }
+}
+
+fn parse_flex_direction(value: &str) -> Option<FlexDirection> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        // `*-reverse` isn't modelled; fall back to the forward axis.
+        "row" | "row-reverse" => Some(FlexDirection::Row),
+        "column" | "column-reverse" => Some(FlexDirection::Column),
+        _ => None,
+    }
+}
+
+fn parse_justify(value: &str) -> Option<Justify> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "flex-start" | "start" | "left" | "normal" => Some(Justify::Start),
+        "center" => Some(Justify::Center),
+        "flex-end" | "end" | "right" => Some(Justify::End),
+        "space-between" => Some(Justify::SpaceBetween),
+        "space-around" => Some(Justify::SpaceAround),
+        "space-evenly" => Some(Justify::SpaceEvenly),
+        _ => None,
+    }
+}
+
+fn parse_align_items(value: &str) -> Option<Align> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "flex-start" | "start" => Some(Align::Start),
+        "center" => Some(Align::Center),
+        "flex-end" | "end" => Some(Align::End),
+        "stretch" | "normal" => Some(Align::Stretch),
+        _ => None,
+    }
+}
+
+fn parse_float(value: &str) -> Option<Float> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "left" => Some(Float::Left),
+        "right" => Some(Float::Right),
+        "none" => Some(Float::None),
+        _ => None,
     }
 }

@@ -563,6 +563,7 @@ where
             ctx,
             text_el(
                 format!("c{generation}_0"),
+                VIEWPORT_ID.to_string(),
                 0,
                 format!("Failed to load {}: {}", nav.url, row.error),
                 15.0,
@@ -755,10 +756,19 @@ where
         + CanRead<ImageWaiter>
         + CanDelete<ImageWaiter>,
 {
-    for el in ctx.current.tables.uielement().scan() {
-        if el.parent.as_deref() == Some(VIEWPORT_ID) {
-            let _ = ctx.current.tables.uielement().delete(el.id);
-        }
+    // Delete each direct child's whole subtree (flex containers nest children
+    // beneath them, so a flat single-level delete would orphan grandchildren).
+    let children: Vec<String> = ctx
+        .current
+        .tables
+        .uielement()
+        .scan()
+        .into_iter()
+        .filter(|el| el.parent.as_deref() == Some(VIEWPORT_ID))
+        .map(|el| el.id)
+        .collect();
+    for cid in children {
+        ui::delete_element(ctx, &cid);
     }
     for lm in ctx.current.tables.linkmap().scan() {
         let _ = ctx.current.tables.linkmap().delete(lm.element_id);
@@ -806,7 +816,7 @@ fn rebuild<Caps>(
         + CanInsert<ImageFetchQueue>,
 {
     let stylesheet = css::parse_all(sheets);
-    let blocks = html::parse_html(html, &stylesheet);
+    let blocks = html::group_floats(html::parse_html(html, &stylesheet));
 
     teardown_viewport(ctx);
 
@@ -817,8 +827,60 @@ fn rebuild<Caps>(
     // images on the page share a single fetch + decoded texture.
     let mut url_reqs: Vec<(String, u64)> = Vec::new();
     let mut next_req = nav.next_req_id;
+    let mut counter: u32 = 0;
+    render_blocks(
+        ctx,
+        host,
+        path,
+        tls,
+        generation,
+        VIEWPORT_ID,
+        &blocks,
+        &mut url_reqs,
+        &mut next_req,
+        &mut counter,
+        false,
+    );
+
+    nav.next_req_id = next_req;
+}
+
+/// Recursively materialise `blocks` as `UiElement`s under `parent`. A flex
+/// `Container` becomes a container element with its children laid out beneath
+/// it; every other block is a direct child of `parent`. `counter` hands out a
+/// process-unique id suffix per element so ids stay distinct across nesting,
+/// while `order` (the per-sibling index) drives layout order within a parent.
+#[allow(clippy::too_many_arguments)]
+fn render_blocks<Caps>(
+    ctx: &ReducerContext<Caps>,
+    host: &str,
+    path: &str,
+    tls: bool,
+    generation: u32,
+    parent: &str,
+    blocks: &[Block],
+    url_reqs: &mut Vec<(String, u64)>,
+    next_req: &mut u64,
+    counter: &mut u32,
+    // True when `parent` is a flex row: an auto-width child is then content-sized
+    // (so `justify-content` has slack to distribute) rather than filling the row.
+    flex_row: bool,
+) where
+    Caps: CanRead<ui::UiElement>
+        + CanInsert<ui::UiElement>
+        + CanUpdate<ui::UiElement>
+        + CanDelete<ui::UiElement>
+        + CanRead<ImageReq>
+        + CanInsert<ImageReq>
+        + CanDelete<ImageReq>
+        + CanRead<ImageWaiter>
+        + CanInsert<ImageWaiter>
+        + CanDelete<ImageWaiter>
+        + CanInsert<ImageFetchQueue>,
+{
     for (i, block) in blocks.iter().enumerate() {
-        let id = format!("c{generation}_{i}");
+        let id = format!("c{generation}_{}", *counter);
+        *counter += 1;
         match block {
             Block::Text {
                 text,
@@ -832,6 +894,7 @@ fn rebuild<Caps>(
                 border_w,
                 border_c,
                 spans,
+                ..
             } => {
                 // Inline links live as spans on the element now; hit-testing uses
                 // `ui::link_at` (no per-element LinkMap row needed).
@@ -845,6 +908,7 @@ fn rebuild<Caps>(
                     })
                     .collect();
                 let w = match width {
+                    css::WidthVal::Auto if flex_row => Size::Fit,
                     css::WidthVal::Auto => Size::Grow,
                     css::WidthVal::Px(px) => Size::Fixed(px.max(0.0)),
                     css::WidthVal::Pct(f) => Size::Percent(*f),
@@ -853,6 +917,7 @@ fn rebuild<Caps>(
                     ctx,
                     text_el(
                         id.clone(),
+                        parent.to_string(),
                         i as u32,
                         text.clone(),
                         *size,
@@ -869,9 +934,9 @@ fn rebuild<Caps>(
                 );
             }
             Block::Space { height } => {
-                ui::create_element(ctx, space_el(id, i as u32, *height));
+                ui::create_element(ctx, space_el(id, parent.to_string(), i as u32, *height));
             }
-            Block::Image { url } => {
+            Block::Image { url, .. } => {
                 let Some(loc) = url::resolve(host, path, tls, url) else {
                     continue;
                 };
@@ -886,8 +951,8 @@ fn rebuild<Caps>(
                         if url_reqs.len() >= MAX_PAGE_IMAGES {
                             continue; // skip surplus images entirely
                         }
-                        let rid = next_req;
-                        next_req += 1;
+                        let rid = *next_req;
+                        *next_req += 1;
                         url_reqs.push((key, rid));
                         let _ = ctx.current.tables.imagereq().insert(ImageReq {
                             req_id: rid,
@@ -904,16 +969,192 @@ fn rebuild<Caps>(
                         rid
                     }
                 };
-                ui::create_element(ctx, image_placeholder_el(id.clone(), i as u32));
+                ui::create_element(
+                    ctx,
+                    image_placeholder_el(id.clone(), parent.to_string(), i as u32),
+                );
                 let _ = ctx.current.tables.imagewaiter().insert(ImageWaiter {
                     element_id: id,
                     req_id,
                 });
             }
+            Block::Container {
+                direction,
+                justify,
+                align,
+                gap,
+                margin,
+                padding,
+                background,
+                children,
+                ..
+            } => {
+                ui::create_element(
+                    ctx,
+                    container_el(
+                        id.clone(),
+                        parent.to_string(),
+                        i as u32,
+                        map_direction(*direction),
+                        map_justify(*justify),
+                        map_align(*align),
+                        *gap,
+                        *margin,
+                        *padding,
+                        *background,
+                        flex_row,
+                    ),
+                );
+                render_blocks(
+                    ctx,
+                    host,
+                    path,
+                    tls,
+                    generation,
+                    &id,
+                    children,
+                    url_reqs,
+                    next_req,
+                    counter,
+                    *direction == css::FlexDirection::Row,
+                );
+            }
+            Block::FloatRow {
+                side,
+                float_box,
+                flow,
+            } => {
+                let zero = (0.0, 0.0, 0.0, 0.0);
+                // Row placing the float beside the following in-flow content. A
+                // gutter separates the two columns.
+                ui::create_element(
+                    ctx,
+                    container_el(
+                        id.clone(),
+                        parent.to_string(),
+                        i as u32,
+                        LayoutDirection::Row,
+                        JustifyContent::Start,
+                        AlignItems::Start,
+                        12.0,
+                        zero,
+                        zero,
+                        None,
+                        flex_row,
+                    ),
+                );
+                let (float_order, flow_order) = match side {
+                    css::Float::Right => (1u32, 0u32),
+                    _ => (0u32, 1u32),
+                };
+                // Float wrapper: shrink-to-fit, keeping the float's intrinsic width.
+                let fw_id = format!("c{generation}_{}", *counter);
+                *counter += 1;
+                ui::create_element(
+                    ctx,
+                    container_el(
+                        fw_id.clone(),
+                        id.clone(),
+                        float_order,
+                        LayoutDirection::Column,
+                        JustifyContent::Start,
+                        AlignItems::Start,
+                        0.0,
+                        zero,
+                        zero,
+                        None,
+                        true,
+                    ),
+                );
+                render_blocks(
+                    ctx,
+                    host,
+                    path,
+                    tls,
+                    generation,
+                    &fw_id,
+                    std::slice::from_ref(float_box.as_ref()),
+                    url_reqs,
+                    next_req,
+                    counter,
+                    true,
+                );
+                // Flow wrapper: grows to fill the width remaining beside the float.
+                let cw_id = format!("c{generation}_{}", *counter);
+                *counter += 1;
+                ui::create_element(
+                    ctx,
+                    container_el(
+                        cw_id.clone(),
+                        id.clone(),
+                        flow_order,
+                        LayoutDirection::Column,
+                        JustifyContent::Start,
+                        AlignItems::Stretch,
+                        0.0,
+                        zero,
+                        zero,
+                        None,
+                        false,
+                    ),
+                );
+                render_blocks(
+                    ctx,
+                    host,
+                    path,
+                    tls,
+                    generation,
+                    &cw_id,
+                    flow,
+                    url_reqs,
+                    next_req,
+                    counter,
+                    false,
+                );
+            }
         }
     }
+}
 
-    nav.next_req_id = next_req;
+/// Rasterize an SVG document to straight-alpha RGBA8, returning `(w, h, rgba)`,
+/// or `None` if the bytes aren't valid SVG. Used as the fallback when the raster
+/// decoders reject an image — Wikipedia and friends serve many icons/logos as
+/// SVG. Dimensions come from the SVG's intrinsic size, capped so a large viewBox
+/// can't allocate an enormous texture.
+fn decode_svg(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
+    use resvg::{tiny_skia, usvg};
+
+    let opt = usvg::Options::default();
+    let tree = usvg::Tree::from_data(bytes, &opt).ok()?;
+    let size = tree.size();
+    const MAX_DIM: f32 = 1024.0;
+    let longest = size.width().max(size.height());
+    if longest <= 0.0 {
+        return None;
+    }
+    let scale = (MAX_DIM / longest).min(1.0);
+    let w = ((size.width() * scale).ceil() as u32).max(1);
+    let h = ((size.height() * scale).ceil() as u32).max(1);
+
+    let mut pixmap = tiny_skia::Pixmap::new(w, h)?;
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+
+    // tiny-skia stores premultiplied alpha; the texture pipeline blends with
+    // straight alpha, so un-premultiply each pixel.
+    let mut rgba = pixmap.take();
+    for px in rgba.chunks_exact_mut(4) {
+        let a = px[3] as u32;
+        if a > 0 && a < 255 {
+            for c in &mut px[0..3] {
+                *c = ((*c as u32 * 255 + a / 2) / a).min(255) as u8;
+            }
+        }
+    }
+    Some((w, h, rgba))
 }
 
 /// Handle a completed image fetch for `req_id`: decode it once into a shared
@@ -942,12 +1183,26 @@ where
         let _ = ctx.current.tables.imagewaiter().delete(id.clone());
     }
 
-    let decoded = if ok { image::load_from_memory(bytes).ok() } else { None };
-    let Some(img) = decoded else {
+    // Decode to straight-alpha RGBA8. Try the raster decoders first (PNG/JPEG);
+    // if those don't recognise the bytes, fall back to SVG rasterization, since
+    // sites like Wikipedia serve many icons/logos as SVG (which `image` can't
+    // decode).
+    let raster = if ok { image::load_from_memory(bytes).ok() } else { None };
+    let (w, h, raw) = if let Some(img) = raster {
+        let rgba = img.to_rgba8();
+        let (w, h) = rgba.dimensions();
+        (w, h, rgba.into_raw())
+    } else if let Some(svg) = if ok { decode_svg(bytes) } else { None } {
+        svg
+    } else {
+        let fmt = image::guess_format(bytes).ok();
+        ctx.log(&format!(
+            "browser: image not shown req={req_id} ok={ok} bytes={} fmt={:?}",
+            bytes.len(),
+            fmt
+        ));
         return;
     };
-    let rgba = img.to_rgba8();
-    let (w, h) = rgba.dimensions();
     if w == 0 || h == 0 {
         return;
     }
@@ -970,7 +1225,7 @@ where
                 render_attachment: false,
             },
         },
-        rgba.into_raw(),
+        raw,
     );
 
     let (dw, dh) = display_size(w, h);
@@ -1109,6 +1364,7 @@ where
 #[allow(clippy::too_many_arguments)]
 fn text_el(
     id: String,
+    parent: String,
     order: u32,
     text: String,
     size: f32,
@@ -1125,7 +1381,7 @@ fn text_el(
     let zero = (0.0, 0.0, 0.0, 0.0);
     UiElement {
         id,
-        parent: Some(VIEWPORT_ID.into()),
+        parent: Some(parent),
         order,
         width,
         height: Size::Fit,
@@ -1157,10 +1413,10 @@ fn text_el(
     }
 }
 
-fn space_el(id: String, order: u32, height: f32) -> UiElement {
+fn space_el(id: String, parent: String, order: u32, height: f32) -> UiElement {
     UiElement {
         id,
-        parent: Some(VIEWPORT_ID.into()),
+        parent: Some(parent),
         order,
         width: Size::Grow,
         height: Size::Fixed(height),
@@ -1247,10 +1503,10 @@ where
     }
 }
 
-fn image_placeholder_el(id: String, order: u32) -> UiElement {
+fn image_placeholder_el(id: String, parent: String, order: u32) -> UiElement {
     UiElement {
         id,
-        parent: Some(VIEWPORT_ID.into()),
+        parent: Some(parent),
         order,
         width: Size::Fixed(220.0),
         height: Size::Fixed(140.0),
@@ -1275,6 +1531,70 @@ fn image_placeholder_el(id: String, order: u32) -> UiElement {
         scroll_y: 0.0,
         visible: true,
         ..Default::default()
+    }
+}
+
+/// A flex container element (`display:flex`). Block-level, so it fills the
+/// available width and sizes its height to content; its children lay out along
+/// `direction` with `justify`/`align`/`gap` from the CSS engine.
+#[allow(clippy::too_many_arguments)]
+fn container_el(
+    id: String,
+    parent: String,
+    order: u32,
+    direction: LayoutDirection,
+    justify: JustifyContent,
+    align: AlignItems,
+    gap: f32,
+    margin: (f32, f32, f32, f32),
+    padding: (f32, f32, f32, f32),
+    background: Option<(f32, f32, f32, f32)>,
+    // True when nested inside a flex row: size to content instead of filling.
+    flex_row: bool,
+) -> UiElement {
+    let zero = (0.0, 0.0, 0.0, 0.0);
+    UiElement {
+        id,
+        parent: Some(parent),
+        order,
+        width: if flex_row { Size::Fit } else { Size::Grow },
+        height: Size::Fit,
+        layout_direction: direction,
+        justify_content: justify,
+        align_items: align,
+        gap,
+        padding_sides: if padding != zero { Some(padding) } else { None },
+        margin_sides: if margin != zero { Some(margin) } else { None },
+        background_color: background.unwrap_or(TRANSPARENT),
+        ..Default::default()
+    }
+}
+
+/// Map the browser CSS flex enums onto the UI engine's layout enums.
+fn map_direction(d: css::FlexDirection) -> LayoutDirection {
+    match d {
+        css::FlexDirection::Row => LayoutDirection::Row,
+        css::FlexDirection::Column => LayoutDirection::Column,
+    }
+}
+
+fn map_justify(j: css::Justify) -> JustifyContent {
+    match j {
+        css::Justify::Start => JustifyContent::Start,
+        css::Justify::Center => JustifyContent::Center,
+        css::Justify::End => JustifyContent::End,
+        css::Justify::SpaceBetween => JustifyContent::SpaceBetween,
+        css::Justify::SpaceAround => JustifyContent::SpaceAround,
+        css::Justify::SpaceEvenly => JustifyContent::SpaceEvenly,
+    }
+}
+
+fn map_align(a: css::Align) -> AlignItems {
+    match a {
+        css::Align::Start => AlignItems::Start,
+        css::Align::Center => AlignItems::Center,
+        css::Align::End => AlignItems::End,
+        css::Align::Stretch => AlignItems::Stretch,
     }
 }
 

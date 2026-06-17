@@ -588,6 +588,8 @@ where
                 icon_texture_id(&name),
                 icon_rect,
                 Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 },
+                // Draw the whole icon texture (no cropping).
+                Rect { x: 0.0, y: 0.0, w: 1.0, h: 1.0 },
             );
             // Name label + a "running" dot.
             let _ = g.reducers.draw_text(

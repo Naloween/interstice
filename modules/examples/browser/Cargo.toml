@@ -15,6 +15,10 @@ tl = "0.7"
 # Image decoding for <img>. Pure-Rust PNG + JPEG decoders only — keeps the wasm
 # small and avoids C dependencies.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# SVG rasterization for <img src=*.svg> (Wikipedia serves many icons/logos as
+# SVG). default-features off drops the text/system-font stack (fontdb, memmap)
+# that doesn't fit wasm — vector icons rasterize fine without it.
+resvg = { version = "0.45", default-features = false }
 
 [build-dependencies]
 interstice-sdk = "0.5.0"

@@ -37,7 +37,9 @@ macro_rules! ui_subsystem {
 
             // Layout primitives come straight from the engine so element literals
             // read identically to the old shared-module API.
-            pub use interstice_ui::{LayoutDirection, Size, TextSpan, TextWrap};
+            pub use interstice_ui::{
+                AlignItems, JustifyContent, LayoutDirection, Size, TextSpan, TextWrap,
+            };
 
             /// The retained UI tree for this module. Identical field set to
             /// [`interstice_ui::UiElement`]; converted via [`to_lib`] before layout.
@@ -50,6 +52,8 @@ macro_rules! ui_subsystem {
                 pub width: Size,
                 pub height: Size,
                 pub layout_direction: LayoutDirection,
+                pub justify_content: JustifyContent,
+                pub align_items: AlignItems,
                 pub gap: f32,
                 pub padding: f32,
                 pub margin: f32,
@@ -86,6 +90,8 @@ macro_rules! ui_subsystem {
                         width: Size::Fit,
                         height: Size::Fit,
                         layout_direction: LayoutDirection::Column,
+                        justify_content: JustifyContent::Start,
+                        align_items: AlignItems::Stretch,
                         gap: 0.0,
                         padding: 0.0,
                         margin: 0.0,
@@ -125,6 +131,15 @@ macro_rules! ui_subsystem {
             pub const UI_LAYER: &str = "ui";
             pub const UI_LAYER_Z: i32 = 100;
 
+            /// A dedicated top-most layer for the cursor. Within a single layer
+            /// the graphics renderer composites images in a pass *after* all
+            /// immediate primitives (rects/text/circles), so a cursor drawn as a
+            /// circle into `UI_LAYER` would be hidden behind any page image under
+            /// it. Drawing the cursor into its own higher-`z` layer keeps it on
+            /// top of everything the UI layer renders.
+            pub const UI_CURSOR_LAYER: &str = "ui_cursor";
+            pub const UI_CURSOR_LAYER_Z: i32 = 1000;
+
             fn to_lib(e: &UiElement) -> interstice_ui::UiElement {
                 interstice_ui::UiElement {
                     id: e.id.clone(),
@@ -133,6 +148,8 @@ macro_rules! ui_subsystem {
                     width: e.width.clone(),
                     height: e.height.clone(),
                     layout_direction: e.layout_direction.clone(),
+                    justify_content: e.justify_content.clone(),
+                    align_items: e.align_items.clone(),
                     gap: e.gap,
                     padding: e.padding,
                     margin: e.margin,
@@ -218,12 +235,24 @@ macro_rules! ui_subsystem {
                         stroke_width,
                     );
                 }
-                fn image(&mut self, local_id: &str, x: f32, y: f32, w: f32, h: f32) {
+                fn image(
+                    &mut self,
+                    local_id: &str,
+                    x: f32,
+                    y: f32,
+                    w: f32,
+                    h: f32,
+                    u0: f32,
+                    v0: f32,
+                    u1: f32,
+                    v1: f32,
+                ) {
                     let _ = self.ctx.graphics().reducers.draw_image(
                         self.layer.clone(),
                         local_id.to_string(),
                         Rect { x, y, w, h },
                         Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 },
+                        Rect { x: u0, y: v0, w: u1 - u0, h: v1 - v0 },
                     );
                 }
             }
@@ -239,6 +268,10 @@ macro_rules! ui_subsystem {
                     .graphics()
                     .reducers
                     .create_layer(UI_LAYER.to_string(), UI_LAYER_Z, false);
+                let _ = ctx
+                    .graphics()
+                    .reducers
+                    .create_layer(UI_CURSOR_LAYER.to_string(), UI_CURSOR_LAYER_Z, false);
             }
 
             // ── Element helpers ──────────────────────────────────────────────
@@ -476,7 +509,14 @@ macro_rules! ui_subsystem {
                 if info.id == 0 {
                     if let Some(mouse) = ctx.input().tables.mousestate().get(0) {
                         let (mx, my) = mouse.position;
-                        interstice_ui::draw_cursor(&mut target, mx, my);
+                        // Draw into the dedicated cursor layer so it stays above
+                        // page images (which the renderer composites after the
+                        // UI layer's immediate primitives — see UI_CURSOR_LAYER).
+                        let mut cursor_target = GraphicsTarget {
+                            ctx,
+                            layer: UI_CURSOR_LAYER.to_string(),
+                        };
+                        interstice_ui::draw_cursor(&mut cursor_target, mx, my);
                     }
                 }
             }

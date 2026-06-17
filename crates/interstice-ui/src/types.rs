@@ -25,6 +25,34 @@ pub enum TextWrap {
     Newlines,
 }
 
+/// Main-axis distribution of children within a Row/Column container (CSS
+/// `justify-content`). Only takes effect when there is free main-axis space —
+/// i.e. no `Size::Grow` child has soaked up the slack. `Start` ⇒ today's
+/// packed-from-the-start behaviour.
+#[interstice_type]
+#[derive(Debug, PartialEq)]
+pub enum JustifyContent {
+    Start,
+    Center,
+    End,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
+}
+
+/// Cross-axis alignment of each child within the container's cross extent (CSS
+/// `align-items`). `Stretch` ⇒ today's behaviour (a `Size::Grow` cross size
+/// fills; other sizes sit at the start). `Center`/`End` offset the child by its
+/// resolved cross size.
+#[interstice_type]
+#[derive(Debug, PartialEq)]
+pub enum AlignItems {
+    Start,
+    Center,
+    End,
+    Stretch,
+}
+
 /// An inline run of styled text within a single rich-text [`UiElement`]. `start`
 /// and `end` are **char** offsets into the element's `text` (half-open
 /// `[start, end)`). A span overrides the element's base `text_color` for that
@@ -51,6 +79,10 @@ pub struct UiElement {
     pub width: Size,
     pub height: Size,
     pub layout_direction: LayoutDirection,
+    /// Main-axis distribution of children (CSS `justify-content`).
+    pub justify_content: JustifyContent,
+    /// Cross-axis alignment of children (CSS `align-items`).
+    pub align_items: AlignItems,
     pub gap: f32,
     pub padding: f32,
     pub margin: f32,

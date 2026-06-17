@@ -26,7 +26,23 @@ pub trait DrawTarget {
     /// Filled or stroked circle centred at `(x, y)`.
     fn circle(&mut self, x: f32, y: f32, r: f32, color: Rgba, filled: bool, stroke_width: f32);
     /// Draw the texture `local_id` into the box `(x, y, w, h)`.
-    fn image(&mut self, local_id: &str, x: f32, y: f32, w: f32, h: f32);
+    /// Draw the sub-region `[u0,u1]×[v0,v1]` (normalised UV) of `local_id` into
+    /// the destination rect. Callers clipping a partially-visible image pass the
+    /// cropped destination rect plus the matching UV window; an uncropped image
+    /// uses `0,0,1,1`.
+    #[allow(clippy::too_many_arguments)]
+    fn image(
+        &mut self,
+        local_id: &str,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        u0: f32,
+        v0: f32,
+        u1: f32,
+        v1: f32,
+    );
 }
 
 /// Lay out every root in `all` against a `sw`x`sh` surface and draw it into
@@ -54,6 +70,38 @@ pub fn draw_cursor<T: DrawTarget>(target: &mut T, mx: f32, my: f32) {
     target.circle(mx, my, 6.0, (0.0, 0.0, 0.0, 0.6), false, 1.5);
 }
 
+/// Intersect a filled axis-aligned rect with `clip`. Returns the visible slice
+/// `(x, y, w, h)`, or `None` if nothing remains. The backend has no scissor, so
+/// callers must hand it pre-clipped geometry — otherwise a box scrolled partway
+/// under a sibling (e.g. a toolbar) would paint over it.
+fn clip_filled(
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    clip: (f32, f32, f32, f32),
+) -> Option<(f32, f32, f32, f32)> {
+    let (cx, cy, cw, ch) = clip;
+    let x0 = x.max(cx);
+    let y0 = y.max(cy);
+    let x1 = (x + w).min(cx + cw);
+    let y1 = (y + h).min(cy + ch);
+    if x1 > x0 && y1 > y0 {
+        Some((x0, y0, x1 - x0, y1 - y0))
+    } else {
+        None
+    }
+}
+
+/// Whether the rect lies wholly within `clip` (small epsilon for fp slop).
+/// Strokes can't be clipped geometrically without a scissor, so a partially
+/// clipped border/highlight is dropped rather than drawn along the clip edge.
+fn fully_inside(x: f32, y: f32, w: f32, h: f32, clip: (f32, f32, f32, f32)) -> bool {
+    const EPS: f32 = 0.5;
+    let (cx, cy, cw, ch) = clip;
+    x >= cx - EPS && y >= cy - EPS && x + w <= cx + cw + EPS && y + h <= cy + ch + EPS
+}
+
 fn draw_element<T: DrawTarget>(node: &ComputedElement, focused_id: Option<&str>, target: &mut T) {
     let (cx, cy, cw, ch) = node.clip;
     if cw <= 0.0 || ch <= 0.0 {
@@ -70,19 +118,24 @@ fn draw_element<T: DrawTarget>(node: &ComputedElement, focused_id: Option<&str>,
     if node.width > 0.0 && node.height > 0.0 {
         let (_, _, _, a) = el.background_color;
         if a > 0.0 {
-            target.rect(
-                node.x,
-                node.y,
-                node.width,
-                node.height,
-                el.background_color,
-                true,
-                0.0,
-                corner,
-            );
+            // Clip the fill to the clip rect (no GPU scissor). Rounded corners
+            // only survive an unclipped box — a clipped edge has no corner.
+            if let Some((rx, ry, rw, rh)) =
+                clip_filled(node.x, node.y, node.width, node.height, node.clip)
+            {
+                let cr = if fully_inside(node.x, node.y, node.width, node.height, node.clip) {
+                    corner
+                } else {
+                    None
+                };
+                target.rect(rx, ry, rw, rh, el.background_color, true, 0.0, cr);
+            }
         }
 
-        if el.border_width > 0.0 {
+        // A stroke can't be clipped without drawing along the clip edge, so only
+        // paint the border when the whole box is visible.
+        if el.border_width > 0.0 && fully_inside(node.x, node.y, node.width, node.height, node.clip)
+        {
             target.rect(
                 node.x,
                 node.y,
@@ -104,8 +157,23 @@ fn draw_element<T: DrawTarget>(node: &ComputedElement, focused_id: Option<&str>,
             let iy = node.y + el.pad_t();
             let iw = (node.width - el.pad_x()).max(0.0);
             let ih = (node.height - el.pad_y()).max(0.0);
-            if iw > 0.0 && ih > 0.0 && ix < cx + cw && iy < cy + ch {
-                target.image(img, ix, iy, iw, ih);
+            if iw > 0.0 && ih > 0.0 {
+                // Crop the image to the clip rect (e.g. when scrolled partly under
+                // a toolbar): intersect the image box with the clip, then map the
+                // visible window back to UV space so only that slice is sampled.
+                // Without this the whole texture draws into a shifted rect and
+                // spills past the viewport.
+                let vx0 = ix.max(cx);
+                let vy0 = iy.max(cy);
+                let vx1 = (ix + iw).min(cx + cw);
+                let vy1 = (iy + ih).min(cy + ch);
+                if vx1 > vx0 && vy1 > vy0 {
+                    let u0 = (vx0 - ix) / iw;
+                    let v0 = (vy0 - iy) / ih;
+                    let u1 = (vx1 - ix) / iw;
+                    let v1 = (vy1 - iy) / ih;
+                    target.image(img, vx0, vy0, vx1 - vx0, vy1 - vy0, u0, v0, u1, v1);
+                }
             }
         }
     }
@@ -124,7 +192,10 @@ fn draw_element<T: DrawTarget>(node: &ComputedElement, focused_id: Option<&str>,
             let lines = compute_lines(text, el.text_size, inner_w, &el.text_wrap);
             for (i, line) in lines.iter().enumerate() {
                 let text_y = text_y0 + i as f32 * lh;
-                if text_y + lh <= cy || text_y >= cy + ch {
+                // Cull a line that starts above the clip (would spill over a
+                // toolbar) as well as one fully below it — glyph rows can't be
+                // partially scissored.
+                if text_y < cy || text_y >= cy + ch {
                     continue;
                 }
                 let line_w = line.chars().count() as f32 * advance;
@@ -141,7 +212,7 @@ fn draw_element<T: DrawTarget>(node: &ComputedElement, focused_id: Option<&str>,
             let line_offsets = line_align_offsets(&words, inner_w, advance, el.text_align);
             for w in &words {
                 let wy = text_y0 + w.line as f32 * lh;
-                if wy + lh <= cy || wy >= cy + ch {
+                if wy < cy || wy >= cy + ch {
                     continue;
                 }
                 let ax = line_offsets.get(w.line).copied().unwrap_or(0.0);
@@ -163,7 +234,11 @@ fn draw_element<T: DrawTarget>(node: &ComputedElement, focused_id: Option<&str>,
                         target.text(&seg, seg_x, wy, el.text_size, color);
                         if is_link {
                             let seg_w = (j - k) as f32 * advance;
-                            target.rect(seg_x, wy + lh - 1.5, seg_w, 1.0, color, true, 0.0, None);
+                            if let Some((rx, ry, rw, rh)) =
+                                clip_filled(seg_x, wy + lh - 1.5, seg_w, 1.0, node.clip)
+                            {
+                                target.rect(rx, ry, rw, rh, color, true, 0.0, None);
+                            }
                         }
                     }
                     k = j;
