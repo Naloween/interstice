@@ -38,7 +38,7 @@ macro_rules! ui_subsystem {
             // Layout primitives come straight from the engine so element literals
             // read identically to the old shared-module API.
             pub use interstice_ui::{
-                AlignItems, JustifyContent, LayoutDirection, Size, TextSpan, TextWrap,
+                AlignItems, JustifyContent, LayoutDirection, Position, Size, TextSpan, TextWrap,
             };
 
             /// The retained UI tree for this module. Identical field set to
@@ -54,6 +54,11 @@ macro_rules! ui_subsystem {
                 pub layout_direction: LayoutDirection,
                 pub justify_content: JustifyContent,
                 pub align_items: AlignItems,
+                pub position: Position,
+                pub pos_left: Option<f32>,
+                pub pos_top: Option<f32>,
+                pub pos_right: Option<f32>,
+                pub pos_bottom: Option<f32>,
                 pub gap: f32,
                 pub padding: f32,
                 pub margin: f32,
@@ -92,6 +97,11 @@ macro_rules! ui_subsystem {
                         layout_direction: LayoutDirection::Column,
                         justify_content: JustifyContent::Start,
                         align_items: AlignItems::Stretch,
+                        position: Position::Static,
+                        pos_left: None,
+                        pos_top: None,
+                        pos_right: None,
+                        pos_bottom: None,
                         gap: 0.0,
                         padding: 0.0,
                         margin: 0.0,
@@ -150,6 +160,11 @@ macro_rules! ui_subsystem {
                     layout_direction: e.layout_direction.clone(),
                     justify_content: e.justify_content.clone(),
                     align_items: e.align_items.clone(),
+                    position: e.position.clone(),
+                    pos_left: e.pos_left,
+                    pos_top: e.pos_top,
+                    pos_right: e.pos_right,
+                    pos_bottom: e.pos_bottom,
                     gap: e.gap,
                     padding: e.padding,
                     margin: e.margin,
@@ -471,16 +486,17 @@ macro_rules! ui_subsystem {
                                 // Wheel deltas arrive already normalised to pixels by
                                 // the input authority. Touchpads (PixelDelta) report
                                 // large raw pixel deltas per gesture, so we damp them
-                                // well below 1:1 to keep two-finger scrolling gentle.
+                                // below 1:1 to keep two-finger scrolling controllable.
                                 // (Tweak this factor to taste for faster/slower.)
-                                // Natural direction: dragging content up (delta up)
-                                // scrolls the view down, so we ADD the delta.
-                                const SCROLL_SPEED: f32 = 0.08;
+                                // Direction: SUBTRACT the delta so a downward wheel/
+                                // two-finger drag moves the content up (view scrolls
+                                // down) — the conventional, non-"natural" direction.
+                                const SCROLL_SPEED: f32 = 0.30;
                                 if sx {
-                                    el.scroll_x = (el.scroll_x + wx * SCROLL_SPEED).max(0.0);
+                                    el.scroll_x = (el.scroll_x - wx * SCROLL_SPEED).max(0.0);
                                 }
                                 if sy {
-                                    el.scroll_y = (el.scroll_y + wy * SCROLL_SPEED).max(0.0);
+                                    el.scroll_y = (el.scroll_y - wy * SCROLL_SPEED).max(0.0);
                                 }
                                 let _ = ctx.current.tables.uielement().update(el);
                             }

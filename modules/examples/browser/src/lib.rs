@@ -936,7 +936,12 @@ fn render_blocks<Caps>(
             Block::Space { height } => {
                 ui::create_element(ctx, space_el(id, parent.to_string(), i as u32, *height));
             }
-            Block::Image { url, .. } => {
+            Block::Image {
+                url,
+                position,
+                inset,
+                ..
+            } => {
                 let Some(loc) = url::resolve(host, path, tls, url) else {
                     continue;
                 };
@@ -969,10 +974,9 @@ fn render_blocks<Caps>(
                         rid
                     }
                 };
-                ui::create_element(
-                    ctx,
-                    image_placeholder_el(id.clone(), parent.to_string(), i as u32),
-                );
+                let mut img_el = image_placeholder_el(id.clone(), parent.to_string(), i as u32);
+                apply_position(&mut img_el, *position, *inset);
+                ui::create_element(ctx, img_el);
                 let _ = ctx.current.tables.imagewaiter().insert(ImageWaiter {
                     element_id: id,
                     req_id,
@@ -987,24 +991,25 @@ fn render_blocks<Caps>(
                 padding,
                 background,
                 children,
+                position,
+                inset,
                 ..
             } => {
-                ui::create_element(
-                    ctx,
-                    container_el(
-                        id.clone(),
-                        parent.to_string(),
-                        i as u32,
-                        map_direction(*direction),
-                        map_justify(*justify),
-                        map_align(*align),
-                        *gap,
-                        *margin,
-                        *padding,
-                        *background,
-                        flex_row,
-                    ),
+                let mut el = container_el(
+                    id.clone(),
+                    parent.to_string(),
+                    i as u32,
+                    map_direction(*direction),
+                    map_justify(*justify),
+                    map_align(*align),
+                    *gap,
+                    *margin,
+                    *padding,
+                    *background,
+                    flex_row,
                 );
+                apply_position(&mut el, *position, *inset);
+                ui::create_element(ctx, el);
                 render_blocks(
                     ctx,
                     host,
@@ -1596,6 +1601,28 @@ fn map_align(a: css::Align) -> AlignItems {
         css::Align::End => AlignItems::End,
         css::Align::Stretch => AlignItems::Stretch,
     }
+}
+
+fn map_position(p: css::Position) -> Position {
+    match p {
+        css::Position::Static => Position::Static,
+        css::Position::Relative => Position::Relative,
+        css::Position::Absolute => Position::Absolute,
+    }
+}
+
+/// Stamp CSS `position` + `(top, right, bottom, left)` offsets onto an element.
+fn apply_position(
+    el: &mut UiElement,
+    position: css::Position,
+    inset: (Option<f32>, Option<f32>, Option<f32>, Option<f32>),
+) {
+    el.position = map_position(position);
+    let (t, r, b, l) = inset;
+    el.pos_top = t;
+    el.pos_right = r;
+    el.pos_bottom = b;
+    el.pos_left = l;
 }
 
 /// Cap image display width so large images don't blow out the layout; height

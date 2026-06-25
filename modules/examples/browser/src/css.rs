@@ -56,6 +56,14 @@ pub enum Float {
     Right,
 }
 
+/// CSS `position`. `fixed` maps to `Absolute` and `sticky` to `Relative`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Position {
+    Static,
+    Relative,
+    Absolute,
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum TextAlign {
     Left,
@@ -118,6 +126,10 @@ pub struct Applied {
     /// `clear: left | right | both` ⇒ `true`; `none` ⇒ `false`. Breaks the
     /// preceding float context so this box drops below the float.
     pub clear: Option<bool>,
+    /// `position`.
+    pub position: Option<Position>,
+    /// `top` / `right` / `bottom` / `left` offsets in px (`[t, r, b, l]`).
+    pub inset: [Option<f32>; 4],
 }
 
 impl Applied {
@@ -172,6 +184,14 @@ impl Applied {
         }
         if o.clear.is_some() {
             self.clear = o.clear;
+        }
+        if o.position.is_some() {
+            self.position = o.position;
+        }
+        for k in 0..4 {
+            if o.inset[k].is_some() {
+                self.inset[k] = o.inset[k];
+            }
         }
     }
 
@@ -664,6 +684,15 @@ fn apply_decl(a: &mut Applied, prop: &str, value: &str, base_font: f32) {
             let v = value.trim().to_ascii_lowercase();
             a.clear = Some(matches!(v.as_str(), "left" | "right" | "both"));
         }
+        "position" => {
+            if let Some(p) = parse_position(value) {
+                a.position = Some(p);
+            }
+        }
+        "top" => set_side(&mut a.inset, 0, value, base_font),
+        "right" => set_side(&mut a.inset, 1, value, base_font),
+        "bottom" => set_side(&mut a.inset, 2, value, base_font),
+        "left" => set_side(&mut a.inset, 3, value, base_font),
         _ => {}
     }
 }
@@ -889,6 +918,18 @@ fn parse_float(value: &str) -> Option<Float> {
         "left" => Some(Float::Left),
         "right" => Some(Float::Right),
         "none" => Some(Float::None),
+        _ => None,
+    }
+}
+
+fn parse_position(value: &str) -> Option<Position> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "static" => Some(Position::Static),
+        // `sticky` behaves like `relative` until its scroll threshold; approximate.
+        "relative" | "sticky" => Some(Position::Relative),
+        // `fixed` anchors to the viewport; we anchor to the nearest positioned
+        // ancestor (or the surface), which matches for top-level overlays.
+        "absolute" | "fixed" => Some(Position::Absolute),
         _ => None,
     }
 }

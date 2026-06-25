@@ -3,6 +3,37 @@ use crate::types::*;
 
 type ClipRect = (f32, f32, f32, f32);
 
+/// The containing block for positioned (`Absolute`) descendants: `rect` is the
+/// content box `(x, y, w, h)` they anchor against; `clip` is the clip region
+/// they're bounded by. Threaded down through layout so a positioned element
+/// overrides it for its subtree while `Static` elements pass it through (so an
+/// absolute box resolves against its nearest positioned ancestor).
+#[derive(Clone, Copy)]
+pub struct ContainingBlock {
+    pub rect: ClipRect,
+    pub clip: ClipRect,
+}
+
+/// The whole-surface containing block used for root elements.
+pub fn surface_cb(sw: f32, sh: f32) -> ContainingBlock {
+    let s = (0.0, 0.0, sw, sh);
+    ContainingBlock { rect: s, clip: s }
+}
+
+/// In-flow shift for a `Relative` element from its `pos_*` offsets: prefer
+/// left/top, fall back to the negated right/bottom, else 0.
+fn relative_shift(el: &UiElement) -> (f32, f32) {
+    let dx = el
+        .pos_left
+        .or_else(|| el.pos_right.map(|r| -r))
+        .unwrap_or(0.0);
+    let dy = el
+        .pos_top
+        .or_else(|| el.pos_bottom.map(|b| -b))
+        .unwrap_or(0.0);
+    (dx, dy)
+}
+
 pub struct ComputedElement<'a> {
     pub schema: &'a UiElement,
     pub x: f32,
@@ -132,13 +163,22 @@ pub fn layout_element<'a>(
     avail_w: f32,
     avail_h: f32,
     clip: ClipRect,
+    cb: ContainingBlock,
 ) -> Vec<ComputedElement<'a>> {
     if !el.visible {
         return Vec::new();
     }
 
-    let x = origin_x + el.mrg_l();
-    let y = origin_y + el.mrg_t();
+    // `Relative` shifts this box (and its subtree) without affecting siblings:
+    // the parent still advances by the element's flow size, computed from width/
+    // height, not position.
+    let (rel_dx, rel_dy) = if el.position == Position::Relative {
+        relative_shift(el)
+    } else {
+        (0.0, 0.0)
+    };
+    let x = origin_x + el.mrg_l() + rel_dx;
+    let y = origin_y + el.mrg_t() + rel_dy;
 
     let own_w = match el.width {
         Size::Fixed(px) => px.max(0.0),
@@ -167,11 +207,16 @@ pub fn layout_element<'a>(
         (x + el.pad_l(), y + el.pad_t(), inner_w, inner_h),
     );
 
-    let mut children: Vec<&UiElement> = all
+    let mut all_children: Vec<&UiElement> = all
         .iter()
         .filter(|c| c.parent.as_deref() == Some(&el.id) && c.visible)
         .collect();
-    children.sort_by_key(|c| c.order);
+    all_children.sort_by_key(|c| c.order);
+    // Absolute children are out of flow: they don't drive the cursor and are
+    // positioned separately against the containing block.
+    let (abs_children, children): (Vec<&UiElement>, Vec<&UiElement>) = all_children
+        .into_iter()
+        .partition(|c| c.position == Position::Absolute);
 
     let (fixed_main, grow_count) =
         children.iter().fold((0.0f32, 0u32), |(acc, gc), child| {
@@ -232,6 +277,19 @@ pub fn layout_element<'a>(
     let mut cursor = lead;
     let content_x = x + el.pad_l() - scroll_ox;
     let content_y = y + el.pad_t() - scroll_oy;
+
+    // Containing block handed to descendants: a positioned element (relative or
+    // absolute) becomes the anchor for its absolute descendants; otherwise the
+    // inherited containing block passes straight through.
+    let child_cb = if el.position == Position::Static {
+        cb
+    } else {
+        ContainingBlock {
+            rect: (content_x, content_y, inner_w, inner_h),
+            clip: content_clip,
+        }
+    };
+
     let mut result = Vec::new();
     result.push(ComputedElement {
         schema: el,
@@ -264,6 +322,7 @@ pub fn layout_element<'a>(
             child_avail_w,
             child_avail_h,
             content_clip,
+            child_cb,
         );
 
         let child_cross = match el.layout_direction {
@@ -282,8 +341,16 @@ pub fn layout_element<'a>(
                 LayoutDirection::Row => (child_origin_x, child_origin_y + cross_off),
                 LayoutDirection::Column => (child_origin_x + cross_off, child_origin_y),
             };
-            child_nodes =
-                layout_element(all, child, ox, oy, child_avail_w, child_avail_h, content_clip);
+            child_nodes = layout_element(
+                all,
+                child,
+                ox,
+                oy,
+                child_avail_w,
+                child_avail_h,
+                content_clip,
+                child_cb,
+            );
         }
 
         let child_main = match el.layout_direction {
@@ -301,7 +368,51 @@ pub fn layout_element<'a>(
         result.extend(child_nodes);
     }
 
+    // Out-of-flow absolute children, positioned against `child_cb` and painted
+    // after the in-flow content (so they sit on top, matching CSS paint order).
+    for child in &abs_children {
+        let nodes = layout_absolute(all, child, child_cb);
+        result.extend(nodes);
+    }
+
     result
+}
+
+/// Lay out an `Absolute` child against containing block `cb`. Anchors to
+/// left/top when set, else right/bottom (measuring the child to anchor its far
+/// edge), else the containing block's origin (a coarse stand-in for the static
+/// position). The child fills `cb` as its available size.
+fn layout_absolute<'a>(
+    all: &'a [UiElement],
+    child: &'a UiElement,
+    cb: ContainingBlock,
+) -> Vec<ComputedElement<'a>> {
+    let (cbx, cby, cbw, cbh) = cb.rect;
+    let need_w = child.pos_left.is_none() && child.pos_right.is_some();
+    let need_h = child.pos_top.is_none() && child.pos_bottom.is_some();
+
+    // Measure first only when anchoring a far edge needs the resolved size.
+    let (mut cw, mut ch) = (0.0f32, 0.0f32);
+    if need_w || need_h {
+        let probe = layout_element(all, child, cbx, cby, cbw, cbh, cb.clip, cb);
+        if let Some(n) = probe.first() {
+            cw = n.width + child.mrg_x();
+            ch = n.height + child.mrg_y();
+        }
+    }
+
+    let ox = match (child.pos_left, child.pos_right) {
+        (Some(l), _) => cbx + l,
+        (None, Some(r)) => cbx + cbw - r - cw,
+        (None, None) => cbx,
+    };
+    let oy = match (child.pos_top, child.pos_bottom) {
+        (Some(t), _) => cby + t,
+        (None, Some(b)) => cby + cbh - b - ch,
+        (None, None) => cby,
+    };
+
+    layout_element(all, child, ox, oy, cbw, cbh, cb.clip, cb)
 }
 
 /// Leading offset + extra inter-child gap implementing CSS `justify-content`
@@ -350,9 +461,10 @@ pub fn find_element_at(all: &[UiElement], sw: f32, sh: f32, cursor: (f32, f32)) 
     roots.sort_by_key(|e| e.order);
 
     let full_surface = (0.0, 0.0, sw, sh);
+    let cb = surface_cb(sw, sh);
     let mut found: Option<String> = None;
     for root in roots {
-        let computed = layout_element(all, root, 0.0, 0.0, sw, sh, full_surface);
+        let computed = layout_element(all, root, 0.0, 0.0, sw, sh, full_surface, cb);
         // Parents precede their children in `computed`, so keeping the last
         // containing element yields the innermost match.
         for node in &computed {
@@ -377,9 +489,10 @@ pub fn link_at(all: &[UiElement], sw: f32, sh: f32, cursor: (f32, f32)) -> Optio
     roots.sort_by_key(|e| e.order);
 
     let full_surface = (0.0, 0.0, sw, sh);
+    let cb = surface_cb(sw, sh);
     let mut found: Option<String> = None;
     for root in roots {
-        let computed = layout_element(all, root, 0.0, 0.0, sw, sh, full_surface);
+        let computed = layout_element(all, root, 0.0, 0.0, sw, sh, full_surface, cb);
         for node in &computed {
             let el = node.schema;
             if el.spans.is_empty() {

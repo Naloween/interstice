@@ -53,6 +53,19 @@ pub enum AlignItems {
     Stretch,
 }
 
+/// CSS `position`. `Static` ⇒ normal flow (today's behaviour). `Relative` lays
+/// the box out in flow, then shifts it by its `pos_*` offsets without disturbing
+/// siblings, and establishes a containing block for absolute descendants.
+/// `Absolute` removes the box from flow and positions it (via `pos_*`) against
+/// the content box of its nearest positioned ancestor (or the surface).
+#[interstice_type]
+#[derive(Debug, PartialEq)]
+pub enum Position {
+    Static,
+    Relative,
+    Absolute,
+}
+
 /// An inline run of styled text within a single rich-text [`UiElement`]. `start`
 /// and `end` are **char** offsets into the element's `text` (half-open
 /// `[start, end)`). A span overrides the element's base `text_color` for that
@@ -83,6 +96,15 @@ pub struct UiElement {
     pub justify_content: JustifyContent,
     /// Cross-axis alignment of children (CSS `align-items`).
     pub align_items: AlignItems,
+    /// CSS `position`. `Static` ⇒ normal flow.
+    pub position: Position,
+    /// `position` offsets `(left, top, right, bottom)`; `None` ⇒ `auto`. For
+    /// `Relative` an unset side is 0; for `Absolute` the box anchors to whichever
+    /// of each axis's pair is set (left/right, top/bottom).
+    pub pos_left: Option<f32>,
+    pub pos_top: Option<f32>,
+    pub pos_right: Option<f32>,
+    pub pos_bottom: Option<f32>,
     pub gap: f32,
     pub padding: f32,
     pub margin: f32,

@@ -54,8 +54,9 @@ pub fn render<T: DrawTarget>(all: &[UiElement], sw: f32, sh: f32, focused: Optio
     roots.sort_by_key(|e| e.order);
 
     let full_surface = (0.0, 0.0, sw, sh);
+    let cb = surface_cb(sw, sh);
     for root in roots {
-        let computed = layout_element(all, root, 0.0, 0.0, sw, sh, full_surface);
+        let computed = layout_element(all, root, 0.0, 0.0, sw, sh, full_surface, cb);
         for node in &computed {
             draw_element(node, focused, target);
         }

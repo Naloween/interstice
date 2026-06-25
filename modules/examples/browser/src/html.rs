@@ -50,6 +50,9 @@ pub enum Block {
         url: String,
         float: css::Float,
         clears: bool,
+        position: css::Position,
+        /// `(top, right, bottom, left)` position offsets.
+        inset: (Option<f32>, Option<f32>, Option<f32>, Option<f32>),
     },
     /// Vertical whitespace (paragraph spacing, `<br>`, `<hr>`).
     Space { height: f32 },
@@ -71,6 +74,9 @@ pub enum Block {
         /// `clears` ⇒ it drops below a preceding float.
         float: css::Float,
         clears: bool,
+        /// CSS `position` and its `(top, right, bottom, left)` offsets.
+        position: css::Position,
+        inset: (Option<f32>, Option<f32>, Option<f32>, Option<f32>),
     },
     /// A float context produced by [`group_floats`]: `float_box` sits at the
     /// `side` (left/right) edge while `flow` (the following in-flow blocks)
@@ -157,6 +163,11 @@ pub fn parse_html(html: &str, sheet: &css::Stylesheet) -> Vec<Block> {
     }
     flush(&mut st);
     st.blocks
+}
+
+/// Extract `position` offsets `(top, right, bottom, left)` from a computed style.
+fn applied_inset(a: &css::Applied) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
+    (a.inset[0], a.inset[1], a.inset[2], a.inset[3])
 }
 
 /// The float side of a block (`None` for in-flow blocks).
@@ -355,6 +366,8 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
                         url,
                         float: applied.float.unwrap_or(css::Float::None),
                         clears: applied.clear.unwrap_or(false),
+                        position: applied.position.unwrap_or(css::Position::Static),
+                        inset: applied_inset(&applied),
                     });
                 }
             }
@@ -437,6 +450,61 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
                 children,
                 float: applied.float.unwrap_or(css::Float::None),
                 clears: applied.clear.unwrap_or(false),
+                position: applied.position.unwrap_or(css::Position::Static),
+                inset: applied_inset(&applied),
+            });
+        }
+        return;
+    }
+
+    // Positioned block (non-flex, non-static): a discrete box that the engine
+    // shifts (`relative`) or pulls out of flow and anchors (`absolute`). Made a
+    // container so an `absolute` descendant resolves against it. Takes precedence
+    // over float (CSS ignores float on absolutely-positioned boxes).
+    let position = applied.position.unwrap_or(css::Position::Static);
+    if position != css::Position::Static {
+        flush(st);
+        let saved_style = st.style;
+        let saved_align = st.cur_align;
+        let saved_color = st.cur_color;
+        let saved_href = st.cur_href.clone();
+        if let Some(c) = applied.color {
+            st.style.color = c;
+            st.cur_color = c;
+        }
+        if let Some(s) = applied.font_size {
+            st.style.size = s;
+        }
+        if let Some(al) = applied.text_align {
+            st.cur_align = al.factor();
+        }
+
+        let saved_blocks = std::mem::take(&mut st.blocks);
+        st.stack.push(ctx);
+        walk_children(parser, tag, st);
+        st.stack.pop();
+        flush(st);
+        let children = std::mem::replace(&mut st.blocks, saved_blocks);
+
+        st.style = saved_style;
+        st.cur_align = saved_align;
+        st.cur_color = saved_color;
+        st.cur_href = saved_href;
+
+        if !children.is_empty() {
+            st.blocks.push(Block::Container {
+                direction: css::FlexDirection::Column,
+                justify: css::Justify::Start,
+                align: css::Align::Stretch,
+                gap: 0.0,
+                margin: applied.margin_px(),
+                padding: applied.padding_px(),
+                background: applied.background,
+                children,
+                float: css::Float::None,
+                clears: applied.clear.unwrap_or(false),
+                position,
+                inset: applied_inset(&applied),
             });
         }
         return;
@@ -487,6 +555,8 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
                 children,
                 float,
                 clears: applied.clear.unwrap_or(false),
+                position: css::Position::Static,
+                inset: (None, None, None, None),
             });
         }
         return;
