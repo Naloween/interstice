@@ -511,7 +511,6 @@ pub fn link_at(all: &[UiElement], sw: f32, sh: f32, cursor: (f32, f32)) -> Optio
 
             let inner_w = (node.width - el.pad_x()).max(0.0);
             let lh = text_line_height(el.text_size);
-            let advance = glyph_advance(el.text_size);
             let text_x = node.x + el.pad_l();
             let text_y0 = node.y + el.pad_t();
 
@@ -522,18 +521,17 @@ pub fn link_at(all: &[UiElement], sw: f32, sh: f32, cursor: (f32, f32)) -> Optio
             let line_idx = (rel_y / lh).floor() as usize;
 
             let words = layout_words(text, el.text_size, inner_w);
-            let offsets = line_align_offsets(&words, inner_w, advance, el.text_align);
+            let offsets = line_align_offsets(&words, inner_w, el.text_size, el.text_align);
             for w in &words {
                 if w.line != line_idx {
                     continue;
                 }
                 let ax = offsets.get(w.line).copied().unwrap_or(0.0);
-                let wlen = w.text.chars().count();
                 let wx0 = text_x + ax + w.x;
-                let wx1 = wx0 + wlen as f32 * advance;
+                let wx1 = wx0 + text_width(&w.text, el.text_size);
                 if cursor.0 >= wx0 && cursor.0 < wx1 {
-                    let off = ((cursor.0 - wx0) / advance).floor() as usize;
-                    let idx = w.char_start + off.min(wlen.saturating_sub(1));
+                    let off = char_index_at(&w.text, el.text_size, cursor.0 - wx0);
+                    let idx = w.char_start + off;
                     if let Some(href) = span_href_at(&el.spans, idx) {
                         found = Some(href);
                     }

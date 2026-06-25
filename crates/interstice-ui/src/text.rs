@@ -1,31 +1,83 @@
 use crate::types::*;
+use ab_glyph::{Font, FontArc, PxScale, ScaleFont};
+use std::sync::OnceLock;
 
-pub fn glyph_advance(size: f32) -> f32 {
-    9.0 * (size / 8.0).max(0.125)
+/// The single embedded UI font (DejaVu Sans). The graphics renderer rasterizes
+/// these *same* bytes at the *same* `PxScale::from(size)` convention, so the
+/// advances we measure here match the glyph positions it draws — that agreement
+/// is what keeps wrapped text inside the box it was laid out in.
+pub const FONT_TTF: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
+
+fn font() -> &'static FontArc {
+    static FONT: OnceLock<FontArc> = OnceLock::new();
+    FONT.get_or_init(|| FontArc::try_from_slice(FONT_TTF).expect("embedded DejaVuSans is valid"))
+}
+
+/// Horizontal advance of a single character at `size` px/em.
+pub fn char_advance(ch: char, size: f32) -> f32 {
+    if size <= 0.0 {
+        return 0.0;
+    }
+    let sf = font().as_scaled(PxScale::from(size));
+    sf.h_advance(sf.glyph_id(ch))
+}
+
+/// Total advance width of a string (newlines ignored).
+pub fn text_width(s: &str, size: f32) -> f32 {
+    if size <= 0.0 {
+        return 0.0;
+    }
+    let sf = font().as_scaled(PxScale::from(size));
+    s.chars()
+        .filter(|c| *c != '\n' && *c != '\r')
+        .map(|c| sf.h_advance(sf.glyph_id(c)))
+        .sum()
+}
+
+/// Character index within `word` that the horizontal offset `dx` (from the
+/// word's left edge) falls on. Used by link hit-testing; clamps to the last char.
+pub fn char_index_at(word: &str, size: f32, dx: f32) -> usize {
+    let sf = font().as_scaled(PxScale::from(size));
+    let mut acc = 0.0f32;
+    let mut last = 0usize;
+    for (i, c) in word.chars().enumerate() {
+        let w = sf.h_advance(sf.glyph_id(c));
+        if dx < acc + w {
+            return i;
+        }
+        acc += w;
+        last = i;
+    }
+    last
 }
 
 pub fn text_line_height(size: f32) -> f32 {
-    10.0 * (size / 8.0).max(0.125)
+    if size <= 0.0 {
+        return 0.0;
+    }
+    let sf = font().as_scaled(PxScale::from(size));
+    (sf.height() + sf.line_gap()).ceil()
 }
 
-pub fn word_wrap(line: &str, advance: f32, max_w: f32) -> Vec<String> {
+pub fn word_wrap(line: &str, size: f32, max_w: f32) -> Vec<String> {
     if max_w <= 0.0 {
         return vec![line.to_string()];
     }
+    let space_w = char_advance(' ', size);
     let mut lines: Vec<String> = Vec::new();
     let mut current = String::new();
     let mut current_w = 0.0f32;
 
     for word in line.split_whitespace() {
-        let word_w = word.chars().count() as f32 * advance;
-        let space_w = if current.is_empty() { 0.0 } else { advance };
+        let word_w = text_width(word, size);
+        let lead = if current.is_empty() { 0.0 } else { space_w };
         if current.is_empty() {
             current.push_str(word);
             current_w = word_w;
-        } else if current_w + space_w + word_w <= max_w {
+        } else if current_w + lead + word_w <= max_w {
             current.push(' ');
             current.push_str(word);
-            current_w += space_w + word_w;
+            current_w += lead + word_w;
         } else {
             lines.push(current.clone());
             current = word.to_string();
@@ -42,13 +94,12 @@ pub fn compute_lines(text: &str, size: f32, inner_w: f32, wrap: &TextWrap) -> Ve
     match wrap {
         TextWrap::None => text.lines().map(|l| l.to_string()).collect(),
         TextWrap::Words => {
-            let advance = glyph_advance(size);
             let mut all_lines = Vec::new();
             for explicit_line in text.lines() {
                 if explicit_line.trim().is_empty() {
                     all_lines.push(String::new());
                 } else {
-                    all_lines.extend(word_wrap(explicit_line, advance, inner_w));
+                    all_lines.extend(word_wrap(explicit_line, size, inner_w));
                 }
             }
             if all_lines.is_empty() {
@@ -61,15 +112,14 @@ pub fn compute_lines(text: &str, size: f32, inner_w: f32, wrap: &TextWrap) -> Ve
 }
 
 pub fn min_text_width(text: &str, size: f32, wrap: &TextWrap) -> f32 {
-    let advance = glyph_advance(size);
     match wrap {
         TextWrap::Words => text
             .split_whitespace()
-            .map(|w| w.chars().count() as f32 * advance)
+            .map(|w| text_width(w, size))
             .fold(0.0f32, f32::max),
         TextWrap::None | TextWrap::Newlines => text
             .lines()
-            .map(|l| l.chars().count() as f32 * advance)
+            .map(|l| text_width(l, size))
             .fold(0.0f32, f32::max),
     }
 }
@@ -91,7 +141,7 @@ pub struct LaidWord {
 /// path keeps using [`compute_lines`]). `text` is expected to be
 /// whitespace-collapsed by the caller, so char offsets stay stable across lines.
 pub fn layout_words(text: &str, size: f32, inner_w: f32) -> Vec<LaidWord> {
-    let advance = glyph_advance(size);
+    let space_adv = char_advance(' ', size);
     let chars: Vec<char> = text.chars().collect();
     let mut out: Vec<LaidWord> = Vec::new();
     let mut line = 0usize;
@@ -111,8 +161,8 @@ pub fn layout_words(text: &str, size: f32, inner_w: f32) -> Vec<LaidWord> {
             i += 1;
         }
         let word: String = chars[word_start..i].iter().collect();
-        let word_w = (i - word_start) as f32 * advance;
-        let space_w = if first_on_line { 0.0 } else { advance };
+        let word_w = text_width(&word, size);
+        let space_w = if first_on_line { 0.0 } else { space_adv };
 
         if !first_on_line && inner_w > 0.0 && cursor_x + space_w + word_w > inner_w {
             line += 1;
@@ -144,14 +194,14 @@ pub fn align_offset(inner_w: f32, line_w: f32, align: f32) -> f32 {
 }
 
 /// Per-line alignment offsets for a laid-out span paragraph. Index by `LaidWord::line`.
-pub fn line_align_offsets(words: &[LaidWord], inner_w: f32, advance: f32, align: f32) -> Vec<f32> {
+pub fn line_align_offsets(words: &[LaidWord], inner_w: f32, size: f32, align: f32) -> Vec<f32> {
     if words.is_empty() {
         return Vec::new();
     }
     let n_lines = words.iter().map(|w| w.line).max().unwrap_or(0) + 1;
     let mut widths = vec![0.0f32; n_lines];
     for w in words {
-        let end = w.x + w.text.chars().count() as f32 * advance;
+        let end = w.x + text_width(&w.text, size);
         if end > widths[w.line] {
             widths[w.line] = end;
         }

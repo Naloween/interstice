@@ -9,3 +9,7 @@ repository = "https://github.com/naloween/interstice"
 
 [dependencies]
 interstice-sdk = "0.5.0"
+# Real proportional font metrics (advances, line height) used for layout. The
+# graphics renderer rasterizes the *same* embedded font with the *same* scale
+# convention, so measured and drawn glyph positions agree across the ABI.
+ab_glyph = "0.2"

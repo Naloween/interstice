@@ -8,6 +8,7 @@ pub(crate) const DEFAULT_SEGMENTS: u32 = 16;
 pub(crate) const DEFAULT_CLEAR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
 mod draw;
+mod font;
 mod helpers;
 mod layers;
 mod render;

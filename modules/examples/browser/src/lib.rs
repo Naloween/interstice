@@ -53,11 +53,6 @@ const FWD_BTN_ID: &str = "btn_fwd";
 const URLBAR_ID: &str = "urlbar";
 const VIEWPORT_ID: &str = "viewport";
 
-/// Cap on distinct image fetches per page. Keeps a pathological page (hundreds of
-/// unique-URL images) from exhausting GPU textures or flooding the broker; v1 just
-/// drops the surplus. Repeated images share a fetch and don't count against this.
-const MAX_PAGE_IMAGES: usize = 40;
-
 // ── Module state ─────────────────────────────────────────────────────────────
 
 /// Navigation singleton (`id` always 0). `nav_gen` is bumped on every navigation
@@ -953,9 +948,6 @@ fn render_blocks<Caps>(
                 let req_id = match url_reqs.iter().find(|(u, _)| *u == key) {
                     Some((_, rid)) => *rid,
                     None => {
-                        if url_reqs.len() >= MAX_PAGE_IMAGES {
-                            continue; // skip surplus images entirely
-                        }
                         let rid = *next_req;
                         *next_req += 1;
                         url_reqs.push((key, rid));
@@ -1126,10 +1118,36 @@ fn render_blocks<Caps>(
 /// decoders reject an image — Wikipedia and friends serve many icons/logos as
 /// SVG. Dimensions come from the SVG's intrinsic size, capped so a large viewBox
 /// can't allocate an enormous texture.
+/// Font database for SVG `<text>`, built once and shared (Arc) across every SVG
+/// decode. We ship a single embedded face (DejaVu Sans — broad Unicode coverage,
+/// redistributable) and point all the generic family slots at it, since we have
+/// no system fonts in wasm.
+fn svg_fontdb() -> std::sync::Arc<resvg::usvg::fontdb::Database> {
+    use std::sync::{Arc, OnceLock};
+    static DB: OnceLock<Arc<resvg::usvg::fontdb::Database>> = OnceLock::new();
+    DB.get_or_init(|| {
+        // Reuse the engine's embedded face (interstice-ui) rather than shipping a
+        // second copy in this module.
+        let mut db = resvg::usvg::fontdb::Database::new();
+        db.load_font_data(interstice_ui::FONT_TTF.to_vec());
+        db.set_sans_serif_family("DejaVu Sans");
+        db.set_serif_family("DejaVu Sans");
+        db.set_monospace_family("DejaVu Sans");
+        db.set_cursive_family("DejaVu Sans");
+        db.set_fantasy_family("DejaVu Sans");
+        Arc::new(db)
+    })
+    .clone()
+}
+
 fn decode_svg(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     use resvg::{tiny_skia, usvg};
 
-    let opt = usvg::Options::default();
+    let mut opt = usvg::Options::default();
+    opt.fontdb = svg_fontdb();
+    // Generic CSS families (sans-serif/serif/…) all resolve to our one embedded
+    // face, and it's the fallback when an SVG names a font we don't ship.
+    opt.font_family = "DejaVu Sans".to_string();
     let tree = usvg::Tree::from_data(bytes, &opt).ok()?;
     let size = tree.size();
     const MAX_DIM: f32 = 1024.0;

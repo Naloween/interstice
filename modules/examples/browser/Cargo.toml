@@ -17,9 +17,11 @@ tl = "0.7"
 # covers the lossy/lossless stills modern sites serve.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 # SVG rasterization for <img src=*.svg> (Wikipedia serves many icons/logos as
-# SVG). default-features off drops the text/system-font stack (fontdb, memmap)
-# that doesn't fit wasm — vector icons rasterize fine without it.
-resvg = { version = "0.45", default-features = false }
+# SVG). `text` enables glyph shaping so SVGs with <text> render; we drop
+# `system-fonts`/`memmap-fonts` (the OS font-discovery path that doesn't build
+# for wasm) and instead feed usvg a single embedded font (assets/DejaVuSans.ttf).
+# `raster-images` lets SVGs that embed <image> bitmaps decode too.
+resvg = { version = "0.45", default-features = false, features = ["text", "raster-images"] }
 
 [build-dependencies]
 interstice-sdk = "0.5.0"

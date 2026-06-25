@@ -187,7 +187,6 @@ fn draw_element<T: DrawTarget>(node: &ComputedElement, focused_id: Option<&str>,
         let text_x = node.x + el.pad_l();
         let text_y0 = node.y + el.pad_t();
 
-        let advance = glyph_advance(el.text_size);
         if el.spans.is_empty() {
             // Plain single-colour text: wrap the whole string and draw line-by-line.
             let lines = compute_lines(text, el.text_size, inner_w, &el.text_wrap);
@@ -199,7 +198,7 @@ fn draw_element<T: DrawTarget>(node: &ComputedElement, focused_id: Option<&str>,
                 if text_y < cy || text_y >= cy + ch {
                     continue;
                 }
-                let line_w = line.chars().count() as f32 * advance;
+                let line_w = text_width(line, el.text_size);
                 let ax = align_offset(inner_w, line_w, el.text_align);
                 if text_x + ax >= cx + cw {
                     continue;
@@ -210,7 +209,7 @@ fn draw_element<T: DrawTarget>(node: &ComputedElement, focused_id: Option<&str>,
             // Rich text: lay out words (preserving char offsets) and draw each as
             // colour-uniform sub-runs, underlining link spans for affordance.
             let words = layout_words(text, el.text_size, inner_w);
-            let line_offsets = line_align_offsets(&words, inner_w, advance, el.text_align);
+            let line_offsets = line_align_offsets(&words, inner_w, el.text_size, el.text_align);
             for w in &words {
                 let wy = text_y0 + w.line as f32 * lh;
                 if wy < cy || wy >= cy + ch {
@@ -219,6 +218,8 @@ fn draw_element<T: DrawTarget>(node: &ComputedElement, focused_id: Option<&str>,
                 let ax = line_offsets.get(w.line).copied().unwrap_or(0.0);
                 let wchars: Vec<char> = w.text.chars().collect();
                 let mut k = 0;
+                // Running advance from the word's left edge to char `k`.
+                let mut prefix_w = 0.0f32;
                 while k < wchars.len() {
                     let color = span_color_at(&el.spans, w.char_start + k, el.text_color);
                     let is_link = span_href_at(&el.spans, w.char_start + k).is_some();
@@ -229,12 +230,12 @@ fn draw_element<T: DrawTarget>(node: &ComputedElement, focused_id: Option<&str>,
                     {
                         j += 1;
                     }
-                    let seg_x = text_x + ax + w.x + k as f32 * advance;
+                    let seg: String = wchars[k..j].iter().collect();
+                    let seg_w = text_width(&seg, el.text_size);
+                    let seg_x = text_x + ax + w.x + prefix_w;
                     if seg_x < cx + cw {
-                        let seg: String = wchars[k..j].iter().collect();
                         target.text(&seg, seg_x, wy, el.text_size, color);
                         if is_link {
-                            let seg_w = (j - k) as f32 * advance;
                             if let Some((rx, ry, rw, rh)) =
                                 clip_filled(seg_x, wy + lh - 1.5, seg_w, 1.0, node.clip)
                             {
@@ -242,6 +243,7 @@ fn draw_element<T: DrawTarget>(node: &ComputedElement, focused_id: Option<&str>,
                             }
                         }
                     }
+                    prefix_w += seg_w;
                     k = j;
                 }
             }
@@ -253,12 +255,13 @@ fn draw_element<T: DrawTarget>(node: &ComputedElement, focused_id: Option<&str>,
         let is_focused = focused_id == Some(el.id.as_str());
         if is_focused {
             let text = el.text.as_deref().unwrap_or("");
-            let advance = glyph_advance(el.text_size);
             let lh = text_line_height(el.text_size);
 
-            // Cursor screen position (single-line input).
+            // Cursor screen position (single-line input): advance over the text
+            // preceding the caret using real per-glyph widths.
             let cursor_chars = (el.cursor_pos as usize).min(text.chars().count());
-            let cursor_x = node.x + el.pad_l() + cursor_chars as f32 * advance;
+            let prefix: String = text.chars().take(cursor_chars).collect();
+            let cursor_x = node.x + el.pad_l() + text_width(&prefix, el.text_size);
             let cursor_y = node.y + el.pad_t();
 
             if cursor_x < cx + cw && cursor_y < cy + ch {
