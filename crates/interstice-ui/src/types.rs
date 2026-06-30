@@ -79,6 +79,10 @@ pub struct TextSpan {
     pub end: u32,
     pub color: (f32, f32, f32, f32),
     pub href: Option<String>,
+    /// Resolved weight/slant for this run (already folded with the element's
+    /// base style by the caller), driving which DejaVu face draws it.
+    pub bold: bool,
+    pub italic: bool,
 }
 
 /// The canonical UI element used by the layout and draw engine. Each consuming
@@ -123,11 +127,19 @@ pub struct UiElement {
     pub text_size: f32,
     pub text_color: (f32, f32, f32, f32),
     pub text_wrap: TextWrap,
+    /// Base weight/slant for the whole element (the block's resolved style).
+    /// Inline `spans` may override per-range; uncovered chars use these.
+    pub text_bold: bool,
+    pub text_italic: bool,
     /// Inline style runs over `text` (link/colour). Empty ⇒ plain text.
     pub spans: Vec<TextSpan>,
     /// Horizontal alignment of text lines within the content box: 0.0 = left,
     /// 0.5 = centre, 1.0 = right (CSS `text-align`).
     pub text_align: f32,
+    /// Explicit line height in px (CSS `line-height`). `<= 0.0` ⇒ use the font's
+    /// natural line height for the element's size/style. Drives both inter-line
+    /// spacing when drawing and the measured text height during layout.
+    pub line_height: f32,
     /// Texture local_id of an image to draw into this element's content box.
     /// `None` for ordinary boxes; set for `<img>`-style elements.
     pub image: Option<String>,
@@ -141,6 +153,25 @@ pub struct UiElement {
 }
 
 impl UiElement {
+    /// The element's base text style (weight/slant) for the plain-text path and
+    /// as the fallback for chars no span covers.
+    pub fn base_font_style(&self) -> crate::text::FontStyle {
+        crate::text::FontStyle {
+            bold: self.text_bold,
+            italic: self.text_italic,
+        }
+    }
+    /// Effective line height in px: the explicit `line_height` override when
+    /// positive, else the font's natural line height for this element's size and
+    /// base style. Used everywhere line spacing is needed (layout + draw) so the
+    /// two stay in lockstep.
+    pub fn line_height_px(&self) -> f32 {
+        if self.line_height > 0.0 {
+            self.line_height
+        } else {
+            crate::text::text_line_height(self.text_size, self.base_font_style())
+        }
+    }
     /// Effective per-side padding `(top, right, bottom, left)` — the override if
     /// set, else the uniform scalar on every side.
     pub fn pad(&self) -> (f32, f32, f32, f32) {

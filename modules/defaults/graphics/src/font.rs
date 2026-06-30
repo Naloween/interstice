@@ -8,44 +8,84 @@ use ab_glyph::{Font, FontArc, PxScale, ScaleFont};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-/// The single embedded UI font (DejaVu Sans) — same bytes the engine measures
-/// with (kept in sync via the matching copy in `crates/interstice-ui/assets`).
+/// The four embedded UI faces (DejaVu Sans regular/bold/oblique/bold-oblique) —
+/// same bytes the engine measures with (kept in sync via the matching copies in
+/// `crates/interstice-ui/assets`).
 pub const FONT_TTF: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
+pub const FONT_TTF_BOLD: &[u8] = include_bytes!("../assets/DejaVuSans-Bold.ttf");
+pub const FONT_TTF_ITALIC: &[u8] = include_bytes!("../assets/DejaVuSans-Oblique.ttf");
+pub const FONT_TTF_BOLD_ITALIC: &[u8] = include_bytes!("../assets/DejaVuSans-BoldOblique.ttf");
 
 /// Pixels/em the atlas is rasterized at. Drawing scales each cached glyph by
 /// `size / ATLAS_BASE_PX`, so this is the quality ceiling for large text; 48px
 /// keeps body text crisp without an oversized texture.
 pub const ATLAS_BASE_PX: f32 = 48.0;
 
-fn font() -> &'static FontArc {
-    static FONT: OnceLock<FontArc> = OnceLock::new();
-    FONT.get_or_init(|| FontArc::try_from_slice(FONT_TTF).expect("embedded DejaVuSans is valid"))
+/// Number of distinct weight/slant combinations (and thus faces/atlases).
+pub const STYLE_COUNT: usize = 4;
+
+/// 0=regular 1=bold 2=italic 3=bold-italic. Matches the order the renderer
+/// caches atlas views and the encoding the engine's draw forwarder packs into
+/// the `font` field of a text command (see [`parse_style`]).
+pub fn style_index(bold: bool, italic: bool) -> usize {
+    (bold as usize) | ((italic as usize) << 1)
 }
 
-/// Horizontal advance of a single character at `size` px/em. MUST match
-/// `interstice_ui::char_advance` exactly so drawn pen positions track layout.
-pub fn char_advance(ch: char, size: f32) -> f32 {
+/// Decode the `font` selector the engine sends ("bold"/"italic"/"bold-italic"/
+/// none) into a `(bold, italic)` pair.
+pub fn parse_style(font: Option<&str>) -> (bool, bool) {
+    match font {
+        Some("bold") => (true, false),
+        Some("italic") => (false, true),
+        Some("bold-italic") => (true, true),
+        _ => (false, false),
+    }
+}
+
+fn face(bold: bool, italic: bool) -> &'static FontArc {
+    static FACES: [OnceLock<FontArc>; STYLE_COUNT] = [
+        OnceLock::new(),
+        OnceLock::new(),
+        OnceLock::new(),
+        OnceLock::new(),
+    ];
+    let idx = style_index(bold, italic);
+    FACES[idx].get_or_init(|| {
+        let bytes = match idx {
+            1 => FONT_TTF_BOLD,
+            2 => FONT_TTF_ITALIC,
+            3 => FONT_TTF_BOLD_ITALIC,
+            _ => FONT_TTF,
+        };
+        FontArc::try_from_slice(bytes).expect("embedded DejaVu face is valid")
+    })
+}
+
+/// Horizontal advance of a single character at `size` px/em in the given style.
+/// MUST match `interstice_ui::char_advance` exactly so drawn pen positions track
+/// layout.
+pub fn char_advance(ch: char, size: f32, bold: bool, italic: bool) -> f32 {
     if size <= 0.0 {
         return 0.0;
     }
-    let sf = font().as_scaled(PxScale::from(size));
+    let sf = face(bold, italic).as_scaled(PxScale::from(size));
     sf.h_advance(sf.glyph_id(ch))
 }
 
 /// Distance from the line's top to the text baseline at `size`.
-pub fn ascent(size: f32) -> f32 {
+pub fn ascent(size: f32, bold: bool, italic: bool) -> f32 {
     if size <= 0.0 {
         return 0.0;
     }
-    font().as_scaled(PxScale::from(size)).ascent()
+    face(bold, italic).as_scaled(PxScale::from(size)).ascent()
 }
 
 /// Line advance — matches `interstice_ui::text_line_height`.
-pub fn text_line_height(size: f32) -> f32 {
+pub fn text_line_height(size: f32, bold: bool, italic: bool) -> f32 {
     if size <= 0.0 {
         return 0.0;
     }
-    let sf = font().as_scaled(PxScale::from(size));
+    let sf = face(bold, italic).as_scaled(PxScale::from(size));
     (sf.height() + sf.line_gap()).ceil()
 }
 
@@ -109,15 +149,20 @@ fn charset() -> Vec<char> {
     v
 }
 
-/// Build the glyph atlas once: rasterize every charset glyph at `ATLAS_BASE_PX`
-/// into a padded grid, recording each glyph's UV rect + bearings/size.
-pub fn atlas() -> &'static Atlas {
-    static ATLAS: OnceLock<Atlas> = OnceLock::new();
-    ATLAS.get_or_init(build_atlas)
+/// Build the glyph atlas for a style once: rasterize every charset glyph at
+/// `ATLAS_BASE_PX` into a padded grid, recording each glyph's UV rect +
+/// bearings/size. One atlas per face, cached independently.
+pub fn atlas(bold: bool, italic: bool) -> &'static Atlas {
+    static ATLASES: [OnceLock<Atlas>; STYLE_COUNT] = [
+        OnceLock::new(),
+        OnceLock::new(),
+        OnceLock::new(),
+        OnceLock::new(),
+    ];
+    ATLASES[style_index(bold, italic)].get_or_init(|| build_atlas(face(bold, italic)))
 }
 
-fn build_atlas() -> Atlas {
-    let f = font();
+fn build_atlas(f: &FontArc) -> Atlas {
     let chars = charset();
 
     // First pass: rasterize each glyph to its own coverage buffer, recording

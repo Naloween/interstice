@@ -20,6 +20,9 @@ pub struct TextStyle {
     pub space_before: f32,
     /// Left indent added for this block (lists, blockquotes).
     pub indent_step: f32,
+    /// Base weight/slant of the block's text (headings default to bold).
+    pub bold: bool,
+    pub italic: bool,
 }
 
 impl TextStyle {
@@ -29,15 +32,28 @@ impl TextStyle {
             color: BODY_TEXT,
             space_before: 0.0,
             indent_step: 0.0,
+            bold: false,
+            italic: false,
         }
     }
 }
 
-/// Tags whose entire subtree is ignored (metadata / scripting / vector markup).
+/// Whether an inline tag implies bold (`b`/`strong`) or italic (`i`/`em`/
+/// `cite`/`var`) by the UA default. Author CSS `font-weight`/`font-style` can
+/// still override these in the walker.
+pub fn inline_bold(tag: &str) -> bool {
+    matches!(tag, "b" | "strong")
+}
+pub fn inline_italic(tag: &str) -> bool {
+    matches!(tag, "i" | "em" | "cite" | "var")
+}
+
+/// Tags whose entire subtree is ignored (metadata / scripting). `svg` is *not*
+/// here: inline SVG is rasterized as an image (see [`crate::html`]'s `tag_node`).
 pub fn is_skipped(tag: &str) -> bool {
     matches!(
         tag,
-        "script" | "style" | "head" | "meta" | "link" | "title" | "noscript" | "svg" | "template"
+        "script" | "style" | "head" | "meta" | "link" | "title" | "noscript" | "template"
     )
 }
 
@@ -55,21 +71,23 @@ pub fn is_inline(tag: &str) -> bool {
 /// monospace-ish (rendered with the `code` colour). `None` ⇒ not a styled text
 /// block (a plain container or unknown tag — recurse into children as a block).
 pub fn block_style(tag: &str, base: &TextStyle) -> Option<TextStyle> {
+    // Start from the base so unspecified fields (bold/italic) default to normal;
+    // headings then flip `bold`.
+    let bold_heading = TextStyle { bold: true, ..*base };
     let s = match tag {
-        "h1" => TextStyle { size: 30.0, color: HEADING, space_before: 18.0, indent_step: 0.0 },
-        "h2" => TextStyle { size: 25.0, color: HEADING, space_before: 16.0, indent_step: 0.0 },
-        "h3" => TextStyle { size: 21.0, color: HEADING, space_before: 14.0, indent_step: 0.0 },
-        "h4" => TextStyle { size: 18.0, color: HEADING, space_before: 12.0, indent_step: 0.0 },
-        "h5" => TextStyle { size: 16.0, color: HEADING, space_before: 10.0, indent_step: 0.0 },
-        "h6" => TextStyle { size: 15.0, color: HEADING, space_before: 10.0, indent_step: 0.0 },
-        "p" => TextStyle { size: 15.0, color: BODY_TEXT, space_before: 10.0, indent_step: 0.0 },
-        "li" | "dd" => TextStyle { size: 15.0, color: BODY_TEXT, space_before: 4.0, indent_step: 24.0 },
-        "dt" => TextStyle { size: 15.0, color: HEADING, space_before: 8.0, indent_step: 12.0 },
-        "blockquote" => TextStyle { size: 15.0, color: (0.75, 0.78, 0.82, 1.0), space_before: 10.0, indent_step: 24.0 },
-        "pre" | "code" => TextStyle { size: 14.0, color: CODE, space_before: 8.0, indent_step: 12.0 },
+        "h1" => TextStyle { size: 30.0, color: HEADING, space_before: 18.0, indent_step: 0.0, ..bold_heading },
+        "h2" => TextStyle { size: 25.0, color: HEADING, space_before: 16.0, indent_step: 0.0, ..bold_heading },
+        "h3" => TextStyle { size: 21.0, color: HEADING, space_before: 14.0, indent_step: 0.0, ..bold_heading },
+        "h4" => TextStyle { size: 18.0, color: HEADING, space_before: 12.0, indent_step: 0.0, ..bold_heading },
+        "h5" => TextStyle { size: 16.0, color: HEADING, space_before: 10.0, indent_step: 0.0, ..bold_heading },
+        "h6" => TextStyle { size: 15.0, color: HEADING, space_before: 10.0, indent_step: 0.0, ..bold_heading },
+        "p" => TextStyle { size: 15.0, color: BODY_TEXT, space_before: 10.0, indent_step: 0.0, bold: false, italic: false },
+        "li" | "dd" => TextStyle { size: 15.0, color: BODY_TEXT, space_before: 4.0, indent_step: 24.0, bold: false, italic: false },
+        "dt" => TextStyle { size: 15.0, color: HEADING, space_before: 8.0, indent_step: 12.0, bold: false, italic: false },
+        "blockquote" => TextStyle { size: 15.0, color: (0.75, 0.78, 0.82, 1.0), space_before: 10.0, indent_step: 24.0, bold: false, italic: false },
+        "pre" | "code" => TextStyle { size: 14.0, color: CODE, space_before: 8.0, indent_step: 12.0, bold: false, italic: false },
         _ => return None,
     };
-    let _ = base;
     Some(s)
 }
 

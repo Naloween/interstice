@@ -146,7 +146,7 @@ where
     }
 
     let encoder = gpu.create_command_encoder()?;
-    let (pipeline, textured, atlas_view) = ensure_pipelines(ctx, &gpu, surface_format)?;
+    let (pipeline, textured, atlas_views) = ensure_pipelines(ctx, &gpu, surface_format)?;
     let mut created_buffers: Vec<u32> = Vec::new();
     let mut created_bind_groups: Vec<u32> = Vec::new();
     // Texture views created per-frame for draw_image (one per image command).
@@ -176,7 +176,7 @@ where
             &mut commands_by_layer,
             &pipeline,
             &textured,
-            atlas_view,
+            atlas_views,
             &surface_views,
             &mut created_buffers,
             &mut created_bind_groups,
@@ -200,7 +200,7 @@ where
         &mut commands_by_layer,
         &pipeline,
         &textured,
-        atlas_view,
+        atlas_views,
         &surface_views,
         &mut created_buffers,
         &mut created_bind_groups,
@@ -261,7 +261,7 @@ fn render_layers_to_view<Caps>(
     commands_by_layer: &mut HashMap<String, Vec<Draw2DCommand>>,
     pipeline: &ImmediatePipeline,
     textured: &TexturedPipeline,
-    glyph_atlas_view: u32,
+    glyph_atlas_views: [u32; font::STYLE_COUNT],
     surface_views: &HashMap<u32, u32>,
     created_buffers: &mut Vec<u32>,
     created_bind_groups: &mut Vec<u32>,
@@ -306,7 +306,7 @@ where
                     pass,
                     pipeline,
                     textured,
-                    glyph_atlas_view,
+                    glyph_atlas_views,
                     surface_views,
                     layer_commands,
                     created_buffers,
@@ -389,7 +389,7 @@ fn ensure_pipelines<Caps>(
     ctx: &ReducerContext<Caps>,
     gpu: &Gpu,
     format: TextureFormat,
-) -> Result<(ImmediatePipeline, TexturedPipeline, u32), String>
+) -> Result<(ImmediatePipeline, TexturedPipeline, [u32; font::STYLE_COUNT]), String>
 where
     Caps: CanRead<RendererCache> + CanInsert<RendererCache> + CanUpdate<RendererCache>,
 {
@@ -415,8 +415,8 @@ where
             tex_bind_group_layout: None,
             tex_pipeline_id: None,
             sampler: None,
-            glyph_atlas_texture: None,
-            glyph_atlas_view: None,
+            glyph_atlas_textures: Vec::new(),
+            glyph_atlas_views: Vec::new(),
         });
 
     let format_label = format_label(format);
@@ -615,25 +615,34 @@ where
         sampler: cache.sampler.unwrap(),
     };
 
-    // Glyph atlas: format-independent, so it is *not* reset by a surface-format
-    // change above — build + upload the rasterized font once and cache its view.
-    if cache.glyph_atlas_view.is_none() {
-        let atlas = font::atlas();
-        let texture = upload_atlas(gpu, atlas)?;
-        let view = gpu.create_texture_view(CreateTextureView {
-            texture,
-            format: Some(TextureFormat::Rgba8Unorm),
-            dimension: Some(TextureViewDimension::D2),
-            base_mip_level: 0,
-            mip_level_count: None,
-            base_array_layer: 0,
-            array_layer_count: None,
-        })?;
-        cache.glyph_atlas_texture = Some(texture);
-        cache.glyph_atlas_view = Some(view);
+    // Glyph atlases: format-independent, so they are *not* reset by a surface-
+    // format change above — build + upload one rasterized face per weight/slant
+    // once and cache their views (indexed by `font::style_index`).
+    if cache.glyph_atlas_views.len() != font::STYLE_COUNT {
+        let mut textures = Vec::with_capacity(font::STYLE_COUNT);
+        let mut views = Vec::with_capacity(font::STYLE_COUNT);
+        for idx in 0..font::STYLE_COUNT {
+            let bold = idx & 1 != 0;
+            let italic = idx & 2 != 0;
+            let texture = upload_atlas(gpu, font::atlas(bold, italic))?;
+            let view = gpu.create_texture_view(CreateTextureView {
+                texture,
+                format: Some(TextureFormat::Rgba8Unorm),
+                dimension: Some(TextureViewDimension::D2),
+                base_mip_level: 0,
+                mip_level_count: None,
+                base_array_layer: 0,
+                array_layer_count: None,
+            })?;
+            textures.push(texture);
+            views.push(view);
+        }
+        cache.glyph_atlas_textures = textures;
+        cache.glyph_atlas_views = views;
         dirty = true;
     }
-    let atlas_view = cache.glyph_atlas_view.unwrap();
+    let mut atlas_views = [0u32; font::STYLE_COUNT];
+    atlas_views.copy_from_slice(&cache.glyph_atlas_views);
 
     if dirty {
         if existed {
@@ -643,7 +652,7 @@ where
         }
     }
 
-    Ok((immediate, textured, atlas_view))
+    Ok((immediate, textured, atlas_views))
 }
 
 /// Create an RGBA8 texture from the glyph atlas pixels and upload them. Rows are
@@ -706,7 +715,7 @@ fn execute_draw_commands<Caps>(
     pass: u32,
     immediate_pipeline: &ImmediatePipeline,
     textured: &TexturedPipeline,
-    glyph_atlas_view: u32,
+    glyph_atlas_views: [u32; font::STYLE_COUNT],
     surface_views: &HashMap<u32, u32>,
     commands: Vec<Draw2DCommand>,
     created_buffers: &mut Vec<u32>,
@@ -721,9 +730,11 @@ where
         + CanRead<TextureBinding>,
 {
     // Batch all immediate draw commands (circle, polyline, rect). Text is drawn
-    // separately as textured glyph-atlas quads (see `glyph_vertices`).
+    // separately as textured glyph-atlas quads, one vertex bucket per font style
+    // (each bucket samples its own atlas — see `glyph_atlas_views`).
     let mut immediate_vertices: Vec<ImmediateVertexBytes> = Vec::new();
-    let mut glyph_vertices: Vec<TexturedVertex> = Vec::new();
+    let mut glyph_vertices: [Vec<TexturedVertex>; font::STYLE_COUNT] =
+        [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
 
     for command in &commands {
         match command.command_type {
@@ -751,7 +762,9 @@ where
             }
             Draw2DCommandType::Text => {
                 if let Some(payload) = &command.text {
-                    tessellate_text(surface, payload, &mut glyph_vertices);
+                    let (bold, italic) = font::parse_style(payload.font.as_deref());
+                    let bucket = &mut glyph_vertices[font::style_index(bold, italic)];
+                    tessellate_text(surface, payload, bold, italic, bucket);
                 }
             }
             _ => {}
@@ -773,17 +786,22 @@ where
         created_buffers.push(buffer);
     }
 
-    // Text: one bind group (glyph atlas + shared sampler) and one draw call for
-    // every glyph quad in this layer. Drawn after the immediate batch (so text
-    // sits above backgrounds/underlines) but before images (matching the prior
-    // immediate-text ordering, where images composite last).
-    if !glyph_vertices.is_empty() {
+    // Text: one bind group (the style's glyph atlas + shared sampler) and one
+    // draw call per non-empty style bucket in this layer. Drawn after the
+    // immediate batch (so text sits above backgrounds/underlines) but before
+    // images (matching the prior ordering, where images composite last). The
+    // pipeline is set once; only the atlas bind group differs between styles.
+    let mut text_pipeline_set = false;
+    for (style_idx, verts) in glyph_vertices.iter().enumerate() {
+        if verts.is_empty() {
+            continue;
+        }
         let bind_group = gpu.create_bind_group(CreateBindGroup {
             layout: textured.bind_group_layout,
             entries: vec![
                 BindGroupEntry {
                     binding: 0,
-                    resource: BindingResource::TextureView(glyph_atlas_view),
+                    resource: BindingResource::TextureView(glyph_atlas_views[style_idx]),
                 },
                 BindGroupEntry {
                     binding: 1,
@@ -791,17 +809,20 @@ where
                 },
             ],
         })?;
-        let data = encode_textured_vertices(&glyph_vertices);
+        let data = encode_textured_vertices(verts);
         let buffer = gpu.create_buffer(
             data.len() as u64,
             BufferUsage::VERTEX | BufferUsage::COPY_DST,
             false,
         )?;
         gpu.write_buffer(buffer, 0, data)?;
-        gpu.set_render_pipeline(pass, textured.pipeline)?;
+        if !text_pipeline_set {
+            gpu.set_render_pipeline(pass, textured.pipeline)?;
+            text_pipeline_set = true;
+        }
         gpu.set_bind_group(pass, 0, bind_group)?;
         gpu.set_vertex_buffer(pass, buffer, 0, 0, None)?;
-        gpu.draw(pass, glyph_vertices.len() as u32, 1)?;
+        gpu.draw(pass, verts.len() as u32, 1)?;
         created_buffers.push(buffer);
         created_bind_groups.push(bind_group);
     }
@@ -1380,7 +1401,13 @@ fn tessellate_rounded_rect(surface: RenderSurface, cmd: &RectCommand, r: f32) ->
 /// *same* `font::char_advance` the engine measured/wrapped with, so the drawn
 /// run lands exactly where layout placed it. Glyphs outside the baked charset
 /// still advance by their true width but draw nothing.
-fn tessellate_text(surface: RenderSurface, cmd: &TextCommand, out: &mut Vec<TexturedVertex>) {
+fn tessellate_text(
+    surface: RenderSurface,
+    cmd: &TextCommand,
+    bold: bool,
+    italic: bool,
+    out: &mut Vec<TexturedVertex>,
+) {
     const MAX_GLYPHS: usize = 16_384;
     const TAB_SPACES: u32 = 4;
 
@@ -1388,16 +1415,16 @@ fn tessellate_text(surface: RenderSurface, cmd: &TextCommand, out: &mut Vec<Text
         return;
     }
 
-    let atlas = font::atlas();
+    let atlas = font::atlas(bold, italic);
     let size = cmd.size;
     let s = size / font::ATLAS_BASE_PX;
-    let line_height = font::text_line_height(size);
-    let tab_w = font::char_advance(' ', size) * TAB_SPACES as f32;
+    let line_height = font::text_line_height(size, bold, italic);
+    let tab_w = font::char_advance(' ', size, bold, italic) * TAB_SPACES as f32;
 
     let base_x = cmd.position.x;
     let mut pen_x = base_x;
     // The engine positions a line by its top-left; shift to the baseline to draw.
-    let mut baseline_y = cmd.position.y + font::ascent(size);
+    let mut baseline_y = cmd.position.y + font::ascent(size, bold, italic);
     let color = color_to_array(&cmd.color);
 
     let mut glyph_count = 0usize;
@@ -1435,7 +1462,7 @@ fn tessellate_text(surface: RenderSurface, cmd: &TextCommand, out: &mut Vec<Text
                 out.extend(textured_quad(surface, &dest, &uv, color));
             }
         }
-        pen_x += font::char_advance(ch, size);
+        pen_x += font::char_advance(ch, size, bold, italic);
         glyph_count += 1;
     }
 }

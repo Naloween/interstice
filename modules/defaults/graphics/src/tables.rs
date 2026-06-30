@@ -127,10 +127,12 @@ pub struct RendererCache {
     pub tex_bind_group_layout: Option<u32>,
     pub tex_pipeline_id: Option<u32>,
     pub sampler: Option<u32>,
-    // Glyph atlas (format-independent): a single RGBA texture of rasterized
-    // DejaVu Sans glyphs, sampled through the textured pipeline to draw text.
-    pub glyph_atlas_texture: Option<u32>,
-    pub glyph_atlas_view: Option<u32>,
+    // Glyph atlases (format-independent): one RGBA texture of rasterized DejaVu
+    // glyphs per weight/slant face (regular/bold/italic/bold-italic, indexed by
+    // `font::style_index`), sampled through the textured pipeline to draw text.
+    // Empty until built; both vectors then hold `font::STYLE_COUNT` ids.
+    pub glyph_atlas_textures: Vec<u32>,
+    pub glyph_atlas_views: Vec<u32>,
 }
 
 #[table(ephemeral)]

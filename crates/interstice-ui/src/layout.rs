@@ -1,7 +1,76 @@
 use crate::text::*;
 use crate::types::*;
+use std::collections::BTreeMap;
 
 type ClipRect = (f32, f32, f32, f32);
+
+/// Per-pass memo of intrinsic sizes. Flow layout measures each element's fit
+/// width and content height several times per parent — once for the parent's own
+/// size, again in the fixed/grow distribution fold, and again in the recursive
+/// child layout — and each of those re-descends the whole subtree. Un-memoised
+/// that is roughly O(n·depth) text-shaping calls *per frame*, which is what makes
+/// a deep page (e.g. a long Wikipedia article) crawl. Both `fit_width` and
+/// `fit_height` are pure functions of `(element, width)` over the immutable `all`
+/// slice within a single layout pass, so caching them by element identity (the
+/// element's address, stable for the pass) plus the width they were measured
+/// against (results legitimately differ per width — percentage descendants) is
+/// exact, collapsing the redundant re-measurement to O(n).
+#[derive(Default)]
+struct Measure {
+    width: BTreeMap<(usize, u32), f32>,
+    height: BTreeMap<(usize, u32), f32>,
+}
+
+#[inline]
+fn cache_key(el: &UiElement, w: f32) -> (usize, u32) {
+    (el as *const UiElement as usize, w.to_bits())
+}
+
+/// State threaded through a single layout pass: the intrinsic-size memo plus a
+/// parent→children adjacency index.
+///
+/// Without the index every `fit_width`/`fit_height`/`layout_node` call rebuilt
+/// its child list by scanning the *entire* element slice (`all.iter().filter(
+/// parent == id)`) — an O(n) sweep performed once per element, i.e. O(n²) per
+/// frame. On a long page (thousands of nodes) that quadratic dominates and the
+/// frame rate collapses even though nothing about the page changed. Building the
+/// adjacency once up front (O(n), children pre-filtered to `visible` and
+/// pre-sorted by `order`, exactly as the old inline scans did) turns every child
+/// lookup into an O(1) map hit, making a full pass linear in the node count.
+struct LayoutPass<'a> {
+    /// Visible children of each element id, pre-sorted by `order`.
+    kids: BTreeMap<&'a str, Vec<&'a UiElement>>,
+    measure: Measure,
+}
+
+impl<'a> LayoutPass<'a> {
+    fn new(all: &'a [UiElement]) -> Self {
+        let mut kids: BTreeMap<&'a str, Vec<&'a UiElement>> = BTreeMap::new();
+        for el in all {
+            if !el.visible {
+                continue;
+            }
+            if let Some(p) = el.parent.as_deref() {
+                kids.entry(p).or_default().push(el);
+            }
+        }
+        for v in kids.values_mut() {
+            v.sort_by_key(|c| c.order);
+        }
+        LayoutPass {
+            kids,
+            measure: Measure::default(),
+        }
+    }
+
+    /// Visible children of `id`, sorted by `order`. Returns an owned `Vec` of
+    /// references (cheap pointer copies into the immutable `all` slice) so the
+    /// borrow of `self` ends immediately and the caller can keep recursing with
+    /// `&mut self`.
+    fn children(&self, id: &str) -> Vec<&'a UiElement> {
+        self.kids.get(id).cloned().unwrap_or_default()
+    }
+}
 
 /// The containing block for positioned (`Absolute`) descendants: `rect` is the
 /// content box `(x, y, w, h)` they anchor against; `clip` is the clip region
@@ -51,18 +120,19 @@ fn intersect_clip(a: ClipRect, b: ClipRect) -> ClipRect {
     (x1, y1, (x2 - x1).max(0.0), (y2 - y1).max(0.0))
 }
 
-fn fit_width(all: &[UiElement], el: &UiElement, avail_w: f32) -> f32 {
+fn fit_width<'a>(el: &'a UiElement, avail_w: f32, p: &mut LayoutPass<'a>) -> f32 {
+    let k = cache_key(el, avail_w);
+    if let Some(&v) = p.measure.width.get(&k) {
+        return v;
+    }
+
     let text_min_w = el
         .text
         .as_deref()
-        .map(|t| min_text_width(t, el.text_size, &el.text_wrap))
+        .map(|t| min_text_width(t, el.text_size, &el.text_wrap, el.base_font_style()))
         .unwrap_or(0.0);
 
-    let mut children: Vec<&UiElement> = all
-        .iter()
-        .filter(|c| c.parent.as_deref() == Some(&el.id) && c.visible)
-        .collect();
-    children.sort_by_key(|c| c.order);
+    let children = p.children(&el.id);
 
     let inner_avail = (avail_w - el.pad_x()).max(0.0);
     let visible_n = children.len();
@@ -76,42 +146,46 @@ fn fit_width(all: &[UiElement], el: &UiElement, avail_w: f32) -> f32 {
         LayoutDirection::Row => {
             let sum: f32 = children
                 .iter()
-                .map(|c| child_min_w(all, c, inner_avail) + c.mrg_x())
+                .map(|c| child_min_w(c, inner_avail, p) + c.mrg_x())
                 .sum();
             sum + gap_total
         }
         LayoutDirection::Column => children
             .iter()
-            .map(|c| child_min_w(all, c, inner_avail) + c.mrg_x())
+            .map(|c| child_min_w(c, inner_avail, p) + c.mrg_x())
             .fold(0.0f32, f32::max),
     };
 
-    (text_min_w.max(children_w) + el.pad_x()).max(0.0)
+    let result = (text_min_w.max(children_w) + el.pad_x()).max(0.0);
+    p.measure.width.insert(k, result);
+    result
 }
 
-fn child_min_w(all: &[UiElement], child: &UiElement, parent_inner_avail: f32) -> f32 {
+fn child_min_w<'a>(child: &'a UiElement, parent_inner_avail: f32, p: &mut LayoutPass<'a>) -> f32 {
     match child.width {
         Size::Fixed(px) => px.max(0.0),
         Size::Percent(f) => (parent_inner_avail * f).max(0.0),
-        Size::Grow | Size::Fit => fit_width(all, child, parent_inner_avail),
+        Size::Grow | Size::Fit => fit_width(child, parent_inner_avail, p),
     }
 }
 
-fn fit_height(all: &[UiElement], el: &UiElement, inner_w: f32) -> f32 {
+fn fit_height<'a>(el: &'a UiElement, inner_w: f32, p: &mut LayoutPass<'a>) -> f32 {
+    let k = cache_key(el, inner_w);
+    if let Some(&v) = p.measure.height.get(&k) {
+        return v;
+    }
+
     let text_h = el
         .text
         .as_deref()
         .map(|t| {
-            let lines = compute_lines(t, el.text_size, inner_w, &el.text_wrap);
-            lines.len() as f32 * text_line_height(el.text_size)
+            let base = el.base_font_style();
+            let lines = compute_lines(t, el.text_size, inner_w, &el.text_wrap, base);
+            lines.len() as f32 * el.line_height_px()
         })
         .unwrap_or(0.0);
 
-    let mut children: Vec<&UiElement> = all
-        .iter()
-        .filter(|c| c.parent.as_deref() == Some(&el.id) && c.visible)
-        .collect();
-    children.sort_by_key(|c| c.order);
+    let children = p.children(&el.id);
 
     let visible_n = children.len();
     let gap_total = if visible_n > 1 {
@@ -124,25 +198,27 @@ fn fit_height(all: &[UiElement], el: &UiElement, inner_w: f32) -> f32 {
         LayoutDirection::Column => {
             let sum: f32 = children
                 .iter()
-                .map(|c| child_resolved_h(all, c, inner_w) + c.mrg_y())
+                .map(|c| child_resolved_h(c, inner_w, p) + c.mrg_y())
                 .sum();
             sum + gap_total
         }
         LayoutDirection::Row => children
             .iter()
-            .map(|c| child_resolved_h(all, c, inner_w) + c.mrg_y())
+            .map(|c| child_resolved_h(c, inner_w, p) + c.mrg_y())
             .fold(0.0f32, f32::max),
     };
 
-    (text_h.max(children_h) + el.pad_y()).max(0.0)
+    let result = (text_h.max(children_h) + el.pad_y()).max(0.0);
+    p.measure.height.insert(k, result);
+    result
 }
 
-fn child_resolved_h(all: &[UiElement], child: &UiElement, parent_inner_w: f32) -> f32 {
+fn child_resolved_h<'a>(child: &'a UiElement, parent_inner_w: f32, p: &mut LayoutPass<'a>) -> f32 {
     let child_outer_w = match child.width {
         Size::Fixed(px) => px.max(0.0),
         Size::Percent(f) => (parent_inner_w * f).max(0.0),
         Size::Grow | Size::Fit => {
-            let min_w = fit_width(all, child, parent_inner_w);
+            let min_w = fit_width(child, parent_inner_w, p);
             (parent_inner_w - child.mrg_x()).max(0.0).max(min_w)
         }
     };
@@ -151,10 +227,15 @@ fn child_resolved_h(all: &[UiElement], child: &UiElement, parent_inner_w: f32) -
         Size::Fixed(px) => px.max(0.0),
         // A percent height against an indefinite (content-sized) parent resolves
         // to auto in CSS — treat it like Fit/Grow here.
-        Size::Percent(_) | Size::Grow | Size::Fit => fit_height(all, child, child_inner_w),
+        Size::Percent(_) | Size::Grow | Size::Fit => fit_height(child, child_inner_w, p),
     }
 }
 
+/// Lay out `el` and its subtree. Public entry point: allocates a fresh per-pass
+/// [`LayoutPass`] (adjacency index + intrinsic-size memo; each root is
+/// independent) and delegates to [`layout_node`], which threads it through the
+/// recursion.
+#[allow(clippy::too_many_arguments)]
 pub fn layout_element<'a>(
     all: &'a [UiElement],
     el: &'a UiElement,
@@ -164,6 +245,21 @@ pub fn layout_element<'a>(
     avail_h: f32,
     clip: ClipRect,
     cb: ContainingBlock,
+) -> Vec<ComputedElement<'a>> {
+    let mut p = LayoutPass::new(all);
+    layout_node(el, origin_x, origin_y, avail_w, avail_h, clip, cb, &mut p)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn layout_node<'a>(
+    el: &'a UiElement,
+    origin_x: f32,
+    origin_y: f32,
+    avail_w: f32,
+    avail_h: f32,
+    clip: ClipRect,
+    cb: ContainingBlock,
+    p: &mut LayoutPass<'a>,
 ) -> Vec<ComputedElement<'a>> {
     if !el.visible {
         return Vec::new();
@@ -185,8 +281,8 @@ pub fn layout_element<'a>(
         Size::Percent(f) => (avail_w * f).max(0.0),
         Size::Grow => (avail_w - el.mrg_x())
             .max(0.0)
-            .max(fit_width(all, el, avail_w)),
-        Size::Fit => fit_width(all, el, avail_w),
+            .max(fit_width(el, avail_w, p)),
+        Size::Fit => fit_width(el, avail_w, p),
     };
     let inner_w = (own_w - el.pad_x()).max(0.0);
 
@@ -195,8 +291,8 @@ pub fn layout_element<'a>(
         Size::Percent(f) => (avail_h * f).max(0.0),
         Size::Grow => (avail_h - el.mrg_y())
             .max(0.0)
-            .max(fit_height(all, el, inner_w)),
-        Size::Fit => fit_height(all, el, inner_w),
+            .max(fit_height(el, inner_w, p)),
+        Size::Fit => fit_height(el, inner_w, p),
     };
     let inner_h = (own_h - el.pad_y()).max(0.0);
 
@@ -207,11 +303,7 @@ pub fn layout_element<'a>(
         (x + el.pad_l(), y + el.pad_t(), inner_w, inner_h),
     );
 
-    let mut all_children: Vec<&UiElement> = all
-        .iter()
-        .filter(|c| c.parent.as_deref() == Some(&el.id) && c.visible)
-        .collect();
-    all_children.sort_by_key(|c| c.order);
+    let all_children = p.children(&el.id);
     // Absolute children are out of flow: they don't drive the cursor and are
     // positioned separately against the containing block.
     let (abs_children, children): (Vec<&UiElement>, Vec<&UiElement>) = all_children
@@ -226,7 +318,7 @@ pub fn layout_element<'a>(
                     Size::Fixed(px) => (acc + px.max(0.0) + child.mrg_x(), gc),
                     Size::Percent(f) => (acc + (inner_w * f).max(0.0) + child.mrg_x(), gc),
                     Size::Fit => {
-                        let w = fit_width(all, child, inner_w);
+                        let w = fit_width(child, inner_w, p);
                         (acc + w + child.mrg_x(), gc)
                     }
                 },
@@ -235,7 +327,7 @@ pub fn layout_element<'a>(
                     Size::Fixed(px) => (acc + px.max(0.0) + child.mrg_y(), gc),
                     Size::Percent(f) => (acc + (inner_h * f).max(0.0) + child.mrg_y(), gc),
                     Size::Fit => {
-                        let h = child_resolved_h(all, child, inner_w);
+                        let h = child_resolved_h(child, inner_w, p);
                         (acc + h + child.mrg_y(), gc)
                     }
                 },
@@ -314,8 +406,7 @@ pub fn layout_element<'a>(
         // child's resolved cross size to compute its offset and re-lay it out at
         // the final origin so its clip is computed correctly (Start/Stretch keep
         // the single-pass path).
-        let mut child_nodes = layout_element(
-            all,
+        let mut child_nodes = layout_node(
             child,
             child_origin_x,
             child_origin_y,
@@ -323,6 +414,7 @@ pub fn layout_element<'a>(
             child_avail_h,
             content_clip,
             child_cb,
+            p,
         );
 
         let child_cross = match el.layout_direction {
@@ -341,8 +433,7 @@ pub fn layout_element<'a>(
                 LayoutDirection::Row => (child_origin_x, child_origin_y + cross_off),
                 LayoutDirection::Column => (child_origin_x + cross_off, child_origin_y),
             };
-            child_nodes = layout_element(
-                all,
+            child_nodes = layout_node(
                 child,
                 ox,
                 oy,
@@ -350,6 +441,7 @@ pub fn layout_element<'a>(
                 child_avail_h,
                 content_clip,
                 child_cb,
+                p,
             );
         }
 
@@ -371,7 +463,7 @@ pub fn layout_element<'a>(
     // Out-of-flow absolute children, positioned against `child_cb` and painted
     // after the in-flow content (so they sit on top, matching CSS paint order).
     for child in &abs_children {
-        let nodes = layout_absolute(all, child, child_cb);
+        let nodes = layout_absolute(child, child_cb, p);
         result.extend(nodes);
     }
 
@@ -383,9 +475,9 @@ pub fn layout_element<'a>(
 /// edge), else the containing block's origin (a coarse stand-in for the static
 /// position). The child fills `cb` as its available size.
 fn layout_absolute<'a>(
-    all: &'a [UiElement],
     child: &'a UiElement,
     cb: ContainingBlock,
+    p: &mut LayoutPass<'a>,
 ) -> Vec<ComputedElement<'a>> {
     let (cbx, cby, cbw, cbh) = cb.rect;
     let need_w = child.pos_left.is_none() && child.pos_right.is_some();
@@ -394,7 +486,7 @@ fn layout_absolute<'a>(
     // Measure first only when anchoring a far edge needs the resolved size.
     let (mut cw, mut ch) = (0.0f32, 0.0f32);
     if need_w || need_h {
-        let probe = layout_element(all, child, cbx, cby, cbw, cbh, cb.clip, cb);
+        let probe = layout_node(child, cbx, cby, cbw, cbh, cb.clip, cb, p);
         if let Some(n) = probe.first() {
             cw = n.width + child.mrg_x();
             ch = n.height + child.mrg_y();
@@ -412,7 +504,7 @@ fn layout_absolute<'a>(
         (None, None) => cby,
     };
 
-    layout_element(all, child, ox, oy, cbw, cbh, cb.clip, cb)
+    layout_node(child, ox, oy, cbw, cbh, cb.clip, cb, p)
 }
 
 /// Leading offset + extra inter-child gap implementing CSS `justify-content`
@@ -510,7 +602,8 @@ pub fn link_at(all: &[UiElement], sw: f32, sh: f32, cursor: (f32, f32)) -> Optio
             }
 
             let inner_w = (node.width - el.pad_x()).max(0.0);
-            let lh = text_line_height(el.text_size);
+            let base = el.base_font_style();
+            let lh = el.line_height_px();
             let text_x = node.x + el.pad_l();
             let text_y0 = node.y + el.pad_t();
 
@@ -520,17 +613,20 @@ pub fn link_at(all: &[UiElement], sw: f32, sh: f32, cursor: (f32, f32)) -> Optio
             }
             let line_idx = (rel_y / lh).floor() as usize;
 
-            let words = layout_words(text, el.text_size, inner_w);
-            let offsets = line_align_offsets(&words, inner_w, el.text_size, el.text_align);
+            let words = layout_words(text, el.text_size, inner_w, |i| {
+                span_style_at(&el.spans, i, base)
+            });
+            let offsets = line_align_offsets(&words, inner_w, el.text_align);
             for w in &words {
                 if w.line != line_idx {
                     continue;
                 }
                 let ax = offsets.get(w.line).copied().unwrap_or(0.0);
                 let wx0 = text_x + ax + w.x;
-                let wx1 = wx0 + text_width(&w.text, el.text_size);
+                let wx1 = wx0 + w.width;
                 if cursor.0 >= wx0 && cursor.0 < wx1 {
-                    let off = char_index_at(&w.text, el.text_size, cursor.0 - wx0);
+                    let word_style = span_style_at(&el.spans, w.char_start, base);
+                    let off = char_index_at(&w.text, el.text_size, cursor.0 - wx0, word_style);
                     let idx = w.char_start + off;
                     if let Some(href) = span_href_at(&el.spans, idx) {
                         found = Some(href);
@@ -543,6 +639,7 @@ pub fn link_at(all: &[UiElement], sw: f32, sh: f32, cursor: (f32, f32)) -> Optio
 }
 
 /// Walk the layout tree to find the innermost scrollable element containing `cursor`.
+#[allow(clippy::too_many_arguments)]
 pub fn find_scrollable_at<'a>(
     all: &'a [UiElement],
     el: &'a UiElement,
@@ -554,6 +651,24 @@ pub fn find_scrollable_at<'a>(
     clip: ClipRect,
     best: &mut Option<(String, bool, bool)>,
 ) {
+    let mut p = LayoutPass::new(all);
+    find_scrollable_node(
+        el, cursor, origin_x, origin_y, avail_w, avail_h, clip, best, &mut p,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn find_scrollable_node<'a>(
+    el: &'a UiElement,
+    cursor: (f32, f32),
+    origin_x: f32,
+    origin_y: f32,
+    avail_w: f32,
+    avail_h: f32,
+    clip: ClipRect,
+    best: &mut Option<(String, bool, bool)>,
+    p: &mut LayoutPass<'a>,
+) {
     if !el.visible {
         return;
     }
@@ -564,14 +679,14 @@ pub fn find_scrollable_at<'a>(
         Size::Fixed(px) => px.max(0.0),
         Size::Percent(f) => (avail_w * f).max(0.0),
         Size::Grow => (avail_w - el.mrg_x()).max(0.0),
-        Size::Fit => fit_width(all, el, avail_w),
+        Size::Fit => fit_width(el, avail_w, p),
     };
     let inner_w = (own_w - el.pad_x()).max(0.0);
     let own_h = match el.height {
         Size::Fixed(px) => px.max(0.0),
         Size::Percent(f) => (avail_h * f).max(0.0),
         Size::Grow => (avail_h - el.mrg_y()).max(0.0),
-        Size::Fit => fit_height(all, el, inner_w),
+        Size::Fit => fit_height(el, inner_w, p),
     };
 
     let bounds = (x, y, own_w, own_h);
@@ -591,15 +706,10 @@ pub fn find_scrollable_at<'a>(
         self_clip,
         (x + el.pad_l(), y + el.pad_t(), inner_w, inner_h),
     );
-    let mut children: Vec<&UiElement> = all
-        .iter()
-        .filter(|c| c.parent.as_deref() == Some(&el.id) && c.visible)
-        .collect();
-    children.sort_by_key(|c| c.order);
+    let children = p.children(&el.id);
 
     for child in children {
-        find_scrollable_at(
-            all,
+        find_scrollable_node(
             child,
             cursor,
             x + el.pad_l(),
@@ -608,6 +718,7 @@ pub fn find_scrollable_at<'a>(
             inner_h,
             content_clip,
             best,
+            p,
         );
     }
 }

@@ -9,6 +9,7 @@
 
 use crate::css;
 use crate::style::{self, Rgba, TextStyle};
+use crate::table;
 
 /// An inline style run within a [`Block::Text`]: char range `[start, end)` over
 /// the block's `text`, a colour override, and an optional link `href`.
@@ -17,6 +18,9 @@ pub struct Span {
     pub end: u32,
     pub color: Rgba,
     pub href: Option<String>,
+    /// Resolved weight/slant for this run (folded with the block base).
+    pub bold: bool,
+    pub italic: bool,
 }
 
 /// One laid-out piece of the document, in reading order.
@@ -32,11 +36,19 @@ pub enum Block {
         text: String,
         size: f32,
         color: Rgba,
+        /// Block-base weight/slant (headings are bold). Inline runs that differ
+        /// carry their own bold/italic in their [`Span`].
+        bold: bool,
+        italic: bool,
         align: f32,
         background: Option<Rgba>,
         margin: (f32, f32, f32, f32),
         padding: (f32, f32, f32, f32),
         width: css::WidthVal,
+        /// CSS `height` (`Auto` ⇒ content-sized, the default).
+        height: css::WidthVal,
+        /// CSS `line-height` in px; `<= 0.0` ⇒ the font's natural line height.
+        line_height: f32,
         border_w: f32,
         border_c: Rgba,
         spans: Vec<Span>,
@@ -48,6 +60,10 @@ pub enum Block {
     /// `float`/`clears` carry the CSS float context (see [`group_floats`]).
     Image {
         url: String,
+        /// For an inline `<svg>`: the serialized SVG source, rasterized directly
+        /// at render time (no fetch). `None` for a normal `<img src=…>`, where
+        /// `url` drives the fetch instead.
+        inline_svg: Option<String>,
         float: css::Float,
         clears: bool,
         position: css::Position,
@@ -77,6 +93,9 @@ pub enum Block {
         /// CSS `position` and its `(top, right, bottom, left)` offsets.
         position: css::Position,
         inset: (Option<f32>, Option<f32>, Option<f32>, Option<f32>),
+        /// Explicit box width (table cells set a percentage so columns align);
+        /// `Auto` keeps the default flex sizing.
+        width: css::WidthVal,
     },
     /// A float context produced by [`group_floats`]: `float_box` sits at the
     /// `side` (left/right) edge while `flow` (the following in-flow blocks)
@@ -88,6 +107,15 @@ pub enum Block {
         float_box: Box<Block>,
         flow: Vec<Block>,
     },
+}
+
+/// An open list context (`<ul>`/`<ol>`) used to label `<li>` children. `ordered`
+/// lists carry a running `counter` (incremented per item); unordered lists draw a
+/// bullet. Pushed/popped as the walker enters/leaves a list, so nested lists each
+/// keep their own counter.
+struct ListCtx {
+    ordered: bool,
+    counter: u32,
 }
 
 struct State<'a> {
@@ -113,6 +141,10 @@ struct State<'a> {
     /// Current inline colour (differs from `style.color` inside coloured inline
     /// elements / links).
     cur_color: Rgba,
+    /// Current inline weight/slant (differ from the block base inside
+    /// `<b>`/`<strong>`/`<i>`/`<em>`/… or via inline `font-weight`/`font-style`).
+    cur_bold: bool,
+    cur_italic: bool,
     /// Current inline link target (set inside `<a>`).
     cur_href: Option<String>,
     /// Current block's backdrop colour and text alignment.
@@ -124,10 +156,16 @@ struct State<'a> {
     cur_margin: (f32, f32, f32, f32),
     cur_padding: (f32, f32, f32, f32),
     cur_width: css::WidthVal,
+    /// Current block's CSS `height` (`Auto` ⇒ content-sized).
+    cur_height: css::WidthVal,
+    /// Current block's CSS `line-height` in px (`0.0` ⇒ natural font height).
+    cur_line_height: f32,
     cur_border_w: f32,
     cur_border_c: Rgba,
     /// Current block's `clear`: drops the block below any preceding float.
     cur_clears: bool,
+    /// Open list contexts (innermost last) for `<li>` markers.
+    lists: Vec<ListCtx>,
 }
 
 /// Parse a document against `sheet` and return its blocks. Invalid HTML yields
@@ -147,6 +185,8 @@ pub fn parse_html(html: &str, sheet: &css::Stylesheet) -> Vec<Block> {
         pending_space: false,
         style: TextStyle::body(),
         cur_color: TextStyle::body().color,
+        cur_bold: false,
+        cur_italic: false,
         cur_href: None,
         cur_bg: None,
         cur_align: 0.0,
@@ -154,9 +194,12 @@ pub fn parse_html(html: &str, sheet: &css::Stylesheet) -> Vec<Block> {
         cur_margin: (0.0, 0.0, 0.0, 0.0),
         cur_padding: (0.0, 0.0, 0.0, 0.0),
         cur_width: css::WidthVal::Auto,
+        cur_height: css::WidthVal::Auto,
+        cur_line_height: 0.0,
         cur_border_w: 0.0,
         cur_border_c: (0.0, 0.0, 0.0, 0.0),
         cur_clears: false,
+        lists: Vec::new(),
     };
     for handle in dom.children() {
         walk(parser, *handle, &mut st);
@@ -364,12 +407,32 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
                 if !url.is_empty() {
                     st.blocks.push(Block::Image {
                         url,
+                        inline_svg: None,
                         float: applied.float.unwrap_or(css::Float::None),
                         clears: applied.clear.unwrap_or(false),
                         position: applied.position.unwrap_or(css::Position::Static),
                         inset: applied_inset(&applied),
                     });
                 }
+            }
+            return;
+        }
+        "svg" => {
+            // Inline SVG: serialize the whole element back to source and rasterize
+            // it directly (no fetch). Cap the source size so a pathological inline
+            // document can't blow out decode time/memory.
+            flush(st);
+            const MAX_SVG_SRC: usize = 256 * 1024;
+            let src = tag.outer_html(parser);
+            if !src.is_empty() && src.len() <= MAX_SVG_SRC {
+                st.blocks.push(Block::Image {
+                    url: String::new(),
+                    inline_svg: Some(src),
+                    float: applied.float.unwrap_or(css::Float::None),
+                    clears: applied.clear.unwrap_or(false),
+                    position: applied.position.unwrap_or(css::Position::Static),
+                    inset: applied_inset(&applied),
+                });
             }
             return;
         }
@@ -393,16 +456,41 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
                 .map(|b| b.as_utf8_str().to_string());
             let saved_color = st.cur_color;
             let saved_href = st.cur_href.clone();
+            let saved_bold = st.cur_bold;
+            let saved_italic = st.cur_italic;
             st.cur_color = applied.color.unwrap_or(style::LINK);
             st.cur_href = href;
+            if let Some(w) = applied.font_weight {
+                st.cur_bold = w;
+            }
+            if let Some(i) = applied.font_style {
+                st.cur_italic = i;
+            }
             st.stack.push(ctx);
             walk_children(parser, tag, st);
             st.stack.pop();
             st.cur_color = saved_color;
             st.cur_href = saved_href;
+            st.cur_bold = saved_bold;
+            st.cur_italic = saved_italic;
             return;
         }
         _ => {}
+    }
+
+    // Tables: parse the whole subtree into a grid model and emit it as nested
+    // flex containers with automatic column widths (browser-side layout — the
+    // engine sees ordinary sized boxes). Handled wholesale so `<tr>`/`<td>`/… are
+    // never walked by the normal flow.
+    if name == "table" {
+        flush(st);
+        let mut rows = Vec::new();
+        collect_table_rows(parser, tag, st, &mut rows);
+        let grid = table::Grid { rows };
+        if grid.rows.iter().any(|r| !r.cells.is_empty()) {
+            st.blocks.push(table::build(grid));
+        }
+        return;
     }
 
     if display == css::Display::Flex {
@@ -413,6 +501,8 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         let saved_style = st.style;
         let saved_align = st.cur_align;
         let saved_color = st.cur_color;
+        let saved_bold = st.cur_bold;
+        let saved_italic = st.cur_italic;
         let saved_href = st.cur_href.clone();
         if let Some(c) = applied.color {
             st.style.color = c;
@@ -420,6 +510,14 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         }
         if let Some(s) = applied.font_size {
             st.style.size = s;
+        }
+        if let Some(w) = applied.font_weight {
+            st.style.bold = w;
+            st.cur_bold = w;
+        }
+        if let Some(i) = applied.font_style {
+            st.style.italic = i;
+            st.cur_italic = i;
         }
         if let Some(al) = applied.text_align {
             st.cur_align = al.factor();
@@ -436,6 +534,8 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         st.style = saved_style;
         st.cur_align = saved_align;
         st.cur_color = saved_color;
+        st.cur_bold = saved_bold;
+        st.cur_italic = saved_italic;
         st.cur_href = saved_href;
 
         if !children.is_empty() {
@@ -452,6 +552,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
                 clears: applied.clear.unwrap_or(false),
                 position: applied.position.unwrap_or(css::Position::Static),
                 inset: applied_inset(&applied),
+                width: css::WidthVal::Auto,
             });
         }
         return;
@@ -467,6 +568,8 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         let saved_style = st.style;
         let saved_align = st.cur_align;
         let saved_color = st.cur_color;
+        let saved_bold = st.cur_bold;
+        let saved_italic = st.cur_italic;
         let saved_href = st.cur_href.clone();
         if let Some(c) = applied.color {
             st.style.color = c;
@@ -474,6 +577,14 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         }
         if let Some(s) = applied.font_size {
             st.style.size = s;
+        }
+        if let Some(w) = applied.font_weight {
+            st.style.bold = w;
+            st.cur_bold = w;
+        }
+        if let Some(i) = applied.font_style {
+            st.style.italic = i;
+            st.cur_italic = i;
         }
         if let Some(al) = applied.text_align {
             st.cur_align = al.factor();
@@ -489,6 +600,8 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         st.style = saved_style;
         st.cur_align = saved_align;
         st.cur_color = saved_color;
+        st.cur_bold = saved_bold;
+        st.cur_italic = saved_italic;
         st.cur_href = saved_href;
 
         if !children.is_empty() {
@@ -505,6 +618,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
                 clears: applied.clear.unwrap_or(false),
                 position,
                 inset: applied_inset(&applied),
+                width: css::WidthVal::Auto,
             });
         }
         return;
@@ -519,6 +633,8 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         let saved_style = st.style;
         let saved_align = st.cur_align;
         let saved_color = st.cur_color;
+        let saved_bold = st.cur_bold;
+        let saved_italic = st.cur_italic;
         let saved_href = st.cur_href.clone();
         if let Some(c) = applied.color {
             st.style.color = c;
@@ -526,6 +642,14 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         }
         if let Some(s) = applied.font_size {
             st.style.size = s;
+        }
+        if let Some(w) = applied.font_weight {
+            st.style.bold = w;
+            st.cur_bold = w;
+        }
+        if let Some(i) = applied.font_style {
+            st.style.italic = i;
+            st.cur_italic = i;
         }
         if let Some(al) = applied.text_align {
             st.cur_align = al.factor();
@@ -541,6 +665,8 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         st.style = saved_style;
         st.cur_align = saved_align;
         st.cur_color = saved_color;
+        st.cur_bold = saved_bold;
+        st.cur_italic = saved_italic;
         st.cur_href = saved_href;
 
         if !children.is_empty() {
@@ -557,6 +683,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
                 clears: applied.clear.unwrap_or(false),
                 position: css::Position::Static,
                 inset: (None, None, None, None),
+                width: css::WidthVal::Auto,
             });
         }
         return;
@@ -564,15 +691,29 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
 
     if matches!(display, css::Display::Inline | css::Display::InlineBlock) {
         // Inline element: fold children into the current run, optionally applying
-        // a colour override (font-size on inline boxes isn't modelled yet).
+        // a colour override (font-size on inline boxes isn't modelled yet). UA
+        // weight/slant for `b`/`strong`/`i`/`em`/… apply here, then author CSS
+        // `font-weight`/`font-style` can override.
         let saved_color = st.cur_color;
+        let saved_bold = st.cur_bold;
+        let saved_italic = st.cur_italic;
         if let Some(c) = applied.color {
             st.cur_color = c;
+        }
+        st.cur_bold |= style::inline_bold(name);
+        st.cur_italic |= style::inline_italic(name);
+        if let Some(w) = applied.font_weight {
+            st.cur_bold = w;
+        }
+        if let Some(i) = applied.font_style {
+            st.cur_italic = i;
         }
         st.stack.push(ctx);
         walk_children(parser, tag, st);
         st.stack.pop();
         st.cur_color = saved_color;
+        st.cur_bold = saved_bold;
+        st.cur_italic = saved_italic;
         return;
     }
 
@@ -589,10 +730,14 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         let saved_align = st.cur_align;
         let saved_bg = st.cur_bg;
         let saved_color = st.cur_color;
+        let saved_bold = st.cur_bold;
+        let saved_italic = st.cur_italic;
         let saved_href = st.cur_href.clone();
         let saved_margin = st.cur_margin;
         let saved_padding = st.cur_padding;
         let saved_width = st.cur_width;
+        let saved_height = st.cur_height;
+        let saved_line_height = st.cur_line_height;
         let saved_border_w = st.cur_border_w;
         let saved_border_c = st.cur_border_c;
         let saved_clears = st.cur_clears;
@@ -600,7 +745,11 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         st.style = bs;
         st.style.size = applied.font_size.unwrap_or(bs.size);
         st.style.color = applied.color.unwrap_or(bs.color);
+        st.style.bold = applied.font_weight.unwrap_or(bs.bold);
+        st.style.italic = applied.font_style.unwrap_or(bs.italic);
         st.cur_color = st.style.color;
+        st.cur_bold = st.style.bold;
+        st.cur_italic = st.style.italic;
         st.cur_href = None;
         st.cur_bg = applied.background;
         if let Some(al) = applied.text_align {
@@ -614,13 +763,28 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         st.cur_margin = (mt, mr, mb, ml + st.indent);
         st.cur_padding = applied.padding_px();
         st.cur_width = applied.width.unwrap_or(css::WidthVal::Auto);
+        st.cur_height = applied.height.unwrap_or(css::WidthVal::Auto);
+        // `line-height` inherits, so keep the saved value when this block doesn't
+        // set one (rather than resetting to natural).
+        st.cur_line_height = applied.line_height.unwrap_or(st.cur_line_height);
         st.cur_border_w = applied.border_width.unwrap_or(0.0);
         // `border-color` defaults to the text colour (CSS currentColor).
         st.cur_border_c = applied.border_color.unwrap_or(st.style.color);
         st.cur_clears = applied.clear.unwrap_or(false);
 
         if name == "li" {
-            push_run(st, "• "); // bullet inherits the block colour ⇒ no span
+            // Marker per the innermost open list: a running number for `<ol>`, a
+            // bullet for `<ul>` (or a stray `<li>` with no list ancestor). It
+            // inherits the block colour ⇒ no span; pushing it before the children
+            // keeps subsequent span offsets correct (push_run measures `buf`).
+            let marker = match st.lists.last_mut() {
+                Some(l) if l.ordered => {
+                    l.counter += 1;
+                    format!("{}. ", l.counter)
+                }
+                _ => "• ".to_string(),
+            };
+            push_run(st, &marker);
         }
         st.stack.push(ctx);
         walk_children(parser, tag, st);
@@ -632,10 +796,14 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         st.cur_align = saved_align;
         st.cur_bg = saved_bg;
         st.cur_color = saved_color;
+        st.cur_bold = saved_bold;
+        st.cur_italic = saved_italic;
         st.cur_href = saved_href;
         st.cur_margin = saved_margin;
         st.cur_padding = saved_padding;
         st.cur_width = saved_width;
+        st.cur_height = saved_height;
+        st.cur_line_height = saved_line_height;
         st.cur_border_w = saved_border_w;
         st.cur_border_c = saved_border_c;
         st.cur_clears = saved_clears;
@@ -648,7 +816,10 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
     let saved_style = st.style;
     let saved_align = st.cur_align;
     let saved_color = st.cur_color;
+    let saved_bold = st.cur_bold;
+    let saved_italic = st.cur_italic;
     let saved_clears = st.cur_clears;
+    let saved_line_height = st.cur_line_height;
     if let Some(c) = applied.color {
         st.style.color = c;
         st.cur_color = c;
@@ -656,20 +827,175 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
     if let Some(s) = applied.font_size {
         st.style.size = s;
     }
+    // `line-height` inherits down to descendant text blocks.
+    if let Some(lh) = applied.line_height {
+        st.cur_line_height = lh;
+    }
+    if let Some(w) = applied.font_weight {
+        st.style.bold = w;
+        st.cur_bold = w;
+    }
+    if let Some(i) = applied.font_style {
+        st.style.italic = i;
+        st.cur_italic = i;
+    }
     if let Some(al) = applied.text_align {
         st.cur_align = al.factor();
     }
     if let Some(cl) = applied.clear {
         st.cur_clears = cl;
     }
+    // A list container starts a fresh marker context for its `<li>` children;
+    // nesting stacks so inner lists restart their counters.
+    let is_list = name == "ul" || name == "ol";
+    if is_list {
+        st.lists.push(ListCtx {
+            ordered: name == "ol",
+            counter: 0,
+        });
+    }
     st.stack.push(ctx);
     walk_children(parser, tag, st);
     st.stack.pop();
+    if is_list {
+        st.lists.pop();
+    }
     flush(st);
     st.style = saved_style;
     st.cur_align = saved_align;
     st.cur_color = saved_color;
+    st.cur_bold = saved_bold;
+    st.cur_italic = saved_italic;
     st.cur_clears = saved_clears;
+    st.cur_line_height = saved_line_height;
+}
+
+/// Parse a `colspan`/`rowspan`-style positive integer attribute.
+fn attr_usize(tag: &tl::HTMLTag, key: &str) -> Option<usize> {
+    tag.attributes()
+        .get(key)
+        .flatten()
+        .and_then(|b| b.as_utf8_str().trim().parse::<usize>().ok())
+        .filter(|&n| n >= 1)
+}
+
+/// Collect a table's rows, descending through `<thead>`/`<tbody>`/`<tfoot>`
+/// grouping wrappers so their `<tr>`s land in document order.
+fn collect_table_rows(
+    parser: &tl::Parser,
+    tag: &tl::HTMLTag,
+    st: &mut State,
+    rows: &mut Vec<table::GridRow>,
+) {
+    let kids: Vec<tl::NodeHandle> = tag.children().top().iter().copied().collect();
+    for h in kids {
+        let Some(tl::Node::Tag(child)) = h.get(parser) else {
+            continue;
+        };
+        let name = child.name().as_utf8_str().to_ascii_lowercase();
+        match name.as_str() {
+            "tr" => rows.push(parse_table_row(parser, child, st)),
+            "thead" | "tbody" | "tfoot" => collect_table_rows(parser, child, st, rows),
+            _ => {}
+        }
+    }
+}
+
+/// Parse one `<tr>` into a row of cells (`<td>`/`<th>`).
+fn parse_table_row(parser: &tl::Parser, tag: &tl::HTMLTag, st: &mut State) -> table::GridRow {
+    let mut cells = Vec::new();
+    let kids: Vec<tl::NodeHandle> = tag.children().top().iter().copied().collect();
+    for h in kids {
+        let Some(tl::Node::Tag(child)) = h.get(parser) else {
+            continue;
+        };
+        let name = child.name().as_utf8_str().to_ascii_lowercase();
+        match name.as_str() {
+            "td" => cells.push(parse_table_cell(parser, child, st, false)),
+            "th" => cells.push(parse_table_cell(parser, child, st, true)),
+            _ => {}
+        }
+    }
+    table::GridRow { cells }
+}
+
+/// Parse a single cell: walk its children into a fresh block list under a fresh
+/// inline style (headers are bold + centred), then measure its min/max content
+/// width for the column algorithm.
+fn parse_table_cell(
+    parser: &tl::Parser,
+    tag: &tl::HTMLTag,
+    st: &mut State,
+    header: bool,
+) -> table::Cell {
+    let colspan = attr_usize(tag, "colspan").unwrap_or(1);
+    let rowspan = attr_usize(tag, "rowspan").unwrap_or(1);
+
+    // Divert content into a fresh list with a fresh inline style, mirroring the
+    // flex-container save/restore so the cell is fully isolated.
+    let saved_blocks = std::mem::take(&mut st.blocks);
+    let saved_style = st.style;
+    let saved_align = st.cur_align;
+    let saved_color = st.cur_color;
+    let saved_bold = st.cur_bold;
+    let saved_italic = st.cur_italic;
+    let saved_href = st.cur_href.clone();
+    let saved_bg = st.cur_bg;
+    let saved_indent = st.indent;
+    let saved_margin = st.cur_margin;
+    let saved_padding = st.cur_padding;
+    let saved_width = st.cur_width;
+    let saved_border_w = st.cur_border_w;
+    let saved_border_c = st.cur_border_c;
+    let saved_clears = st.cur_clears;
+
+    st.style = TextStyle::body();
+    st.style.bold = header;
+    st.cur_color = st.style.color;
+    st.cur_bold = header;
+    st.cur_italic = false;
+    st.cur_href = None;
+    st.cur_bg = None;
+    st.cur_align = if header { 0.5 } else { 0.0 };
+    st.indent = 0.0;
+    st.cur_margin = (0.0, 0.0, 0.0, 0.0);
+    st.cur_padding = (0.0, 0.0, 0.0, 0.0);
+    st.cur_width = css::WidthVal::Auto;
+    st.cur_border_w = 0.0;
+    st.cur_border_c = (0.0, 0.0, 0.0, 0.0);
+    st.cur_clears = false;
+
+    let ctx = elem_ctx(if header { "th" } else { "td" }, tag);
+    st.stack.push(ctx);
+    walk_children(parser, tag, st);
+    st.stack.pop();
+    flush(st);
+    let blocks = std::mem::replace(&mut st.blocks, saved_blocks);
+
+    st.style = saved_style;
+    st.cur_align = saved_align;
+    st.cur_color = saved_color;
+    st.cur_bold = saved_bold;
+    st.cur_italic = saved_italic;
+    st.cur_href = saved_href;
+    st.cur_bg = saved_bg;
+    st.indent = saved_indent;
+    st.cur_margin = saved_margin;
+    st.cur_padding = saved_padding;
+    st.cur_width = saved_width;
+    st.cur_border_w = saved_border_w;
+    st.cur_border_c = saved_border_c;
+    st.cur_clears = saved_clears;
+
+    let (min_w, max_w) = table::measure_blocks(&blocks);
+    table::Cell {
+        blocks,
+        colspan,
+        rowspan,
+        header,
+        min_w: min_w + table::CELL_PAD_X,
+        max_w: max_w + table::CELL_PAD_X,
+    }
 }
 
 fn walk_children(parser: &tl::Parser, tag: &tl::HTMLTag, st: &mut State) {
@@ -690,6 +1016,8 @@ fn walk_children(parser: &tl::Parser, tag: &tl::HTMLTag, st: &mut State) {
 fn push_run(st: &mut State, raw: &str) {
     let color = st.cur_color;
     let href = st.cur_href.clone();
+    let bold = st.cur_bold;
+    let italic = st.cur_italic;
 
     let lead = raw.starts_with(|c: char| c.is_whitespace());
     let trail = raw.ends_with(|c: char| c.is_whitespace());
@@ -709,12 +1037,18 @@ fn push_run(st: &mut State, raw: &str) {
     let start = st.buf.chars().count() as u32;
     st.buf.push_str(&collapsed);
     let end = st.buf.chars().count() as u32;
-    if href.is_some() || color != st.style.color {
+    if href.is_some()
+        || color != st.style.color
+        || bold != st.style.bold
+        || italic != st.style.italic
+    {
         st.spans.push(Span {
             start,
             end,
             color,
             href,
+            bold,
+            italic,
         });
     }
     st.pending_space = trail;
@@ -730,11 +1064,15 @@ fn flush(st: &mut State) {
             text,
             size: st.style.size,
             color: st.style.color,
+            bold: st.style.bold,
+            italic: st.style.italic,
             align: st.cur_align,
             background: st.cur_bg,
             margin: st.cur_margin,
             padding: st.cur_padding,
             width: st.cur_width,
+            height: st.cur_height,
+            line_height: st.cur_line_height,
             border_w: st.cur_border_w,
             border_c: st.cur_border_c,
             spans,
@@ -751,19 +1089,172 @@ fn collapse_ws(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Decode the handful of HTML entities common in plain documents.
+/// Decode HTML character references in `s`: numeric `&#NN;` / `&#xHH;` (via
+/// `char::from_u32`) and a table of the common named entities. An unrecognised or
+/// unterminated reference is left verbatim (so stray `&`s survive). These map to
+/// real glyphs now that the atlas covers Latin-1 + curated punctuation.
 fn decode_entities(s: &str) -> String {
     if !s.contains('&') {
         return s.to_string();
     }
-    s.replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&apos;", "'")
-        .replace("&mdash;", "—")
-        .replace("&ndash;", "–")
-        .replace("&hellip;", "…")
+    let mut out = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'&' {
+            // Copy the next whole UTF-8 char (find the following char boundary).
+            let mut j = i + 1;
+            while j < bytes.len() && (bytes[j] & 0xC0) == 0x80 {
+                j += 1;
+            }
+            out.push_str(&s[i..j]);
+            i = j;
+            continue;
+        }
+        // Look for the terminating ';' within a bounded window (longest real
+        // entity name is well under this; avoids scanning a whole document on a
+        // bare '&').
+        let end = s[i..]
+            .char_indices()
+            .take(32)
+            .find(|&(_, c)| c == ';')
+            .map(|(o, _)| i + o);
+        if let Some(semi) = end {
+            let body = &s[i + 1..semi]; // between '&' and ';'
+            if let Some(ch) = decode_reference(body) {
+                out.push(ch);
+                i = semi + 1;
+                continue;
+            }
+        }
+        // Not a recognised reference: emit the '&' literally and move on.
+        out.push('&');
+        i += 1;
+    }
+    out
+}
+
+/// Decode the inside of a reference (`amp`, `#8217`, `#x2014`) to a char, or
+/// `None` if unknown/invalid.
+fn decode_reference(body: &str) -> Option<char> {
+    if let Some(num) = body.strip_prefix('#') {
+        let code = if let Some(hex) = num.strip_prefix(['x', 'X']) {
+            u32::from_str_radix(hex, 16).ok()?
+        } else {
+            num.parse::<u32>().ok()?
+        };
+        return char::from_u32(code);
+    }
+    let ch = match body {
+        "amp" => '&',
+        "lt" => '<',
+        "gt" => '>',
+        "quot" => '"',
+        "apos" => '\'',
+        "nbsp" => '\u{00A0}',
+        "mdash" => '—',
+        "ndash" => '–',
+        "rsquo" => '’',
+        "lsquo" => '‘',
+        "ldquo" => '“',
+        "rdquo" => '”',
+        "sbquo" => '‚',
+        "bdquo" => '„',
+        "hellip" => '…',
+        "copy" => '©',
+        "reg" => '®',
+        "trade" => '™',
+        "bull" => '•',
+        "middot" => '·',
+        "deg" => '°',
+        "plusmn" => '±',
+        "times" => '×',
+        "divide" => '÷',
+        "frac12" => '½',
+        "frac14" => '¼',
+        "frac34" => '¾',
+        "sup2" => '²',
+        "sup3" => '³',
+        "laquo" => '«',
+        "raquo" => '»',
+        "cent" => '¢',
+        "pound" => '£',
+        "euro" => '€',
+        "yen" => '¥',
+        "sect" => '§',
+        "para" => '¶',
+        "dagger" => '†',
+        "Dagger" => '‡',
+        "prime" => '′',
+        "Prime" => '″',
+        "micro" => 'µ',
+        "iexcl" => '¡',
+        "iquest" => '¿',
+        "shy" => '\u{00AD}',
+        "ensp" => '\u{2002}',
+        "emsp" => '\u{2003}',
+        "thinsp" => '\u{2009}',
+        "larr" => '←',
+        "rarr" => '→',
+        "uarr" => '↑',
+        "darr" => '↓',
+        "harr" => '↔',
+        // Frequent accented Latin-1 names.
+        "agrave" => 'à',
+        "aacute" => 'á',
+        "acirc" => 'â',
+        "atilde" => 'ã',
+        "auml" => 'ä',
+        "aring" => 'å',
+        "aelig" => 'æ',
+        "ccedil" => 'ç',
+        "egrave" => 'è',
+        "eacute" => 'é',
+        "ecirc" => 'ê',
+        "euml" => 'ë',
+        "igrave" => 'ì',
+        "iacute" => 'í',
+        "icirc" => 'î',
+        "iuml" => 'ï',
+        "ntilde" => 'ñ',
+        "ograve" => 'ò',
+        "oacute" => 'ó',
+        "ocirc" => 'ô',
+        "otilde" => 'õ',
+        "ouml" => 'ö',
+        "oslash" => 'ø',
+        "ugrave" => 'ù',
+        "uacute" => 'ú',
+        "ucirc" => 'û',
+        "uuml" => 'ü',
+        "yacute" => 'ý',
+        "yuml" => 'ÿ',
+        "szlig" => 'ß',
+        "Agrave" => 'À',
+        "Aacute" => 'Á',
+        "Acirc" => 'Â',
+        "Atilde" => 'Ã',
+        "Auml" => 'Ä',
+        "Aring" => 'Å',
+        "AElig" => 'Æ',
+        "Ccedil" => 'Ç',
+        "Egrave" => 'È',
+        "Eacute" => 'É',
+        "Ecirc" => 'Ê',
+        "Euml" => 'Ë',
+        "Ntilde" => 'Ñ',
+        "Ograve" => 'Ò',
+        "Oacute" => 'Ó',
+        "Ocirc" => 'Ô',
+        "Otilde" => 'Õ',
+        "Ouml" => 'Ö',
+        "Oslash" => 'Ø',
+        "Ugrave" => 'Ù',
+        "Uacute" => 'Ú',
+        "Ucirc" => 'Û',
+        "Uuml" => 'Ü',
+        "Yacute" => 'Ý',
+        _ => return None,
+    };
+    Some(ch)
 }

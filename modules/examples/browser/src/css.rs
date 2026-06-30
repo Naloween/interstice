@@ -109,6 +109,14 @@ pub struct Applied {
     pub color: Option<Rgba>,
     pub background: Option<Rgba>,
     pub font_size: Option<f32>,
+    /// `line-height` resolved to px (unitless multiplies the element font-size).
+    pub line_height: Option<f32>,
+    /// `height`, reusing the same Px/Pct/Auto model as `width`.
+    pub height: Option<WidthVal>,
+    /// `font-weight`: `true` ⇒ bold (≥600 / `bold`/`bolder`), `false` ⇒ normal.
+    pub font_weight: Option<bool>,
+    /// `font-style`: `true` ⇒ italic (`italic`/`oblique`), `false` ⇒ normal.
+    pub font_style: Option<bool>,
     pub text_align: Option<TextAlign>,
     pub display: Option<Display>,
     pub margin: [Option<f32>; 4],
@@ -143,6 +151,18 @@ impl Applied {
         }
         if o.font_size.is_some() {
             self.font_size = o.font_size;
+        }
+        if o.line_height.is_some() {
+            self.line_height = o.line_height;
+        }
+        if o.height.is_some() {
+            self.height = o.height;
+        }
+        if o.font_weight.is_some() {
+            self.font_weight = o.font_weight;
+        }
+        if o.font_style.is_some() {
+            self.font_style = o.font_style;
         }
         if o.text_align.is_some() {
             self.text_align = o.text_align;
@@ -245,15 +265,43 @@ struct Rule {
 
 pub struct Stylesheet {
     rules: Vec<Rule>,
+    // Candidate-rule indices keyed on the subject (rightmost) compound's most
+    // selective discriminator, so resolving an element only tests rules that
+    // could plausibly match it instead of scanning the whole sheet. Wikipedia &
+    // friends ship many thousands of rules; without this the cascade is
+    // O(elements × rules) and dominates page load. Each rule lands in exactly
+    // one bucket (id ≻ class ≻ tag ≻ universal); the full `selector_matches`
+    // still runs on every candidate, so the buckets only prune, never decide.
+    by_id: std::collections::BTreeMap<String, Vec<usize>>,
+    by_class: std::collections::BTreeMap<String, Vec<usize>>,
+    by_tag: std::collections::BTreeMap<String, Vec<usize>>,
+    universal: Vec<usize>,
 }
 
 impl Stylesheet {
     /// Resolve the author cascade for `el` (with its `ancestors`, outermost
     /// first). `base_font` resolves relative `font-size` units (`em`/`%`).
     pub fn applied(&self, el: &ElemCtx, ancestors: &[ElemCtx], base_font: f32) -> Applied {
-        let mut matched: Vec<&Rule> = self
-            .rules
+        // Gather only the rules whose subject discriminator this element carries
+        // (its tag, id, each class) plus the always-eligible universal rules.
+        let mut cand: Vec<usize> = self.universal.clone();
+        if let Some(v) = self.by_tag.get(&el.tag.to_ascii_lowercase()) {
+            cand.extend_from_slice(v);
+        }
+        if let Some(id) = &el.id {
+            if let Some(v) = self.by_id.get(id) {
+                cand.extend_from_slice(v);
+            }
+        }
+        for c in &el.classes {
+            if let Some(v) = self.by_class.get(c) {
+                cand.extend_from_slice(v);
+            }
+        }
+
+        let mut matched: Vec<&Rule> = cand
             .iter()
+            .map(|&i| &self.rules[i])
             .filter(|r| selector_matches(&r.selector, el, ancestors))
             .collect();
         // Lowest priority first so later declarations overwrite earlier ones.
@@ -289,7 +337,30 @@ pub fn parse_all(sheets: &[String]) -> Stylesheet {
         let mut i = 0;
         parse_block(&chars, &mut i, false, &mut rules, &mut order);
     }
-    Stylesheet { rules }
+
+    // Bucket each rule by its subject's most selective discriminator (id ≻ class
+    // ≻ tag ≻ universal) so `applied` can prune candidates per element.
+    let mut by_id: std::collections::BTreeMap<String, Vec<usize>> = Default::default();
+    let mut by_class: std::collections::BTreeMap<String, Vec<usize>> = Default::default();
+    let mut by_tag: std::collections::BTreeMap<String, Vec<usize>> = Default::default();
+    let mut universal: Vec<usize> = Vec::new();
+    for (idx, rule) in rules.iter().enumerate() {
+        match rule.selector.parts.last() {
+            Some(subj) if subj.id.is_some() => {
+                by_id.entry(subj.id.clone().unwrap()).or_default().push(idx);
+            }
+            Some(subj) if !subj.classes.is_empty() => {
+                by_class.entry(subj.classes[0].clone()).or_default().push(idx);
+            }
+            Some(subj) if subj.tag.is_some() => {
+                by_tag.entry(subj.tag.clone().unwrap()).or_default().push(idx);
+            }
+            // A bare universal subject (`*`) matches anything.
+            _ => universal.push(idx),
+        }
+    }
+
+    Stylesheet { rules, by_id, by_class, by_tag, universal }
 }
 
 // ── Matching ─────────────────────────────────────────────────────────────────
@@ -608,6 +679,31 @@ fn apply_decl(a: &mut Applied, prop: &str, value: &str, base_font: f32) {
                 }
             }
         }
+        "line-height" => {
+            if let Some(lh) = parse_line_height(value, base_font) {
+                if lh > 0.0 {
+                    a.line_height = Some(lh);
+                }
+            }
+        }
+        "font-weight" => {
+            let v = value.trim().to_ascii_lowercase();
+            let bold = match v.as_str() {
+                "bold" | "bolder" => Some(true),
+                "normal" | "lighter" => Some(false),
+                _ => v.parse::<u32>().ok().map(|n| n >= 600),
+            };
+            if let Some(b) = bold {
+                a.font_weight = Some(b);
+            }
+        }
+        "font-style" => {
+            match value.trim().to_ascii_lowercase().as_str() {
+                "italic" | "oblique" => a.font_style = Some(true),
+                "normal" => a.font_style = Some(false),
+                _ => {}
+            }
+        }
         "text-align" => {
             if let Some(al) = parse_align(value) {
                 a.text_align = Some(al);
@@ -631,6 +727,11 @@ fn apply_decl(a: &mut Applied, prop: &str, value: &str, base_font: f32) {
         "width" => {
             if let Some(w) = parse_width(value, base_font) {
                 a.width = Some(w);
+            }
+        }
+        "height" => {
+            if let Some(h) = parse_width(value, base_font) {
+                a.height = Some(h);
             }
         }
         "border" => apply_border_shorthand(a, value, base_font),
@@ -856,6 +957,21 @@ fn parse_font_size(value: &str, base: f32) -> Option<f32> {
         "larger" => Some(base * 1.2),
         _ => parse_num(&v), // bare number → treat as px
     }
+}
+
+/// Resolve `line-height` to px against the element's font size `base`. A bare
+/// number is a multiplier of the font size (CSS unitless line-height); `normal`
+/// is left for the engine's natural metrics (returns `None`); lengths/percentages
+/// resolve like a font size.
+fn parse_line_height(value: &str, base: f32) -> Option<f32> {
+    let v = value.trim().to_ascii_lowercase();
+    if v == "normal" {
+        return None;
+    }
+    if let Ok(mult) = v.parse::<f32>() {
+        return Some(mult * base);
+    }
+    parse_font_size(&v, base)
 }
 
 fn parse_align(value: &str) -> Option<TextAlign> {

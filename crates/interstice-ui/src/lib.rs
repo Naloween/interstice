@@ -38,11 +38,12 @@ macro_rules! ui_subsystem {
             // Layout primitives come straight from the engine so element literals
             // read identically to the old shared-module API.
             pub use interstice_ui::{
-                AlignItems, JustifyContent, LayoutDirection, Position, Size, TextSpan, TextWrap,
+                AlignItems, FontStyle, JustifyContent, LayoutDirection, Position, Size, TextSpan,
+                TextWrap,
             };
 
             /// The retained UI tree for this module. Identical field set to
-            /// [`interstice_ui::UiElement`]; converted via [`to_lib`] before layout.
+            /// [`interstice_ui::UiElement`]; converted via [`into_lib`] before layout.
             #[table(public)]
             pub struct UiElement {
                 #[primary_key]
@@ -72,8 +73,12 @@ macro_rules! ui_subsystem {
                 pub text_size: f32,
                 pub text_color: (f32, f32, f32, f32),
                 pub text_wrap: TextWrap,
+                pub text_bold: bool,
+                pub text_italic: bool,
                 pub spans: Vec<TextSpan>,
                 pub text_align: f32,
+                /// Explicit CSS `line-height` in px; `<= 0.0` ⇒ natural font height.
+                pub line_height: f32,
                 pub image: Option<String>,
                 pub is_input: bool,
                 pub cursor_pos: u32,
@@ -115,8 +120,11 @@ macro_rules! ui_subsystem {
                         text_size: 0.0,
                         text_color: (0.0, 0.0, 0.0, 0.0),
                         text_wrap: TextWrap::None,
+                        text_bold: false,
+                        text_italic: false,
                         spans: Vec::new(),
                         text_align: 0.0,
+                        line_height: 0.0,
                         image: None,
                         is_input: false,
                         cursor_pos: 0,
@@ -150,17 +158,21 @@ macro_rules! ui_subsystem {
             pub const UI_CURSOR_LAYER: &str = "ui_cursor";
             pub const UI_CURSOR_LAYER_Z: i32 = 1000;
 
-            fn to_lib(e: &UiElement) -> interstice_ui::UiElement {
+            /// Move a scanned row into the engine's element type. `scan()` already
+            /// hands us owned rows, so converting by MOVE avoids a second deep
+            /// clone of every id/text/span on a multi-thousand-element page — the
+            /// render/hit-test paths only need the converted copy, never the row.
+            fn into_lib(e: UiElement) -> interstice_ui::UiElement {
                 interstice_ui::UiElement {
-                    id: e.id.clone(),
-                    parent: e.parent.clone(),
+                    id: e.id,
+                    parent: e.parent,
                     order: e.order,
-                    width: e.width.clone(),
-                    height: e.height.clone(),
-                    layout_direction: e.layout_direction.clone(),
-                    justify_content: e.justify_content.clone(),
-                    align_items: e.align_items.clone(),
-                    position: e.position.clone(),
+                    width: e.width,
+                    height: e.height,
+                    layout_direction: e.layout_direction,
+                    justify_content: e.justify_content,
+                    align_items: e.align_items,
+                    position: e.position,
                     pos_left: e.pos_left,
                     pos_top: e.pos_top,
                     pos_right: e.pos_right,
@@ -174,13 +186,16 @@ macro_rules! ui_subsystem {
                     corner_radius: e.corner_radius,
                     border_width: e.border_width,
                     border_color: e.border_color,
-                    text: e.text.clone(),
+                    text: e.text,
                     text_size: e.text_size,
                     text_color: e.text_color,
-                    text_wrap: e.text_wrap.clone(),
-                    spans: e.spans.clone(),
+                    text_wrap: e.text_wrap,
+                    text_bold: e.text_bold,
+                    text_italic: e.text_italic,
+                    spans: e.spans,
                     text_align: e.text_align,
-                    image: e.image.clone(),
+                    line_height: e.line_height,
+                    image: e.image,
                     is_input: e.is_input,
                     cursor_pos: e.cursor_pos,
                     scrollable_x: e.scrollable_x,
@@ -220,15 +235,31 @@ macro_rules! ui_subsystem {
                         corner_radius,
                     );
                 }
-                fn text(&mut self, content: &str, x: f32, y: f32, size: f32, color: (f32, f32, f32, f32)) {
+                fn text(
+                    &mut self,
+                    content: &str,
+                    x: f32,
+                    y: f32,
+                    size: f32,
+                    style: interstice_ui::FontStyle,
+                    color: (f32, f32, f32, f32),
+                ) {
                     let (r, g, b, a) = color;
+                    // The graphics `draw_text` ABI carries a `font` selector; we
+                    // reuse it to name the weight/slant so no binding changes.
+                    let font = match (style.bold, style.italic) {
+                        (false, false) => None,
+                        (true, false) => Some("bold".to_string()),
+                        (false, true) => Some("italic".to_string()),
+                        (true, true) => Some("bold-italic".to_string()),
+                    };
                     let _ = self.ctx.graphics().reducers.draw_text(
                         self.layer.clone(),
                         content.to_string(),
                         Vec2 { x, y },
                         size,
                         Color { r, g, b, a },
-                        None,
+                        font,
                     );
                 }
                 fn circle(
@@ -411,8 +442,14 @@ macro_rules! ui_subsystem {
                 if sw < 1.0 || sh < 1.0 {
                     return None;
                 }
-                let rows = ctx.current.tables.uielement().scan();
-                let all: Vec<interstice_ui::UiElement> = rows.iter().map(to_lib).collect();
+                let all: Vec<interstice_ui::UiElement> = ctx
+                    .current
+                    .tables
+                    .uielement()
+                    .scan()
+                    .into_iter()
+                    .map(into_lib)
+                    .collect();
                 interstice_ui::find_element_at(&all, sw, sh, cursor)
             }
 
@@ -429,8 +466,14 @@ macro_rules! ui_subsystem {
                 if sw < 1.0 || sh < 1.0 {
                     return None;
                 }
-                let rows = ctx.current.tables.uielement().scan();
-                let all: Vec<interstice_ui::UiElement> = rows.iter().map(to_lib).collect();
+                let all: Vec<interstice_ui::UiElement> = ctx
+                    .current
+                    .tables
+                    .uielement()
+                    .scan()
+                    .into_iter()
+                    .map(into_lib)
+                    .collect();
                 interstice_ui::link_at(&all, sw, sh, cursor)
             }
 
@@ -472,8 +515,14 @@ macro_rules! ui_subsystem {
                     let (wx, wy) = (cum_x - prev_x, cum_y - prev_y);
                     if wx != 0.0 || wy != 0.0 {
                         let cursor = mouse.position;
-                        let rows = ctx.current.tables.uielement().scan();
-                        let all: Vec<interstice_ui::UiElement> = rows.iter().map(to_lib).collect();
+                        let all: Vec<interstice_ui::UiElement> = ctx
+                            .current
+                            .tables
+                            .uielement()
+                            .scan()
+                            .into_iter()
+                            .map(into_lib)
+                            .collect();
                         let full = (0.0, 0.0, sw, sh);
                         let mut best: Option<(String, bool, bool)> = None;
                         for root in all.iter().filter(|e| e.parent.is_none()) {
@@ -510,8 +559,14 @@ macro_rules! ui_subsystem {
                     .inputfocus()
                     .get(0)
                     .and_then(|f| f.focused_element);
-                let rows = ctx.current.tables.uielement().scan();
-                let all: Vec<interstice_ui::UiElement> = rows.iter().map(to_lib).collect();
+                let all: Vec<interstice_ui::UiElement> = ctx
+                    .current
+                    .tables
+                    .uielement()
+                    .scan()
+                    .into_iter()
+                    .map(into_lib)
+                    .collect();
                 let mut target = GraphicsTarget {
                     ctx,
                     layer: UI_LAYER.to_string(),
