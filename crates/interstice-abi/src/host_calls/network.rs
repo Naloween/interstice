@@ -16,6 +16,7 @@ pub enum NetworkCall {
     UdpBind(UdpBindRequest),
     UdpSendTo(UdpSendToRequest),
     UdpClose(UdpCloseRequest),
+    SystemDns(SystemDnsRequest),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -115,6 +116,22 @@ pub struct UdpCloseRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum UdpCloseResponse {
     Ok,
+    Err(String),
+}
+
+/// Query the host for the OS's configured DNS resolver(s). Carries no arguments —
+/// the host inspects its own system configuration (e.g. `/etc/resolv.conf`).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SystemDnsRequest {}
+
+/// `Ok(servers)` = the OS-configured nameserver IPs in preference order (usually
+/// one; may be the `127.0.0.53` systemd-resolved stub, which is exactly what we
+/// want — it forwards to whatever upstream the network provides). `Err` if the
+/// host could not determine any resolver, in which case the caller falls back to
+/// its built-in default.
+#[derive(Debug, Serialize, Deserialize)]
+pub enum SystemDnsResponse {
+    Ok(Vec<String>),
     Err(String),
 }
 

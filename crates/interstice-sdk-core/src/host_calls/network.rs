@@ -1,8 +1,9 @@
 use crate::host_calls::{host_call, unpack};
 use interstice_abi::{
-    HostCall, NetworkCall, TcpCloseRequest, TcpCloseResponse, TcpConnectRequest, TcpConnectResponse,
-    TcpListenRequest, TcpListenResponse, TcpSendRequest, TcpSendResponse, UdpBindRequest,
-    UdpBindResponse, UdpCloseRequest, UdpCloseResponse, UdpSendToRequest, UdpSendToResponse,
+    HostCall, NetworkCall, SystemDnsRequest, SystemDnsResponse, TcpCloseRequest, TcpCloseResponse,
+    TcpConnectRequest, TcpConnectResponse, TcpListenRequest, TcpListenResponse, TcpSendRequest,
+    TcpSendResponse, UdpBindRequest, UdpBindResponse, UdpCloseRequest, UdpCloseResponse,
+    UdpSendToRequest, UdpSendToResponse,
 };
 
 /// Open an outbound TCP connection to `ip:port`. Returns a handle immediately;
@@ -100,6 +101,19 @@ pub fn udp_send_to(handle: u64, ip: String, port: u16, data: Vec<u8>) -> Result<
     match unpack::<UdpSendToResponse>(pack) {
         UdpSendToResponse::Ok => Ok(()),
         UdpSendToResponse::Err(err) => Err(err),
+    }
+}
+
+/// Ask the host for the OS's configured DNS resolver(s), in preference order.
+/// Lets a broker resolve against the same nameserver the OS uses rather than a
+/// hard-coded public resolver — the fix for networks that block outbound DNS to
+/// anything but their own server. Returns `Err` if the host can't determine one,
+/// in which case the caller should fall back to a built-in default.
+pub fn system_dns() -> Result<Vec<String>, String> {
+    let pack = host_call(HostCall::Network(NetworkCall::SystemDns(SystemDnsRequest {})));
+    match unpack::<SystemDnsResponse>(pack) {
+        SystemDnsResponse::Ok(servers) => Ok(servers),
+        SystemDnsResponse::Err(err) => Err(err),
     }
 }
 

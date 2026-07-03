@@ -16,8 +16,10 @@ mod dns;
 // views, see the README TODO).
 interstice_module!(visibility: Public, authorities: [Network]);
 
-/// Public resolver used for DNS queries (Cloudflare). Hard-coded: choosing a
-/// resolver is policy, not part of the raw authority.
+/// Fallback resolver (Cloudflare) used only when the host can't report the OS's
+/// configured nameserver. The broker prefers the system resolver (see `on_load`)
+/// so it works on networks that block outbound DNS to anything but their own
+/// server; this constant is just the last-resort default.
 const DNS_SERVER: &str = "1.1.1.1";
 const DNS_PORT: u16 = 53;
 const HTTP_PORT: u16 = 80;
@@ -35,6 +37,9 @@ pub struct NetCfg {
     id: u64,
     dns_handle: u64,
     next_txid: u64,
+    /// The resolver every DNS query is sent to. Resolved once at load from the
+    /// host's OS configuration, falling back to [`DNS_SERVER`].
+    dns_server: String,
 }
 
 /// One row per live TCP connection, so socket events route back to the owner.
@@ -159,10 +164,28 @@ where
             0
         }
     };
+    // Prefer the OS's configured resolver (what Firefox effectively uses) over a
+    // hard-coded public one, so DNS works on networks that only permit queries to
+    // their own nameserver. Fall back to the built-in default if the host can't
+    // report one (or returns an empty list).
+    let dns_server = match system_dns() {
+        Ok(servers) => servers.into_iter().next().unwrap_or_else(|| {
+            ctx.log("network: host reported no system DNS; using default resolver");
+            DNS_SERVER.to_string()
+        }),
+        Err(err) => {
+            ctx.log(&format!(
+                "network: system DNS unavailable ({err}); using default resolver {DNS_SERVER}"
+            ));
+            DNS_SERVER.to_string()
+        }
+    };
+    ctx.log(&format!("network: DNS resolver = {dns_server}"));
     let _ = ctx.current.tables.netcfg().insert(NetCfg {
         id: 0,
         dns_handle,
         next_txid: 1,
+        dns_server,
     });
     ctx.log("network: broker ready (TCP + DNS + HTTP)");
 }
@@ -535,10 +558,11 @@ where
     let txid = (cfg.next_txid & 0xFFFF) as u16;
     cfg.next_txid = cfg.next_txid.wrapping_add(1);
     let dns_handle = cfg.dns_handle;
+    let dns_server = cfg.dns_server.clone();
     let _ = ctx.current.tables.netcfg().update(cfg);
 
     let query = dns::build_query(txid, host);
-    if let Err(err) = udp_send_to(dns_handle, DNS_SERVER.to_string(), DNS_PORT, query) {
+    if let Err(err) = udp_send_to(dns_handle, dns_server, DNS_PORT, query) {
         ctx.log(&format!("network: DNS query for {host} failed: {err}"));
         return None;
     }

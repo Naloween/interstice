@@ -317,6 +317,11 @@ impl Runtime {
                             memory,
                             caller,
                         ),
+                        interstice_abi::NetworkCall::SystemDns(_) => self.send_data_to_module(
+                            interstice_abi::SystemDnsResponse::Err(err),
+                            memory,
+                            caller,
+                        ),
                     };
                     return Ok(Some(result));
                 }

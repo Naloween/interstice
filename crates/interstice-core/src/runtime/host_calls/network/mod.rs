@@ -3,10 +3,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use interstice_abi::{
-    NetworkCall, NetworkEvent, TcpCloseRequest, TcpCloseResponse, TcpConnectRequest,
-    TcpConnectResponse, TcpListenRequest, TcpListenResponse, TcpSendRequest, TcpSendResponse,
-    UdpBindRequest, UdpBindResponse, UdpCloseRequest, UdpCloseResponse, UdpSendToRequest,
-    UdpSendToResponse,
+    NetworkCall, NetworkEvent, SystemDnsRequest, SystemDnsResponse, TcpCloseRequest,
+    TcpCloseResponse, TcpConnectRequest, TcpConnectResponse, TcpListenRequest, TcpListenResponse,
+    TcpSendRequest, TcpSendResponse, UdpBindRequest, UdpBindResponse, UdpCloseRequest,
+    UdpCloseResponse, UdpSendToRequest, UdpSendToResponse,
 };
 use parking_lot::Mutex;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -192,6 +192,10 @@ impl Runtime {
             }
             NetworkCall::UdpClose(req) => {
                 let response = self.net_udp_close(req);
+                self.send_data_to_module(response, memory, caller)
+            }
+            NetworkCall::SystemDns(req) => {
+                let response = self.net_system_dns(req);
                 self.send_data_to_module(response, memory, caller)
             }
         };
@@ -425,5 +429,48 @@ impl Runtime {
             Some(_) => UdpCloseResponse::Err("handle is not a UDP socket".into()),
             None => UdpCloseResponse::Err("unknown handle".into()),
         }
+    }
+
+    /// Report the OS's configured DNS resolver(s). The module can't read the host
+    /// filesystem from inside its sandbox, so it asks the authority; this lets the
+    /// broker resolve against the same nameserver the OS (and Firefox) uses instead
+    /// of a hard-coded public resolver — important on networks that block outbound
+    /// DNS (UDP/53) to anything but their own server.
+    ///
+    /// On Linux we parse `/etc/resolv.conf`. On systemd-resolved systems this
+    /// yields the `127.0.0.53` stub, which is exactly right: it's a local address
+    /// (never firewalled) that forwards to whatever upstream the active connection
+    /// provides. If nothing usable is found the caller keeps its built-in default.
+    #[cfg(target_os = "linux")]
+    fn net_system_dns(&self, _req: SystemDnsRequest) -> SystemDnsResponse {
+        match std::fs::read_to_string("/etc/resolv.conf") {
+            Ok(contents) => {
+                let servers: Vec<String> = contents
+                    .lines()
+                    .filter_map(|line| {
+                        let line = line.trim();
+                        if line.starts_with('#') || line.starts_with(';') {
+                            return None;
+                        }
+                        let mut fields = line.split_whitespace();
+                        match fields.next() {
+                            Some("nameserver") => fields.next().map(str::to_string),
+                            _ => None,
+                        }
+                    })
+                    .collect();
+                if servers.is_empty() {
+                    SystemDnsResponse::Err("no nameserver entries in /etc/resolv.conf".into())
+                } else {
+                    SystemDnsResponse::Ok(servers)
+                }
+            }
+            Err(err) => SystemDnsResponse::Err(format!("cannot read /etc/resolv.conf: {err}")),
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn net_system_dns(&self, _req: SystemDnsRequest) -> SystemDnsResponse {
+        SystemDnsResponse::Err("system DNS discovery not implemented on this platform".into())
     }
 }
