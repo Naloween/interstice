@@ -62,6 +62,89 @@ where
     issue_fetch(ctx, nav, loc);
 }
 
+/// Like [`start_navigation`] but OVERWRITES the current history entry instead of
+/// pushing a new one — `location.replace()`. Forward entries are truncated, the
+/// current slot is rewritten, then the URL is fetched.
+pub(crate) fn replace_navigation<Caps>(ctx: &ReducerContext<Caps>, nav: &mut NavState, raw_url: &str)
+where
+    Caps: CanRead<History> + CanInsert<History> + CanUpdate<History> + CanDelete<History>,
+{
+    let Some(loc) = url::parse(raw_url) else {
+        ctx.log(&format!("browser: cannot parse url `{raw_url}`"));
+        return;
+    };
+    let idx = if nav.hist_len == 0 { 0 } else { nav.hist_pos };
+    for i in (idx + 1)..nav.hist_len {
+        let _ = ctx.current.tables.history().delete(i);
+    }
+    let entry = History {
+        idx,
+        url: loc.to_url(),
+        host: loc.host.clone(),
+        path: loc.path.clone(),
+        tls: loc.tls,
+    };
+    if ctx.current.tables.history().insert(entry.clone()).is_err() {
+        let _ = ctx.current.tables.history().update(entry);
+    }
+    nav.hist_pos = idx;
+    nav.hist_len = idx + 1;
+    issue_fetch(ctx, nav, loc);
+}
+
+/// `history.pushState(url)`: change the current URL WITHOUT fetching, pushing a new
+/// history entry (forward entries truncated). The displayed page is unchanged; only
+/// the location/history are updated (SPA-style routing).
+pub(crate) fn soft_push<Caps>(ctx: &ReducerContext<Caps>, nav: &mut NavState, loc: url::Location)
+where
+    Caps: CanRead<History> + CanInsert<History> + CanDelete<History>,
+{
+    let url = loc.to_url();
+    let new_idx = if nav.hist_len == 0 { 0 } else { nav.hist_pos + 1 };
+    for idx in new_idx..nav.hist_len {
+        let _ = ctx.current.tables.history().delete(idx);
+    }
+    let _ = ctx.current.tables.history().insert(History {
+        idx: new_idx,
+        url: url.clone(),
+        host: loc.host.clone(),
+        path: loc.path.clone(),
+        tls: loc.tls,
+    });
+    nav.hist_pos = new_idx;
+    nav.hist_len = new_idx + 1;
+    nav.host = loc.host;
+    nav.path = loc.path;
+    nav.tls = loc.tls;
+    nav.url = url;
+}
+
+/// `history.replaceState(url)`: change the current URL WITHOUT fetching, overwriting
+/// the current history entry in place.
+pub(crate) fn soft_replace<Caps>(ctx: &ReducerContext<Caps>, nav: &mut NavState, loc: url::Location)
+where
+    Caps: CanRead<History> + CanInsert<History> + CanUpdate<History>,
+{
+    let url = loc.to_url();
+    let idx = if nav.hist_len == 0 { 0 } else { nav.hist_pos };
+    let entry = History {
+        idx,
+        url: url.clone(),
+        host: loc.host.clone(),
+        path: loc.path.clone(),
+        tls: loc.tls,
+    };
+    if ctx.current.tables.history().insert(entry.clone()).is_err() {
+        let _ = ctx.current.tables.history().update(entry);
+    }
+    nav.hist_pos = idx;
+    nav.hist_len = nav.hist_len.max(idx + 1);
+    nav.host = loc.host;
+    nav.path = loc.path;
+    nav.tls = loc.tls;
+    nav.url = url;
+}
+
 /// Re-fetch the history entry at `nav.hist_pos` after it's been moved by a
 /// back/forward step. Returns the entry's URL so the caller can update the bar.
 pub(crate) fn load_current_history<Caps>(

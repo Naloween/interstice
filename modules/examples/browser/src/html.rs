@@ -55,6 +55,10 @@ pub enum Block {
         /// `clear` set ⇒ this box drops below any preceding float instead of
         /// sitting beside it (ends the float context in [`group_floats`]).
         clears: bool,
+        /// The DOM element this block's text belongs to (innermost block-level
+        /// ancestor), for routing clicks back to JS event listeners. `None` for
+        /// text with no owning element (rare) or synthetic blocks.
+        node: Option<crate::dom::NodeId>,
     },
     /// An `<img>` to fetch + decode. `url` is as authored (resolved later).
     /// `float`/`clears` carry the CSS float context (see [`group_floats`]).
@@ -69,6 +73,8 @@ pub enum Block {
         position: css::Position,
         /// `(top, right, bottom, left)` position offsets.
         inset: (Option<f32>, Option<f32>, Option<f32>, Option<f32>),
+        /// The source `<img>`/`<svg>` DOM node, for click→event routing.
+        node: Option<crate::dom::NodeId>,
     },
     /// Vertical whitespace (paragraph spacing, `<br>`, `<hr>`).
     Space { height: f32 },
@@ -96,6 +102,9 @@ pub enum Block {
         /// Explicit box width (table cells set a percentage so columns align);
         /// `Auto` keeps the default flex sizing.
         width: css::WidthVal,
+        /// The source DOM element this container was built from, for click→event
+        /// routing. `None` for synthetic containers (table structure, float rows).
+        node: Option<crate::dom::NodeId>,
     },
     /// A float context produced by [`group_floats`]: `float_box` sits at the
     /// `side` (left/right) edge while `flow` (the following in-flow blocks)
@@ -166,46 +175,49 @@ struct State<'a> {
     cur_clears: bool,
     /// Open list contexts (innermost last) for `<li>` markers.
     lists: Vec<ListCtx>,
+    /// The innermost block-level element currently being walked. [`flush`] stamps
+    /// each emitted [`Block::Text`] with it so a click on that text can be routed
+    /// back to the element's JS event listeners. Saved/restored around every
+    /// block-level element (text or container).
+    block_owner: Option<crate::dom::NodeId>,
 }
 
-/// Parse a document against `sheet` and return its blocks. Invalid HTML yields
-/// an empty list.
-pub fn parse_html(html: &str, sheet: &css::Stylesheet) -> Vec<Block> {
-    let dom = match tl::parse(html, tl::ParserOptions::default()) {
-        Ok(d) => d,
-        Err(_) => return Vec::new(),
-    };
-    let parser = dom.parser();
-    let mut st = State {
-        sheet,
-        stack: Vec::new(),
-        blocks: Vec::new(),
-        buf: String::new(),
-        spans: Vec::new(),
-        pending_space: false,
-        style: TextStyle::body(),
-        cur_color: TextStyle::body().color,
-        cur_bold: false,
-        cur_italic: false,
-        cur_href: None,
-        cur_bg: None,
-        cur_align: 0.0,
-        indent: 0.0,
-        cur_margin: (0.0, 0.0, 0.0, 0.0),
-        cur_padding: (0.0, 0.0, 0.0, 0.0),
-        cur_width: css::WidthVal::Auto,
-        cur_height: css::WidthVal::Auto,
-        cur_line_height: 0.0,
-        cur_border_w: 0.0,
-        cur_border_c: (0.0, 0.0, 0.0, 0.0),
-        cur_clears: false,
-        lists: Vec::new(),
-    };
-    for handle in dom.children() {
-        walk(parser, *handle, &mut st);
-    }
-    flush(&mut st);
-    st.blocks
+/// Parse the current document (the stored [`crate::dom`] arena) against `sheet`
+/// and return its blocks. An empty arena yields an empty list.
+pub fn parse_html(sheet: &css::Stylesheet) -> Vec<Block> {
+    crate::dom::with(|dom| {
+        let mut st = State {
+            sheet,
+            stack: Vec::new(),
+            blocks: Vec::new(),
+            buf: String::new(),
+            spans: Vec::new(),
+            pending_space: false,
+            style: TextStyle::body(),
+            cur_color: TextStyle::body().color,
+            cur_bold: false,
+            cur_italic: false,
+            cur_href: None,
+            cur_bg: None,
+            cur_align: 0.0,
+            indent: 0.0,
+            cur_margin: (0.0, 0.0, 0.0, 0.0),
+            cur_padding: (0.0, 0.0, 0.0, 0.0),
+            cur_width: css::WidthVal::Auto,
+            cur_height: css::WidthVal::Auto,
+            cur_line_height: 0.0,
+            cur_border_w: 0.0,
+            cur_border_c: (0.0, 0.0, 0.0, 0.0),
+            cur_clears: false,
+            lists: Vec::new(),
+            block_owner: None,
+        };
+        for &id in dom.roots() {
+            walk(dom, id, &mut st);
+        }
+        flush(&mut st);
+        st.blocks
+    })
 }
 
 /// Extract `position` offsets `(top, right, bottom, left)` from a computed style.
@@ -267,101 +279,78 @@ pub fn group_floats(blocks: Vec<Block>) -> Vec<Block> {
     out
 }
 
-/// Scan a document for stylesheet sources: external `<link rel=stylesheet href>`
-/// targets (resolved later) and inline `<style>` text, in source order.
-pub fn collect_stylesheets(html: &str) -> (Vec<String>, Vec<String>) {
-    let dom = match tl::parse(html, tl::ParserOptions::default()) {
-        Ok(d) => d,
-        Err(_) => return (Vec::new(), Vec::new()),
-    };
-    let parser = dom.parser();
-    let mut links = Vec::new();
-    let mut inline = Vec::new();
-    for handle in dom.children() {
-        collect_walk(parser, *handle, &mut links, &mut inline);
-    }
-    (links, inline)
+/// Scan the current document arena for stylesheet sources: external
+/// `<link rel=stylesheet href>` targets (resolved later) and inline `<style>`
+/// text, in source order.
+pub fn collect_stylesheets() -> (Vec<String>, Vec<String>) {
+    crate::dom::with(|dom| {
+        let mut links = Vec::new();
+        let mut inline = Vec::new();
+        for &id in dom.roots() {
+            collect_walk(dom, id, &mut links, &mut inline);
+        }
+        (links, inline)
+    })
 }
 
 fn collect_walk(
-    parser: &tl::Parser,
-    handle: tl::NodeHandle,
+    dom: &crate::dom::Dom,
+    id: crate::dom::NodeId,
     links: &mut Vec<String>,
     inline: &mut Vec<String>,
 ) {
-    let node = match handle.get(parser) {
-        Some(n) => n,
-        None => return,
+    let node = dom.node(id);
+    let Some(name) = node.tag() else {
+        return;
     };
-    if let tl::Node::Tag(tag) = node {
-        let name = tag.name().as_utf8_str().to_ascii_lowercase();
-        match name.as_str() {
-            "link" => {
-                let rel = tag
-                    .attributes()
-                    .get("rel")
-                    .flatten()
-                    .map(|b| b.as_utf8_str().to_ascii_lowercase())
-                    .unwrap_or_default();
-                if rel.split_whitespace().any(|t| t == "stylesheet") {
-                    if let Some(Some(href)) = tag.attributes().get("href") {
-                        let h = href.as_utf8_str().trim().to_string();
-                        if !h.is_empty() {
-                            links.push(h);
-                        }
+    match name {
+        "link" => {
+            let rel = node.attr("rel").unwrap_or_default().to_ascii_lowercase();
+            if rel.split_whitespace().any(|t| t == "stylesheet") {
+                if let Some(href) = node.attr("href") {
+                    let h = href.trim().to_string();
+                    if !h.is_empty() {
+                        links.push(h);
                     }
                 }
             }
-            "style" => {
-                let css_text = tag.inner_text(parser).to_string();
-                if !css_text.trim().is_empty() {
-                    inline.push(css_text);
-                }
+        }
+        "style" => {
+            let css_text = dom.inner_text(id);
+            if !css_text.trim().is_empty() {
+                inline.push(css_text);
             }
-            _ => {}
         }
-        let kids: Vec<tl::NodeHandle> = tag.children().top().iter().copied().collect();
-        for k in kids {
-            collect_walk(parser, k, links, inline);
-        }
+        _ => {}
+    }
+    let kids = node.children.clone();
+    for k in kids {
+        collect_walk(dom, k, links, inline);
     }
 }
 
-fn walk(parser: &tl::Parser, handle: tl::NodeHandle, st: &mut State) {
-    let node = match handle.get(parser) {
-        Some(n) => n,
-        None => return,
-    };
-    match node {
-        tl::Node::Raw(bytes) => {
-            push_run(st, &decode_entities(&bytes.as_utf8_str()));
+fn walk(dom: &crate::dom::Dom, id: crate::dom::NodeId, st: &mut State) {
+    match &dom.node(id).kind {
+        crate::dom::NodeKind::Text(t) => {
+            push_run(st, &decode_entities(t));
         }
-        tl::Node::Comment(_) => {}
-        tl::Node::Tag(tag) => {
-            let name = tag.name().as_utf8_str().to_ascii_lowercase();
-            tag_node(parser, &name, tag, st);
+        crate::dom::NodeKind::Comment(_) => {}
+        crate::dom::NodeKind::Element { tag, .. } => {
+            let name = tag.clone();
+            tag_node(dom, id, &name, st);
         }
     }
 }
 
 /// Build the selector-matching context (tag/id/classes) for an element.
-fn elem_ctx(name: &str, tag: &tl::HTMLTag) -> css::ElemCtx {
-    let id = tag
-        .attributes()
-        .get("id")
-        .flatten()
-        .map(|b| b.as_utf8_str().trim().to_string())
+fn elem_ctx(name: &str, node: &crate::dom::Node) -> css::ElemCtx {
+    let id = node
+        .attr("id")
+        .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
-    let classes = tag
-        .attributes()
-        .get("class")
-        .flatten()
-        .map(|b| {
-            b.as_utf8_str()
-                .split_whitespace()
-                .map(|s| s.to_string())
-                .collect()
-        })
+    let classes = node
+        .attr("class")
+        .map(|s| s.split_whitespace().map(|c| c.to_string()).collect())
         .unwrap_or_default();
     css::ElemCtx {
         tag: name.to_string(),
@@ -379,17 +368,17 @@ fn ua_display(name: &str) -> css::Display {
     }
 }
 
-fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) {
+fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut State) {
     if style::is_skipped(name) {
         return;
     }
 
-    let ctx = elem_ctx(name, tag);
+    let ctx = elem_ctx(name, dom.node(id));
     let base_font = st.style.size;
     let mut applied = st.sheet.applied(&ctx, &st.stack, base_font);
     // Inline `style="…"` wins over author rules.
-    if let Some(Some(style_attr)) = tag.attributes().get("style") {
-        let inline = css::parse_inline(&style_attr.as_utf8_str(), base_font);
+    if let Some(style_attr) = dom.node(id).attr("style") {
+        let inline = css::parse_inline(style_attr, base_font);
         applied.overlay(&inline);
     }
 
@@ -402,8 +391,8 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
     match name {
         "img" => {
             flush(st);
-            if let Some(Some(src)) = tag.attributes().get("src") {
-                let url = src.as_utf8_str().to_string();
+            if let Some(src) = dom.node(id).attr("src") {
+                let url = src.to_string();
                 if !url.is_empty() {
                     st.blocks.push(Block::Image {
                         url,
@@ -412,6 +401,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
                         clears: applied.clear.unwrap_or(false),
                         position: applied.position.unwrap_or(css::Position::Static),
                         inset: applied_inset(&applied),
+                        node: Some(id),
                     });
                 }
             }
@@ -423,7 +413,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
             // document can't blow out decode time/memory.
             flush(st);
             const MAX_SVG_SRC: usize = 256 * 1024;
-            let src = tag.outer_html(parser);
+            let src = dom.serialize(id);
             if !src.is_empty() && src.len() <= MAX_SVG_SRC {
                 st.blocks.push(Block::Image {
                     url: String::new(),
@@ -432,6 +422,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
                     clears: applied.clear.unwrap_or(false),
                     position: applied.position.unwrap_or(css::Position::Static),
                     inset: applied_inset(&applied),
+                    node: Some(id),
                 });
             }
             return;
@@ -449,11 +440,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         "a" => {
             // Inline link: descend so nested formatting (and nested colours) is
             // preserved, tagging every run with this href + the link colour.
-            let href = tag
-                .attributes()
-                .get("href")
-                .flatten()
-                .map(|b| b.as_utf8_str().to_string());
+            let href = dom.node(id).attr("href").map(|s| s.to_string());
             let saved_color = st.cur_color;
             let saved_href = st.cur_href.clone();
             let saved_bold = st.cur_bold;
@@ -467,7 +454,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
                 st.cur_italic = i;
             }
             st.stack.push(ctx);
-            walk_children(parser, tag, st);
+            walk_children(dom, id, st);
             st.stack.pop();
             st.cur_color = saved_color;
             st.cur_href = saved_href;
@@ -485,7 +472,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
     if name == "table" {
         flush(st);
         let mut rows = Vec::new();
-        collect_table_rows(parser, tag, st, &mut rows);
+        collect_table_rows(dom, id, st, &mut rows);
         let grid = table::Grid { rows };
         if grid.rows.iter().any(|r| !r.cells.is_empty()) {
             st.blocks.push(table::build(grid));
@@ -526,7 +513,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         // Divert child blocks into a fresh list, then restore the parent's.
         let saved_blocks = std::mem::take(&mut st.blocks);
         st.stack.push(ctx);
-        walk_children(parser, tag, st);
+        walk_children(dom, id, st);
         st.stack.pop();
         flush(st);
         let children = std::mem::replace(&mut st.blocks, saved_blocks);
@@ -553,6 +540,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
                 position: applied.position.unwrap_or(css::Position::Static),
                 inset: applied_inset(&applied),
                 width: css::WidthVal::Auto,
+                node: Some(id),
             });
         }
         return;
@@ -592,7 +580,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
 
         let saved_blocks = std::mem::take(&mut st.blocks);
         st.stack.push(ctx);
-        walk_children(parser, tag, st);
+        walk_children(dom, id, st);
         st.stack.pop();
         flush(st);
         let children = std::mem::replace(&mut st.blocks, saved_blocks);
@@ -619,6 +607,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
                 position,
                 inset: applied_inset(&applied),
                 width: css::WidthVal::Auto,
+                node: Some(id),
             });
         }
         return;
@@ -657,7 +646,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
 
         let saved_blocks = std::mem::take(&mut st.blocks);
         st.stack.push(ctx);
-        walk_children(parser, tag, st);
+        walk_children(dom, id, st);
         st.stack.pop();
         flush(st);
         let children = std::mem::replace(&mut st.blocks, saved_blocks);
@@ -684,6 +673,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
                 position: css::Position::Static,
                 inset: (None, None, None, None),
                 width: css::WidthVal::Auto,
+                node: Some(id),
             });
         }
         return;
@@ -709,7 +699,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
             st.cur_italic = i;
         }
         st.stack.push(ctx);
-        walk_children(parser, tag, st);
+        walk_children(dom, id, st);
         st.stack.pop();
         st.cur_color = saved_color;
         st.cur_bold = saved_bold;
@@ -741,6 +731,8 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         let saved_border_w = st.cur_border_w;
         let saved_border_c = st.cur_border_c;
         let saved_clears = st.cur_clears;
+        let saved_block_owner = st.block_owner;
+        st.block_owner = Some(id);
 
         st.style = bs;
         st.style.size = applied.font_size.unwrap_or(bs.size);
@@ -787,7 +779,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
             push_run(st, &marker);
         }
         st.stack.push(ctx);
-        walk_children(parser, tag, st);
+        walk_children(dom, id, st);
         st.stack.pop();
         flush(st);
 
@@ -807,6 +799,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         st.cur_border_w = saved_border_w;
         st.cur_border_c = saved_border_c;
         st.cur_clears = saved_clears;
+        st.block_owner = saved_block_owner;
         return;
     }
 
@@ -820,6 +813,8 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
     let saved_italic = st.cur_italic;
     let saved_clears = st.cur_clears;
     let saved_line_height = st.cur_line_height;
+    let saved_block_owner = st.block_owner;
+    st.block_owner = Some(id);
     if let Some(c) = applied.color {
         st.style.color = c;
         st.cur_color = c;
@@ -855,7 +850,7 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
         });
     }
     st.stack.push(ctx);
-    walk_children(parser, tag, st);
+    walk_children(dom, id, st);
     st.stack.pop();
     if is_list {
         st.lists.pop();
@@ -868,51 +863,48 @@ fn tag_node(parser: &tl::Parser, name: &str, tag: &tl::HTMLTag, st: &mut State) 
     st.cur_italic = saved_italic;
     st.cur_clears = saved_clears;
     st.cur_line_height = saved_line_height;
+    st.block_owner = saved_block_owner;
 }
 
 /// Parse a `colspan`/`rowspan`-style positive integer attribute.
-fn attr_usize(tag: &tl::HTMLTag, key: &str) -> Option<usize> {
-    tag.attributes()
-        .get(key)
-        .flatten()
-        .and_then(|b| b.as_utf8_str().trim().parse::<usize>().ok())
+fn attr_usize(node: &crate::dom::Node, key: &str) -> Option<usize> {
+    node.attr(key)
+        .and_then(|s| s.trim().parse::<usize>().ok())
         .filter(|&n| n >= 1)
 }
 
 /// Collect a table's rows, descending through `<thead>`/`<tbody>`/`<tfoot>`
 /// grouping wrappers so their `<tr>`s land in document order.
 fn collect_table_rows(
-    parser: &tl::Parser,
-    tag: &tl::HTMLTag,
+    dom: &crate::dom::Dom,
+    id: crate::dom::NodeId,
     st: &mut State,
     rows: &mut Vec<table::GridRow>,
 ) {
-    let kids: Vec<tl::NodeHandle> = tag.children().top().iter().copied().collect();
+    let kids = dom.node(id).children.clone();
     for h in kids {
-        let Some(tl::Node::Tag(child)) = h.get(parser) else {
+        let Some(name) = dom.node(h).tag() else {
             continue;
         };
-        let name = child.name().as_utf8_str().to_ascii_lowercase();
-        match name.as_str() {
-            "tr" => rows.push(parse_table_row(parser, child, st)),
-            "thead" | "tbody" | "tfoot" => collect_table_rows(parser, child, st, rows),
+        match name {
+            "tr" => rows.push(parse_table_row(dom, h, st)),
+            "thead" | "tbody" | "tfoot" => collect_table_rows(dom, h, st, rows),
             _ => {}
         }
     }
 }
 
 /// Parse one `<tr>` into a row of cells (`<td>`/`<th>`).
-fn parse_table_row(parser: &tl::Parser, tag: &tl::HTMLTag, st: &mut State) -> table::GridRow {
+fn parse_table_row(dom: &crate::dom::Dom, id: crate::dom::NodeId, st: &mut State) -> table::GridRow {
     let mut cells = Vec::new();
-    let kids: Vec<tl::NodeHandle> = tag.children().top().iter().copied().collect();
+    let kids = dom.node(id).children.clone();
     for h in kids {
-        let Some(tl::Node::Tag(child)) = h.get(parser) else {
+        let Some(name) = dom.node(h).tag() else {
             continue;
         };
-        let name = child.name().as_utf8_str().to_ascii_lowercase();
-        match name.as_str() {
-            "td" => cells.push(parse_table_cell(parser, child, st, false)),
-            "th" => cells.push(parse_table_cell(parser, child, st, true)),
+        match name {
+            "td" => cells.push(parse_table_cell(dom, h, st, false)),
+            "th" => cells.push(parse_table_cell(dom, h, st, true)),
             _ => {}
         }
     }
@@ -923,13 +915,13 @@ fn parse_table_row(parser: &tl::Parser, tag: &tl::HTMLTag, st: &mut State) -> ta
 /// inline style (headers are bold + centred), then measure its min/max content
 /// width for the column algorithm.
 fn parse_table_cell(
-    parser: &tl::Parser,
-    tag: &tl::HTMLTag,
+    dom: &crate::dom::Dom,
+    id: crate::dom::NodeId,
     st: &mut State,
     header: bool,
 ) -> table::Cell {
-    let colspan = attr_usize(tag, "colspan").unwrap_or(1);
-    let rowspan = attr_usize(tag, "rowspan").unwrap_or(1);
+    let colspan = attr_usize(dom.node(id), "colspan").unwrap_or(1);
+    let rowspan = attr_usize(dom.node(id), "rowspan").unwrap_or(1);
 
     // Divert content into a fresh list with a fresh inline style, mirroring the
     // flex-container save/restore so the cell is fully isolated.
@@ -965,9 +957,9 @@ fn parse_table_cell(
     st.cur_border_c = (0.0, 0.0, 0.0, 0.0);
     st.cur_clears = false;
 
-    let ctx = elem_ctx(if header { "th" } else { "td" }, tag);
+    let ctx = elem_ctx(if header { "th" } else { "td" }, dom.node(id));
     st.stack.push(ctx);
-    walk_children(parser, tag, st);
+    walk_children(dom, id, st);
     st.stack.pop();
     flush(st);
     let blocks = std::mem::replace(&mut st.blocks, saved_blocks);
@@ -998,12 +990,12 @@ fn parse_table_cell(
     }
 }
 
-fn walk_children(parser: &tl::Parser, tag: &tl::HTMLTag, st: &mut State) {
-    // Copy handles out first (NodeHandle is Copy) so the immutable borrow of
-    // `tag` doesn't overlap the recursive mutation of `st`.
-    let kids: Vec<tl::NodeHandle> = tag.children().top().iter().copied().collect();
-    for handle in kids {
-        walk(parser, handle, st);
+fn walk_children(dom: &crate::dom::Dom, id: crate::dom::NodeId, st: &mut State) {
+    // Copy child ids out first (NodeId is Copy) so the immutable borrow of the
+    // parent node doesn't overlap the recursive mutation of `st`.
+    let kids = dom.node(id).children.clone();
+    for cid in kids {
+        walk(dom, cid, st);
     }
 }
 
@@ -1077,6 +1069,7 @@ fn flush(st: &mut State) {
             border_c: st.cur_border_c,
             spans,
             clears: st.cur_clears,
+            node: st.block_owner,
         });
     } else {
         // Drop orphan spans (shouldn't happen: spans only added alongside text).

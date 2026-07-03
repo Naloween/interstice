@@ -22,6 +22,13 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 # for wasm) and instead feed usvg a single embedded font (assets/DejaVuSans.ttf).
 # `raster-images` lets SVGs that embed <image> bitmaps decode too.
 resvg = { version = "0.45", default-features = false, features = ["text", "raster-images"] }
+# JavaScript engine (Phase 0 spike). Pure Rust → builds for wasm32-unknown-unknown,
+# unlike V8/QuickJS (C/native). Defaults off to start from the smallest surface;
+# we add features (intl, etc.) only as the runtime needs them.
+boa_engine = { version = "0.21", default-features = false }
+# Direct dep only so the module can name `getrandom::Error` for the custom backend
+# it must define (boa → rand → getrandom 0.3 on wasm32-unknown-unknown). See js.rs.
+getrandom = "0.3"
 
 [build-dependencies]
 interstice-sdk = "0.5.0"

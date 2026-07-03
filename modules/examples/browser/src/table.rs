@@ -256,6 +256,7 @@ fn cell_box(children: Vec<Block>, frac: f32, header: bool) -> Block {
         position: css::Position::Static,
         inset: (None, None, None, None),
         width: css::WidthVal::Pct(frac),
+        node: None,
     }
 }
 
@@ -274,6 +275,7 @@ fn row_box(cells: Vec<Block>) -> Block {
         position: css::Position::Static,
         inset: (None, None, None, None),
         width: css::WidthVal::Auto,
+        node: None,
     }
 }
 
@@ -292,5 +294,6 @@ fn table_box(rows: Vec<Block>) -> Block {
         position: css::Position::Static,
         inset: (None, None, None, None),
         width: css::WidthVal::Auto,
+        node: None,
     }
 }

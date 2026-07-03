@@ -27,8 +27,10 @@ use interstice_sdk::key_code::KeyCode;
 use interstice_sdk::*;
 
 mod css;
+mod dom;
 mod html;
 mod images;
+mod js;
 mod nav;
 mod page;
 mod render;
@@ -256,6 +258,13 @@ where
     if row.owner != ME {
         return; // another app's request
     }
+    // A fetch()/XHR response? Deliver it to the waiting promise/XHR and stop —
+    // its high req_id can't match any nav/CSS/image request. Checked before
+    // loading NavState so it works even mid-navigation.
+    if js::deliver_fetch(row.req_id, &row.body, row.error.is_empty(), &row.error) {
+        return;
+    }
+
     let Some(mut nav) = ctx.current.tables.navstate().get(0) else {
         return;
     };
@@ -276,21 +285,33 @@ where
 // ── Per-frame input + render ─────────────────────────────────────────────────
 
 #[reducer(on = "graphics.frametick.update")]
-pub fn on_frame<Caps>(ctx: ReducerContext<Caps>, _prev: FrameTick, _tick: FrameTick)
+pub fn on_frame<Caps>(ctx: ReducerContext<Caps>, _prev: FrameTick, tick: FrameTick)
 where
     Caps: CanRead<NavState>
         + CanUpdate<NavState>
         + CanRead<ui::UiElement>
+        + CanInsert<ui::UiElement>
         + CanUpdate<ui::UiElement>
+        + CanDelete<ui::UiElement>
         + CanRead<ui::InputFocus>
         + CanRead<LinkMap>
+        + CanDelete<LinkMap>
         + CanRead<History>
         + CanInsert<History>
+        + CanUpdate<History>
         + CanDelete<History>
+        + CanRead<ImageReq>
+        + CanInsert<ImageReq>
+        + CanDelete<ImageReq>
+        + CanRead<ImageWaiter>
+        + CanInsert<ImageWaiter>
+        + CanDelete<ImageWaiter>
         + CanRead<ImageFetchQueue>
+        + CanInsert<ImageFetchQueue>
         + CanDelete<ImageFetchQueue>
         + CanRead<CssFetchQueue>
         + CanDelete<CssFetchQueue>
+        + CanRead<StyleSheet>
         + CanRead<MouseState>
         + CanRead<MouseButton>
         + CanRead<KeyState>,
@@ -313,11 +334,74 @@ where
             .http_get(q.req_id, q.host.clone(), q.path.clone(), q.tls);
         let _ = ctx.current.tables.imagefetchqueue().delete(q.req_id);
     }
+    // fetch()/XHR queue their requests in the JS runtime (no table needed — the
+    // pending promise/XHR is held there); issue them here, same as the CSS/image
+    // queues. Responses come back through `on_http` → `js::deliver_fetch`.
+    for (req_id, host, path, tls) in js::take_fetch_queue() {
+        let _ = ctx.network().reducers.http_get(req_id, host, path, tls);
+    }
 
     let Some(mut nav) = ctx.current.tables.navstate().get(0) else {
         ui::render(&ctx);
         return;
     };
+
+    // Advance the page's JS event loop once per frame: fire due timers,
+    // requestAnimationFrame callbacks, and microtasks. If a callback mutated the
+    // DOM, re-render from the live arena before handling this frame's input.
+    js::pump_frame(tick.frame);
+    if dom::take_dirty() {
+        let (h, p, tls) = (nav.host.clone(), nav.path.clone(), nav.tls);
+        let sheets = page::current_sheets(&ctx, nav.page_gen);
+        render::rebuild(&ctx, &mut nav, &h, &p, tls, &sheets);
+    }
+
+    // Apply any navigations the page's JS requested (location.* / history.*). These
+    // were queued from native fns with no `ctx`; drain them here, outside the broker
+    // re-entrant path, resolving each raw URL against the live page base.
+    let actions = js::take_nav_actions();
+    let had_actions = !actions.is_empty();
+    for action in actions {
+        match action {
+            js::NavAction::Load(raw) => {
+                if let Some(loc) = url::resolve(&nav.host, &nav.path, nav.tls, &raw) {
+                    nav::start_navigation(&ctx, &mut nav, &loc.to_url());
+                }
+            }
+            js::NavAction::ReplaceLoad(raw) => {
+                if let Some(loc) = url::resolve(&nav.host, &nav.path, nav.tls, &raw) {
+                    nav::replace_navigation(&ctx, &mut nav, &loc.to_url());
+                }
+            }
+            js::NavAction::Reload => {
+                nav::load_current_history(&ctx, &mut nav);
+            }
+            js::NavAction::Go(delta) => {
+                let target = nav.hist_pos as i64 + delta as i64;
+                if delta != 0 && target >= 0 && (target as u32) < nav.hist_len {
+                    nav.hist_pos = target as u32;
+                    nav::load_current_history(&ctx, &mut nav);
+                }
+            }
+            js::NavAction::SoftPush(raw) => {
+                if let Some(loc) = url::resolve(&nav.host, &nav.path, nav.tls, &raw) {
+                    nav::soft_push(&ctx, &mut nav, loc);
+                }
+            }
+            js::NavAction::SoftReplace(raw) => {
+                if let Some(loc) = url::resolve(&nav.host, &nav.path, nav.tls, &raw) {
+                    nav::soft_replace(&ctx, &mut nav, loc);
+                }
+            }
+        }
+    }
+    if had_actions {
+        // Reflect the new URL in the bar and refresh the JS `location`/`history` view.
+        // (A fetching action reloads the page and re-seeds location in prepare_page;
+        // soft history changes rely on this refresh to keep location.href current.)
+        widgets::set_urlbar(&ctx, &nav.url.clone());
+        js::set_location(&nav.url, &nav.host, &nav.path, nav.tls, nav.hist_len);
+    }
 
     let (mx, my) = ctx
         .input()
@@ -358,11 +442,29 @@ where
                 if let Some(url) = nav::load_current_history(&ctx, &mut nav) {
                     widgets::set_urlbar(&ctx, &url);
                 }
-            } else if let Some(href) = ui::link_at(&ctx, (mx, my)) {
-                // Click an inline link span → resolve + navigate, reflect the URL.
-                if let Some(loc) = url::resolve(&nav.host, &nav.path, nav.tls, &href) {
-                    nav::start_navigation(&ctx, &mut nav, &loc.to_url());
-                    widgets::set_urlbar(&ctx, &nav.url.clone());
+            } else {
+                // Page content click. Give the page's JS listeners the first crack:
+                // if a handler mutated the DOM, re-render from the live arena; if a
+                // handler called preventDefault, swallow the default link follow.
+                let mut handled = false;
+                if let Some(node) = render::node_for_element(&id) {
+                    let prevented = js::dispatch_event(node, "click");
+                    if dom::take_dirty() {
+                        let (h, p, tls) = (nav.host.clone(), nav.path.clone(), nav.tls);
+                        let sheets = page::current_sheets(&ctx, nav.page_gen);
+                        render::rebuild(&ctx, &mut nav, &h, &p, tls, &sheets);
+                        handled = true;
+                    }
+                    handled |= prevented;
+                }
+                if !handled {
+                    if let Some(href) = ui::link_at(&ctx, (mx, my)) {
+                        // Inline link span → resolve + navigate, reflect the URL.
+                        if let Some(loc) = url::resolve(&nav.host, &nav.path, nav.tls, &href) {
+                            nav::start_navigation(&ctx, &mut nav, &loc.to_url());
+                            widgets::set_urlbar(&ctx, &nav.url.clone());
+                        }
+                    }
                 }
             }
         }

@@ -114,6 +114,18 @@ where
 
     let html = String::from_utf8_lossy(&row.body).to_string();
 
+    // Build the persistent DOM arena for this page (the single source of truth the
+    // walker/renderer read, and — from the JS phases on — that scripts mutate). It
+    // lives in linear memory, so it survives to the later CSS-response rebuild.
+    crate::dom::set(&html);
+
+    // Start a fresh JS realm for this page, seed its `location`/`history` view from
+    // the adopted final URL, then run its inline scripts (which may read location or
+    // request a navigation — the latter is drained in `on_frame`).
+    crate::js::reset();
+    crate::js::set_location(&nav.url, &nav.host, &nav.path, nav.tls, nav.hist_len);
+    crate::js::run_inline_scripts();
+
     // Stash the document so `rebuild` can re-parse it once stylesheets are ready.
     let doc = PageDoc {
         id: 0,
@@ -129,7 +141,7 @@ where
 
     // Collect this page's stylesheets in cascade order: external `<link>` sheets
     // (queued for fetch) first, then inline `<style>` text (immediately ready).
-    let (links, inline_styles) = html::collect_stylesheets(&html);
+    let (links, inline_styles) = html::collect_stylesheets();
     let mut next = nav.next_req_id;
     let mut order = 0u32;
     let mut pending = 0u32;
@@ -176,7 +188,7 @@ where
         // Pass the document fields directly — the PageDoc row we just inserted is
         // NOT visible to a read in this same run (write-visibility).
         let (host, path, tls) = (nav.host.clone(), nav.path.clone(), nav.tls);
-        rebuild(ctx, nav, &html, &host, &path, tls, &inline_styles);
+        rebuild(ctx, nav, &host, &path, tls, &inline_styles);
     }
     let _ = ctx.current.tables.navstate().update(nav.clone());
 }
@@ -235,9 +247,18 @@ pub(crate) fn on_css_response<Caps>(
             return;
         };
         let sheets = collect_sheet_texts(ctx, nav.page_gen, row.req_id, &css);
-        rebuild(ctx, nav, &doc.html, &doc.host, &doc.path, doc.tls, &sheets);
+        rebuild(ctx, nav, &doc.host, &doc.path, doc.tls, &sheets);
     }
     let _ = ctx.current.tables.navstate().update(nav.clone());
+}
+
+/// Gather the current page's stylesheet texts in cascade order (all rows already
+/// stored). Used to re-render from `on_frame` after a JS event mutates the DOM.
+pub(crate) fn current_sheets<Caps>(ctx: &ReducerContext<Caps>, page_gen: u32) -> Vec<String>
+where
+    Caps: CanRead<StyleSheet>,
+{
+    collect_sheet_texts(ctx, page_gen, u64::MAX, "")
 }
 
 /// Gather the current page's stylesheet texts in cascade order, substituting

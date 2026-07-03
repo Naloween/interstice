@@ -12,17 +12,43 @@ use crate::ui::*;
 use crate::widgets::{image_placeholder_el, space_el, text_el};
 use crate::{css, html, url};
 
-/// Build the viewport from the document (`html` served by `host`/`path`/`tls`) and
-/// the resolved cascade (`sheets`, lowest priority first). Bumps the generation so
-/// freshly created elements get collision-free ids. Mutates `nav` (generation +
-/// next request id); the caller writes it back. The document is passed in rather
-/// than read from `PageDoc` because, on the immediate (no-external-CSS) path, that
-/// row was just inserted this run and isn't yet visible to a read.
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+thread_local! {
+    /// Maps each rendered content element's id to the DOM [`crate::dom::NodeId`] it
+    /// was built from, so a click resolved to a `UiElement` (via `ui::element_at`)
+    /// can be routed back to that node's JS event listeners. Rebuilt from scratch on
+    /// every [`rebuild`]; ids are generation-scoped so stale entries never collide.
+    static NODE_MAP: RefCell<HashMap<String, crate::dom::NodeId>> = RefCell::new(HashMap::new());
+}
+
+/// The DOM node a rendered element maps to, if it was built from one.
+pub(crate) fn node_for_element(element_id: &str) -> Option<crate::dom::NodeId> {
+    NODE_MAP.with(|m| m.borrow().get(element_id).copied())
+}
+
+/// The source DOM node a content block carries, if any (synthetic blocks — spaces,
+/// float rows, table structure — carry none).
+fn block_node(b: &Block) -> Option<crate::dom::NodeId> {
+    match b {
+        Block::Text { node, .. } | Block::Container { node, .. } | Block::Image { node, .. } => {
+            *node
+        }
+        _ => None,
+    }
+}
+
+/// Build the viewport from the current document (the stored [`crate::dom`] arena,
+/// served by `host`/`path`/`tls`) and the resolved cascade (`sheets`, lowest
+/// priority first). Bumps the generation so freshly created elements get
+/// collision-free ids. Mutates `nav` (generation + next request id); the caller
+/// writes it back. The document lives in the arena (linear memory), so it is
+/// immediately visible here regardless of table write-visibility.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn rebuild<Caps>(
     ctx: &ReducerContext<Caps>,
     nav: &mut NavState,
-    html: &str,
     host: &str,
     path: &str,
     tls: bool,
@@ -43,9 +69,10 @@ pub(crate) fn rebuild<Caps>(
         + CanInsert<ImageFetchQueue>,
 {
     let stylesheet = css::parse_all(sheets);
-    let blocks = html::group_floats(html::parse_html(html, &stylesheet));
+    let blocks = html::group_floats(html::parse_html(&stylesheet));
 
     teardown_viewport(ctx);
+    NODE_MAP.with(|m| m.borrow_mut().clear());
 
     nav.nav_gen += 1;
     let generation = nav.nav_gen;
@@ -70,6 +97,9 @@ pub(crate) fn rebuild<Caps>(
     );
 
     nav.next_req_id = next_req;
+    // The freshly built viewport now reflects the live arena, so any pending dirty
+    // flag (from inline scripts or a just-handled event) is satisfied here.
+    let _ = crate::dom::take_dirty();
 }
 
 /// Recursively materialise `blocks` as `UiElement`s under `parent`. A flex
@@ -108,6 +138,11 @@ fn render_blocks<Caps>(
     for (i, block) in blocks.iter().enumerate() {
         let id = format!("c{generation}_{}", *counter);
         *counter += 1;
+        // Remember which DOM node this element came from, so a click here can fire
+        // the node's JS listeners (Container children get their own rows below).
+        if let Some(n) = block_node(block) {
+            NODE_MAP.with(|m| m.borrow_mut().insert(id.clone(), n));
+        }
         match block {
             Block::Text {
                 text,

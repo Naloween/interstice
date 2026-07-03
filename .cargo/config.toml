@@ -1,0 +1,10 @@
+# Workspace-wide cargo config.
+#
+# getrandom 0.3 (pulled only by the browser example via boa_engine → rand) selects
+# no backend on wasm32-unknown-unknown and fails to compile. The "custom" backend
+# routes entropy requests to a `__getrandom_v03_custom` symbol, which the browser
+# module defines (see modules/examples/browser/src/js.rs). Only getrandom 0.3 reads
+# this cfg, and only the browser compiles getrandom 0.3, so this is a no-op for
+# every other module.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="custom"']
