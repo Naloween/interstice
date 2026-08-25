@@ -88,17 +88,18 @@ where
         + CanRead<ImageWaiter>
         + CanDelete<ImageWaiter>,
 {
-    // Which elements were waiting on this fetch.
-    let waiters: Vec<String> = ctx
+    // Which elements were waiting on this fetch, plus any authored size to stamp
+    // them at (else they take the decoded intrinsic size).
+    let waiters: Vec<(String, Option<f32>, Option<f32>)> = ctx
         .current
         .tables
         .imagewaiter()
         .scan()
         .into_iter()
         .filter(|w| w.req_id == req_id)
-        .map(|w| w.element_id)
+        .map(|w| (w.element_id, w.fixed_w, w.fixed_h))
         .collect();
-    for id in &waiters {
+    for (id, _, _) in &waiters {
         let _ = ctx.current.tables.imagewaiter().delete(id.clone());
     }
 
@@ -148,11 +149,15 @@ where
     );
 
     let (dw, dh) = display_size(w, h);
-    for id in &waiters {
+    for (id, fw, fh) in &waiters {
         // Only attach if the element still exists (the user may have navigated away).
         if let Some(mut el) = ctx.current.tables.uielement().get(id.clone()) {
-            el.width = Size::Fixed(dw);
-            el.height = Size::Fixed(dh);
+            // Authored width/height win over the decoded size (a missing axis is
+            // filled from the decoded aspect ratio) so e.g. a 2×-native logo shown
+            // at `width="200"` doesn't render at 400px and cover its neighbours.
+            let (fw, fh) = crate::render::fixed_image_size(*fw, *fh, dw, dh);
+            el.width = Size::Fixed(fw);
+            el.height = Size::Fixed(fh);
             el.background_color = TRANSPARENT;
             el.image = Some(tex_id.clone());
             let _ = ctx.current.tables.uielement().update(el);

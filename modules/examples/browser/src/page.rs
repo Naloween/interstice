@@ -308,19 +308,25 @@ where
         + CanRead<ImageWaiter>
         + CanDelete<ImageWaiter>,
 {
-    // Delete each direct child's whole subtree (flex containers nest children
-    // beneath them, so a flat single-level delete would orphan grandchildren).
-    let children: Vec<String> = ctx
-        .current
-        .tables
-        .uielement()
-        .scan()
-        .into_iter()
-        .filter(|el| el.parent.as_deref() == Some(VIEWPORT_ID))
-        .map(|el| el.id)
-        .collect();
-    for cid in children {
-        ui::delete_element(ctx, &cid);
+    // Delete the viewport's whole subtree. A naive recursive delete re-scans the
+    // ENTIRE element table once per node to find its children — O(n²), which cost
+    // ~3.3s to tear down a 906-element page (Wikipedia). Instead scan once, build a
+    // parent→children map, then walk the subtree and delete every node in a single
+    // pass (flex containers nest children beneath them, so we must recurse to avoid
+    // orphaning grandchildren).
+    let mut by_parent: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for el in ctx.current.tables.uielement().scan() {
+        if let Some(p) = el.parent {
+            by_parent.entry(p).or_default().push(el.id);
+        }
+    }
+    let mut stack: Vec<String> = by_parent.remove(VIEWPORT_ID).unwrap_or_default();
+    while let Some(id) = stack.pop() {
+        if let Some(kids) = by_parent.remove(&id) {
+            stack.extend(kids);
+        }
+        let _ = ctx.current.tables.uielement().delete(id);
     }
     for lm in ctx.current.tables.linkmap().scan() {
         let _ = ctx.current.tables.linkmap().delete(lm.element_id);

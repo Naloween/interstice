@@ -255,8 +255,11 @@ fn cell_box(children: Vec<Block>, frac: f32, header: bool) -> Block {
         clears: false,
         position: css::Position::Static,
         inset: (None, None, None, None),
+        inset_pct: (None, None, None, None),
         width: css::WidthVal::Pct(frac),
+        height: css::WidthVal::Auto,
         node: None,
+        center: false,
     }
 }
 
@@ -274,8 +277,11 @@ fn row_box(cells: Vec<Block>) -> Block {
         clears: false,
         position: css::Position::Static,
         inset: (None, None, None, None),
+        inset_pct: (None, None, None, None),
         width: css::WidthVal::Auto,
+        height: css::WidthVal::Auto,
         node: None,
+        center: false,
     }
 }
 
@@ -293,7 +299,10 @@ fn table_box(rows: Vec<Block>) -> Block {
         clears: true, // tables sit in normal flow, below any preceding float
         position: css::Position::Static,
         inset: (None, None, None, None),
+        inset_pct: (None, None, None, None),
         width: css::WidthVal::Auto,
+        height: css::WidthVal::Auto,
         node: None,
+        center: false,
     }
 }

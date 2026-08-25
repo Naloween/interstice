@@ -69,9 +69,16 @@ pub(crate) fn rebuild<Caps>(
         + CanInsert<ImageFetchQueue>,
 {
     let stylesheet = css::parse_all(sheets);
-    let blocks = html::group_floats(html::parse_html(&stylesheet));
+    let (blocks, page_bg) = html::parse_html(&stylesheet);
+    let blocks = html::group_floats(blocks);
 
     teardown_viewport(ctx);
+    // Paint the page canvas: the document's `<html>`/`<body>` background, or the
+    // default white canvas a browser shows when the page sets none.
+    if let Some(mut vp) = ctx.current.tables.uielement().get(VIEWPORT_ID.to_string()) {
+        vp.background_color = page_bg.unwrap_or(VIEWPORT_BG);
+        let _ = ctx.current.tables.uielement().update(vp);
+    }
     NODE_MAP.with(|m| m.borrow_mut().clear());
 
     nav.nav_gen += 1;
@@ -220,6 +227,9 @@ fn render_blocks<Caps>(
                 inline_svg,
                 position,
                 inset,
+                inset_pct,
+                width,
+                height,
                 ..
             } => {
                 // Inline `<svg>`: rasterize the serialized source right here and
@@ -230,11 +240,14 @@ fn render_blocks<Caps>(
                     {
                         let mut el =
                             image_placeholder_el(id.clone(), parent.to_string(), i as u32);
-                        el.width = Size::Fixed(dw);
-                        el.height = Size::Fixed(dh);
+                        // Honor an authored width/height; fill a missing axis from
+                        // the decoded aspect ratio so proportions stay correct.
+                        let (fw, fh) = fixed_image_size(*width, *height, dw, dh);
+                        el.width = Size::Fixed(fw);
+                        el.height = Size::Fixed(fh);
                         el.background_color = TRANSPARENT;
                         el.image = Some(tex_id);
-                        apply_position(&mut el, *position, *inset);
+                        apply_position(&mut el, *position, *inset, *inset_pct);
                         ui::create_element(ctx, el);
                     }
                     continue;
@@ -269,11 +282,21 @@ fn render_blocks<Caps>(
                     }
                 };
                 let mut img_el = image_placeholder_el(id.clone(), parent.to_string(), i as u32);
-                apply_position(&mut img_el, *position, *inset);
+                // Size the placeholder to the authored dimensions up front so the
+                // layout is stable before the image decodes (and doesn't reflow).
+                if let Some(w) = width {
+                    img_el.width = Size::Fixed(*w);
+                }
+                if let Some(h) = height {
+                    img_el.height = Size::Fixed(*h);
+                }
+                apply_position(&mut img_el, *position, *inset, *inset_pct);
                 ui::create_element(ctx, img_el);
                 let _ = ctx.current.tables.imagewaiter().insert(ImageWaiter {
                     element_id: id,
                     req_id,
+                    fixed_w: *width,
+                    fixed_h: *height,
                 });
             }
             Block::Container {
@@ -287,7 +310,10 @@ fn render_blocks<Caps>(
                 children,
                 position,
                 inset,
+                inset_pct,
                 width,
+                height,
+                center,
                 ..
             } => {
                 let mut el = container_el(
@@ -310,7 +336,20 @@ fn render_blocks<Caps>(
                     css::WidthVal::Px(px) => el.width = Size::Fixed(px.max(0.0)),
                     css::WidthVal::Pct(f) => el.width = Size::Percent(*f),
                 }
-                apply_position(&mut el, *position, *inset);
+                // An explicit height fixes the box so positioned children with
+                // percentage `top`/`bottom` insets resolve against a real height
+                // (e.g. the language ring around `.central-featured`, whose
+                // children are all `position:absolute`).
+                match height {
+                    css::WidthVal::Auto => {}
+                    css::WidthVal::Px(px) => el.height = Size::Fixed(px.max(0.0)),
+                    css::WidthVal::Pct(f) => el.height = Size::Percent(*f),
+                }
+                apply_position(&mut el, *position, *inset, *inset_pct);
+                // `margin: 0 auto` on a definite-width block ⇒ center within the
+                // parent's cross axis (engine-side, so no wrapper box clips the
+                // block's overflowing absolute children — e.g. the portal globe).
+                el.center_cross = *center;
                 ui::create_element(ctx, el);
                 render_blocks(
                     ctx,
@@ -459,6 +498,26 @@ fn container_el(
     }
 }
 
+/// Resolve an image's final display size from optional authored dimensions and
+/// the decoded fallback `(dw, dh)`. A single authored axis derives the other from
+/// the decoded aspect ratio so the image isn't stretched; no authored size ⇒ the
+/// decoded fallback as-is.
+pub(crate) fn fixed_image_size(
+    w: Option<f32>,
+    h: Option<f32>,
+    dw: f32,
+    dh: f32,
+) -> (f32, f32) {
+    match (w, h) {
+        (Some(w), Some(h)) => (w, h),
+        (Some(w), None) if dw > 0.0 => (w, w * dh / dw),
+        (Some(w), None) => (w, dh),
+        (None, Some(h)) if dh > 0.0 => (h * dw / dh, h),
+        (None, Some(h)) => (dw, h),
+        (None, None) => (dw, dh),
+    }
+}
+
 /// Map the browser CSS flex enums onto the UI engine's layout enums.
 fn map_direction(d: css::FlexDirection) -> LayoutDirection {
     match d {
@@ -496,10 +555,13 @@ fn map_position(p: css::Position) -> Position {
 }
 
 /// Stamp CSS `position` + `(top, right, bottom, left)` offsets onto an element.
+/// `inset` carries px offsets, `inset_pct` the percentage (fraction) offsets;
+/// the engine folds them together against the containing block at layout time.
 fn apply_position(
     el: &mut UiElement,
     position: css::Position,
     inset: (Option<f32>, Option<f32>, Option<f32>, Option<f32>),
+    inset_pct: (Option<f32>, Option<f32>, Option<f32>, Option<f32>),
 ) {
     el.position = map_position(position);
     let (t, r, b, l) = inset;
@@ -507,4 +569,9 @@ fn apply_position(
     el.pos_right = r;
     el.pos_bottom = b;
     el.pos_left = l;
+    let (tp, rp, bp, lp) = inset_pct;
+    el.pos_top_pct = tp;
+    el.pos_right_pct = rp;
+    el.pos_bottom_pct = bp;
+    el.pos_left_pct = lp;
 }

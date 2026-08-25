@@ -60,6 +60,10 @@ macro_rules! ui_subsystem {
                 pub pos_top: Option<f32>,
                 pub pos_right: Option<f32>,
                 pub pos_bottom: Option<f32>,
+                pub pos_left_pct: Option<f32>,
+                pub pos_top_pct: Option<f32>,
+                pub pos_right_pct: Option<f32>,
+                pub pos_bottom_pct: Option<f32>,
                 pub gap: f32,
                 pub padding: f32,
                 pub margin: f32,
@@ -80,6 +84,7 @@ macro_rules! ui_subsystem {
                 /// Explicit CSS `line-height` in px; `<= 0.0` ⇒ natural font height.
                 pub line_height: f32,
                 pub image: Option<String>,
+                pub image_src: Option<(f32, f32, f32, f32)>,
                 pub is_input: bool,
                 pub cursor_pos: u32,
                 pub scrollable_x: bool,
@@ -87,6 +92,7 @@ macro_rules! ui_subsystem {
                 pub scroll_x: f32,
                 pub scroll_y: f32,
                 pub visible: bool,
+                pub center_cross: bool,
             }
 
             /// Neutral defaults so element literals can use `..Default::default()`
@@ -107,6 +113,10 @@ macro_rules! ui_subsystem {
                         pos_top: None,
                         pos_right: None,
                         pos_bottom: None,
+                        pos_left_pct: None,
+                        pos_top_pct: None,
+                        pos_right_pct: None,
+                        pos_bottom_pct: None,
                         gap: 0.0,
                         padding: 0.0,
                         margin: 0.0,
@@ -126,6 +136,7 @@ macro_rules! ui_subsystem {
                         text_align: 0.0,
                         line_height: 0.0,
                         image: None,
+                        image_src: None,
                         is_input: false,
                         cursor_pos: 0,
                         scrollable_x: false,
@@ -133,6 +144,7 @@ macro_rules! ui_subsystem {
                         scroll_x: 0.0,
                         scroll_y: 0.0,
                         visible: true,
+                        center_cross: false,
                     }
                 }
             }
@@ -177,6 +189,10 @@ macro_rules! ui_subsystem {
                     pos_top: e.pos_top,
                     pos_right: e.pos_right,
                     pos_bottom: e.pos_bottom,
+                    pos_left_pct: e.pos_left_pct,
+                    pos_top_pct: e.pos_top_pct,
+                    pos_right_pct: e.pos_right_pct,
+                    pos_bottom_pct: e.pos_bottom_pct,
                     gap: e.gap,
                     padding: e.padding,
                     margin: e.margin,
@@ -196,6 +212,7 @@ macro_rules! ui_subsystem {
                     text_align: e.text_align,
                     line_height: e.line_height,
                     image: e.image,
+                    image_src: e.image_src,
                     is_input: e.is_input,
                     cursor_pos: e.cursor_pos,
                     scrollable_x: e.scrollable_x,
@@ -203,6 +220,7 @@ macro_rules! ui_subsystem {
                     scroll_x: e.scroll_x,
                     scroll_y: e.scroll_y,
                     visible: e.visible,
+                    center_cross: e.center_cross,
                 }
             }
 

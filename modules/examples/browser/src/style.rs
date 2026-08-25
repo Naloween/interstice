@@ -6,10 +6,11 @@
 
 pub type Rgba = (f32, f32, f32, f32);
 
-pub const BODY_TEXT: Rgba = (0.88, 0.88, 0.91, 1.0);
-pub const HEADING: Rgba = (0.97, 0.97, 0.99, 1.0);
-pub const LINK: Rgba = (0.45, 0.66, 1.0, 1.0);
-pub const CODE: Rgba = (0.70, 0.85, 0.70, 1.0);
+// Light theme (white canvas + dark text), matching a default browser render.
+pub const BODY_TEXT: Rgba = (0.12, 0.12, 0.13, 1.0);
+pub const HEADING: Rgba = (0.07, 0.07, 0.08, 1.0);
+pub const LINK: Rgba = (0.04, 0.27, 0.68, 1.0);
+pub const CODE: Rgba = (0.11, 0.35, 0.18, 1.0);
 
 /// Resolved style for a run of text emitted by a block.
 #[derive(Clone, Copy, Debug)]
@@ -84,7 +85,7 @@ pub fn block_style(tag: &str, base: &TextStyle) -> Option<TextStyle> {
         "p" => TextStyle { size: 15.0, color: BODY_TEXT, space_before: 10.0, indent_step: 0.0, bold: false, italic: false },
         "li" | "dd" => TextStyle { size: 15.0, color: BODY_TEXT, space_before: 4.0, indent_step: 24.0, bold: false, italic: false },
         "dt" => TextStyle { size: 15.0, color: HEADING, space_before: 8.0, indent_step: 12.0, bold: false, italic: false },
-        "blockquote" => TextStyle { size: 15.0, color: (0.75, 0.78, 0.82, 1.0), space_before: 10.0, indent_step: 24.0, bold: false, italic: false },
+        "blockquote" => TextStyle { size: 15.0, color: (0.36, 0.39, 0.43, 1.0), space_before: 10.0, indent_step: 24.0, bold: false, italic: false },
         "pre" | "code" => TextStyle { size: 14.0, color: CODE, space_before: 8.0, indent_step: 12.0, bold: false, italic: false },
         _ => return None,
     };

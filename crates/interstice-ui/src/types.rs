@@ -109,6 +109,14 @@ pub struct UiElement {
     pub pos_top: Option<f32>,
     pub pos_right: Option<f32>,
     pub pos_bottom: Option<f32>,
+    /// Percentage `position` offsets as fractions of the containing block's
+    /// width (left/right) or height (top/bottom). Resolved at layout time and
+    /// added on top of any absolute-px offset on the same side. `None` ⇒ no
+    /// percentage component.
+    pub pos_left_pct: Option<f32>,
+    pub pos_top_pct: Option<f32>,
+    pub pos_right_pct: Option<f32>,
+    pub pos_bottom_pct: Option<f32>,
     pub gap: f32,
     pub padding: f32,
     pub margin: f32,
@@ -143,6 +151,10 @@ pub struct UiElement {
     /// Texture local_id of an image to draw into this element's content box.
     /// `None` for ordinary boxes; set for `<img>`-style elements.
     pub image: Option<String>,
+    /// Source sub-rectangle of `image`'s texture to sample, as UV fractions
+    /// `(u0, v0, u1, v1)`. `None` ⇒ use the whole texture. Set for CSS-sprite
+    /// backgrounds that crop a single icon out of a larger sheet.
+    pub image_src: Option<(f32, f32, f32, f32)>,
     pub is_input: bool,
     pub cursor_pos: u32,
     pub scrollable_x: bool,
@@ -150,6 +162,21 @@ pub struct UiElement {
     pub scroll_x: f32,
     pub scroll_y: f32,
     pub visible: bool,
+    /// When set, this element centres itself on its parent's cross axis,
+    /// overriding the parent's `align_items` for this child alone (CSS
+    /// `margin: 0 auto` on a definite-width block). Unlike wrapping the block in
+    /// a centering box, this introduces no extra box, so the block's own clip
+    /// rect stays its own size and overflowing absolute children aren't clipped.
+    pub center_cross: bool,
+}
+
+/// Sum the px and percentage components of one `position` inset side. `None`
+/// only when both are absent; otherwise the present parts add.
+fn combine_inset(px: Option<f32>, pct: Option<f32>) -> Option<f32> {
+    match (px, pct) {
+        (None, None) => None,
+        (a, b) => Some(a.unwrap_or(0.0) + b.unwrap_or(0.0)),
+    }
 }
 
 impl UiElement {
@@ -160,6 +187,21 @@ impl UiElement {
             bold: self.text_bold,
             italic: self.text_italic,
         }
+    }
+    /// Effective `position` offset for each side, folding the percentage
+    /// component (resolved against the containing block's `cbw`/`cbh`) onto any
+    /// absolute-px offset. `None` when neither component is set for that side.
+    pub fn eff_left(&self, cbw: f32) -> Option<f32> {
+        combine_inset(self.pos_left, self.pos_left_pct.map(|p| p * cbw))
+    }
+    pub fn eff_right(&self, cbw: f32) -> Option<f32> {
+        combine_inset(self.pos_right, self.pos_right_pct.map(|p| p * cbw))
+    }
+    pub fn eff_top(&self, cbh: f32) -> Option<f32> {
+        combine_inset(self.pos_top, self.pos_top_pct.map(|p| p * cbh))
+    }
+    pub fn eff_bottom(&self, cbh: f32) -> Option<f32> {
+        combine_inset(self.pos_bottom, self.pos_bottom_pct.map(|p| p * cbh))
     }
     /// Effective line height in px: the explicit `line_height` override when
     /// positive, else the font's natural line height for this element's size and

@@ -29,6 +29,14 @@ use crate::types::{
 };
 use crate::{DEFAULT_CLEAR, DEFAULT_SEGMENTS, GpuExt, MIN_SEGMENTS, RENDERER_CACHE_KEY};
 
+thread_local! {
+    /// The `font::generation()` the cached glyph-atlas textures were uploaded at.
+    /// When the atlas grows (a new CJK glyph was baked) the generation bumps and
+    /// `ensure_pipelines` re-uploads. `None` = nothing uploaded yet. Single-threaded
+    /// wasm module, so this parallels the persistent `RendererCache` row.
+    static UPLOADED_ATLAS_GEN: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+}
+
 #[reducer(on = "render")]
 pub fn render<Caps>(ctx: ReducerContext<Caps>)
 where
@@ -121,11 +129,20 @@ where
     let draw_rows = ctx.current.tables.draw2dcommand().scan();
     let mut commands_by_layer: HashMap<String, Vec<Draw2DCommand>> = HashMap::new();
     for row in draw_rows {
+        // Queue any not-yet-baked characters (CJK etc.) this frame's text uses so
+        // the atlas covers them before we (re)build/upload it below.
+        if let Some(text) = &row.text {
+            font::note_str(&text.content);
+        }
         commands_by_layer
             .entry(row.layer.clone())
             .or_default()
             .push(row);
     }
+    // Bake the base charset (first frame) plus any freshly-queued glyphs. Bumps
+    // `font::generation()` when the atlas contents changed, so `ensure_pipelines`
+    // re-uploads the textures.
+    font::ensure_built();
 
     // Route each layer to its owner module's assigned surface (default: 0).
     let assignments: HashMap<String, u32> = ctx
@@ -617,14 +634,26 @@ where
 
     // Glyph atlases: format-independent, so they are *not* reset by a surface-
     // format change above — build + upload one rasterized face per weight/slant
-    // once and cache their views (indexed by `font::style_index`).
-    if cache.glyph_atlas_views.len() != font::STYLE_COUNT {
+    // and cache their views (indexed by `font::style_index`). Rebuilt when the
+    // atlas contents grow (a new CJK glyph was baked this frame, bumping the
+    // generation), re-uploading the textures and freeing the stale ones.
+    let atlas_gen = font::generation();
+    let needs_atlas = cache.glyph_atlas_views.len() != font::STYLE_COUNT
+        || UPLOADED_ATLAS_GEN.with(|g| g.get()) != Some(atlas_gen);
+    if needs_atlas {
+        // Free the previous generation's textures/views before replacing them.
+        for view in cache.glyph_atlas_views.drain(..) {
+            let _ = gpu.destroy_texture_view(view);
+        }
+        for texture in cache.glyph_atlas_textures.drain(..) {
+            let _ = gpu.destroy_texture(texture);
+        }
         let mut textures = Vec::with_capacity(font::STYLE_COUNT);
         let mut views = Vec::with_capacity(font::STYLE_COUNT);
         for idx in 0..font::STYLE_COUNT {
             let bold = idx & 1 != 0;
             let italic = idx & 2 != 0;
-            let texture = upload_atlas(gpu, font::atlas(bold, italic))?;
+            let texture = font::with_atlas(bold, italic, |a| upload_atlas(gpu, a))?;
             let view = gpu.create_texture_view(CreateTextureView {
                 texture,
                 format: Some(TextureFormat::Rgba8Unorm),
@@ -639,6 +668,7 @@ where
         }
         cache.glyph_atlas_textures = textures;
         cache.glyph_atlas_views = views;
+        UPLOADED_ATLAS_GEN.with(|g| g.set(Some(atlas_gen)));
         dirty = true;
     }
     let mut atlas_views = [0u32; font::STYLE_COUNT];
@@ -1415,7 +1445,6 @@ fn tessellate_text(
         return;
     }
 
-    let atlas = font::atlas(bold, italic);
     let size = cmd.size;
     let s = size / font::ATLAS_BASE_PX;
     let line_height = font::text_line_height(size, bold, italic);
@@ -1445,7 +1474,7 @@ fn tessellate_text(
             _ => {}
         }
 
-        if let Some(g) = atlas.glyph(ch) {
+        if let Some(g) = font::glyph_info(ch, bold, italic) {
             if g.width > 0.0 && g.height > 0.0 {
                 let dest = Rect {
                     x: pen_x + g.left * s,

@@ -29,6 +29,12 @@ pub const FONT_TTF: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
 pub const FONT_TTF_BOLD: &[u8] = include_bytes!("../assets/DejaVuSans-Bold.ttf");
 pub const FONT_TTF_ITALIC: &[u8] = include_bytes!("../assets/DejaVuSans-Oblique.ttf");
 pub const FONT_TTF_BOLD_ITALIC: &[u8] = include_bytes!("../assets/DejaVuSans-BoldOblique.ttf");
+/// CJK fallback (Droid Sans Fallback): covers Han/Hiragana/Katakana that DejaVu
+/// lacks, so pages with Japanese/Chinese text measure (and, on the graphics side,
+/// draw) at their true widths. Single weight — used for every style. MUST stay in
+/// sync with the matching copy in `modules/defaults/graphics/assets` so drawn pen
+/// positions track this layout (see the module comment).
+pub const FONT_TTF_CJK: &[u8] = include_bytes!("../assets/DroidSansFallbackFull.ttf");
 
 /// The face for `style`, lazily parsed from the embedded bytes and cached.
 fn face(style: FontStyle) -> &'static FontArc {
@@ -43,6 +49,24 @@ fn face(style: FontStyle) -> &'static FontArc {
         (true, true) => (&BI, FONT_TTF_BOLD_ITALIC),
     };
     cell.get_or_init(|| FontArc::try_from_slice(bytes).expect("embedded DejaVu face is valid"))
+}
+
+/// The shared CJK fallback face (one weight for all styles).
+fn cjk_face() -> &'static FontArc {
+    static CJK: OnceLock<FontArc> = OnceLock::new();
+    CJK.get_or_init(|| FontArc::try_from_slice(FONT_TTF_CJK).expect("embedded CJK face is valid"))
+}
+
+/// Pick the face that actually has a glyph for `ch`: the styled DejaVu face when
+/// it covers the character, otherwise the CJK fallback. Rendering (graphics
+/// `font::face_for`) mirrors this exactly so measured and drawn advances agree.
+pub fn face_for(ch: char, style: FontStyle) -> &'static FontArc {
+    let primary = face(style);
+    if primary.glyph_id(ch).0 == 0 && cjk_face().glyph_id(ch).0 != 0 {
+        cjk_face()
+    } else {
+        primary
+    }
 }
 
 thread_local! {
@@ -78,7 +102,7 @@ pub fn char_advance(ch: char, size: f32, style: FontStyle) -> f32 {
     if let Some(w) = ADVANCE_CACHE.with(|c| c.borrow().get(&key).copied()) {
         return w;
     }
-    let sf = face(style).as_scaled(PxScale::from(size));
+    let sf = face_for(ch, style).as_scaled(PxScale::from(size));
     let w = sf.h_advance(sf.glyph_id(ch));
     ADVANCE_CACHE.with(|c| c.borrow_mut().insert(key, w));
     w

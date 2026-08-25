@@ -71,8 +71,17 @@ pub enum Block {
         float: css::Float,
         clears: bool,
         position: css::Position,
-        /// `(top, right, bottom, left)` position offsets.
+        /// `(top, right, bottom, left)` position offsets in px.
         inset: (Option<f32>, Option<f32>, Option<f32>, Option<f32>),
+        /// The same four sides as fractions of the containing block, for `%`
+        /// offsets; resolved by the engine at layout time.
+        inset_pct: (Option<f32>, Option<f32>, Option<f32>, Option<f32>),
+        /// Explicit display size in px from the `<img>` `width`/`height` attributes
+        /// or CSS `width`/`height`. `None` ⇒ use the decoded intrinsic size. Set so
+        /// e.g. the Wikipedia globe (`width="200" height="183"`, but a ~2× native
+        /// PNG) renders at its authored size instead of swamping its neighbours.
+        width: Option<f32>,
+        height: Option<f32>,
         /// The source `<img>`/`<svg>` DOM node, for click→event routing.
         node: Option<crate::dom::NodeId>,
     },
@@ -99,12 +108,23 @@ pub enum Block {
         /// CSS `position` and its `(top, right, bottom, left)` offsets.
         position: css::Position,
         inset: (Option<f32>, Option<f32>, Option<f32>, Option<f32>),
+        /// The same four sides as fractions of the containing block, for `%`
+        /// offsets; resolved by the engine at layout time.
+        inset_pct: (Option<f32>, Option<f32>, Option<f32>, Option<f32>),
         /// Explicit box width (table cells set a percentage so columns align);
         /// `Auto` keeps the default flex sizing.
         width: css::WidthVal,
+        /// Explicit box height (`Auto` ⇒ content-sized). A fixed height matters
+        /// for positioned boxes whose children are all `absolute`: without it the
+        /// box collapses to zero and percentage `top`/`bottom` insets resolve
+        /// against nothing.
+        height: css::WidthVal,
         /// The source DOM element this container was built from, for click→event
         /// routing. `None` for synthetic containers (table structure, float rows).
         node: Option<crate::dom::NodeId>,
+        /// `margin: 0 auto` on a definite width ⇒ center this box on its
+        /// container's cross axis (see [`wants_center`]).
+        center: bool,
     },
     /// A float context produced by [`group_floats`]: `float_box` sits at the
     /// `side` (left/right) edge while `flow` (the following in-flow blocks)
@@ -167,12 +187,17 @@ struct State<'a> {
     cur_width: css::WidthVal,
     /// Current block's CSS `height` (`Auto` ⇒ content-sized).
     cur_height: css::WidthVal,
-    /// Current block's CSS `line-height` in px (`0.0` ⇒ natural font height).
-    cur_line_height: f32,
+    /// Current block's inherited CSS `line-height` spec (unitless multiplier or a
+    /// fixed px). `None` ⇒ the font's natural height. Resolved to px in [`flush`]
+    /// against the block's own font-size, so a unitless value scales per element.
+    cur_line_height: Option<css::LineHeight>,
     cur_border_w: f32,
     cur_border_c: Rgba,
     /// Current block's `clear`: drops the block below any preceding float.
     cur_clears: bool,
+    /// The resolved `<html>`/`<body>` `background-color`, painted as the page
+    /// canvas. `None` ⇒ keep the browser's default white canvas.
+    page_bg: Option<Rgba>,
     /// Open list contexts (innermost last) for `<li>` markers.
     lists: Vec<ListCtx>,
     /// The innermost block-level element currently being walked. [`flush`] stamps
@@ -183,8 +208,9 @@ struct State<'a> {
 }
 
 /// Parse the current document (the stored [`crate::dom`] arena) against `sheet`
-/// and return its blocks. An empty arena yields an empty list.
-pub fn parse_html(sheet: &css::Stylesheet) -> Vec<Block> {
+/// and return its blocks plus the resolved page (`<html>`/`<body>`) background
+/// colour, if any. An empty arena yields an empty list.
+pub fn parse_html(sheet: &css::Stylesheet) -> (Vec<Block>, Option<Rgba>) {
     crate::dom::with(|dom| {
         let mut st = State {
             sheet,
@@ -205,10 +231,11 @@ pub fn parse_html(sheet: &css::Stylesheet) -> Vec<Block> {
             cur_padding: (0.0, 0.0, 0.0, 0.0),
             cur_width: css::WidthVal::Auto,
             cur_height: css::WidthVal::Auto,
-            cur_line_height: 0.0,
+            cur_line_height: None,
             cur_border_w: 0.0,
             cur_border_c: (0.0, 0.0, 0.0, 0.0),
             cur_clears: false,
+            page_bg: None,
             lists: Vec::new(),
             block_owner: None,
         };
@@ -216,13 +243,54 @@ pub fn parse_html(sheet: &css::Stylesheet) -> Vec<Block> {
             walk(dom, id, &mut st);
         }
         flush(&mut st);
-        st.blocks
+        (st.blocks, st.page_bg)
     })
 }
 
-/// Extract `position` offsets `(top, right, bottom, left)` from a computed style.
+/// Extract `position` offsets `(top, right, bottom, left)` in px from a style.
 fn applied_inset(a: &css::Applied) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
     (a.inset[0], a.inset[1], a.inset[2], a.inset[3])
+}
+
+/// Extract the percentage `position` offsets `(top, right, bottom, left)` (as
+/// fractions) from a style, for offsets authored as `%`.
+fn applied_inset_pct(a: &css::Applied) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
+    (a.inset_pct[0], a.inset_pct[1], a.inset_pct[2], a.inset_pct[3])
+}
+
+/// Resolve an `<img>`'s explicit display width/height in px: CSS `width`/`height`
+/// (as a fixed px length) wins over the HTML `width`/`height` presentational
+/// attributes; either may be absent (`None` ⇒ derive from the decoded intrinsic
+/// size). A bare attribute number is CSS pixels.
+fn img_dimensions(node: &crate::dom::Node, applied: &css::Applied) -> (Option<f32>, Option<f32>) {
+    let from_attr = |name: &str| {
+        node.attr(name)
+            .map(str::trim)
+            .and_then(|s| s.trim_end_matches("px").trim().parse::<f32>().ok())
+            .filter(|v| *v > 0.0)
+    };
+    let from_css = |wv: Option<css::WidthVal>| match wv {
+        Some(css::WidthVal::Px(px)) if px > 0.0 => Some(px),
+        _ => None,
+    };
+    (
+        from_css(applied.width).or_else(|| from_attr("width")),
+        from_css(applied.height).or_else(|| from_attr("height")),
+    )
+}
+
+/// Whether a block wants the `margin: 0 auto` centering idiom: `margin-left` and
+/// `margin-right` both `auto` on a *definite* width. The engine centers such a
+/// box on its container's cross axis (`UiElement::center_cross`) — no wrapper box,
+/// so an overflowing positioned child (e.g. the Wikipedia globe, taller than its
+/// box) keeps its ancestors' clip instead of being cut by a synthetic wrapper.
+fn wants_center(applied: &css::Applied) -> bool {
+    applied.margin_auto[1]
+        && applied.margin_auto[3]
+        && matches!(
+            applied.width,
+            Some(css::WidthVal::Px(_)) | Some(css::WidthVal::Pct(_))
+        )
 }
 
 /// The float side of a block (`None` for in-flow blocks).
@@ -337,13 +405,45 @@ fn walk(dom: &crate::dom::Dom, id: crate::dom::NodeId, st: &mut State) {
         crate::dom::NodeKind::Comment(_) => {}
         crate::dom::NodeKind::Element { tag, .. } => {
             let name = tag.clone();
-            tag_node(dom, id, &name, st);
+            // Generated content (`::before`/`::after`): only pay the per-element
+            // pseudo query when the sheet actually declares such rules and the
+            // element isn't skipped. `st.stack` here excludes this element (matching
+            // how `applied` is called), so the pseudo matches the element itself.
+            if st.sheet.has_pseudo() && !style::is_skipped(&name) {
+                let ctx = elem_ctx(dom, id, &name);
+                let base_font = st.style.size;
+                let before = st.sheet.pseudo(&ctx, &st.stack, css::PseudoEl::Before, base_font);
+                let after = st.sheet.pseudo(&ctx, &st.stack, css::PseudoEl::After, base_font);
+                inject_pseudo(st, before.as_ref());
+                tag_node(dom, id, &name, st);
+                inject_pseudo(st, after.as_ref());
+            } else {
+                tag_node(dom, id, &name, st);
+            }
         }
     }
 }
 
+/// Emit a `::before`/`::after` generated-content string into the current inline
+/// run, honouring an explicit pseudo `color` (else inheriting the current one).
+/// No-op when there's no content (already filtered by [`css::Stylesheet::pseudo`]).
+fn inject_pseudo(st: &mut State, applied: Option<&css::Applied>) {
+    let Some(applied) = applied else { return };
+    let Some(content) = applied.content.as_deref() else { return };
+    if content.is_empty() {
+        return;
+    }
+    let saved_color = st.cur_color;
+    if let Some(c) = applied.color {
+        st.cur_color = c;
+    }
+    push_run(st, content);
+    st.cur_color = saved_color;
+}
+
 /// Build the selector-matching context (tag/id/classes) for an element.
-fn elem_ctx(name: &str, node: &crate::dom::Node) -> css::ElemCtx {
+fn elem_ctx(dom: &crate::dom::Dom, nid: crate::dom::NodeId, name: &str) -> css::ElemCtx {
+    let node = dom.node(nid);
     let id = node
         .attr("id")
         .map(|s| s.trim().to_string())
@@ -352,11 +452,75 @@ fn elem_ctx(name: &str, node: &crate::dom::Node) -> css::ElemCtx {
         .attr("class")
         .map(|s| s.split_whitespace().map(|c| c.to_string()).collect())
         .unwrap_or_default();
+    let attrs = match &node.kind {
+        crate::dom::NodeKind::Element { attrs, .. } => attrs.clone(),
+        _ => Vec::new(),
+    };
+
+    // Position among element siblings (1-based), plus the same-tag counts, for
+    // the structural pseudo-classes. `<html>`/orphan nodes report unknown (0).
+    let (mut index, mut count, mut type_index, mut type_count) = (0usize, 0usize, 0usize, 0usize);
+    let siblings: &[crate::dom::NodeId] = match node.parent {
+        Some(p) => &dom.node(p).children,
+        None => &[],
+    };
+    for &sib in siblings {
+        // Only element siblings count for :nth-child / :first-child etc.
+        let Some(stag) = dom.node(sib).tag() else {
+            continue;
+        };
+        count += 1;
+        let same_type = stag == name;
+        if same_type {
+            type_count += 1;
+        }
+        if sib == nid {
+            index = count;
+            type_index = type_count;
+        }
+    }
+
     css::ElemCtx {
         tag: name.to_string(),
         id,
         classes,
+        attrs,
+        index,
+        count,
+        type_index,
+        type_count,
+        is_root: name == "html",
     }
+}
+
+/// Pick the best URL for an `<img>`: a usable `src`, else the first `srcset`
+/// candidate, else a lazy-loading `data-src`/`data-srcset`. Returns `None` when
+/// there's nothing fetchable (e.g. a `src=""` placeholder with no fallback).
+fn img_url(node: &crate::dom::Node) -> Option<String> {
+    // A non-empty, non-data-URI `src` is the common case.
+    if let Some(src) = node.attr("src") {
+        let s = src.trim();
+        if !s.is_empty() && !s.starts_with("data:image/gif") {
+            return Some(s.to_string());
+        }
+    }
+    // `srcset` / lazy-load fallbacks (Wikipedia thumbs, responsive images).
+    for attr in ["srcset", "data-srcset", "data-src"] {
+        if let Some(val) = node.attr(attr) {
+            if let Some(u) = first_srcset_url(val) {
+                return Some(u);
+            }
+        }
+    }
+    None
+}
+
+/// Extract the first candidate URL from a `srcset` (comma-separated `url [wd]`),
+/// or treat the whole string as a single URL (`data-src`).
+fn first_srcset_url(srcset: &str) -> Option<String> {
+    let first = srcset.split(',').next()?.trim();
+    let url = first.split_whitespace().next()?.trim();
+    (!url.is_empty()).then(|| url.to_string())
 }
 
 /// The UA default `display` for a tag (author CSS may override it).
@@ -373,37 +537,64 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
         return;
     }
 
-    let ctx = elem_ctx(name, dom.node(id));
+    let ctx = elem_ctx(dom, id, name);
     let base_font = st.style.size;
     let mut applied = st.sheet.applied(&ctx, &st.stack, base_font);
     // Inline `style="…"` wins over author rules.
     if let Some(style_attr) = dom.node(id).attr("style") {
-        let inline = css::parse_inline(style_attr, base_font);
+        let inline = st.sheet.inline(style_attr, base_font);
         applied.overlay(&inline);
     }
 
+    // The page canvas colour comes from `<html>`/`<body>` — capture it so the
+    // viewport paints it behind the whole document (a later `<body>` wins).
+    if (name == "body" || name == "html") && applied.background.is_some() {
+        st.page_bg = applied.background;
+    }
+
     let display = applied.display.unwrap_or_else(|| ua_display(name));
+    // UA rule `dialog:not([open]){display:none}`: a closed `<dialog>` (and its
+    // whole subtree) is hidden. Author CSS setting an explicit `display` still
+    // wins (respected via `applied.display`). Without this, fundraising/consent
+    // dialogs baked into the static markup render their inner art as stray glyphs.
+    let display = if name == "dialog"
+        && applied.display.is_none()
+        && dom.node(id).attr("open").is_none()
+    {
+        css::Display::None
+    } else {
+        display
+    };
     if display == css::Display::None {
         return; // skip the whole subtree
+    }
+
+    // A `max-height:0` box (invariably with `overflow:hidden`) is the closed state
+    // of an accordion/disclosure — e.g. the Wikipedia language list, collapsed once
+    // JS swaps `no-js`→`js-enabled`. We don't animate `max-height`, so render the
+    // closed state as hidden (skip the subtree) rather than dumping its full height.
+    if applied.max_height == Some(0.0) {
+        return;
     }
 
     // Replaced / void elements (handled regardless of display, aside from none).
     match name {
         "img" => {
             flush(st);
-            if let Some(src) = dom.node(id).attr("src") {
-                let url = src.to_string();
-                if !url.is_empty() {
-                    st.blocks.push(Block::Image {
-                        url,
-                        inline_svg: None,
-                        float: applied.float.unwrap_or(css::Float::None),
-                        clears: applied.clear.unwrap_or(false),
-                        position: applied.position.unwrap_or(css::Position::Static),
-                        inset: applied_inset(&applied),
-                        node: Some(id),
-                    });
-                }
+            if let Some(url) = img_url(dom.node(id)) {
+                let (w, h) = img_dimensions(dom.node(id), &applied);
+                st.blocks.push(Block::Image {
+                    url,
+                    inline_svg: None,
+                    float: applied.float.unwrap_or(css::Float::None),
+                    clears: applied.clear.unwrap_or(false),
+                    position: applied.position.unwrap_or(css::Position::Static),
+                    inset: applied_inset(&applied),
+                    inset_pct: applied_inset_pct(&applied),
+                    width: w,
+                    height: h,
+                    node: Some(id),
+                });
             }
             return;
         }
@@ -415,6 +606,7 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
             const MAX_SVG_SRC: usize = 256 * 1024;
             let src = dom.serialize(id);
             if !src.is_empty() && src.len() <= MAX_SVG_SRC {
+                let (w, h) = img_dimensions(dom.node(id), &applied);
                 st.blocks.push(Block::Image {
                     url: String::new(),
                     inline_svg: Some(src),
@@ -422,6 +614,9 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
                     clears: applied.clear.unwrap_or(false),
                     position: applied.position.unwrap_or(css::Position::Static),
                     inset: applied_inset(&applied),
+                    inset_pct: applied_inset_pct(&applied),
+                    width: w,
+                    height: h,
                     node: Some(id),
                 });
             }
@@ -478,6 +673,72 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
             st.blocks.push(table::build(grid));
         }
         return;
+    }
+
+    if display == css::Display::Grid {
+        // Grid container: collect its children (like the flex path) and hand them
+        // to the grid builder, which flows them row-major into the columns from
+        // `grid-template-columns`. Without an explicit template we can't know the
+        // column count, so fall through to normal block flow (single column).
+        if let Some(weights) = applied.grid_columns.clone() {
+            flush(st);
+            let saved_style = st.style;
+            let saved_align = st.cur_align;
+            let saved_color = st.cur_color;
+            let saved_bold = st.cur_bold;
+            let saved_italic = st.cur_italic;
+            let saved_href = st.cur_href.clone();
+            if let Some(c) = applied.color {
+                st.style.color = c;
+                st.cur_color = c;
+            }
+            if let Some(s) = applied.font_size {
+                st.style.size = s;
+            }
+            if let Some(w) = applied.font_weight {
+                st.style.bold = w;
+                st.cur_bold = w;
+            }
+            if let Some(i) = applied.font_style {
+                st.style.italic = i;
+                st.cur_italic = i;
+            }
+            if let Some(al) = applied.text_align {
+                st.cur_align = al.factor();
+            }
+
+            let saved_blocks = std::mem::take(&mut st.blocks);
+            st.stack.push(ctx);
+            walk_children(dom, id, st);
+            st.stack.pop();
+            flush(st);
+            let children = std::mem::replace(&mut st.blocks, saved_blocks);
+
+            st.style = saved_style;
+            st.cur_align = saved_align;
+            st.cur_color = saved_color;
+            st.cur_bold = saved_bold;
+            st.cur_italic = saved_italic;
+            st.cur_href = saved_href;
+
+            if !children.is_empty() {
+                st.blocks.push(crate::grid::build(
+                    children,
+                    &weights,
+                    applied.gap.unwrap_or(0.0),
+                    applied.margin_px(),
+                    applied.padding_px(),
+                    applied.background,
+                    applied.float.unwrap_or(css::Float::None),
+                    applied.clear.unwrap_or(false),
+                    applied.position.unwrap_or(css::Position::Static),
+                    applied_inset(&applied),
+                    applied_inset_pct(&applied),
+                    Some(id),
+                ));
+            }
+            return;
+        }
     }
 
     if display == css::Display::Flex {
@@ -539,8 +800,11 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
                 clears: applied.clear.unwrap_or(false),
                 position: applied.position.unwrap_or(css::Position::Static),
                 inset: applied_inset(&applied),
-                width: css::WidthVal::Auto,
+                inset_pct: applied_inset_pct(&applied),
+                width: applied.width.unwrap_or(css::WidthVal::Auto),
+                height: applied.height.unwrap_or(css::WidthVal::Auto),
                 node: Some(id),
+                center: wants_center(&applied),
             });
         }
         return;
@@ -606,8 +870,11 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
                 clears: applied.clear.unwrap_or(false),
                 position,
                 inset: applied_inset(&applied),
-                width: css::WidthVal::Auto,
+                inset_pct: applied_inset_pct(&applied),
+                width: applied.width.unwrap_or(css::WidthVal::Auto),
+                height: applied.height.unwrap_or(css::WidthVal::Auto),
                 node: Some(id),
+                center: wants_center(&applied),
             });
         }
         return;
@@ -672,8 +939,11 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
                 clears: applied.clear.unwrap_or(false),
                 position: css::Position::Static,
                 inset: (None, None, None, None),
-                width: css::WidthVal::Auto,
+                inset_pct: (None, None, None, None),
+                width: applied.width.unwrap_or(css::WidthVal::Auto),
+                height: applied.height.unwrap_or(css::WidthVal::Auto),
                 node: Some(id),
+                center: false,
             });
         }
         return;
@@ -758,7 +1028,7 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
         st.cur_height = applied.height.unwrap_or(css::WidthVal::Auto);
         // `line-height` inherits, so keep the saved value when this block doesn't
         // set one (rather than resetting to natural).
-        st.cur_line_height = applied.line_height.unwrap_or(st.cur_line_height);
+        st.cur_line_height = applied.line_height.or(st.cur_line_height);
         st.cur_border_w = applied.border_width.unwrap_or(0.0);
         // `border-color` defaults to the text colour (CSS currentColor).
         st.cur_border_c = applied.border_color.unwrap_or(st.style.color);
@@ -823,9 +1093,7 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
         st.style.size = s;
     }
     // `line-height` inherits down to descendant text blocks.
-    if let Some(lh) = applied.line_height {
-        st.cur_line_height = lh;
-    }
+    st.cur_line_height = applied.line_height.or(st.cur_line_height);
     if let Some(w) = applied.font_weight {
         st.style.bold = w;
         st.cur_bold = w;
@@ -957,7 +1225,7 @@ fn parse_table_cell(
     st.cur_border_c = (0.0, 0.0, 0.0, 0.0);
     st.cur_clears = false;
 
-    let ctx = elem_ctx(if header { "th" } else { "td" }, dom.node(id));
+    let ctx = elem_ctx(dom, id, if header { "th" } else { "td" });
     st.stack.push(ctx);
     walk_children(dom, id, st);
     st.stack.pop();
@@ -1046,16 +1314,32 @@ fn push_run(st: &mut State, raw: &str) {
     st.pending_space = trail;
 }
 
+/// A colour is "revealed" if it's fully transparent: such text is invisible in a
+/// normal render, but on the web `color:transparent` is the classic
+/// image-replacement trick (e.g. the Wikipedia wordmark, a `<span>` reading
+/// "Wikipedia" hidden behind an SVG sprite). We can't draw the sprite, so surface
+/// the accessible text in the default body colour instead of dropping it.
+fn reveal(c: crate::style::Rgba) -> crate::style::Rgba {
+    if c.3 <= 0.001 {
+        crate::style::BODY_TEXT
+    } else {
+        c
+    }
+}
+
 /// Emit the pending block as a Text block. `buf` is already collapsed/trimmed.
 fn flush(st: &mut State) {
     let text = std::mem::take(&mut st.buf);
-    let spans = std::mem::take(&mut st.spans);
+    let mut spans = std::mem::take(&mut st.spans);
+    for s in &mut spans {
+        s.color = reveal(s.color);
+    }
     st.pending_space = false;
     if !text.is_empty() {
         st.blocks.push(Block::Text {
             text,
             size: st.style.size,
-            color: st.style.color,
+            color: reveal(st.style.color),
             bold: st.style.bold,
             italic: st.style.italic,
             align: st.cur_align,
@@ -1064,7 +1348,14 @@ fn flush(st: &mut State) {
             padding: st.cur_padding,
             width: st.cur_width,
             height: st.cur_height,
-            line_height: st.cur_line_height,
+            // Resolve the inherited spec against this block's own font-size: a
+            // unitless multiplier scales per element (so a 30px wordmark gets a
+            // 45px line box, not the body's), a px length passes through.
+            line_height: match st.cur_line_height {
+                Some(css::LineHeight::Scale(m)) => m * st.style.size,
+                Some(css::LineHeight::Px(px)) => px,
+                None => 0.0,
+            },
             border_w: st.cur_border_w,
             border_c: st.cur_border_c,
             spans,

@@ -90,15 +90,16 @@ pub fn surface_cb(sw: f32, sh: f32) -> ContainingBlock {
 }
 
 /// In-flow shift for a `Relative` element from its `pos_*` offsets: prefer
-/// left/top, fall back to the negated right/bottom, else 0.
-fn relative_shift(el: &UiElement) -> (f32, f32) {
+/// left/top, fall back to the negated right/bottom, else 0. Percentage offsets
+/// resolve against the containing block's width (`cbw`) / height (`cbh`).
+fn relative_shift(el: &UiElement, cbw: f32, cbh: f32) -> (f32, f32) {
     let dx = el
-        .pos_left
-        .or_else(|| el.pos_right.map(|r| -r))
+        .eff_left(cbw)
+        .or_else(|| el.eff_right(cbw).map(|r| -r))
         .unwrap_or(0.0);
     let dy = el
-        .pos_top
-        .or_else(|| el.pos_bottom.map(|b| -b))
+        .eff_top(cbh)
+        .or_else(|| el.eff_bottom(cbh).map(|b| -b))
         .unwrap_or(0.0);
     (dx, dy)
 }
@@ -132,7 +133,14 @@ fn fit_width<'a>(el: &'a UiElement, avail_w: f32, p: &mut LayoutPass<'a>) -> f32
         .map(|t| min_text_width(t, el.text_size, &el.text_wrap, el.base_font_style()))
         .unwrap_or(0.0);
 
-    let children = p.children(&el.id);
+    // Absolute children are out of flow: they don't contribute to the parent's
+    // intrinsic size (CSS). Measuring them here would inflate the box — e.g. the
+    // portal globe (position:absolute) would add its height to `.central-textlogo`.
+    let children: Vec<&UiElement> = p
+        .children(&el.id)
+        .into_iter()
+        .filter(|c| c.position != Position::Absolute)
+        .collect();
 
     let inner_avail = (avail_w - el.pad_x()).max(0.0);
     let visible_n = children.len();
@@ -185,7 +193,13 @@ fn fit_height<'a>(el: &'a UiElement, inner_w: f32, p: &mut LayoutPass<'a>) -> f3
         })
         .unwrap_or(0.0);
 
-    let children = p.children(&el.id);
+    // Absolute children are out of flow and don't contribute to the parent's
+    // intrinsic height (see `fit_width`).
+    let children: Vec<&UiElement> = p
+        .children(&el.id)
+        .into_iter()
+        .filter(|c| c.position != Position::Absolute)
+        .collect();
 
     let visible_n = children.len();
     let gap_total = if visible_n > 1 {
@@ -269,7 +283,8 @@ fn layout_node<'a>(
     // the parent still advances by the element's flow size, computed from width/
     // height, not position.
     let (rel_dx, rel_dy) = if el.position == Position::Relative {
-        relative_shift(el)
+        let (_, _, cbw, cbh) = cb.rect;
+        relative_shift(el, cbw, cbh)
     } else {
         (0.0, 0.0)
     };
@@ -373,12 +388,24 @@ fn layout_node<'a>(
     // Containing block handed to descendants: a positioned element (relative or
     // absolute) becomes the anchor for its absolute descendants; otherwise the
     // inherited containing block passes straight through.
+    //
+    // `clip` here bounds those absolute descendants (it is consumed only by
+    // `layout_absolute`). CSS `overflow` defaults to `visible`, so a positioned
+    // box must NOT clip an overflowing absolute descendant to its own — possibly
+    // short — content box (e.g. an `absolute` logo taller than its `relative`
+    // wrapper). Only a scroll container clips; a non-scroll box hands down the
+    // clip it is itself bounded by, so the descendant stays visible.
     let child_cb = if el.position == Position::Static {
         cb
     } else {
+        let abs_clip = if el.scrollable_x || el.scrollable_y {
+            content_clip
+        } else {
+            clip
+        };
         ContainingBlock {
             rect: (content_x, content_y, inner_w, inner_h),
-            clip: content_clip,
+            clip: abs_clip,
         }
     };
 
@@ -427,7 +454,13 @@ fn layout_node<'a>(
                 .map(|c| c.width + child.mrg_x())
                 .unwrap_or(0.0),
         };
-        let cross_off = cross_offset(&el.align_items, inner_cross, child_cross);
+        // `center_cross` (CSS `margin: 0 auto` on a definite-width block) centres
+        // this child alone, overriding the parent's `align_items`.
+        let cross_off = if child.center_cross {
+            (inner_cross - child_cross).max(0.0) / 2.0
+        } else {
+            cross_offset(&el.align_items, inner_cross, child_cross)
+        };
         if cross_off > 0.0 {
             let (ox, oy) = match el.layout_direction {
                 LayoutDirection::Row => (child_origin_x, child_origin_y + cross_off),
@@ -480,8 +513,11 @@ fn layout_absolute<'a>(
     p: &mut LayoutPass<'a>,
 ) -> Vec<ComputedElement<'a>> {
     let (cbx, cby, cbw, cbh) = cb.rect;
-    let need_w = child.pos_left.is_none() && child.pos_right.is_some();
-    let need_h = child.pos_top.is_none() && child.pos_bottom.is_some();
+    // Resolve each side's offset (px + percentage-of-cb) up front.
+    let (left, right) = (child.eff_left(cbw), child.eff_right(cbw));
+    let (top, bottom) = (child.eff_top(cbh), child.eff_bottom(cbh));
+    let need_w = left.is_none() && right.is_some();
+    let need_h = top.is_none() && bottom.is_some();
 
     // Measure first only when anchoring a far edge needs the resolved size.
     let (mut cw, mut ch) = (0.0f32, 0.0f32);
@@ -493,12 +529,12 @@ fn layout_absolute<'a>(
         }
     }
 
-    let ox = match (child.pos_left, child.pos_right) {
+    let ox = match (left, right) {
         (Some(l), _) => cbx + l,
         (None, Some(r)) => cbx + cbw - r - cw,
         (None, None) => cbx,
     };
-    let oy = match (child.pos_top, child.pos_bottom) {
+    let oy = match (top, bottom) {
         (Some(t), _) => cby + t,
         (None, Some(b)) => cby + cbh - b - ch,
         (None, None) => cby,
@@ -719,6 +755,207 @@ fn find_scrollable_node<'a>(
             content_clip,
             best,
             p,
+        );
+    }
+}
+
+#[cfg(test)]
+mod portal_geom {
+    use super::*;
+    use crate::types::*;
+
+    fn el(id: &str) -> UiElement {
+        UiElement {
+            id: id.to_string(),
+            parent: None,
+            order: 0,
+            width: Size::Fit,
+            height: Size::Fit,
+            layout_direction: LayoutDirection::Column,
+            justify_content: JustifyContent::Start,
+            align_items: AlignItems::Stretch,
+            position: Position::Static,
+            pos_left: None,
+            pos_top: None,
+            pos_right: None,
+            pos_bottom: None,
+            pos_left_pct: None,
+            pos_top_pct: None,
+            pos_right_pct: None,
+            pos_bottom_pct: None,
+            gap: 0.0,
+            padding: 0.0,
+            margin: 0.0,
+            padding_sides: None,
+            margin_sides: None,
+            background_color: (0.0, 0.0, 0.0, 0.0),
+            corner_radius: 0.0,
+            border_width: 0.0,
+            border_color: (0.0, 0.0, 0.0, 0.0),
+            text: None,
+            text_size: 16.0,
+            text_color: (0.0, 0.0, 0.0, 1.0),
+            text_wrap: TextWrap::Words,
+            text_bold: false,
+            text_italic: false,
+            spans: Vec::new(),
+            text_align: 0.0,
+            line_height: 0.0,
+            image: None,
+            image_src: None,
+            is_input: false,
+            cursor_pos: 0,
+            scrollable_x: false,
+            scrollable_y: false,
+            scroll_x: 0.0,
+            scroll_y: 0.0,
+            visible: true,
+            center_cross: false,
+        }
+    }
+
+    fn find<'a>(c: &'a [ComputedElement<'a>], id: &str) -> &'a ComputedElement<'a> {
+        c.iter().find(|e| e.schema.id == id).expect(id)
+    }
+
+    // Reproduces the Wikipedia portal's central region: `.central-textlogo`
+    // (position:relative, width 270, margin 4rem auto .5rem) holding the globe
+    // (`.central-featured-logo`, position:absolute, top:158 left:35, 200x183)
+    // plus the wordmark/slogan text, followed by `.central-featured` (the language
+    // ring, position:relative, 54.6rem x 32.5rem, margin 0 auto) whose lang items
+    // are position:absolute at percentage insets. Asserts the globe lands centred
+    // inside the ring, matching Firefox.
+    #[test]
+    fn globe_is_centered_in_language_ring() {
+        let mut all = Vec::new();
+
+        let mut main = el("main");
+        main.width = Size::Fixed(800.0);
+        main.align_items = AlignItems::Stretch;
+        all.push(main);
+
+        // .central-textlogo — order 0 in main.
+        let mut logo = el("logo");
+        logo.parent = Some("main".into());
+        logo.order = 0;
+        logo.position = Position::Relative;
+        logo.width = Size::Fixed(270.0);
+        logo.center_cross = true; // margin: … auto …
+        logo.margin_sides = Some((40.0, 0.0, 5.0, 0.0)); // 4rem top, .5rem bottom
+        all.push(logo);
+
+        // wordmark "Wikipedia" (3rem / line 3.3rem) — in-flow child.
+        let mut wordmark = el("wordmark");
+        wordmark.parent = Some("logo".into());
+        wordmark.order = 0;
+        wordmark.text = Some("Wikipedia".into());
+        wordmark.text_size = 30.0;
+        wordmark.line_height = 33.0;
+        wordmark.text_align = 0.5;
+        all.push(wordmark);
+
+        // slogan "The Free Encyclopedia" (1.5rem) — in-flow child.
+        let mut slogan = el("slogan");
+        slogan.parent = Some("logo".into());
+        slogan.order = 1;
+        slogan.text = Some("The Free Encyclopedia".into());
+        slogan.text_size = 15.0;
+        slogan.text_align = 0.5;
+        all.push(slogan);
+
+        // The globe — position:absolute top:158 left:35, 200x183.
+        let mut globe = el("globe");
+        globe.parent = Some("logo".into());
+        globe.order = 2;
+        globe.position = Position::Absolute;
+        globe.pos_top = Some(158.0);
+        globe.pos_left = Some(35.0);
+        globe.width = Size::Fixed(200.0);
+        globe.height = Size::Fixed(183.0);
+        all.push(globe);
+
+        // .central-featured — the ring, order 1 in main.
+        let mut ring = el("ring");
+        ring.parent = Some("main".into());
+        ring.order = 1;
+        ring.position = Position::Relative;
+        ring.width = Size::Fixed(546.0);
+        ring.height = Size::Fixed(325.0);
+        ring.center_cross = true; // margin: 0 auto
+        all.push(ring);
+
+        // lang1 (English): top:0 right:60%, width 15.6rem.
+        let mut lang1 = el("lang1");
+        lang1.parent = Some("ring".into());
+        lang1.order = 0;
+        lang1.position = Position::Absolute;
+        lang1.pos_top_pct = Some(0.0);
+        lang1.pos_right_pct = Some(0.60);
+        lang1.width = Size::Fixed(156.0);
+        lang1.height = Size::Fixed(60.0);
+        all.push(lang1);
+
+        // lang9: top:80% right:60%.
+        let mut lang9 = el("lang9");
+        lang9.parent = Some("ring".into());
+        lang9.order = 1;
+        lang9.position = Position::Absolute;
+        lang9.pos_top_pct = Some(0.80);
+        lang9.pos_right_pct = Some(0.60);
+        lang9.width = Size::Fixed(156.0);
+        lang9.height = Size::Fixed(60.0);
+        all.push(lang9);
+
+        let root = all[0].clone();
+        let full = (0.0, 0.0, 800.0, 2000.0);
+        let cb = ContainingBlock {
+            rect: full,
+            clip: full,
+        };
+        let computed = layout_element(&all, &root, 0.0, 0.0, 800.0, 2000.0, full, cb);
+
+        let logo_c = find(&computed, "logo");
+        let globe_c = find(&computed, "globe");
+        let ring_c = find(&computed, "ring");
+        let lang1_c = find(&computed, "lang1");
+        let lang9_c = find(&computed, "lang9");
+
+        let globe_cy = globe_c.y + globe_c.height / 2.0;
+        let ring_cy = ring_c.y + ring_c.height / 2.0;
+
+        eprintln!(
+            "logo:  y={:.1} h={:.1}",
+            logo_c.y, logo_c.height
+        );
+        eprintln!(
+            "globe: y={:.1} h={:.1} cx={:.1} cy={:.1}",
+            globe_c.y,
+            globe_c.height,
+            globe_c.x + globe_c.width / 2.0,
+            globe_cy
+        );
+        eprintln!(
+            "ring:  y={:.1} h={:.1} cx={:.1} cy={:.1}",
+            ring_c.y,
+            ring_c.height,
+            ring_c.x + ring_c.width / 2.0,
+            ring_cy
+        );
+        eprintln!("lang1(EN): y={:.1}  lang9: y={:.1}", lang1_c.y, lang9_c.y);
+
+        // Firefox: the globe sits centred in the ring (English above it, lang9
+        // below it). Fails today if the globe rides high over the top languages.
+        assert!(
+            globe_c.y > lang1_c.y,
+            "globe top ({:.1}) should be below English ({:.1})",
+            globe_c.y,
+            lang1_c.y
+        );
+        assert!(
+            (globe_cy - ring_cy).abs() < 60.0,
+            "globe centre ({:.1}) should be near ring centre ({:.1})",
+            globe_cy,
+            ring_cy
         );
     }
 }

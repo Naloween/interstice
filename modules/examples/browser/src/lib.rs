@@ -28,6 +28,7 @@ use interstice_sdk::*;
 
 mod css;
 mod dom;
+mod grid;
 mod html;
 mod images;
 mod js;

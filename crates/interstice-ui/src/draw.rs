@@ -170,10 +170,14 @@ fn draw_element<T: DrawTarget>(node: &ComputedElement, focused_id: Option<&str>,
                 let vx1 = (ix + iw).min(cx + cw);
                 let vy1 = (iy + ih).min(cy + ch);
                 if vx1 > vx0 && vy1 > vy0 {
-                    let u0 = (vx0 - ix) / iw;
-                    let v0 = (vy0 - iy) / ih;
-                    let u1 = (vx1 - ix) / iw;
-                    let v1 = (vy1 - iy) / ih;
+                    // Source sub-rect (CSS sprite crop); whole texture by default.
+                    let (su0, sv0, su1, sv1) = el.image_src.unwrap_or((0.0, 0.0, 1.0, 1.0));
+                    // Map the visible window's box fraction into the source rect so
+                    // clipping and sprite-cropping compose.
+                    let u0 = su0 + (vx0 - ix) / iw * (su1 - su0);
+                    let v0 = sv0 + (vy0 - iy) / ih * (sv1 - sv0);
+                    let u1 = su0 + (vx1 - ix) / iw * (su1 - su0);
+                    let v1 = sv0 + (vy1 - iy) / ih * (sv1 - sv0);
                     target.image(img, vx0, vy0, vx1 - vx0, vy1 - vy0, u0, v0, u1, v1);
                 }
             }

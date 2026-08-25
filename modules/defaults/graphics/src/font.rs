@@ -5,7 +5,8 @@
 //! up exactly with the wrapping/alignment the engine laid out.
 
 use ab_glyph::{Font, FontArc, PxScale, ScaleFont};
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::OnceLock;
 
 /// The four embedded UI faces (DejaVu Sans regular/bold/oblique/bold-oblique) —
@@ -15,6 +16,10 @@ pub const FONT_TTF: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
 pub const FONT_TTF_BOLD: &[u8] = include_bytes!("../assets/DejaVuSans-Bold.ttf");
 pub const FONT_TTF_ITALIC: &[u8] = include_bytes!("../assets/DejaVuSans-Oblique.ttf");
 pub const FONT_TTF_BOLD_ITALIC: &[u8] = include_bytes!("../assets/DejaVuSans-BoldOblique.ttf");
+/// CJK fallback (Droid Sans Fallback) — the *same* bytes the engine measures with
+/// (`interstice-ui/assets`), so glyphs it supplies advance identically on both
+/// sides. Single weight, used for every style.
+pub const FONT_TTF_CJK: &[u8] = include_bytes!("../assets/DroidSansFallbackFull.ttf");
 
 /// Pixels/em the atlas is rasterized at. Drawing scales each cached glyph by
 /// `size / ATLAS_BASE_PX`, so this is the quality ceiling for large text; 48px
@@ -61,6 +66,23 @@ fn face(bold: bool, italic: bool) -> &'static FontArc {
     })
 }
 
+/// The shared CJK fallback face (one weight for all styles).
+fn cjk_face() -> &'static FontArc {
+    static CJK: OnceLock<FontArc> = OnceLock::new();
+    CJK.get_or_init(|| FontArc::try_from_slice(FONT_TTF_CJK).expect("embedded CJK face is valid"))
+}
+
+/// Pick the face that has a glyph for `ch`: the styled DejaVu face when it covers
+/// the character, otherwise the CJK fallback. Mirrors `interstice_ui::face_for`.
+fn face_for(ch: char, bold: bool, italic: bool) -> &'static FontArc {
+    let primary = face(bold, italic);
+    if primary.glyph_id(ch).0 == 0 && cjk_face().glyph_id(ch).0 != 0 {
+        cjk_face()
+    } else {
+        primary
+    }
+}
+
 /// Horizontal advance of a single character at `size` px/em in the given style.
 /// MUST match `interstice_ui::char_advance` exactly so drawn pen positions track
 /// layout.
@@ -68,7 +90,7 @@ pub fn char_advance(ch: char, size: f32, bold: bool, italic: bool) -> f32 {
     if size <= 0.0 {
         return 0.0;
     }
-    let sf = face(bold, italic).as_scaled(PxScale::from(size));
+    let sf = face_for(ch, bold, italic).as_scaled(PxScale::from(size));
     sf.h_advance(sf.glyph_id(ch))
 }
 
@@ -121,9 +143,12 @@ impl Atlas {
 }
 
 /// The set of characters baked into the atlas: ASCII printable, Latin-1
-/// supplement, and the curated punctuation real pages lean on (smart quotes,
-/// dashes, ellipsis, bullet, euro/trademark, arrows). Anything outside this set
-/// still advances by its true width (layout stays correct) but draws blank.
+/// supplement, Greek and Cyrillic (both fully covered by DejaVu Sans — so
+/// language names like `Ελληνικά`/`Русский` render), and the curated punctuation
+/// real pages lean on (smart quotes, dashes, ellipsis, bullet, euro/trademark,
+/// arrows). Anything outside this set (e.g. CJK, which would need a separate,
+/// much larger font) still advances by its true width (layout stays correct) but
+/// draws blank.
 fn charset() -> Vec<char> {
     let mut v: Vec<char> = Vec::new();
     for c in 0x20u32..0x7f {
@@ -136,6 +161,11 @@ fn charset() -> Vec<char> {
             v.push(ch);
         }
     }
+    // Greek, Cyrillic, and every other non-Latin script (CJK, Arabic, Devanagari,
+    // …) are baked LAZILY via `note_str`/`ensure_built` — only the characters a
+    // page actually uses. Pre-baking the full Greek+Cyrillic blocks here (400
+    // glyphs × 4 styles) dominated first-page load for scripts most pages never
+    // show, so they now go through the same on-demand path as CJK.
     v.extend([
         '\u{2013}', '\u{2014}', // – —
         '\u{2018}', '\u{2019}', // ‘ ’
@@ -149,21 +179,126 @@ fn charset() -> Vec<char> {
     v
 }
 
-/// Build the glyph atlas for a style once: rasterize every charset glyph at
-/// `ATLAS_BASE_PX` into a padded grid, recording each glyph's UV rect +
-/// bearings/size. One atlas per face, cached independently.
-pub fn atlas(bold: bool, italic: bool) -> &'static Atlas {
-    static ATLASES: [OnceLock<Atlas>; STYLE_COUNT] = [
-        OnceLock::new(),
-        OnceLock::new(),
-        OnceLock::new(),
-        OnceLock::new(),
-    ];
-    ATLASES[style_index(bold, italic)].get_or_init(|| build_atlas(face(bold, italic)))
+/// Cap on the number of *extra* (beyond the base charset) glyphs we bake — one
+/// distinct CJK/other character each. Generous enough for any real page while
+/// keeping the packed texture well under the GPU's max dimension.
+const MAX_EXTRA_GLYPHS: usize = 4096;
+
+/// The four style atlases plus the growable set of extra characters (CJK etc.)
+/// they cover. The base charset is always baked; extra characters are added
+/// lazily the first frame they appear (`note_str` → `ensure_built`), which bumps
+/// `generation` so the renderer re-uploads the textures. wasm modules are
+/// single-threaded, so this `thread_local` is contention-free and persists across
+/// frames for the life of the module instance.
+struct AtlasSet {
+    atlases: Vec<Atlas>,
+    covered: BTreeSet<char>,
+    pending: BTreeSet<char>,
+    generation: u32,
+    built: bool,
 }
 
-fn build_atlas(f: &FontArc) -> Atlas {
-    let chars = charset();
+thread_local! {
+    static ATLAS_SET: RefCell<AtlasSet> = RefCell::new(AtlasSet {
+        atlases: Vec::new(),
+        covered: BTreeSet::new(),
+        pending: BTreeSet::new(),
+        generation: 0,
+        built: false,
+    });
+}
+
+/// Record characters seen in this frame's text so the next `ensure_built` bakes
+/// any not-yet-covered ones. Only characters the CJK fallback supplies (i.e. not
+/// in the base charset, but a real glyph) are queued — everything else is either
+/// already baked or unrenderable.
+pub fn note_str(s: &str) {
+    ATLAS_SET.with(|cell| {
+        let mut set = cell.borrow_mut();
+        if set.covered.len() >= MAX_EXTRA_GLYPHS {
+            return;
+        }
+        for ch in s.chars() {
+            if set.covered.contains(&ch) || set.pending.contains(&ch) || in_base_charset(ch) {
+                continue;
+            }
+            // Bake any char some face can render but the (now Latin-only) base
+            // charset omits — Greek/Cyrillic via DejaVu, CJK via the fallback.
+            if face(false, false).glyph_id(ch).0 != 0 || cjk_face().glyph_id(ch).0 != 0 {
+                set.pending.insert(ch);
+                if set.covered.len() + set.pending.len() >= MAX_EXTRA_GLYPHS {
+                    break;
+                }
+            }
+        }
+    });
+}
+
+/// (Re)build the four atlases if the base bake hasn't happened yet or new extra
+/// characters were queued. Returns the (possibly bumped) generation.
+pub fn ensure_built() -> u32 {
+    ATLAS_SET.with(|cell| {
+        let mut set = cell.borrow_mut();
+        if set.built && set.pending.is_empty() {
+            return set.generation;
+        }
+        let pending: Vec<char> = set.pending.iter().copied().collect();
+        for ch in pending {
+            set.covered.insert(ch);
+        }
+        set.pending.clear();
+        let extra: Vec<char> = set.covered.iter().copied().collect();
+        let mut atlases = Vec::with_capacity(STYLE_COUNT);
+        for idx in 0..STYLE_COUNT {
+            atlases.push(build_atlas(idx & 1 != 0, idx & 2 != 0, &extra));
+        }
+        set.atlases = atlases;
+        set.built = true;
+        set.generation += 1;
+        set.generation
+    })
+}
+
+/// Current atlas generation — bumped on every (re)build so the renderer knows to
+/// re-upload the glyph textures.
+pub fn generation() -> u32 {
+    ATLAS_SET.with(|cell| cell.borrow().generation)
+}
+
+/// A glyph's placement in the given style's current atlas, if baked. `GlyphInfo`
+/// is `Copy`, so this hands back an owned value without holding the borrow.
+pub fn glyph_info(ch: char, bold: bool, italic: bool) -> Option<GlyphInfo> {
+    ATLAS_SET.with(|cell| {
+        let set = cell.borrow();
+        set.atlases
+            .get(style_index(bold, italic))
+            .and_then(|a| a.glyph(ch).copied())
+    })
+}
+
+/// Run `f` against the given style's current atlas (for texture upload). Assumes
+/// `ensure_built` has run this frame.
+pub fn with_atlas<R>(bold: bool, italic: bool, f: impl FnOnce(&Atlas) -> R) -> R {
+    ATLAS_SET.with(|cell| {
+        let set = cell.borrow();
+        f(&set.atlases[style_index(bold, italic)])
+    })
+}
+
+/// Whether `ch` is part of the always-baked base charset.
+fn in_base_charset(ch: char) -> bool {
+    static BASE: OnceLock<BTreeSet<char>> = OnceLock::new();
+    BASE.get_or_init(|| charset().into_iter().collect())
+        .contains(&ch)
+}
+
+/// Build one style's glyph atlas: rasterize the base charset plus every `extra`
+/// character at `ATLAS_BASE_PX` into a padded grid, recording each glyph's UV
+/// rect + bearings/size. Each character is rasterized from whichever face covers
+/// it (the styled DejaVu face, or the CJK fallback).
+fn build_atlas(bold: bool, italic: bool, extra: &[char]) -> Atlas {
+    let mut chars = charset();
+    chars.extend_from_slice(extra);
 
     // First pass: rasterize each glyph to its own coverage buffer, recording
     // its size + bearings so we can both pack it and place it when drawing.
@@ -179,6 +314,7 @@ fn build_atlas(f: &FontArc) -> Atlas {
     let mut max_w = 1u32;
     let mut max_h = 1u32;
     for ch in chars {
+        let f = face_for(ch, bold, italic);
         let glyph = f.glyph_id(ch).with_scale(ATLAS_BASE_PX);
         if let Some(outlined) = f.outline_glyph(glyph) {
             let b = outlined.px_bounds();
@@ -208,18 +344,22 @@ fn build_atlas(f: &FontArc) -> Atlas {
     // bilinear bleed between neighbours). Round the atlas width up to a multiple
     // of 64 so the row stride (width*4) is 256-aligned for the texture upload.
     const PAD: u32 = 2;
-    const COLS: u32 = 16;
+    // Square-ish grid: 16 columns for the base charset, widening toward √n as
+    // extra glyphs (CJK) are added so the texture grows in both dimensions rather
+    // than becoming a tall sliver that could exceed the GPU's max texture size.
+    let cols = (rasters.len() as f32).sqrt().ceil() as u32;
+    let cols = cols.max(16);
     let cell_w = max_w + PAD * 2;
     let cell_h = max_h + PAD * 2;
-    let rows = (rasters.len() as u32).div_ceil(COLS);
-    let aw = (COLS * cell_w).div_ceil(64) * 64;
+    let rows = (rasters.len() as u32).div_ceil(cols);
+    let aw = (cols * cell_w).div_ceil(64) * 64;
     let ah = rows * cell_h;
     let mut rgba = vec![0u8; (aw * ah * 4) as usize];
     let mut glyphs: HashMap<char, GlyphInfo> = HashMap::new();
 
     for (i, r) in rasters.iter().enumerate() {
-        let col = (i as u32) % COLS;
-        let row = (i as u32) / COLS;
+        let col = (i as u32) % cols;
+        let row = (i as u32) / cols;
         let ox = col * cell_w + PAD;
         let oy = row * cell_h + PAD;
         for gy in 0..r.h {

@@ -12,9 +12,11 @@ pub const ME: &str = "browser-example";
 pub const ROOT_BG: (f32, f32, f32, f32) = (0.08, 0.08, 0.10, 1.0);
 pub const BAR_BG: (f32, f32, f32, f32) = (0.16, 0.16, 0.20, 1.0);
 pub const BAR_TEXT: (f32, f32, f32, f32) = (0.92, 0.92, 0.95, 1.0);
-pub const VIEWPORT_BG: (f32, f32, f32, f32) = (0.11, 0.11, 0.14, 1.0);
+/// Default page canvas: white, like a browser's default (an explicit
+/// `<html>`/`<body>` background overrides it per page).
+pub const VIEWPORT_BG: (f32, f32, f32, f32) = (1.0, 1.0, 1.0, 1.0);
 pub const TRANSPARENT: (f32, f32, f32, f32) = (0.0, 0.0, 0.0, 0.0);
-pub const IMG_PLACEHOLDER_BG: (f32, f32, f32, f32) = (0.16, 0.16, 0.20, 1.0);
+pub const IMG_PLACEHOLDER_BG: (f32, f32, f32, f32) = (0.90, 0.90, 0.92, 1.0);
 pub const BTN_BG: (f32, f32, f32, f32) = (0.16, 0.16, 0.20, 1.0);
 pub const BTN_BORDER: (f32, f32, f32, f32) = (0.30, 0.30, 0.36, 1.0);
 /// Label colour when the button is actionable…
@@ -23,11 +25,11 @@ pub const BTN_TEXT: (f32, f32, f32, f32) = (0.92, 0.92, 0.95, 1.0);
 pub const BTN_TEXT_DIM: (f32, f32, f32, f32) = (0.38, 0.38, 0.44, 1.0);
 
 /// Table grid-line colour (revealed through 1px gaps between cells/rows).
-pub const TABLE_BORDER: (f32, f32, f32, f32) = (0.30, 0.30, 0.36, 1.0);
+pub const TABLE_BORDER: (f32, f32, f32, f32) = (0.67, 0.67, 0.70, 1.0);
 /// Body cell background (sits just above the viewport so grid lines read).
-pub const TABLE_CELL_BG: (f32, f32, f32, f32) = (0.13, 0.13, 0.17, 1.0);
-/// Header (`<th>`) cell background — a touch lighter than body cells.
-pub const TABLE_HEADER_BG: (f32, f32, f32, f32) = (0.19, 0.19, 0.24, 1.0);
+pub const TABLE_CELL_BG: (f32, f32, f32, f32) = (1.0, 1.0, 1.0, 1.0);
+/// Header (`<th>`) cell background — a touch darker than body cells.
+pub const TABLE_HEADER_BG: (f32, f32, f32, f32) = (0.93, 0.93, 0.95, 1.0);
 
 pub const TOOLBAR_ID: &str = "toolbar";
 pub const BACK_BTN_ID: &str = "btn_back";
@@ -111,6 +113,11 @@ pub struct ImageWaiter {
     #[primary_key]
     pub element_id: String,
     pub req_id: u64,
+    /// Explicit display size in px from the `<img>` attributes/CSS, if any. When
+    /// set, the decoded image is stamped at this size (deriving a missing axis
+    /// from the decoded aspect ratio) instead of its natural pixel size.
+    pub fixed_w: Option<f32>,
+    pub fixed_h: Option<f32>,
 }
 
 /// A queued image fetch, drained by `on_frame`. CRITICAL: image fetches must NOT
