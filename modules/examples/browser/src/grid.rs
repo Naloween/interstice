@@ -69,6 +69,8 @@ pub fn build(
         height: css::WidthVal::Auto,
         node,
         center: false,
+        max_height: None,
+        inline_level: false,
     }
 }
 
@@ -93,6 +95,8 @@ fn cell_box(child: Block, weight: f32) -> Block {
         height: css::WidthVal::Auto,
         node: None,
         center: false,
+        max_height: None,
+        inline_level: false,
     }
 }
 
@@ -116,5 +120,7 @@ fn row_box(cells: Vec<Block>, gap: f32) -> Block {
         height: css::WidthVal::Auto,
         node: None,
         center: false,
+        max_height: None,
+        inline_level: false,
     }
 }

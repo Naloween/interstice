@@ -113,6 +113,17 @@ pub struct ComputedElement<'a> {
     pub clip: ClipRect,
 }
 
+/// Clamp a computed used height to the element's CSS `max-height`, if any. In-flow
+/// children are already clipped to the parent's content box, so capping the box
+/// height here is all that `max-height` (with the usual `overflow:hidden`) needs:
+/// `max-height:0` collapses the box to nothing, a larger cap expands it.
+fn cap_height(el: &UiElement, h: f32) -> f32 {
+    match el.max_height {
+        Some(m) => h.min(m.max(0.0)),
+        None => h,
+    }
+}
+
 fn intersect_clip(a: ClipRect, b: ClipRect) -> ClipRect {
     let x1 = a.0.max(b.0);
     let y1 = a.1.max(b.1);
@@ -237,12 +248,15 @@ fn child_resolved_h<'a>(child: &'a UiElement, parent_inner_w: f32, p: &mut Layou
         }
     };
     let child_inner_w = (child_outer_w - child.pad_x()).max(0.0);
-    match child.height {
+    let h = match child.height {
         Size::Fixed(px) => px.max(0.0),
         // A percent height against an indefinite (content-sized) parent resolves
         // to auto in CSS — treat it like Fit/Grow here.
         Size::Percent(_) | Size::Grow | Size::Fit => fit_height(child, child_inner_w, p),
-    }
+    };
+    // Cap so the parent reserves only the (possibly collapsed) used height — keeps
+    // flow measurement consistent with the capped box laid out in `layout_node`.
+    cap_height(child, h)
 }
 
 /// Lay out `el` and its subtree. Public entry point: allocates a fresh per-pass
@@ -265,6 +279,19 @@ pub fn layout_element<'a>(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Shift a laid-out subtree by `(dx, dy)`. Used to move a child to its final
+/// cross-axis position (align/centre) without re-running layout: a translation
+/// moves every box and its clip rect uniformly, which is exactly what a second
+/// layout at the offset origin would have produced.
+fn translate_nodes(nodes: &mut [ComputedElement], dx: f32, dy: f32) {
+    for n in nodes {
+        n.x += dx;
+        n.y += dy;
+        n.clip.0 += dx;
+        n.clip.1 += dy;
+    }
+}
+
 fn layout_node<'a>(
     el: &'a UiElement,
     origin_x: f32,
@@ -309,6 +336,7 @@ fn layout_node<'a>(
             .max(fit_height(el, inner_w, p)),
         Size::Fit => fit_height(el, inner_w, p),
     };
+    let own_h = cap_height(el, own_h);
     let inner_h = (own_h - el.pad_y()).max(0.0);
 
     let self_clip = intersect_clip(clip, (x, y, own_w, own_h));
@@ -380,6 +408,23 @@ fn layout_node<'a>(
         LayoutDirection::Row => inner_h,
         LayoutDirection::Column => inner_w,
     };
+    // Cross extent used to centre a `margin:0 auto` child. A `Grow` box takes the
+    // greater of its available width and its content's — so an oversized child
+    // (a wide float grid, a nowrap band) inflates `inner_cross` past the viewport.
+    // CSS never lets overflow widen a block's content box, so centre within the
+    // *available* extent, not the inflated one; otherwise every centred sibling
+    // (e.g. the portal's `.central-featured`) drifts right by half the overflow.
+    // Fixed/Percent boxes are already un-inflated, so keep their inner extent.
+    let center_extent = match el.layout_direction {
+        LayoutDirection::Column => match el.width {
+            Size::Grow => ((avail_w - el.mrg_x()).max(0.0) - el.pad_x()).max(0.0),
+            _ => inner_cross,
+        },
+        LayoutDirection::Row => match el.height {
+            Size::Grow => ((avail_h - el.mrg_y()).max(0.0) - el.pad_y()).max(0.0),
+            _ => inner_cross,
+        },
+    };
 
     let mut cursor = lead;
     let content_x = x + el.pad_l() - scroll_ox;
@@ -420,9 +465,27 @@ fn layout_node<'a>(
     });
 
     for child in &children {
+        // Main-axis available size handed to the child: a `Grow` child gets its
+        // distributed share (`grow_size`), but a `Percent` child must resolve its
+        // percentage against the parent's full inner extent — its containing block
+        // — not the grow slack (which is 0 when no sibling grows, collapsing e.g.
+        // the footer's `width:33%` cards to nothing). Fixed/Fit are unaffected by
+        // the value, so keep them on `grow_size` as before.
         let (child_avail_w, child_avail_h) = match el.layout_direction {
-            LayoutDirection::Row => (grow_size, inner_h),
-            LayoutDirection::Column => (inner_w, grow_size),
+            LayoutDirection::Row => {
+                let main = match child.width {
+                    Size::Percent(_) => inner_w,
+                    _ => grow_size,
+                };
+                (main, inner_h)
+            }
+            LayoutDirection::Column => {
+                let main = match child.height {
+                    Size::Percent(_) => inner_h,
+                    _ => grow_size,
+                };
+                (inner_w, main)
+            }
         };
         let (child_origin_x, child_origin_y) = match el.layout_direction {
             LayoutDirection::Row => (content_x + cursor, content_y),
@@ -457,25 +520,23 @@ fn layout_node<'a>(
         // `center_cross` (CSS `margin: 0 auto` on a definite-width block) centres
         // this child alone, overriding the parent's `align_items`.
         let cross_off = if child.center_cross {
-            (inner_cross - child_cross).max(0.0) / 2.0
+            (center_extent - child_cross).max(0.0) / 2.0
         } else {
             cross_offset(&el.align_items, inner_cross, child_cross)
         };
         if cross_off > 0.0 {
-            let (ox, oy) = match el.layout_direction {
-                LayoutDirection::Row => (child_origin_x, child_origin_y + cross_off),
-                LayoutDirection::Column => (child_origin_x + cross_off, child_origin_y),
+            // The final origin differs from the first pass by a pure cross-axis
+            // translation, so shift the already-computed subtree rather than
+            // re-laying it out. Re-invoking `layout_node` here would recompute the
+            // child's entire subtree a second time, and since each of *its*
+            // children could do the same, layout would cost O(2^depth) — a deeply
+            // nested page (e.g. a Wikipedia article's stacked tables) would explode
+            // into billions of boxes and exhaust memory. Translation is O(subtree).
+            let (dx, dy) = match el.layout_direction {
+                LayoutDirection::Row => (0.0, cross_off),
+                LayoutDirection::Column => (cross_off, 0.0),
             };
-            child_nodes = layout_node(
-                child,
-                ox,
-                oy,
-                child_avail_w,
-                child_avail_h,
-                content_clip,
-                child_cb,
-                p,
-            );
+            translate_nodes(&mut child_nodes, dx, dy);
         }
 
         let child_main = match el.layout_direction {
@@ -516,18 +577,18 @@ fn layout_absolute<'a>(
     // Resolve each side's offset (px + percentage-of-cb) up front.
     let (left, right) = (child.eff_left(cbw), child.eff_right(cbw));
     let (top, bottom) = (child.eff_top(cbh), child.eff_bottom(cbh));
-    let need_w = left.is_none() && right.is_some();
-    let need_h = top.is_none() && bottom.is_some();
 
-    // Measure first only when anchoring a far edge needs the resolved size.
-    let (mut cw, mut ch) = (0.0f32, 0.0f32);
-    if need_w || need_h {
-        let probe = layout_node(child, cbx, cby, cbw, cbh, cb.clip, cb, p);
-        if let Some(n) = probe.first() {
-            cw = n.width + child.mrg_x();
-            ch = n.height + child.mrg_y();
-        }
-    }
+    // Lay out once at the containing-block origin. When a far edge (right/bottom
+    // without left/top) is anchored we need the resolved size to place it, but the
+    // final box differs only by a translation — so shift the computed subtree
+    // rather than laying it out a second time (a second `layout_node` would
+    // recompute the whole subtree, and nested far-anchored absolutes would make
+    // that O(2^depth); see `translate_nodes` in the in-flow path).
+    let mut nodes = layout_node(child, cbx, cby, cbw, cbh, cb.clip, cb, p);
+    let (cw, ch) = nodes
+        .first()
+        .map(|n| (n.width + child.mrg_x(), n.height + child.mrg_y()))
+        .unwrap_or((0.0, 0.0));
 
     let ox = match (left, right) {
         (Some(l), _) => cbx + l,
@@ -540,7 +601,8 @@ fn layout_absolute<'a>(
         (None, None) => cby,
     };
 
-    layout_node(child, ox, oy, cbw, cbh, cb.clip, cb, p)
+    translate_nodes(&mut nodes, ox - cbx, oy - cby);
+    nodes
 }
 
 /// Leading offset + extra inter-child gap implementing CSS `justify-content`
@@ -724,6 +786,7 @@ fn find_scrollable_node<'a>(
         Size::Grow => (avail_h - el.mrg_y()).max(0.0),
         Size::Fit => fit_height(el, inner_w, p),
     };
+    let own_h = cap_height(el, own_h);
 
     let bounds = (x, y, own_w, own_h);
     let self_clip = intersect_clip(clip, bounds);
@@ -809,6 +872,7 @@ mod portal_geom {
             scrollable_y: false,
             scroll_x: 0.0,
             scroll_y: 0.0,
+            max_height: None,
             visible: true,
             center_cross: false,
         }
@@ -956,6 +1020,71 @@ mod portal_geom {
             "globe centre ({:.1}) should be near ring centre ({:.1})",
             globe_cy,
             ring_cy
+        );
+    }
+
+    // CSS `max-height` caps the used height and clips overflowing in-flow content
+    // via the engine's existing content-box clip — the language accordion's
+    // collapsed (`max-height:0`) and expanded states, without removing the subtree.
+    #[test]
+    fn max_height_caps_and_clips_without_removing() {
+        fn run(cap: Option<f32>) -> (f32, ClipRect) {
+            let mut all = Vec::new();
+
+            let mut container = el("container");
+            container.width = Size::Fixed(300.0);
+            container.height = Size::Fit; // hugs content unless capped
+            container.max_height = cap;
+            all.push(container);
+
+            // A tall in-flow child (200px) — far taller than a small cap.
+            let mut kid = el("kid");
+            kid.parent = Some("container".into());
+            kid.order = 0;
+            kid.height = Size::Fixed(200.0);
+            kid.width = Size::Fixed(300.0);
+            all.push(kid);
+
+            let root = all[0].clone();
+            let full = (0.0, 0.0, 300.0, 2000.0);
+            let cb = ContainingBlock {
+                rect: full,
+                clip: full,
+            };
+            let computed = layout_element(&all, &root, 0.0, 0.0, 300.0, 2000.0, full, cb);
+            let c = find(&computed, "container");
+            let k = find(&computed, "kid");
+            (c.height, k.clip)
+        }
+
+        // Uncapped: the container hugs its 200px child.
+        let (h_uncapped, _) = run(None);
+        assert!(
+            (h_uncapped - 200.0).abs() < 1.0,
+            "uncapped container should be ~200 (was {h_uncapped})"
+        );
+
+        // Capped at 20: height clamps to 20 and the child is clipped to that box —
+        // the child element still exists (not removed), only its paint is bounded.
+        let (h_capped, kid_clip) = run(Some(20.0));
+        assert!(
+            (h_capped - 20.0).abs() < 1.0,
+            "capped container should be 20 (was {h_capped})"
+        );
+        assert!(
+            kid_clip.3 <= 20.0 + 0.01,
+            "child clip height ({}) should be bounded by the 20px cap",
+            kid_clip.3
+        );
+
+        // Collapsed accordion (`max-height:0`): height 0 and the child is fully
+        // clipped away, yet the node is still laid out (present in `computed`).
+        let (h_zero, kid_clip0) = run(Some(0.0));
+        assert!(h_zero.abs() < 0.01, "max-height:0 collapses to 0 (was {h_zero})");
+        assert!(
+            kid_clip0.3.abs() < 0.01,
+            "collapsed child clip height ({}) should be 0",
+            kid_clip0.3
         );
     }
 }

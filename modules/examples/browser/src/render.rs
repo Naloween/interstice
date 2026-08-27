@@ -70,7 +70,7 @@ pub(crate) fn rebuild<Caps>(
 {
     let stylesheet = css::parse_all(sheets);
     let (blocks, page_bg) = html::parse_html(&stylesheet);
-    let blocks = html::group_floats(blocks);
+    let blocks = html::layout_blocks(blocks);
 
     teardown_viewport(ctx);
     // Paint the page canvas: the document's `<html>`/`<body>` background, or the
@@ -185,39 +185,47 @@ fn render_blocks<Caps>(
                 let w = match width {
                     css::WidthVal::Auto if flex_row => Size::Fit,
                     css::WidthVal::Auto => Size::Grow,
+                    css::WidthVal::Fit => Size::Fit,
                     css::WidthVal::Px(px) => Size::Fixed(px.max(0.0)),
                     css::WidthVal::Pct(f) => Size::Percent(*f),
                 };
                 // `height: auto` is the default (content-sized); an explicit
                 // px/percent height fixes the box.
                 let h = match height {
-                    css::WidthVal::Auto => Size::Fit,
+                    css::WidthVal::Auto | css::WidthVal::Fit => Size::Fit,
                     css::WidthVal::Px(px) => Size::Fixed(px.max(0.0)),
                     css::WidthVal::Pct(f) => Size::Percent(*f),
                 };
-                ui::create_element(
-                    ctx,
-                    text_el(
-                        id.clone(),
-                        parent.to_string(),
-                        i as u32,
-                        text.clone(),
-                        *size,
-                        *color,
-                        *bold,
-                        *italic,
-                        *align,
-                        *background,
-                        *margin,
-                        *padding,
-                        w,
-                        h,
-                        *line_height,
-                        *border_w,
-                        *border_c,
-                        spans,
-                    ),
+                // A `Fit` (shrink-to-content) text box is sized to its content, so
+                // it must not wrap — otherwise the engine measures its narrowest
+                // wrapped width and the text breaks mid-phrase (e.g. the portal's
+                // "Read Wikipedia in your language" pill button collapsing to two
+                // lines). Flowing text keeps word-wrapping.
+                let nowrap = matches!(w, Size::Fit);
+                let mut el = text_el(
+                    id.clone(),
+                    parent.to_string(),
+                    i as u32,
+                    text.clone(),
+                    *size,
+                    *color,
+                    *bold,
+                    *italic,
+                    *align,
+                    *background,
+                    *margin,
+                    *padding,
+                    w,
+                    h,
+                    *line_height,
+                    *border_w,
+                    *border_c,
+                    spans,
                 );
+                if nowrap {
+                    el.text_wrap = TextWrap::None;
+                }
+                ui::create_element(ctx, el);
             }
             Block::Space { height } => {
                 ui::create_element(ctx, space_el(id, parent.to_string(), i as u32, *height));
@@ -230,6 +238,7 @@ fn render_blocks<Caps>(
                 inset_pct,
                 width,
                 height,
+                sprite_crop,
                 ..
             } => {
                 // Inline `<svg>`: rasterize the serialized source right here and
@@ -297,6 +306,7 @@ fn render_blocks<Caps>(
                     req_id,
                     fixed_w: *width,
                     fixed_h: *height,
+                    crop: *sprite_crop,
                 });
             }
             Block::Container {
@@ -314,6 +324,7 @@ fn render_blocks<Caps>(
                 width,
                 height,
                 center,
+                max_height,
                 ..
             } => {
                 let mut el = container_el(
@@ -333,6 +344,7 @@ fn render_blocks<Caps>(
                 // sizing so columns line up across rows.
                 match width {
                     css::WidthVal::Auto => {}
+                    css::WidthVal::Fit => el.width = Size::Fit,
                     css::WidthVal::Px(px) => el.width = Size::Fixed(px.max(0.0)),
                     css::WidthVal::Pct(f) => el.width = Size::Percent(*f),
                 }
@@ -341,7 +353,7 @@ fn render_blocks<Caps>(
                 // (e.g. the language ring around `.central-featured`, whose
                 // children are all `position:absolute`).
                 match height {
-                    css::WidthVal::Auto => {}
+                    css::WidthVal::Auto | css::WidthVal::Fit => {}
                     css::WidthVal::Px(px) => el.height = Size::Fixed(px.max(0.0)),
                     css::WidthVal::Pct(f) => el.height = Size::Percent(*f),
                 }
@@ -350,6 +362,11 @@ fn render_blocks<Caps>(
                 // parent's cross axis (engine-side, so no wrapper box clips the
                 // block's overflowing absolute children — e.g. the portal globe).
                 el.center_cross = *center;
+                // CSS `max-height`: cap the used height and clip overflow via the
+                // engine's content-box clipping, so a collapsed accordion
+                // (`max-height:0`) hides its content without removing the subtree —
+                // a toggled class can then expand it.
+                el.max_height = *max_height;
                 ui::create_element(ctx, el);
                 render_blocks(
                     ctx,
@@ -393,38 +410,98 @@ fn render_blocks<Caps>(
                     css::Float::Right => (1u32, 0u32),
                     _ => (0u32, 1u32),
                 };
-                // Float wrapper: shrink-to-fit, keeping the float's intrinsic width.
+                // Float column. When the float is a container with a definite
+                // width, the wrapper *becomes* that box (its styling + width) so a
+                // percentage width resolves against the row — not a shrink-wrapped
+                // zero, which would collapse the column to one word per line (e.g.
+                // the Wikipedia footer's `width:35%` / `width:33%` columns). Its
+                // contents then fill it. An auto/intrinsic float (a floated image)
+                // keeps a shrink-to-fit wrapper holding the float box as-is.
                 let fw_id = format!("c{generation}_{}", *counter);
                 *counter += 1;
-                ui::create_element(
-                    ctx,
-                    container_el(
+                if let Block::Container {
+                    direction,
+                    justify,
+                    align,
+                    gap,
+                    margin,
+                    padding,
+                    background,
+                    width,
+                    height,
+                    children,
+                    ..
+                } = float_box.as_ref()
+                {
+                    let mut fw = container_el(
                         fw_id.clone(),
                         id.clone(),
                         float_order,
-                        LayoutDirection::Column,
-                        JustifyContent::Start,
-                        AlignItems::Start,
-                        0.0,
-                        zero,
-                        zero,
-                        None,
+                        map_direction(*direction),
+                        map_justify(*justify),
+                        map_align(*align),
+                        *gap,
+                        *margin,
+                        *padding,
+                        *background,
+                        false,
+                    );
+                    fw.width = match width {
+                        css::WidthVal::Px(px) => Size::Fixed(px.max(0.0)),
+                        css::WidthVal::Pct(f) => Size::Percent(*f),
+                        // No definite width ⇒ shrink to the float's intrinsic size.
+                        css::WidthVal::Auto | css::WidthVal::Fit => Size::Fit,
+                    };
+                    if let css::WidthVal::Px(px) = height {
+                        fw.height = Size::Fixed(px.max(0.0));
+                    } else if let css::WidthVal::Pct(f) = height {
+                        fw.height = Size::Percent(*f);
+                    }
+                    ui::create_element(ctx, fw);
+                    render_blocks(
+                        ctx,
+                        host,
+                        path,
+                        tls,
+                        generation,
+                        &fw_id,
+                        children,
+                        url_reqs,
+                        next_req,
+                        counter,
+                        *direction == css::FlexDirection::Row,
+                    );
+                } else {
+                    ui::create_element(
+                        ctx,
+                        container_el(
+                            fw_id.clone(),
+                            id.clone(),
+                            float_order,
+                            LayoutDirection::Column,
+                            JustifyContent::Start,
+                            AlignItems::Start,
+                            0.0,
+                            zero,
+                            zero,
+                            None,
+                            true,
+                        ),
+                    );
+                    render_blocks(
+                        ctx,
+                        host,
+                        path,
+                        tls,
+                        generation,
+                        &fw_id,
+                        std::slice::from_ref(float_box.as_ref()),
+                        url_reqs,
+                        next_req,
+                        counter,
                         true,
-                    ),
-                );
-                render_blocks(
-                    ctx,
-                    host,
-                    path,
-                    tls,
-                    generation,
-                    &fw_id,
-                    std::slice::from_ref(float_box.as_ref()),
-                    url_reqs,
-                    next_req,
-                    counter,
-                    true,
-                );
+                    );
+                }
                 // Flow wrapper: grows to fill the width remaining beside the float.
                 let cw_id = format!("c{generation}_{}", *counter);
                 *counter += 1;

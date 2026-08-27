@@ -2282,6 +2282,7 @@ dependencies = [
  "colored_text",
  "cpal",
  "crossbeam-channel",
+ "image",
  "interstice-abi",
  "notify",
  "parking_lot",

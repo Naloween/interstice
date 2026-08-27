@@ -31,12 +31,14 @@ fn svg_fontdb() -> std::sync::Arc<resvg::usvg::fontdb::Database> {
     .clone()
 }
 
-/// Rasterize an SVG document to straight-alpha RGBA8, returning `(w, h, rgba)`,
-/// or `None` if the bytes aren't valid SVG. Used as the fallback when the raster
-/// decoders reject an image — Wikipedia and friends serve many icons/logos as
-/// SVG. Dimensions come from the SVG's intrinsic size, capped so a large viewBox
-/// can't allocate an enormous texture.
-fn decode_svg(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
+/// Rasterize an SVG document to straight-alpha RGBA8, returning
+/// `(w, h, rgba, css_w, css_h)`, or `None` if the bytes aren't valid SVG. `w`/`h`
+/// are the rasterized texture pixels (capped so a large viewBox can't allocate an
+/// enormous texture); `css_w`/`css_h` are the SVG's intrinsic CSS-px size (pre-cap)
+/// — needed to map a CSS-sprite crop window onto the texture's UV space. Used as
+/// the fallback when the raster decoders reject an image, since Wikipedia and
+/// friends serve many icons/logos (and sprite sheets) as SVG.
+fn decode_svg(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>, f32, f32)> {
     use resvg::{tiny_skia, usvg};
 
     let mut opt = usvg::Options::default();
@@ -73,7 +75,7 @@ fn decode_svg(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
             }
         }
     }
-    Some((w, h, rgba))
+    Some((w, h, rgba, size.width(), size.height()))
 }
 
 /// Handle a completed image fetch for `req_id`: decode it once into a shared
@@ -89,17 +91,19 @@ where
         + CanDelete<ImageWaiter>,
 {
     // Which elements were waiting on this fetch, plus any authored size to stamp
-    // them at (else they take the decoded intrinsic size).
-    let waiters: Vec<(String, Option<f32>, Option<f32>)> = ctx
+    // them at (else they take the decoded intrinsic size) and an optional
+    // CSS-sprite crop window (in the atlas's own CSS-px space).
+    type Waiter = (String, Option<f32>, Option<f32>, Option<(f32, f32, f32, f32)>);
+    let waiters: Vec<Waiter> = ctx
         .current
         .tables
         .imagewaiter()
         .scan()
         .into_iter()
         .filter(|w| w.req_id == req_id)
-        .map(|w| (w.element_id, w.fixed_w, w.fixed_h))
+        .map(|w| (w.element_id, w.fixed_w, w.fixed_h, w.crop))
         .collect();
-    for (id, _, _) in &waiters {
+    for (id, _, _, _) in &waiters {
         let _ = ctx.current.tables.imagewaiter().delete(id.clone());
     }
 
@@ -108,10 +112,13 @@ where
     // sites like Wikipedia serve many icons/logos as SVG (which `image` can't
     // decode).
     let raster = if ok { image::load_from_memory(bytes).ok() } else { None };
-    let (w, h, raw) = if let Some(img) = raster {
+    // `(w, h)` are the texture's pixels; `(ciw, cih)` its CSS-intrinsic size — the
+    // same for raster (1 px = 1 CSS px), but larger than the texture for an SVG we
+    // capped while rasterizing. Sprite UVs are resolved against the CSS-intrinsic.
+    let (w, h, raw, ciw, cih) = if let Some(img) = raster {
         let rgba = img.to_rgba8();
         let (w, h) = rgba.dimensions();
-        (w, h, rgba.into_raw())
+        (w, h, rgba.into_raw(), w as f32, h as f32)
     } else if let Some(svg) = if ok { decode_svg(bytes) } else { None } {
         svg
     } else {
@@ -149,9 +156,29 @@ where
     );
 
     let (dw, dh) = display_size(w, h);
-    for (id, fw, fh) in &waiters {
+    for (id, fw, fh, crop) in &waiters {
         // Only attach if the element still exists (the user may have navigated away).
         if let Some(mut el) = ctx.current.tables.uielement().get(id.clone()) {
+            if let Some((sx, sy, sw, sh)) = *crop {
+                // CSS sprite: keep the element's own icon-cell box and sample only
+                // the cropped sub-rectangle of the shared atlas. UVs are fractions
+                // of the atlas's CSS-intrinsic size (which maps to the full texture).
+                if ciw > 0.0 && cih > 0.0 {
+                    let (u0, v0) = (sx / ciw, sy / cih);
+                    let (u1, v1) = ((sx + sw) / ciw, (sy + sh) / cih);
+                    el.image_src = Some((u0, v0, u1, v1));
+                }
+                if let Some(w) = fw {
+                    el.width = Size::Fixed(*w);
+                }
+                if let Some(h) = fh {
+                    el.height = Size::Fixed(*h);
+                }
+                el.background_color = TRANSPARENT;
+                el.image = Some(tex_id.clone());
+                let _ = ctx.current.tables.uielement().update(el);
+                continue;
+            }
             // Authored width/height win over the decoded size (a missing axis is
             // filled from the decoded aspect ratio) so e.g. a 2×-native logo shown
             // at `width="200"` doesn't render at 400px and cover its neighbours.
@@ -175,7 +202,7 @@ pub(crate) fn place_inline_svg<Caps>(
     element_id: &str,
     bytes: &[u8],
 ) -> Option<(String, f32, f32)> {
-    let (w, h, raw) = decode_svg(bytes)?;
+    let (w, h, raw, _ciw, _cih) = decode_svg(bytes)?;
     if w == 0 || h == 0 {
         return None;
     }

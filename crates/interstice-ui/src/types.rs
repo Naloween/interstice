@@ -161,6 +161,12 @@ pub struct UiElement {
     pub scrollable_y: bool,
     pub scroll_x: f32,
     pub scroll_y: f32,
+    /// CSS `max-height` in px. `None` ⇒ uncapped. When set, the element's used
+    /// height is clamped to this and overflowing in-flow content is clipped
+    /// (already the engine's default for the content box) — so `max-height:0` is
+    /// a collapsed accordion and a larger value expands it, both without removing
+    /// the subtree (a toggled class can animate/expand it).
+    pub max_height: Option<f32>,
     pub visible: bool,
     /// When set, this element centres itself on its parent's cross axis,
     /// overriding the parent's `align_items` for this child alone (CSS

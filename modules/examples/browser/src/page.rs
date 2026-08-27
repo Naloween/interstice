@@ -39,6 +39,10 @@ where
         + CanInsert<StyleSheet>
         + CanDelete<StyleSheet>
         + CanInsert<CssFetchQueue>
+        + CanRead<ScriptSheet>
+        + CanInsert<ScriptSheet>
+        + CanDelete<ScriptSheet>
+        + CanInsert<ScriptFetchQueue>
         + CanUpdate<NavState>,
 {
     // Adopt the post-redirect URL as the document base. The broker may have
@@ -73,6 +77,9 @@ where
     let pg = nav.page_gen;
     for s in ctx.current.tables.stylesheet().scan() {
         let _ = ctx.current.tables.stylesheet().delete(s.req_id);
+    }
+    for s in ctx.current.tables.scriptsheet().scan() {
+        let _ = ctx.current.tables.scriptsheet().delete(s.req_id);
     }
 
     // Consume the main request: the runtime may deliver this insert more than once
@@ -112,7 +119,7 @@ where
         return;
     }
 
-    let html = String::from_utf8_lossy(&row.body).to_string();
+    let html = crate::encoding::decode_body(&row.body);
 
     // Build the persistent DOM arena for this page (the single source of truth the
     // walker/renderer read, and — from the JS phases on — that scripts mutate). It
@@ -180,6 +187,36 @@ where
         });
         order += 1;
     }
+    // Queue this page's external `<script src>` in document order. Unlike CSS these
+    // aren't render-blocking (see `NavState.pending_js`): the page paints below on
+    // CSS alone; the scripts run once they've all arrived (`on_script_response`).
+    let scripts = crate::js::collect_external_scripts();
+    let mut pending_js = 0u32;
+    let mut sorder = 0u32;
+    for src in &scripts {
+        let Some(loc) = url::resolve(&nav.host, &nav.path, nav.tls, src) else {
+            continue;
+        };
+        let rid = next;
+        next += 1;
+        let _ = ctx.current.tables.scriptsheet().insert(ScriptSheet {
+            req_id: rid,
+            page_gen: pg,
+            order: sorder,
+            code: String::new(),
+            ready: false,
+        });
+        let _ = ctx.current.tables.scriptfetchqueue().insert(ScriptFetchQueue {
+            req_id: rid,
+            host: loc.host,
+            path: loc.path,
+            tls: loc.tls,
+        });
+        pending_js += 1;
+        sorder += 1;
+    }
+    nav.pending_js = pending_js;
+
     nav.next_req_id = next;
     nav.pending_css = pending;
 
@@ -227,7 +264,7 @@ pub(crate) fn on_css_response<Caps>(
     }
 
     let css = if row.error.is_empty() {
-        String::from_utf8_lossy(&row.body).to_string()
+        crate::encoding::decode_body(&row.body)
     } else {
         String::new() // a failed sheet just contributes nothing
     };
@@ -248,6 +285,84 @@ pub(crate) fn on_css_response<Caps>(
         };
         let sheets = collect_sheet_texts(ctx, nav.page_gen, row.req_id, &css);
         rebuild(ctx, nav, &doc.host, &doc.path, doc.tls, &sheets);
+    }
+    let _ = ctx.current.tables.navstate().update(nav.clone());
+}
+
+/// Handle a completed external-script fetch: stash its body, and once every script
+/// for this page has arrived, run them in document order against the live realm.
+/// Scripts typically only register event listeners (against the persistent DOM
+/// arena, which survives re-renders), so a re-render happens only if a script
+/// mutated the DOM.
+pub(crate) fn on_script_response<Caps>(
+    ctx: &ReducerContext<Caps>,
+    nav: &mut NavState,
+    row: &HttpResponse,
+) where
+    Caps: CanRead<ui::UiElement>
+        + CanInsert<ui::UiElement>
+        + CanUpdate<ui::UiElement>
+        + CanDelete<ui::UiElement>
+        + CanRead<LinkMap>
+        + CanDelete<LinkMap>
+        + CanRead<ImageReq>
+        + CanInsert<ImageReq>
+        + CanDelete<ImageReq>
+        + CanRead<ImageWaiter>
+        + CanInsert<ImageWaiter>
+        + CanDelete<ImageWaiter>
+        + CanInsert<ImageFetchQueue>
+        + CanRead<ScriptSheet>
+        + CanUpdate<ScriptSheet>
+        + CanRead<StyleSheet>
+        + CanUpdate<NavState>,
+{
+    let Some(mut script) = ctx.current.tables.scriptsheet().get(row.req_id) else {
+        return;
+    };
+    // Stale: already filled, or belongs to a page the user has navigated away from.
+    if script.ready || script.page_gen != nav.page_gen {
+        return;
+    }
+
+    let code = if row.error.is_empty() {
+        crate::encoding::decode_body(&row.body)
+    } else {
+        String::new() // a failed script just contributes nothing
+    };
+    script.code = code.clone();
+    script.ready = true;
+    let _ = ctx.current.tables.scriptsheet().update(script);
+
+    if nav.pending_js > 0 {
+        nav.pending_js -= 1;
+    }
+    if nav.pending_js == 0 {
+        // All external scripts are in. Gather them in document order — the just-
+        // updated row isn't visible to a scan in this same run (write-visibility),
+        // so substitute its fresh body — and run them against the page's realm.
+        let mut rows: Vec<ScriptSheet> = ctx
+            .current
+            .tables
+            .scriptsheet()
+            .scan()
+            .into_iter()
+            .filter(|s| s.page_gen == nav.page_gen)
+            .collect();
+        rows.sort_by_key(|s| s.order);
+        let codes: Vec<String> = rows
+            .into_iter()
+            .map(|s| if s.req_id == row.req_id { code.clone() } else { s.code })
+            .collect();
+        crate::js::run_external_scripts(&codes);
+
+        // A script that mutated the DOM (rare at load — most just add listeners)
+        // requires a re-render from the live arena, exactly like a click handler.
+        if crate::dom::take_dirty() {
+            let (host, path, tls) = (nav.host.clone(), nav.path.clone(), nav.tls);
+            let sheets = current_sheets(ctx, nav.page_gen);
+            rebuild(ctx, nav, &host, &path, tls, &sheets);
+        }
     }
     let _ = ctx.current.tables.navstate().update(nav.clone());
 }

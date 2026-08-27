@@ -67,11 +67,18 @@ impl App {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        let mut attrs = Window::default_attributes()
+            .with_title(format!("interstice - node({})", self.node_id));
+        // Optional fixed window size (e.g. `INTERSTICE_WINDOW_SIZE=1024x1400`),
+        // handy for headless/screenshot captures of a full page.
+        if let Some((w, h)) = std::env::var("INTERSTICE_WINDOW_SIZE").ok().and_then(|s| {
+            let (w, h) = s.split_once('x')?;
+            Some((w.trim().parse::<u32>().ok()?, h.trim().parse::<u32>().ok()?))
+        }) {
+            attrs = attrs.with_inner_size(winit::dpi::PhysicalSize::new(w, h));
+        }
         let window = event_loop
-            .create_window(
-                Window::default_attributes()
-                    .with_title(format!("interstice - node({})", self.node_id)),
-            )
+            .create_window(attrs)
             .expect("Failed to create window");
         window.request_redraw();
         let window = Arc::new(window);

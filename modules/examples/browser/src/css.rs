@@ -116,6 +116,10 @@ pub enum WidthVal {
     Pct(f32),
     /// `auto` — fill the available width (the default block behaviour).
     Auto,
+    /// Shrink-to-fit: size the box to its content (CSS `inline-block` / a
+    /// floated or `fit-content` box). Not produced by `parse_width`; synthesized
+    /// for inline-block boxes so they don't stretch to their container.
+    Fit,
 }
 
 /// A resolved `line-height`. Kept distinct from a plain px length because a
@@ -150,6 +154,11 @@ pub struct Applied {
     /// "closed" state (e.g. the Wikipedia language list), which we treat as
     /// `display:none`. A non-zero cap is recorded but otherwise ignored.
     pub max_height: Option<f32>,
+    /// `max-width`, reusing the Px/Pct model as `width`. Recorded mainly as a
+    /// signal that a width-less `inline-block` is a structural box (e.g. the
+    /// footer's `.other-project-text{max-width:65%}`) so it reifies and can sit
+    /// beside its inline-level siblings, rather than folding into a text run.
+    pub max_width: Option<WidthVal>,
     /// `font-weight`: `true` ⇒ bold (≥600 / `bold`/`bolder`), `false` ⇒ normal.
     pub font_weight: Option<bool>,
     /// `font-style`: `true` ⇒ italic (`italic`/`oblique`), `false` ⇒ normal.
@@ -191,6 +200,26 @@ pub struct Applied {
     /// meaningful on a `::before`/`::after` [`Stylesheet::pseudo`] result; `None`
     /// (or `content: none`) ⇒ no generated box is produced.
     pub content: Option<String>,
+    /// A single `background-image: url(...)` (the raw URL, resolved downstream like
+    /// an `<img src>`). Only captured for plain-URL backgrounds — gradient values
+    /// (including the sprite-atlas `linear-gradient(...),url(sprite.svg)` loading
+    /// trick) are ignored, so this holds a genuine standalone image (e.g. a sized
+    /// icon painted via CSS) rather than a sprite sheet.
+    pub background_image: Option<String>,
+    /// A sprite-sheet URL captured from the CSS-sprite loading trick, where the
+    /// background is `linear-gradient(...),url(sheet)` (the gradient forces a
+    /// repaint path in real browsers; here it just flags "this url is a sprite
+    /// atlas, not a standalone image"). Combined with [`Self::background_position`]
+    /// and a fixed width/height, it crops one icon cell out of the shared sheet.
+    pub sprite_atlas: Option<String>,
+    /// `background-position` as `[x, y]` in CSS px (keywords `left`/`top` ⇒ 0).
+    /// Negative values shift the sheet, so the visible cell begins at `-position`.
+    pub background_position: [Option<f32>; 2],
+    /// Whether `background-size` was authored. Sprite cropping assumes the sheet is
+    /// painted at its intrinsic size (UV = crop / intrinsic); a `background-size`
+    /// rescales that space (e.g. the wordmark's `background-size:100%`), so we
+    /// suppress the sprite crop when this is set rather than crop the wrong cell.
+    pub background_size_set: bool,
 }
 
 impl Applied {
@@ -213,6 +242,9 @@ impl Applied {
         }
         if o.max_height.is_some() {
             self.max_height = o.max_height;
+        }
+        if o.max_width.is_some() {
+            self.max_width = o.max_width;
         }
         if o.font_weight.is_some() {
             self.font_weight = o.font_weight;
@@ -278,6 +310,21 @@ impl Applied {
         }
         if o.content.is_some() {
             self.content = o.content.clone();
+        }
+        if o.background_image.is_some() {
+            self.background_image = o.background_image.clone();
+        }
+        if o.sprite_atlas.is_some() {
+            self.sprite_atlas = o.sprite_atlas.clone();
+        }
+        if o.background_position[0].is_some() {
+            self.background_position[0] = o.background_position[0];
+        }
+        if o.background_position[1].is_some() {
+            self.background_position[1] = o.background_position[1];
+        }
+        if o.background_size_set {
+            self.background_size_set = true;
         }
     }
 
@@ -1444,6 +1491,48 @@ fn apply_decl(a: &mut Applied, prop: &str, value: &str, base_font: f32) {
             if let Some(c) = background_color(value) {
                 a.background = Some(c);
             }
+            if let Some(u) = plain_background_url(value) {
+                a.background_image = Some(u);
+            } else if let Some(u) = sprite_atlas_url(value) {
+                a.sprite_atlas = Some(u);
+            }
+        }
+        "background-image" => {
+            if let Some(u) = plain_background_url(value) {
+                a.background_image = Some(u);
+            } else if let Some(u) = sprite_atlas_url(value) {
+                a.sprite_atlas = Some(u);
+            }
+        }
+        "background-position" => {
+            let (x, y) = parse_background_position(value, base_font);
+            if x.is_some() {
+                a.background_position[0] = x;
+            }
+            if y.is_some() {
+                a.background_position[1] = y;
+            }
+        }
+        "background-position-x" => {
+            if let Some(v) = parse_len_px(value.trim(), base_font).or_else(|| match value.trim() {
+                "left" => Some(0.0),
+                _ => None,
+            }) {
+                a.background_position[0] = Some(v);
+            }
+        }
+        "background-position-y" => {
+            if let Some(v) = parse_len_px(value.trim(), base_font).or_else(|| match value.trim() {
+                "top" => Some(0.0),
+                _ => None,
+            }) {
+                a.background_position[1] = Some(v);
+            }
+        }
+        "background-size" => {
+            if !value.trim().is_empty() {
+                a.background_size_set = true;
+            }
         }
         "font-size" => {
             // Ignore non-positive sizes (e.g. `font-size:0`, used to collapse
@@ -1531,6 +1620,13 @@ fn apply_decl(a: &mut Applied, prop: &str, value: &str, base_font: f32) {
                 a.max_height = Some(0.0);
             } else if let Some(px) = parse_len_px(&v, base_font) {
                 a.max_height = Some(px);
+            }
+        }
+        "max-width" => {
+            if value.trim().eq_ignore_ascii_case("none") {
+                a.max_width = None;
+            } else if let Some(w) = parse_width(value, base_font) {
+                a.max_width = Some(w);
             }
         }
         "border" => apply_border_shorthand(a, value, base_font),
@@ -1918,6 +2014,65 @@ fn calc_factor(toks: &[CalcTok], pos: &mut usize) -> Option<f32> {
 /// a `linear-/radial-gradient(...)`'s first colour stop, or the first token that
 /// parses as a colour (`url(...) no-repeat #fff`). `None` ⇒ no colour (stays
 /// transparent, e.g. an image-only background).
+/// Extract a standalone `url(...)` from a `background` / `background-image` value.
+/// Returns `None` when the value contains any `gradient(` — the sprite-atlas
+/// loading trick pairs `linear-gradient(transparent,transparent)` with the sheet
+/// URL, and painting a whole atlas as one icon is wrong — so we only surface a
+/// genuine single-image background. `url("…")`/`url('…')`/`url(…)` all handled;
+/// `data:`/`none` are rejected.
+fn plain_background_url(value: &str) -> Option<String> {
+    if value.to_ascii_lowercase().contains("gradient(") {
+        return None;
+    }
+    let start = value.find("url(")? + "url(".len();
+    let rest = &value[start..];
+    let end = rest.find(')')?;
+    let raw = rest[..end].trim().trim_matches(|c| c == '"' || c == '\'').trim();
+    if raw.is_empty() || raw.starts_with("data:") || raw.eq_ignore_ascii_case("none") {
+        return None;
+    }
+    Some(raw.to_string())
+}
+
+/// Extract the sprite-sheet `url(...)` from a CSS-sprite background value: one that
+/// pairs a gradient with a URL (`linear-gradient(transparent,transparent),url(s.svg)`
+/// — the trick used to force a background repaint). Only returns a URL when a
+/// `gradient(` IS present (that's what distinguishes an atlas from a standalone
+/// image, which [`plain_background_url`] handles). `data:` sheets are rejected.
+fn sprite_atlas_url(value: &str) -> Option<String> {
+    if !value.to_ascii_lowercase().contains("gradient(") {
+        return None;
+    }
+    let start = value.find("url(")? + "url(".len();
+    let rest = &value[start..];
+    let end = rest.find(')')?;
+    let raw = rest[..end].trim().trim_matches(|c| c == '"' || c == '\'').trim();
+    if raw.is_empty() || raw.starts_with("data:") || raw.eq_ignore_ascii_case("none") {
+        return None;
+    }
+    Some(raw.to_string())
+}
+
+/// Parse `background-position` into `(x, y)` CSS-px. Handles the common shapes for
+/// a sprite cell: two lengths (`-47px -47px`), a single length (`y` defaults to
+/// centre → we leave it unset), and the `left`/`top` keywords (⇒ 0). Percentages
+/// and `right`/`bottom`/`center` need the box/image size, so they stay unset.
+fn parse_background_position(value: &str, base: f32) -> (Option<f32>, Option<f32>) {
+    let toks: Vec<&str> = value.split_whitespace().collect();
+    let axis = |t: &str, horiz: bool| -> Option<f32> {
+        match t {
+            "left" if horiz => Some(0.0),
+            "top" if !horiz => Some(0.0),
+            _ => parse_len_px(t, base),
+        }
+    };
+    match toks.as_slice() {
+        [x] => (axis(x, true), None),
+        [x, y, ..] => (axis(x, true), axis(y, false)),
+        _ => (None, None),
+    }
+}
+
 fn background_color(value: &str) -> Option<Rgba> {
     let lower = value.to_ascii_lowercase();
     if let Some(gpos) = lower.find("gradient(") {

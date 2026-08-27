@@ -28,6 +28,7 @@ use interstice_sdk::*;
 
 mod css;
 mod dom;
+mod encoding;
 mod grid;
 mod html;
 mod images;
@@ -41,7 +42,7 @@ mod tables;
 mod url;
 mod widgets;
 
-interstice_module!(visibility: Public);
+interstice_module!(visibility: Public, authorities: [File]);
 
 // Module-local UI subsystem (own tables, helpers, render + key reducer), wired to
 // this module's own graphics/input bindings so the compositor can route us to our
@@ -50,6 +51,22 @@ interstice_ui::ui_subsystem!();
 
 use crate::tables::*;
 use crate::ui::*;
+
+thread_local! {
+    /// Optional homepage to auto-navigate to on the first frame. Populated in
+    /// `on_load` from the `browser_home` file (a single URL) if it exists next to
+    /// the host process, and consumed once by `on_frame`. Lets a headless/testing
+    /// run open a page without typing; empty by default (blank start page).
+    static HOMEPAGE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+
+    /// Optional scripted clicks for headless testing. Populated in `on_load` from a
+    /// `browser_click` file (one `frame x y` triple per line) if present next to the
+    /// host process. `on_frame` synthesises a left-button click at `(x, y)` on the
+    /// matching frame, driving the same path as a real mouse click so interactivity
+    /// (JS event dispatch, link follows) can be exercised without a display. Empty by
+    /// default (no scripted clicks).
+    static SCRIPTED_CLICKS: std::cell::RefCell<Vec<(u64, f32, f32)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 
@@ -218,10 +235,45 @@ where
         hist_len: 0,
         hist_pos: 0,
         pending_css: 0,
+        pending_js: 0,
         page_gen: 0,
     };
     if let Err(err) = ctx.current.tables.navstate().insert(nav) {
         ctx.log(&format!("browser: failed to seed NavState: {err}"));
+    }
+
+    // Optional homepage: if a `browser_home` file sits next to the host process,
+    // read a single URL from it and auto-navigate on the first frame. Handy for
+    // headless/screenshot runs; absent by default (blank start page).
+    match interstice_sdk::host_calls::read_file("browser_home".into()) {
+        Ok(bytes) => {
+            if let Ok(text) = String::from_utf8(bytes) {
+                let url = text.trim().to_string();
+                interstice_sdk::host_calls::log(&format!("browser: homepage = {url:?}"));
+                if !url.is_empty() {
+                    HOMEPAGE.with(|h| *h.borrow_mut() = Some(url));
+                }
+            }
+        }
+        Err(e) => interstice_sdk::host_calls::log(&format!("browser: no homepage file: {e}")),
+    }
+
+    // Optional scripted clicks (headless interactivity testing). Each line is
+    // `frame x y`; `on_frame` fires a synthetic click at that frame. Absent normally.
+    if let Ok(bytes) = interstice_sdk::host_calls::read_file("browser_click".into()) {
+        if let Ok(text) = String::from_utf8(bytes) {
+            let clicks: Vec<(u64, f32, f32)> = text
+                .lines()
+                .filter_map(|l| {
+                    let mut it = l.split_whitespace();
+                    Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?, it.next()?.parse().ok()?))
+                })
+                .collect();
+            if !clicks.is_empty() {
+                interstice_sdk::host_calls::log(&format!("browser: scripted clicks = {clicks:?}"));
+                SCRIPTED_CLICKS.with(|c| *c.borrow_mut() = clicks);
+            }
+        }
     }
 }
 
@@ -254,7 +306,12 @@ where
         + CanInsert<StyleSheet>
         + CanUpdate<StyleSheet>
         + CanDelete<StyleSheet>
-        + CanInsert<CssFetchQueue>,
+        + CanInsert<CssFetchQueue>
+        + CanInsert<ScriptSheet>
+        + CanRead<ScriptSheet>
+        + CanUpdate<ScriptSheet>
+        + CanDelete<ScriptSheet>
+        + CanInsert<ScriptFetchQueue>,
 {
     if row.owner != ME {
         return; // another app's request
@@ -274,6 +331,8 @@ where
         page::prepare_page(&ctx, &mut nav, &row);
     } else if ctx.current.tables.stylesheet().get(row.req_id).is_some() {
         page::on_css_response(&ctx, &mut nav, &row);
+    } else if ctx.current.tables.scriptsheet().get(row.req_id).is_some() {
+        page::on_script_response(&ctx, &mut nav, &row);
     } else if ctx.current.tables.imagereq().get(row.req_id).is_some() {
         // An image fetch completed. Drop the request record (so a duplicate
         // delivery is ignored) and hand the decoded texture to every element that
@@ -312,6 +371,8 @@ where
         + CanDelete<ImageFetchQueue>
         + CanRead<CssFetchQueue>
         + CanDelete<CssFetchQueue>
+        + CanRead<ScriptFetchQueue>
+        + CanDelete<ScriptFetchQueue>
         + CanRead<StyleSheet>
         + CanRead<MouseState>
         + CanRead<MouseButton>
@@ -335,6 +396,13 @@ where
             .http_get(q.req_id, q.host.clone(), q.path.clone(), q.tls);
         let _ = ctx.current.tables.imagefetchqueue().delete(q.req_id);
     }
+    for q in ctx.current.tables.scriptfetchqueue().scan() {
+        let _ = ctx
+            .network()
+            .reducers
+            .http_get(q.req_id, q.host.clone(), q.path.clone(), q.tls);
+        let _ = ctx.current.tables.scriptfetchqueue().delete(q.req_id);
+    }
     // fetch()/XHR queue their requests in the JS runtime (no table needed — the
     // pending promise/XHR is held there); issue them here, same as the CSS/image
     // queues. Responses come back through `on_http` → `js::deliver_fetch`.
@@ -346,6 +414,14 @@ where
         ui::render(&ctx);
         return;
     };
+
+    // Auto-navigate to the configured homepage once, on the first idle frame.
+    if let Some(url) = HOMEPAGE.with(|h| h.borrow_mut().take()) {
+        if nav.url.is_empty() && nav.main_req_id == 0 {
+            nav::start_navigation(&ctx, &mut nav, &url);
+            let _ = ctx.current.tables.navstate().update(nav.clone());
+        }
+    }
 
     // Advance the page's JS event loop once per frame: fire due timers,
     // requestAnimationFrame callbacks, and microtasks. If a callback mutated the
@@ -422,15 +498,33 @@ where
         k.pressed && (k.code == KeyCode::Enter as u32 || k.code == KeyCode::NumpadEnter as u32)
     });
 
-    let left_edge = left_down && !nav.prev_left;
+    let mut left_edge = left_down && !nav.prev_left;
     let enter_edge = enter_down && !nav.prev_enter;
     nav.prev_left = left_down;
     nav.prev_enter = enter_down;
 
+    // Headless testing: a scripted click for this frame overrides the mouse.
+    let (mut mx, mut my) = (mx, my);
+    if let Some((x, y)) = SCRIPTED_CLICKS.with(|c| {
+        let mut b = c.borrow_mut();
+        if let Some(pos) = b.iter().position(|(f, _, _)| *f == tick.frame) {
+            let (_, x, y) = b.remove(pos);
+            Some((x, y))
+        } else {
+            None
+        }
+    }) {
+        mx = x;
+        my = y;
+        left_edge = true;
+        interstice_sdk::host_calls::log(&format!("browser: scripted click @frame {} ({x},{y})", tick.frame));
+    }
+
     // A click can hit a toolbar button or a page link. Resolve the target element
     // once, then dispatch.
     if left_edge {
-        if let Some(id) = ui::element_at(&ctx, (mx, my)) {
+        let hit = ui::element_at(&ctx, (mx, my));
+        if let Some(id) = hit {
             if id == BACK_BTN_ID && nav.hist_pos > 0 {
                 // Back: step to the previous entry and re-fetch it (no history push).
                 nav.hist_pos -= 1;

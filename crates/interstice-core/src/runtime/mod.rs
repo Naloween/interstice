@@ -50,6 +50,11 @@ use crossbeam_channel::{Receiver as CbReceiver, Sender as CbSender};
 use std::sync::mpsc as std_mpsc;
 use wasmtime::{Config, Engine, Linker};
 
+/// Maximum wasm operand/call stack a reducer may use. Raised well above wasmtime's
+/// 512 KiB default so recursive module workloads (e.g. the browser example's DOM and
+/// layout walk over deeply nested pages) don't trap on ordinary content.
+const WASM_STACK_SIZE: usize = 8 * 1024 * 1024;
+
 pub struct Runtime {
     pub(crate) node_id: NodeId,
     pub(crate) gpu: Arc<Mutex<Option<GpuState>>>,
@@ -132,6 +137,12 @@ impl Runtime {
         let tokio_handle = tokio::runtime::Handle::current();
         let mut config = Config::new();
         config.cranelift_opt_level(wasmtime::OptLevel::Speed);
+        // Deeply nested content (e.g. a Wikipedia article's tables-within-tables) drives
+        // the module's recursive DOM/layout walk far past wasmtime's default 512 KiB wasm
+        // stack, trapping the reducer. Raise the wasm stack ceiling to 8 MiB; the
+        // wasm-reducer threads below are given a matching native stack (wasm runs on the
+        // calling thread's stack, so the native stack must comfortably exceed this).
+        config.max_wasm_stack(WASM_STACK_SIZE);
         let engine = Arc::new(Engine::new(&config).unwrap());
         let mut linker = Linker::new(&engine);
         define_host_calls(&mut linker).map_err(|err| {
@@ -267,6 +278,9 @@ impl Runtime {
             let rt = runtime.clone();
             std::thread::Builder::new()
                 .name(format!("wasm-reducer-{}", i))
+                // Native stack must exceed max_wasm_stack (8 MiB) with headroom for host
+                // trampolines and re-entrant wasm→host→wasm reducer calls.
+                .stack_size(WASM_STACK_SIZE + 8 * 1024 * 1024)
                 .spawn(move || {
                     loop {
                         let (job_id, job) = match receiver.recv() {

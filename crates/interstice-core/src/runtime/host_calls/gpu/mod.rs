@@ -52,6 +52,15 @@ pub struct GpuState {
     compute_pipelines: HashMap<GpuId, wgpu::ComputePipeline>,
 
     encoders: HashMap<GpuId, EncoderState>,
+
+    /// Headless screenshot config (debug tooling). When `screenshot_path` is set
+    /// (via the `INTERSTICE_SCREENSHOT` env var), the surface is read back and
+    /// saved as a PNG at the end of frame `screenshot_frame` (env
+    /// `INTERSTICE_SCREENSHOT_FRAME`, default 120 — a couple seconds in, so the
+    /// page has loaded). `frame_count` tracks presented frames.
+    screenshot_path: Option<String>,
+    screenshot_frame: u64,
+    frame_count: u64,
 }
 
 struct EncoderState {
@@ -120,7 +129,7 @@ impl GpuState {
         let format = surface_caps.formats[0];
 
         let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             format,
             width: size.width,
             height: size.height,
@@ -152,6 +161,12 @@ impl GpuState {
             compute_pipelines: HashMap::new(),
             encoders: HashMap::new(),
             surface_texture_id: None,
+            screenshot_path: std::env::var("INTERSTICE_SCREENSHOT").ok(),
+            screenshot_frame: std::env::var("INTERSTICE_SCREENSHOT_FRAME")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(120),
+            frame_count: 0,
         }
     }
 
@@ -184,11 +199,111 @@ impl GpuState {
     }
 
     pub fn graphics_end_frame(&mut self) {
+        self.frame_count += 1;
+        if self.screenshot_path.is_some() && self.frame_count == self.screenshot_frame {
+            if let Some((frame, _)) = self.current_frame.as_ref() {
+                self.save_screenshot(&frame.texture);
+            }
+        }
         if let Some((frame, _)) = self.current_frame.take() {
             frame.present();
         }
         if let Some(id) = self.surface_texture_id.take() {
             self.textures.remove(&id);
+        }
+    }
+
+    /// Read the given (surface) texture back to the CPU and write it out as a PNG
+    /// at `self.screenshot_path`. Debug tooling only; blocks on the GPU.
+    fn save_screenshot(&self, texture: &wgpu::Texture) {
+        let Some(path) = self.screenshot_path.clone() else {
+            return;
+        };
+        let width = self.config.width;
+        let height = self.config.height;
+        // Rows in the readback buffer must be 256-byte aligned.
+        let unpadded = width * 4;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded = unpadded.div_ceil(align) * align;
+
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("screenshot-readback"),
+            size: (padded as u64) * (height as u64),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("screenshot-encoder"),
+            });
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.queue.submit(Some(encoder.finish()));
+
+        let slice = buffer.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        self.device.poll(wgpu::PollType::wait_indefinitely()).ok();
+        match rx.recv() {
+            Ok(Ok(())) => {}
+            other => {
+                eprintln!("screenshot: buffer map failed: {other:?}");
+                return;
+            }
+        }
+
+        let data = slice.get_mapped_range();
+        let is_bgra = matches!(
+            self.config.format,
+            wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
+        );
+        let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+        for row in 0..height {
+            let start = (row * padded) as usize;
+            let line = &data[start..start + unpadded as usize];
+            for px in line.chunks_exact(4) {
+                if is_bgra {
+                    rgba.extend_from_slice(&[px[2], px[1], px[0], 255]);
+                } else {
+                    rgba.extend_from_slice(&[px[0], px[1], px[2], 255]);
+                }
+            }
+        }
+        drop(data);
+        buffer.unmap();
+
+        match image::save_buffer(
+            &path,
+            &rgba,
+            width,
+            height,
+            image::ExtendedColorType::Rgba8,
+        ) {
+            Ok(()) => println!("screenshot: wrote {width}x{height} to {path}"),
+            Err(e) => eprintln!("screenshot: failed to write {path}: {e}"),
         }
     }
 

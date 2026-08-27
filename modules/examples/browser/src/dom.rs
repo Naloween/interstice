@@ -311,11 +311,95 @@ pub fn take_dirty() -> bool {
     DIRTY.with(|d| d.replace(false))
 }
 
+/// Two control-character sentinels that stand in for `<` and `>` inside a rawtext
+/// element's body while `tl` parses. They never occur in real source, so the
+/// substitution is exact and reversible (see [`neutralize_rawtext`]).
+const LT_SENTINEL: char = '\u{1}';
+const GT_SENTINEL: char = '\u{2}';
+
+/// HTML rawtext / RCDATA elements, whose content is text, never markup.
+const RAWTEXT_TAGS: [&str; 4] = ["script", "style", "textarea", "title"];
+
+/// Neutralize `<`/`>` inside rawtext element bodies before parsing.
+///
+/// `tl` 0.7.8 does not treat `<script>` (or `<style>`) as a rawtext element, so a
+/// bare `<` in an inline script's minified JS — `for(;e<b;)` — is misparsed as a
+/// tag start. On a real page (google.com) that cascades every following node,
+/// including the actual `<body>`, deep inside `<head>`, and the walker then emits
+/// nothing. Browsers tokenize these elements as rawtext: their content runs
+/// verbatim until the matching `</tag>`. We reproduce that by replacing `<`/`>`
+/// in each rawtext body with sentinels tl can't trip on; [`build_node`] restores
+/// them in the text node it builds, so script/style/title text round-trips exactly.
+fn neutralize_rawtext(html: &str) -> String {
+    let b = html.as_bytes();
+    let lower = html.to_ascii_lowercase();
+    let lb = lower.as_bytes();
+    let mut out = String::with_capacity(html.len());
+    // Start of the run of verbatim source not yet flushed to `out`.
+    let mut seg_start = 0;
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'<' {
+            let name_start = i + 1;
+            let tag = RAWTEXT_TAGS.iter().copied().find(|tag| {
+                lb[name_start..].starts_with(tag.as_bytes()) && {
+                    // The name must be followed by a tag-name terminator so we don't
+                    // match `<scripter>` on `script`.
+                    let after = *lb.get(name_start + tag.len()).unwrap_or(&b'>');
+                    matches!(after, b' ' | b'>' | b'/' | b'\t' | b'\n' | b'\r')
+                }
+            });
+            if let Some(tag) = tag {
+                // Find the end of the opening tag (`>`), skipping quoted attributes.
+                let mut j = name_start;
+                let mut quote = 0u8;
+                while j < b.len() {
+                    let c = b[j];
+                    if quote != 0 {
+                        if c == quote {
+                            quote = 0;
+                        }
+                    } else if c == b'"' || c == b'\'' {
+                        quote = c;
+                    } else if c == b'>' {
+                        break;
+                    }
+                    j += 1;
+                }
+                let open_end = (j + 1).min(b.len());
+                // The body runs to the matching `</tag`; an unterminated element
+                // (no close tag) runs to end of input, exactly like a browser.
+                let close_pat = format!("</{tag}");
+                let body_end = lower[open_end..]
+                    .find(&close_pat)
+                    .map(|r| open_end + r)
+                    .unwrap_or(b.len());
+                // Flush verbatim source up to the body, then the neutralized body.
+                out.push_str(&html[seg_start..open_end]);
+                for ch in html[open_end..body_end].chars() {
+                    match ch {
+                        '<' => out.push(LT_SENTINEL),
+                        '>' => out.push(GT_SENTINEL),
+                        c => out.push(c),
+                    }
+                }
+                seg_start = body_end;
+                i = body_end;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out.push_str(&html[seg_start..]);
+    out
+}
+
 /// Parse `html` with `tl` and copy it into an owned arena. Invalid HTML yields an
 /// empty document.
 fn build(html: &str) -> Dom {
     let mut dom = Dom::empty();
-    let parsed = match tl::parse(html, tl::ParserOptions::default()) {
+    let neutralized = neutralize_rawtext(html);
+    let parsed = match tl::parse(&neutralized, tl::ParserOptions::default()) {
         Ok(d) => d,
         Err(_) => return dom,
     };
@@ -336,11 +420,19 @@ fn build_node(
 ) -> Option<NodeId> {
     let node = handle.get(parser)?;
     match node {
-        tl::Node::Raw(bytes) => Some(dom.push(Node {
-            kind: NodeKind::Text(bytes.as_utf8_str().into_owned()),
-            children: Vec::new(),
-            parent,
-        })),
+        tl::Node::Raw(bytes) => {
+            let mut text = bytes.as_utf8_str().into_owned();
+            // Undo the rawtext neutralization (see `neutralize_rawtext`): the
+            // sentinels only ever mark a script/style body's original `<`/`>`.
+            if text.contains(LT_SENTINEL) || text.contains(GT_SENTINEL) {
+                text = text.replace(LT_SENTINEL, "<").replace(GT_SENTINEL, ">");
+            }
+            Some(dom.push(Node {
+                kind: NodeKind::Text(text),
+                children: Vec::new(),
+                parent,
+            }))
+        }
         tl::Node::Comment(bytes) => {
             // Strip the `<!--`/`-->` wrapper `tl` keeps so serialize can re-add it.
             let raw = bytes.as_utf8_str();

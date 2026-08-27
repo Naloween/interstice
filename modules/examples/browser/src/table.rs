@@ -42,6 +42,10 @@ pub struct GridRow {
 
 pub struct Grid {
     pub rows: Vec<GridRow>,
+    /// Whether the table asked for a visible border (CSS `border` or the legacy
+    /// `border` attribute). Borderless tables render as invisible layout boxes —
+    /// no cell fill, grid lines, or outer frame — matching a browser.
+    pub bordered: bool,
 }
 
 /// Measure the min (narrowest, wrapping every word) and max (widest, no wrap)
@@ -194,6 +198,7 @@ fn column_fractions(grid: &Grid) -> Vec<f32> {
 /// Build the engine block tree for `grid`.
 pub fn build(grid: Grid) -> Block {
     let fracs = column_fractions(&grid);
+    let bordered = grid.bordered;
 
     let mut occupied: Vec<usize> = Vec::new();
     let mut rows: Vec<Block> = Vec::new();
@@ -205,7 +210,7 @@ pub fn build(grid: Grid) -> Block {
             // Fill columns held by a carried rowspan with spacer cells so the
             // real cells stay column-aligned.
             while col < occupied.len() && occupied[col] > 0 {
-                slots.push(cell_box(Vec::new(), frac_of(&fracs, col, 1), false));
+                slots.push(cell_box(Vec::new(), frac_of(&fracs, col, 1), false, bordered));
                 col += 1;
             }
             let Some(cell) = cells.next() else { break };
@@ -215,7 +220,7 @@ pub fn build(grid: Grid) -> Block {
                 occupied.resize(col + span, 0);
             }
             let frac = frac_of(&fracs, col, span);
-            slots.push(cell_box(cell.blocks, frac, cell.header));
+            slots.push(cell_box(cell.blocks, frac, cell.header, bordered));
             if rs > 1 {
                 for slot in occupied.iter_mut().take(col + span).skip(col) {
                     *slot = rs;
@@ -228,10 +233,10 @@ pub fn build(grid: Grid) -> Block {
                 *o -= 1;
             }
         }
-        rows.push(row_box(slots));
+        rows.push(row_box(slots, bordered));
     }
 
-    table_box(rows)
+    table_box(rows, bordered)
 }
 
 /// Sum the fractions of the `span` columns starting at `col`.
@@ -240,16 +245,19 @@ fn frac_of(fracs: &[f32], col: usize, span: usize) -> f32 {
     fracs.get(col..end).map(|s| s.iter().sum()).unwrap_or(0.0)
 }
 
-fn cell_box(children: Vec<Block>, frac: f32, header: bool) -> Block {
-    let bg = if header { TABLE_HEADER_BG } else { TABLE_CELL_BG };
+fn cell_box(children: Vec<Block>, frac: f32, header: bool, bordered: bool) -> Block {
+    // Borderless (layout) tables: transparent cells with no padding, so the cell
+    // is invisible scaffolding. Bordered tables keep the tinted fill + padding.
+    let background = bordered.then(|| if header { TABLE_HEADER_BG } else { TABLE_CELL_BG });
+    let padding = if bordered { CELL_PAD } else { (0.0, 0.0, 0.0, 0.0) };
     Block::Container {
         direction: css::FlexDirection::Column,
         justify: css::Justify::Start,
         align: css::Align::Stretch,
         gap: 0.0,
         margin: (0.0, 0.0, 0.0, 0.0),
-        padding: CELL_PAD,
-        background: Some(bg),
+        padding,
+        background,
         children,
         float: css::Float::None,
         clears: false,
@@ -260,18 +268,22 @@ fn cell_box(children: Vec<Block>, frac: f32, header: bool) -> Block {
         height: css::WidthVal::Auto,
         node: None,
         center: false,
+        max_height: None,
+        inline_level: false,
     }
 }
 
-fn row_box(cells: Vec<Block>) -> Block {
+fn row_box(cells: Vec<Block>, bordered: bool) -> Block {
     Block::Container {
         direction: css::FlexDirection::Row,
         justify: css::Justify::Start,
         align: css::Align::Stretch,
-        gap: 1.0, // reveals the row background ⇒ vertical grid lines
+        // A 1px gap reveals the row background as vertical grid lines — only when
+        // the table is bordered; layout tables butt cells together with no line.
+        gap: if bordered { 1.0 } else { 0.0 },
         margin: (0.0, 0.0, 0.0, 0.0),
         padding: (0.0, 0.0, 0.0, 0.0),
-        background: Some(TABLE_BORDER),
+        background: bordered.then_some(TABLE_BORDER),
         children: cells,
         float: css::Float::None,
         clears: false,
@@ -282,18 +294,30 @@ fn row_box(cells: Vec<Block>) -> Block {
         height: css::WidthVal::Auto,
         node: None,
         center: false,
+        max_height: None,
+        inline_level: false,
     }
 }
 
-fn table_box(rows: Vec<Block>) -> Block {
+fn table_box(rows: Vec<Block>, bordered: bool) -> Block {
     Block::Container {
         direction: css::FlexDirection::Column,
         justify: css::Justify::Start,
         align: css::Align::Stretch,
-        gap: 1.0, // horizontal grid lines between rows
-        margin: (8.0, 0.0, 8.0, 0.0),
-        padding: (1.0, 1.0, 1.0, 1.0), // outer border
-        background: Some(TABLE_BORDER),
+        // Horizontal grid lines between rows + the outer frame, for bordered
+        // tables only. A layout table adds no frame, margin, or gaps.
+        gap: if bordered { 1.0 } else { 0.0 },
+        margin: if bordered {
+            (8.0, 0.0, 8.0, 0.0)
+        } else {
+            (0.0, 0.0, 0.0, 0.0)
+        },
+        padding: if bordered {
+            (1.0, 1.0, 1.0, 1.0)
+        } else {
+            (0.0, 0.0, 0.0, 0.0)
+        },
+        background: bordered.then_some(TABLE_BORDER),
         children: rows,
         float: css::Float::None,
         clears: true, // tables sit in normal flow, below any preceding float
@@ -304,5 +328,7 @@ fn table_box(rows: Vec<Block>) -> Block {
         height: css::WidthVal::Auto,
         node: None,
         center: false,
+        max_height: None,
+        inline_level: false,
     }
 }

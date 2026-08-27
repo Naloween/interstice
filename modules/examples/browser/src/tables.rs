@@ -68,6 +68,12 @@ pub struct NavState {
     /// CSS is render-blocking: the page is rebuilt only once `pending_css` hits 0,
     /// so content is laid out once (images aren't re-fetched on a later re-render).
     pub pending_css: u32,
+    /// Number of external `<script src>` bodies still being fetched for the current
+    /// page. Scripts are NOT render-blocking here (we parse the whole DOM upfront,
+    /// so end-of-body scripts only register listeners): the page paints on CSS
+    /// alone, and once `pending_js` hits 0 the fetched scripts run in document
+    /// order, re-rendering only if a script mutated the DOM.
+    pub pending_js: u32,
     /// Identity of the page currently being assembled, bumped once per main-page
     /// load. Stylesheet rows + the stored document are tagged with it so a late
     /// stylesheet response for a page the user already navigated away from is
@@ -118,6 +124,11 @@ pub struct ImageWaiter {
     /// from the decoded aspect ratio) instead of its natural pixel size.
     pub fixed_w: Option<f32>,
     pub fixed_h: Option<f32>,
+    /// CSS-sprite crop `(sx, sy, sw, sh)` in the atlas's own CSS-px space. When
+    /// set, the element samples only this sub-rectangle of the decoded atlas (via
+    /// `UiElement.image_src`) and keeps its own `fixed_w`/`fixed_h` box size, so
+    /// one icon cell is shown from a shared sheet. `None` for a whole-image draw.
+    pub crop: Option<(f32, f32, f32, f32)>,
 }
 
 /// A queued image fetch, drained by `on_frame`. CRITICAL: image fetches must NOT
@@ -170,6 +181,31 @@ pub struct StyleSheet {
 /// rule as [`ImageFetchQueue`] — never call the broker from inside `on_http`).
 #[table]
 pub struct CssFetchQueue {
+    #[primary_key]
+    pub req_id: u64,
+    pub host: String,
+    pub path: String,
+    pub tls: bool,
+}
+
+/// One external `<script src>` for the current page. Starts `ready = false` with
+/// empty `code`, filled in when its fetch completes; `order` is its document order
+/// among external scripts. Once every script for the page is `ready`, they run in
+/// `order` (see [`crate::page::on_script_response`]). Mirrors [`StyleSheet`].
+#[table]
+pub struct ScriptSheet {
+    #[primary_key]
+    pub req_id: u64,
+    pub page_gen: u32,
+    pub order: u32,
+    pub code: String,
+    pub ready: bool,
+}
+
+/// A queued external script fetch, drained by `on_frame` (same re-entrancy rule as
+/// [`ImageFetchQueue`]/[`CssFetchQueue`] — never call the broker from `on_http`).
+#[table]
+pub struct ScriptFetchQueue {
     #[primary_key]
     pub req_id: u64,
     pub host: String,

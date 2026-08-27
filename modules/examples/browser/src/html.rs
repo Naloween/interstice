@@ -55,6 +55,11 @@ pub enum Block {
         /// `clear` set ⇒ this box drops below any preceding float instead of
         /// sitting beside it (ends the float context in [`group_floats`]).
         clears: bool,
+        /// This is a reified inline-level box (an `inline-block` `<button>` /
+        /// form control). Consecutive inline-level siblings are wrapped into one
+        /// horizontal row by [`group_inline_blocks`] — so e.g. the portal's search
+        /// button lays out beside the search input instead of below it.
+        inline_level: bool,
         /// The DOM element this block's text belongs to (innermost block-level
         /// ancestor), for routing clicks back to JS event listeners. `None` for
         /// text with no owning element (rare) or synthetic blocks.
@@ -82,6 +87,11 @@ pub enum Block {
         /// PNG) renders at its authored size instead of swamping its neighbours.
         width: Option<f32>,
         height: Option<f32>,
+        /// CSS-sprite crop, as `(sx, sy, sw, sh)` in the atlas's own CSS-px
+        /// coordinate space (the sub-rectangle of the sheet this icon shows). The
+        /// UV window is resolved against the decoded atlas size once it loads (see
+        /// [`crate::images::place_image`]). `None` for a normal whole-image draw.
+        sprite_crop: Option<(f32, f32, f32, f32)>,
         /// The source `<img>`/`<svg>` DOM node, for click→event routing.
         node: Option<crate::dom::NodeId>,
     },
@@ -125,6 +135,16 @@ pub enum Block {
         /// `margin: 0 auto` on a definite width ⇒ center this box on its
         /// container's cross axis (see [`wants_center`]).
         center: bool,
+        /// CSS `max-height` in px; `None` ⇒ uncapped. Drives the engine's height
+        /// clamp so an accordion's `max-height:0` closed state collapses and
+        /// clips instead of dumping its full content (e.g. the language list).
+        max_height: Option<f32>,
+        /// This box is an `inline-block` (a reified inline-level box). Consecutive
+        /// inline-level siblings are wrapped into one horizontal row by
+        /// [`group_inline_blocks`] so e.g. the footer's `.other-project-icon` +
+        /// `.other-project-text` sit side by side. `false` for ordinary block/flex
+        /// containers (the common case).
+        inline_level: bool,
     },
     /// A float context produced by [`group_floats`]: `float_box` sits at the
     /// `side` (left/right) edge while `flow` (the following in-flow blocks)
@@ -293,6 +313,17 @@ fn wants_center(applied: &css::Applied) -> bool {
         )
 }
 
+/// The used `width` for a box that reifies a container. An explicit CSS width
+/// wins; otherwise an `inline-block` box shrinks to its content (CSS shrink-to-fit)
+/// rather than stretching to fill its container, while a plain block fills it.
+fn box_width(applied: &css::Applied, display: css::Display) -> css::WidthVal {
+    match applied.width {
+        Some(w) => w,
+        None if display == css::Display::InlineBlock => css::WidthVal::Fit,
+        None => css::WidthVal::Auto,
+    }
+}
+
 /// The float side of a block (`None` for in-flow blocks).
 fn block_float(b: &Block) -> css::Float {
     match b {
@@ -313,6 +344,107 @@ fn block_clears(b: &Block) -> bool {
     }
 }
 
+/// Recursively compose a raw flow into laid-out blocks: pair consecutive
+/// inline-level boxes into horizontal rows, then pair floats with the content
+/// beside them — at this level *and* inside every nested container. The walker
+/// only ever builds one level of flow at a time (a reified `inline-block`/float/
+/// flex box holds its children as a raw list), so the composition passes are
+/// pushed down here rather than run once on the top level. Called once by the
+/// renderer on the document flow.
+pub fn layout_blocks(blocks: Vec<Block>) -> Vec<Block> {
+    // Bottom-up: compose each child's own subtree first, then this level.
+    let blocks: Vec<Block> = blocks.into_iter().map(recurse_layout).collect();
+    let blocks = group_inline_blocks(blocks);
+    group_floats(blocks)
+}
+
+/// Compose the flow nested inside one block (its container children / float-row
+/// parts), leaving leaf blocks untouched.
+fn recurse_layout(mut b: Block) -> Block {
+    match &mut b {
+        Block::Container { children, .. } => {
+            let kids = std::mem::take(children);
+            *children = layout_blocks(kids);
+        }
+        Block::FloatRow { float_box, flow, .. } => {
+            let fb = std::mem::replace(float_box.as_mut(), Block::Space { height: 0.0 });
+            **float_box = recurse_layout(fb);
+            let f = std::mem::take(flow);
+            *flow = layout_blocks(f);
+        }
+        _ => {}
+    }
+    b
+}
+
+/// Whether a block is a reified `inline-block` box (an inline-level box that
+/// wants to sit beside its inline-level siblings on one line).
+fn is_inline_level(b: &Block) -> bool {
+    matches!(
+        b,
+        Block::Container {
+            inline_level: true,
+            ..
+        } | Block::Text {
+            inline_level: true,
+            ..
+        }
+    )
+}
+
+/// Wrap a run of `inline_level` children into one horizontal row so they lay out
+/// side by side (icon + text in the footer's sister-project cards, the search
+/// field + language picker, …). Cross-aligned to centre to mimic CSS
+/// `vertical-align:middle`. A lone inline-block is left as-is (it just sits as a
+/// block, which is fine — nothing to line it up with).
+fn group_inline_blocks(blocks: Vec<Block>) -> Vec<Block> {
+    let mut out = Vec::new();
+    let mut run: Vec<Block> = Vec::new();
+    for b in blocks {
+        if is_inline_level(&b) {
+            run.push(b);
+        } else {
+            flush_inline_run(&mut run, &mut out);
+            out.push(b);
+        }
+    }
+    flush_inline_run(&mut run, &mut out);
+    out
+}
+
+fn flush_inline_run(run: &mut Vec<Block>, out: &mut Vec<Block>) {
+    if run.len() >= 2 {
+        out.push(inline_row(std::mem::take(run)));
+    } else {
+        out.append(run);
+    }
+}
+
+/// A synthetic horizontal row holding a run of inline-level boxes.
+fn inline_row(children: Vec<Block>) -> Block {
+    Block::Container {
+        direction: css::FlexDirection::Row,
+        justify: css::Justify::Start,
+        align: css::Align::Center,
+        gap: 6.0,
+        margin: (0.0, 0.0, 0.0, 0.0),
+        padding: (0.0, 0.0, 0.0, 0.0),
+        background: None,
+        children,
+        float: css::Float::None,
+        clears: false,
+        position: css::Position::Static,
+        inset: (None, None, None, None),
+        inset_pct: (None, None, None, None),
+        width: css::WidthVal::Auto,
+        height: css::WidthVal::Auto,
+        node: None,
+        center: false,
+        max_height: None,
+        inline_level: false,
+    }
+}
+
 /// Post-pass over a flow's blocks: pair each `float`ed box with the in-flow
 /// blocks that follow it (until a `clear` or the next float) into a
 /// [`Block::FloatRow`], so the renderer can place the float at its edge with the
@@ -327,12 +459,36 @@ pub fn group_floats(blocks: Vec<Block>) -> Vec<Block> {
             out.push(b);
             continue;
         }
-        let mut flow = Vec::new();
-        while let Some(next) = q.front() {
-            if block_clears(next) || block_float(next) != css::Float::None {
-                break;
+        // A run of ≥2 directly-consecutive floats sharing this one's side *and*
+        // width is a multi-column band (e.g. the Wikipedia footer's twelve
+        // `width:33%` sister-project cards): lay them out as a wrapping grid
+        // rather than stacking each in its own column.
+        if same_grid_float(q.front(), side, block_box_width(&b)) {
+            let w = block_box_width(&b);
+            let mut run = vec![b];
+            while same_grid_float(q.front(), side, w) {
+                run.push(q.pop_front().unwrap());
             }
-            flow.push(q.pop_front().unwrap());
+            out.push(build_float_grid(run));
+            continue;
+        }
+        // Otherwise this is a single float paired with the in-flow content beside
+        // it — which may itself begin with a sibling-float grid (e.g. the footer's
+        // 35% app-download column sitting beside the sister-project grid).
+        let mut flow = Vec::new();
+        loop {
+            if let Some(grid) = take_float_grid(&mut q) {
+                flow.push(grid);
+                continue;
+            }
+            match q.front() {
+                Some(next)
+                    if !block_clears(next) && block_float(next) == css::Float::None =>
+                {
+                    flow.push(q.pop_front().unwrap());
+                }
+                _ => break,
+            }
         }
         if flow.is_empty() {
             out.push(b);
@@ -345,6 +501,86 @@ pub fn group_floats(blocks: Vec<Block>) -> Vec<Block> {
         }
     }
     out
+}
+
+/// The box width of a float, for grid-run matching (`None` for non-box floats).
+fn block_box_width(b: &Block) -> Option<css::WidthVal> {
+    match b {
+        Block::Container { width, .. } => Some(*width),
+        _ => None,
+    }
+}
+
+/// Whether `blk` is a float on `side` with the same box width as `want` — i.e. a
+/// sibling column in a multi-column float band. A definite width is required
+/// (`None`/`Auto` floats are intrinsic-width, not grid columns).
+fn same_grid_float(blk: Option<&Block>, side: css::Float, want: Option<css::WidthVal>) -> bool {
+    let Some(blk) = blk else { return false };
+    if block_clears(blk) || block_float(blk) != side {
+        return false;
+    }
+    matches!(want, Some(css::WidthVal::Px(_)) | Some(css::WidthVal::Pct(_)))
+        && block_box_width(blk) == want
+}
+
+/// If the front of `q` begins a run of ≥2 same-side, same-width sibling floats,
+/// consume the whole run and return it as a grid; otherwise leave `q` untouched.
+fn take_float_grid(q: &mut std::collections::VecDeque<Block>) -> Option<Block> {
+    let first = q.front()?;
+    let side = block_float(first);
+    if side == css::Float::None {
+        return None;
+    }
+    let w = block_box_width(first);
+    // Need at least two matching floats to form a band.
+    if !same_grid_float(q.get(1), side, w) {
+        return None;
+    }
+    let mut run = Vec::new();
+    while same_grid_float(q.front(), side, w) {
+        run.push(q.pop_front().unwrap());
+    }
+    Some(build_float_grid(run))
+}
+
+/// Build a wrapping grid from a run of equal-width sibling floats: chunk them into
+/// rows of `round(1/width)` columns (a percentage width) — or a single row for a
+/// pixel width — and stack the rows. The engine has no flex-wrap, so the wrap is
+/// materialized here as a column of row containers.
+fn build_float_grid(items: Vec<Block>) -> Block {
+    let cols = match items.first().and_then(block_box_width) {
+        Some(css::WidthVal::Pct(f)) if f > 0.02 => (1.0 / f).round().max(1.0) as usize,
+        _ => items.len().max(1),
+    };
+    let plain = |direction, children: Vec<Block>| Block::Container {
+        direction,
+        justify: css::Justify::Start,
+        align: css::Align::Start,
+        gap: 8.0,
+        margin: (0.0, 0.0, 0.0, 0.0),
+        padding: (0.0, 0.0, 0.0, 0.0),
+        background: None,
+        children,
+        float: css::Float::None,
+        clears: false,
+        position: css::Position::Static,
+        inset: (None, None, None, None),
+        inset_pct: (None, None, None, None),
+        width: css::WidthVal::Auto,
+        height: css::WidthVal::Auto,
+        node: None,
+        center: false,
+        max_height: None,
+        inline_level: false,
+    };
+    let mut items = items;
+    let mut rows = Vec::new();
+    while !items.is_empty() {
+        let take = cols.min(items.len());
+        let row: Vec<Block> = items.drain(0..take).collect();
+        rows.push(plain(css::FlexDirection::Row, row));
+    }
+    plain(css::FlexDirection::Column, rows)
 }
 
 /// Scan the current document arena for stylesheet sources: external
@@ -569,12 +805,59 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
         return; // skip the whole subtree
     }
 
-    // A `max-height:0` box (invariably with `overflow:hidden`) is the closed state
-    // of an accordion/disclosure — e.g. the Wikipedia language list, collapsed once
-    // JS swaps `no-js`→`js-enabled`. We don't animate `max-height`, so render the
-    // closed state as hidden (skip the subtree) rather than dumping its full height.
-    if applied.max_height == Some(0.0) {
-        return;
+    // A sized element backed by a single image is almost always an icon (e.g. the
+    // Wikipedia footer's sister-project logos). We can't paint true CSS
+    // backgrounds, but for a definitely-sized icon we can surface the image inline.
+    // Two shapes: a standalone `background-image:url(...)` draws the whole image,
+    // and a CSS sprite (`.sprite` sets `linear-gradient(...),url(sheet)`, the
+    // per-icon rule sets `background-position`+size) crops one cell out of the
+    // shared sheet. The size cap keeps this to icon-scale art.
+    if let (Some(w), Some(h)) = (
+        match applied.width {
+            Some(css::WidthVal::Px(w)) => Some(w),
+            _ => None,
+        },
+        match applied.height {
+            Some(css::WidthVal::Px(h)) => Some(h),
+            _ => None,
+        },
+    ) {
+        // Prefer the sprite sheet (the `.sprite` atlas URL) when present; the crop
+        // window is `background-position` (a negative offset shifts the sheet, so
+        // the shown rect starts at `-position`), sized to the icon box. A
+        // `background-size` rescales the sheet's coordinate space (e.g. the
+        // wordmark's `background-size:100%`), which our intrinsic-size UV mapping
+        // can't honor — skip the sprite there rather than crop the wrong cell.
+        let sprite = applied
+            .sprite_atlas
+            .clone()
+            .filter(|_| !applied.background_size_set)
+            .map(|atlas| {
+                let px = applied.background_position[0].unwrap_or(0.0);
+                let py = applied.background_position[1].unwrap_or(0.0);
+                (atlas, Some((-px, -py, w, h)))
+            });
+        let img = sprite.or_else(|| applied.background_image.clone().map(|u| (u, None)));
+        if let Some((url, sprite_crop)) = img {
+            if w > 0.0 && h > 0.0 && w <= 400.0 && h <= 400.0 {
+                flush(st);
+                st.blocks.push(Block::Image {
+                    url,
+                    inline_svg: None,
+                    float: applied.float.unwrap_or(css::Float::None),
+                    clears: applied.clear.unwrap_or(false),
+                    position: applied.position.unwrap_or(css::Position::Static),
+                    inset: applied_inset(&applied),
+                    inset_pct: applied_inset_pct(&applied),
+                    width: Some(w),
+                    height: Some(h),
+                    sprite_crop,
+                    node: Some(id),
+                });
+                // Icons are empty elements; nothing more to descend into.
+                return;
+            }
+        }
     }
 
     // Replaced / void elements (handled regardless of display, aside from none).
@@ -593,6 +876,7 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
                     inset_pct: applied_inset_pct(&applied),
                     width: w,
                     height: h,
+                    sprite_crop: None,
                     node: Some(id),
                 });
             }
@@ -617,6 +901,7 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
                     inset_pct: applied_inset_pct(&applied),
                     width: w,
                     height: h,
+                    sprite_crop: None,
                     node: Some(id),
                 });
             }
@@ -630,6 +915,41 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
         "hr" => {
             flush(st);
             st.blocks.push(Block::Space { height: 14.0 });
+            return;
+        }
+        "select" => {
+            // A <select> is a dropdown: it shows only its current value, not the
+            // whole <option> list. Emit the selected (or first) option's label as
+            // an inline run with a disclosure arrow, and skip the option subtree.
+            let mut label = String::new();
+            let mut first = String::new();
+            for &k in &dom.node(id).children {
+                if dom.node(k).tag() == Some("option") {
+                    let txt = dom.inner_text(k).trim().to_string();
+                    if first.is_empty() {
+                        first = txt.clone();
+                    }
+                    if dom.node(k).attr("selected").is_some() {
+                        label = txt;
+                        break;
+                    }
+                }
+            }
+            if label.is_empty() {
+                label = first;
+            }
+            // A styled-select (e.g. Wikipedia's search language picker) hides the
+            // native <select> with `color:transparent` and shows its value through
+            // a sibling label instead. Unlike the image-replacement trick that
+            // `reveal()` surfaces, that text is genuinely redundant here — so when
+            // the select's own colour is transparent, emit only the disclosure
+            // arrow and let the visible sibling label carry the value.
+            let transparent = applied.color.map_or(false, |c| c.3 <= 0.001);
+            if transparent {
+                push_run(st, "\u{25be}");
+            } else if !label.is_empty() {
+                push_run(st, &format!("{label} \u{25be}"));
+            }
             return;
         }
         "a" => {
@@ -657,6 +977,148 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
             st.cur_italic = saved_italic;
             return;
         }
+        "button" => {
+            // A <button> is a discrete interactive control: reify it as its own box
+            // (like a submit `<input>`) so (a) it carries its DOM node — a click routes
+            // to *this* element and fires its JS listeners, which folding the label
+            // into the surrounding run would lose (the click would hit the parent
+            // block instead) — and (b) its background/border render as a button. The
+            // label is the flattened text content (nested icon `<i>` sprites are empty).
+            flush(st);
+            let ty = dom
+                .node(id)
+                .attr("type")
+                .map(|s| s.trim().to_ascii_lowercase())
+                .unwrap_or_default();
+            if ty == "hidden" {
+                return;
+            }
+            let mut label = dom
+                .inner_text(id)
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            if label.is_empty() {
+                label = dom
+                    .node(id)
+                    .attr("value")
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| "Button".to_string());
+            }
+            // A primary/progressive submit takes its (usually coloured) background and
+            // white text; a plain button gets a light chrome with the author text colour.
+            let is_submit = ty == "submit";
+            let (bg, fg, border_c) = if is_submit {
+                (
+                    applied.background.unwrap_or((0.2, 0.4, 0.8, 1.0)),
+                    applied.color.unwrap_or((1.0, 1.0, 1.0, 1.0)),
+                    applied.border_color.unwrap_or((0.15, 0.32, 0.7, 1.0)),
+                )
+            } else {
+                (
+                    applied.background.unwrap_or((0.96, 0.96, 0.97, 1.0)),
+                    applied.color.unwrap_or(style::LINK),
+                    applied.border_color.unwrap_or((0.72, 0.74, 0.78, 1.0)),
+                )
+            };
+            let (mt, mr, mb, ml) = applied.padding_px();
+            st.blocks.push(Block::Text {
+                text: label,
+                size: applied.font_size.unwrap_or(st.style.size),
+                color: fg,
+                bold: applied.font_weight.unwrap_or(true),
+                italic: applied.font_style.unwrap_or(false),
+                align: 0.5,
+                background: Some(bg),
+                margin: applied.margin_px(),
+                padding: (mt.max(6.0), mr.max(12.0), mb.max(6.0), ml.max(12.0)),
+                width: box_width(&applied, css::Display::InlineBlock),
+                height: applied.height.unwrap_or(css::WidthVal::Auto),
+                line_height: 0.0,
+                border_w: applied.border_width.unwrap_or(1.0),
+                border_c,
+                spans: Vec::new(),
+                clears: false,
+                inline_level: true,
+                node: Some(id),
+            });
+            return;
+        }
+        "input" | "textarea" => {
+            // Form field: a real bordered box (text inputs paint white, submit
+            // buttons take their background). Without this an `inline-block` control
+            // folds into surrounding text and vanishes (e.g. the Wikipedia search
+            // field). Its label is the `value`/`placeholder`; an empty text field
+            // still gets a line of height so the box shows.
+            flush(st);
+            let ty = dom
+                .node(id)
+                .attr("type")
+                .map(|s| s.trim().to_ascii_lowercase())
+                .unwrap_or_else(|| "text".to_string());
+            if ty == "hidden" {
+                return;
+            }
+            let is_button = matches!(ty.as_str(), "submit" | "button" | "reset");
+            let mut label = dom
+                .node(id)
+                .attr("value")
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .or_else(|| {
+                    dom.node(id)
+                        .attr("placeholder")
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                })
+                .unwrap_or_default();
+            if is_button && label.is_empty() {
+                label = "Submit".to_string();
+            }
+            let (bg, fg, border_c) = if is_button {
+                (
+                    applied.background.unwrap_or((0.2, 0.4, 0.8, 1.0)),
+                    applied.color.unwrap_or((1.0, 1.0, 1.0, 1.0)),
+                    applied.border_color.unwrap_or((0.15, 0.32, 0.7, 1.0)),
+                )
+            } else {
+                (
+                    applied.background.unwrap_or((1.0, 1.0, 1.0, 1.0)),
+                    applied.color.unwrap_or((0.2, 0.2, 0.22, 1.0)),
+                    applied.border_color.unwrap_or((0.6, 0.62, 0.66, 1.0)),
+                )
+            };
+            let (mt, mr, mb, ml) = applied.padding_px();
+            st.blocks.push(Block::Text {
+                text: if label.is_empty() {
+                    " ".to_string()
+                } else {
+                    label
+                },
+                size: applied.font_size.unwrap_or(st.style.size),
+                color: fg,
+                bold: applied.font_weight.unwrap_or(false),
+                italic: applied.font_style.unwrap_or(false),
+                align: applied
+                    .text_align
+                    .map(|a| a.factor())
+                    .unwrap_or(if is_button { 0.5 } else { 0.0 }),
+                background: Some(bg),
+                margin: applied.margin_px(),
+                padding: (mt.max(6.0), mr.max(10.0), mb.max(6.0), ml.max(10.0)),
+                width: box_width(&applied, display),
+                height: applied.height.unwrap_or(css::WidthVal::Auto),
+                line_height: 0.0,
+                border_w: applied.border_width.unwrap_or(1.0),
+                border_c,
+                spans: Vec::new(),
+                clears: false,
+                inline_level: true,
+                node: Some(id),
+            });
+            return;
+        }
         _ => {}
     }
 
@@ -668,7 +1130,21 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
         flush(st);
         let mut rows = Vec::new();
         collect_table_rows(dom, id, st, &mut rows);
-        let grid = table::Grid { rows };
+        // A table draws grid lines / cell fills only when it asks for a border —
+        // via CSS `border` or the legacy `border` attribute. Borderless tables are
+        // pure layout scaffolding (google's search form, many legacy pages), which
+        // a browser renders invisibly; drawing our default grey grid there boxes up
+        // the whole page. Match that: styled only when bordered.
+        let bordered = applied.border_width.map(|w| w > 0.0).unwrap_or(false)
+            || dom
+                .node(id)
+                .attr("border")
+                .map(|b| {
+                    let b = b.trim();
+                    !b.is_empty() && b != "0"
+                })
+                .unwrap_or(false);
+        let grid = table::Grid { rows, bordered };
         if grid.rows.iter().any(|r| !r.cells.is_empty()) {
             st.blocks.push(table::build(grid));
         }
@@ -805,6 +1281,8 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
                 height: applied.height.unwrap_or(css::WidthVal::Auto),
                 node: Some(id),
                 center: wants_center(&applied),
+                max_height: applied.max_height,
+                inline_level: false,
             });
         }
         return;
@@ -812,10 +1290,20 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
 
     // Positioned block (non-flex, non-static): a discrete box that the engine
     // shifts (`relative`) or pulls out of flow and anchors (`absolute`). Made a
-    // container so an `absolute` descendant resolves against it. Takes precedence
-    // over float (CSS ignores float on absolutely-positioned boxes).
+    // container so an `absolute` descendant resolves against it. `absolute`/`fixed`
+    // take precedence over float (CSS ignores float on out-of-flow boxes), but a
+    // *relatively*-positioned float still floats (relative only offsets it after
+    // layout) — so route a `position:relative` + `float` box to the float branch
+    // below (e.g. the footer's `.other-project{float:left;position:relative}`
+    // cards, which use `relative` only as a positioning context, not an offset).
     let position = applied.position.unwrap_or(css::Position::Static);
-    if position != css::Position::Static {
+    let float_side = applied.float.unwrap_or(css::Float::None);
+    let positioned_here = match position {
+        css::Position::Absolute => true,
+        css::Position::Relative => float_side == css::Float::None,
+        css::Position::Static => false,
+    };
+    if positioned_here {
         flush(st);
         let saved_style = st.style;
         let saved_align = st.cur_align;
@@ -871,10 +1359,16 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
                 position,
                 inset: applied_inset(&applied),
                 inset_pct: applied_inset_pct(&applied),
-                width: applied.width.unwrap_or(css::WidthVal::Auto),
+                width: box_width(&applied, display),
                 height: applied.height.unwrap_or(css::WidthVal::Auto),
                 node: Some(id),
                 center: wants_center(&applied),
+                max_height: applied.max_height,
+                // An `inline-block` that is also positioned (e.g. the portal's
+                // `.search-input`: `display:inline-block;position:relative`) is
+                // still an inline-level box — mark it so it groups into a row with
+                // its inline siblings (the search field beside the Search button).
+                inline_level: display == css::Display::InlineBlock,
             });
         }
         return;
@@ -944,12 +1438,14 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
                 height: applied.height.unwrap_or(css::WidthVal::Auto),
                 node: Some(id),
                 center: false,
+                max_height: applied.max_height,
+                inline_level: false,
             });
         }
         return;
     }
 
-    if matches!(display, css::Display::Inline | css::Display::InlineBlock) {
+    if display == css::Display::Inline {
         // Inline element: fold children into the current run, optionally applying
         // a colour override (font-size on inline boxes isn't modelled yet). UA
         // weight/slant for `b`/`strong`/`i`/`em`/… apply here, then author CSS
@@ -962,6 +1458,114 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
         }
         st.cur_bold |= style::inline_bold(name);
         st.cur_italic |= style::inline_italic(name);
+        if let Some(w) = applied.font_weight {
+            st.cur_bold = w;
+        }
+        if let Some(i) = applied.font_style {
+            st.cur_italic = i;
+        }
+        st.stack.push(ctx);
+        walk_children(dom, id, st);
+        st.stack.pop();
+        st.cur_color = saved_color;
+        st.cur_bold = saved_bold;
+        st.cur_italic = saved_italic;
+        return;
+    }
+
+    if display == css::Display::InlineBlock {
+        // An `inline-block` with a definite size (an explicit width, or a
+        // max-width) is a structural inline-level box — the footer's
+        // `.other-project-icon{width:50px}` / `.other-project-text{max-width:65%}`
+        // cells, the language picker, and so on. Reify it as its own box (tagged
+        // `inline_level`) so its size takes effect and [`group_inline_blocks`]
+        // can lay it beside its inline-level siblings. A width-less inline-block
+        // is just an inline run (an inline-styled span/label), so fall through to
+        // the inline fold below.
+        let structural = matches!(
+            applied.width,
+            Some(css::WidthVal::Px(_)) | Some(css::WidthVal::Pct(_))
+        ) || applied.max_width.is_some();
+        if structural {
+            flush(st);
+            let saved_style = st.style;
+            let saved_align = st.cur_align;
+            let saved_color = st.cur_color;
+            let saved_bold = st.cur_bold;
+            let saved_italic = st.cur_italic;
+            let saved_href = st.cur_href.clone();
+            let saved_line_height = st.cur_line_height;
+            let saved_block_owner = st.block_owner;
+            st.block_owner = Some(id);
+            if let Some(c) = applied.color {
+                st.style.color = c;
+                st.cur_color = c;
+            }
+            if let Some(s) = applied.font_size {
+                st.style.size = s;
+            }
+            st.cur_line_height = applied.line_height.or(st.cur_line_height);
+            if let Some(w) = applied.font_weight {
+                st.style.bold = w;
+                st.cur_bold = w;
+            }
+            if let Some(i) = applied.font_style {
+                st.style.italic = i;
+                st.cur_italic = i;
+            }
+            if let Some(al) = applied.text_align {
+                st.cur_align = al.factor();
+            }
+
+            let saved_blocks = std::mem::take(&mut st.blocks);
+            st.stack.push(ctx);
+            walk_children(dom, id, st);
+            st.stack.pop();
+            flush(st);
+            let children = std::mem::replace(&mut st.blocks, saved_blocks);
+
+            st.style = saved_style;
+            st.cur_align = saved_align;
+            st.cur_color = saved_color;
+            st.cur_bold = saved_bold;
+            st.cur_italic = saved_italic;
+            st.cur_href = saved_href;
+            st.cur_line_height = saved_line_height;
+            st.block_owner = saved_block_owner;
+
+            if !children.is_empty() {
+                st.blocks.push(Block::Container {
+                    direction: css::FlexDirection::Column,
+                    justify: css::Justify::Start,
+                    align: css::Align::Start,
+                    gap: 0.0,
+                    margin: applied.margin_px(),
+                    padding: applied.padding_px(),
+                    background: applied.background,
+                    children,
+                    float: css::Float::None,
+                    clears: applied.clear.unwrap_or(false),
+                    position: css::Position::Static,
+                    inset: (None, None, None, None),
+                    inset_pct: (None, None, None, None),
+                    width: applied.width.unwrap_or(css::WidthVal::Auto),
+                    height: applied.height.unwrap_or(css::WidthVal::Auto),
+                    node: Some(id),
+                    center: false,
+                    max_height: applied.max_height,
+                    inline_level: true,
+                });
+            }
+            return;
+        }
+
+        // Width-less inline-block: fold into the current run like a plain inline.
+        let saved_color = st.cur_color;
+        let saved_bold = st.cur_bold;
+        let saved_italic = st.cur_italic;
+        if let Some(c) = applied.color {
+            st.cur_color = c;
+        }
         if let Some(w) = applied.font_weight {
             st.cur_bold = w;
         }
@@ -1073,6 +1677,92 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
         return;
     }
 
+    // Sized / centered block box: a plain block-level div with a definite CSS
+    // width, or the `margin:0 auto` centering idiom. Unlike the generic flow
+    // boundary below (which drops the box model), this reifies a container so the
+    // width, centering, padding and background take effect — e.g. the Wikipedia
+    // `.search-container{width:540px;margin:.4rem auto;text-align:center}`, which
+    // otherwise spreads full-width. Lists keep the generic path so their `<li>`
+    // marker context is preserved.
+    if !matches!(name, "ul" | "ol")
+        && (wants_center(&applied)
+            || matches!(
+                applied.width,
+                Some(css::WidthVal::Px(_)) | Some(css::WidthVal::Pct(_))
+            ))
+    {
+        flush(st);
+        let saved_style = st.style;
+        let saved_align = st.cur_align;
+        let saved_color = st.cur_color;
+        let saved_bold = st.cur_bold;
+        let saved_italic = st.cur_italic;
+        let saved_href = st.cur_href.clone();
+        let saved_line_height = st.cur_line_height;
+        let saved_block_owner = st.block_owner;
+        st.block_owner = Some(id);
+        if let Some(c) = applied.color {
+            st.style.color = c;
+            st.cur_color = c;
+        }
+        if let Some(s) = applied.font_size {
+            st.style.size = s;
+        }
+        st.cur_line_height = applied.line_height.or(st.cur_line_height);
+        if let Some(w) = applied.font_weight {
+            st.style.bold = w;
+            st.cur_bold = w;
+        }
+        if let Some(i) = applied.font_style {
+            st.style.italic = i;
+            st.cur_italic = i;
+        }
+        if let Some(al) = applied.text_align {
+            st.cur_align = al.factor();
+        }
+
+        let saved_blocks = std::mem::take(&mut st.blocks);
+        st.stack.push(ctx);
+        walk_children(dom, id, st);
+        st.stack.pop();
+        flush(st);
+        let children = std::mem::replace(&mut st.blocks, saved_blocks);
+
+        st.style = saved_style;
+        st.cur_align = saved_align;
+        st.cur_color = saved_color;
+        st.cur_bold = saved_bold;
+        st.cur_italic = saved_italic;
+        st.cur_href = saved_href;
+        st.cur_line_height = saved_line_height;
+        st.block_owner = saved_block_owner;
+
+        if !children.is_empty() {
+            st.blocks.push(Block::Container {
+                direction: css::FlexDirection::Column,
+                justify: css::Justify::Start,
+                align: css::Align::Stretch,
+                gap: 0.0,
+                margin: applied.margin_px(),
+                padding: applied.padding_px(),
+                background: applied.background,
+                children,
+                float: css::Float::None,
+                clears: applied.clear.unwrap_or(false),
+                position: css::Position::Static,
+                inset: (None, None, None, None),
+                inset_pct: (None, None, None, None),
+                width: applied.width.unwrap_or(css::WidthVal::Auto),
+                height: applied.height.unwrap_or(css::WidthVal::Auto),
+                node: Some(id),
+                center: wants_center(&applied),
+                max_height: applied.max_height,
+                inline_level: false,
+            });
+        }
+        return;
+    }
+
     // Block container (div, section, unknown): a flow boundary that still passes
     // inherited properties (colour, font-size, text-align) down to its children.
     flush(st);
@@ -1105,6 +1795,15 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
     if let Some(al) = applied.text_align {
         st.cur_align = al.factor();
     }
+    // Legacy `<center>` centres *block* descendants too (it maps to
+    // `text-align:-moz-center`), not just inline content: the logo `<div>` and the
+    // search `<form>` shrink to their content and sit centred. We reify it as a
+    // full-width Column whose cross-axis alignment is Center, so auto-width block
+    // children shrink-to-fit and centre; `cur_align` also centres any loose text.
+    let is_center = name == "center";
+    if is_center {
+        st.cur_align = 0.5;
+    }
     if let Some(cl) = applied.clear {
         st.cur_clears = cl;
     }
@@ -1117,6 +1816,20 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
             counter: 0,
         });
     }
+    // A `text-align:center`/`right` block centres (or right-aligns) its inline
+    // content — including a reified inline box like the portal's centred
+    // `.lang-list-button-wrapper > button` ("Read Wikipedia in your language").
+    // Full-width text blocks carry their own `align` factor, so they don't need
+    // this; but a shrink-to-fit inline box does, so when such a box is present we
+    // divert the children and wrap them in a full-width row that justifies them to
+    // the requested edge. Plain (all-block) content keeps the flat flow.
+    let align_edge = match applied.text_align {
+        Some(css::TextAlign::Center) => Some(css::Justify::Center),
+        Some(css::TextAlign::Right) => Some(css::Justify::End),
+        _ => None,
+    };
+    let divert = is_center || align_edge.is_some();
+    let saved_blocks = divert.then(|| std::mem::take(&mut st.blocks));
     st.stack.push(ctx);
     walk_children(dom, id, st);
     st.stack.pop();
@@ -1124,6 +1837,61 @@ fn tag_node(dom: &crate::dom::Dom, id: crate::dom::NodeId, name: &str, st: &mut 
         st.lists.pop();
     }
     flush(st);
+    if is_center {
+        if let Some(saved) = saved_blocks {
+            let children = std::mem::replace(&mut st.blocks, saved);
+            if !children.is_empty() {
+                st.blocks.push(Block::Container {
+                    direction: css::FlexDirection::Column,
+                    justify: css::Justify::Start,
+                    align: css::Align::Center,
+                    gap: 0.0,
+                    margin: applied.margin_px(),
+                    padding: applied.padding_px(),
+                    background: applied.background,
+                    children,
+                    float: css::Float::None,
+                    clears: applied.clear.unwrap_or(false),
+                    position: css::Position::Static,
+                    inset: (None, None, None, None),
+                    inset_pct: (None, None, None, None),
+                    width: css::WidthVal::Pct(1.0),
+                    height: css::WidthVal::Auto,
+                    node: Some(id),
+                    center: false,
+                    max_height: None,
+                    inline_level: false,
+                });
+            }
+        }
+    } else if let (Some(justify), Some(saved)) = (align_edge, saved_blocks) {
+        let mut children = std::mem::replace(&mut st.blocks, saved);
+        if children.iter().any(is_inline_level) {
+            st.blocks.push(Block::Container {
+                direction: css::FlexDirection::Row,
+                justify,
+                align: css::Align::Center,
+                gap: 6.0,
+                margin: (0.0, 0.0, 0.0, 0.0),
+                padding: (0.0, 0.0, 0.0, 0.0),
+                background: None,
+                children,
+                float: css::Float::None,
+                clears: false,
+                position: css::Position::Static,
+                inset: (None, None, None, None),
+                inset_pct: (None, None, None, None),
+                width: css::WidthVal::Pct(1.0),
+                height: css::WidthVal::Auto,
+                node: Some(id),
+                center: false,
+                max_height: None,
+                inline_level: false,
+            });
+        } else {
+            st.blocks.append(&mut children);
+        }
+    }
     st.style = saved_style;
     st.cur_align = saved_align;
     st.cur_color = saved_color;
@@ -1360,6 +2128,7 @@ fn flush(st: &mut State) {
             border_c: st.cur_border_c,
             spans,
             clears: st.cur_clears,
+            inline_level: false,
             node: st.block_owner,
         });
     } else {

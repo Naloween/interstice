@@ -91,6 +91,9 @@ macro_rules! ui_subsystem {
                 pub scrollable_y: bool,
                 pub scroll_x: f32,
                 pub scroll_y: f32,
+                /// CSS `max-height` in px; `None` ⇒ uncapped (see
+                /// [`interstice_ui::UiElement::max_height`]).
+                pub max_height: Option<f32>,
                 pub visible: bool,
                 pub center_cross: bool,
             }
@@ -143,6 +146,7 @@ macro_rules! ui_subsystem {
                         scrollable_y: false,
                         scroll_x: 0.0,
                         scroll_y: 0.0,
+                        max_height: None,
                         visible: true,
                         center_cross: false,
                     }
@@ -219,6 +223,7 @@ macro_rules! ui_subsystem {
                     scrollable_y: e.scrollable_y,
                     scroll_x: e.scroll_x,
                     scroll_y: e.scroll_y,
+                    max_height: e.max_height,
                     visible: e.visible,
                     center_cross: e.center_cross,
                 }
