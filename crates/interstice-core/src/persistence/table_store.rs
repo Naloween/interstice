@@ -134,6 +134,16 @@ impl TableStore {
 
         let needs_snapshot = seq.saturating_sub(guard.last_snapshot_seq) >= SNAPSHOT_INTERVAL;
         if needs_snapshot {
+            // Advance the marker as soon as the plan is issued, not when the
+            // snapshot is actually written. Callers batch a whole reducer's
+            // operations and defer the snapshot writes until after their table
+            // lock is released (see `apply_all_transactions`); if the marker
+            // only moved on write, every op past the first threshold in a large
+            // batch would re-trigger a snapshot, each cloning the entire growing
+            // table — O(n^2) memory that OOMs on big pages (e.g. a rebuild
+            // inserting thousands of rows). The deferred `snapshot_logged_table`
+            // sets the same seq again, so this is consistent.
+            guard.last_snapshot_seq = seq;
             Ok(Some(SnapshotPlan {
                 module: module.to_string(),
                 table: table.to_string(),
