@@ -9,7 +9,7 @@ use crate::{
         Runtime,
         event::EventInstance,
         module::Module,
-        reducer::{CompletionToken, ReducerJob},
+        reducer::{CompletionToken, Job},
     },
 };
 use crossbeam_channel;
@@ -75,7 +75,7 @@ impl Node {
         // Bounded reducer ingress: producers use blocking `send` so a full queue
         // stalls readers / the event loop instead of dropping reducer jobs.
         let (reducer_sender, reducer_receiver) =
-            crossbeam_channel::bounded::<ReducerJob>(REDUCER_QUEUE_CAPACITY);
+            crossbeam_channel::bounded::<Job>(REDUCER_QUEUE_CAPACITY);
 
         let network = Network::new(
             id,
@@ -155,7 +155,7 @@ impl Node {
         )?));
 
         let (reducer_sender, reducer_receiver) =
-            crossbeam_channel::bounded::<ReducerJob>(REDUCER_QUEUE_CAPACITY);
+            crossbeam_channel::bounded::<Job>(REDUCER_QUEUE_CAPACITY);
 
         let network = Network::new(
             id,

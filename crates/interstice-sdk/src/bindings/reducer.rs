@@ -42,6 +42,8 @@ pub fn get_reducer_code(
     };
 
     quote! {
+        /// Records a call to this reducer. It runs as its own transaction
+        /// after the calling one commits; `Err` only if it can't be dispatched.
         pub fn #method_name(&self, #(#argument_defs),*) -> Result<(), String> {
             interstice_sdk::host_calls::call_reducer(
                 #node_selection_tokens,

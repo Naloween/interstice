@@ -52,6 +52,9 @@ pub enum EventInstance {
     Network(NetworkEvent),
     RequestAppInitialization,
     AppInitialized,
+    /// The released outbox of one commit; forwarded to the scheduler as
+    /// [`crate::runtime::reducer::Job::Calls`] (DESIGN §6.6).
+    Calls(crate::runtime::reducer::CallBatch),
     RequestSubscription {
         requesting_node_id: NodeId,
         event: SubscriptionEventSchema,
@@ -479,7 +482,7 @@ impl Runtime {
                 // blocking, never-drop bounded send. Sending inline here keeps
                 // events in emission order; spawning a thread per send raced and
                 // could reorder a connection's final `Received` past its `Closed`.
-                let _ = self.reducer_ingress.send(job);
+                let _ = self.reducer_ingress.send(job.into());
             }
             SubscriptionTarget::Remote(uuid) => {
                 let packet = match event {

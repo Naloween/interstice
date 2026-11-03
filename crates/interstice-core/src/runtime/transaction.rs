@@ -49,14 +49,23 @@ impl Runtime {
     /// touched table was modified by someone else since, the whole batch is
     /// re-validated against the current committed state *before* anything is
     /// applied, under the same lock, and rejected as a unit on conflict.
+    ///
+    /// On success the table events and then `calls` (the released outbox) are
+    /// pushed into the event channel *under the write lock*, so the channel
+    /// order is commit order (DESIGN §6.6). Nothing is emitted on failure.
     pub(crate) fn apply_all_transactions(
         &self,
         transactions: Vec<Transaction>,
         overlays: &HashMap<String, TableOverlay>,
         module: &Arc<Module>,
-    ) -> Result<Vec<EventInstance>, IntersticeError> {
+        calls: Option<EventInstance>,
+    ) -> Result<(), IntersticeError> {
         if transactions.is_empty() {
-            return Ok(Vec::new());
+            // No commit to order against.
+            if let Some(calls) = calls {
+                self.emit_event(calls);
+            }
+            return Ok(());
         }
 
         let has_subscriptions = self
@@ -69,7 +78,7 @@ impl Runtime {
         let mut snapshots: Vec<(SnapshotPlan, Vec<Row>)> = Vec::new();
 
         {
-            let mut tables = module.tables.lock();
+            let mut tables = module.tables.write();
 
             let stale = overlays.iter().any(|(name, ov)| {
                 tables
@@ -285,6 +294,10 @@ impl Runtime {
             for table in tables.values_mut() {
                 table.enforce_retention();
             }
+
+            for event in events.into_iter().chain(calls) {
+                self.emit_event(event);
+            }
         } // tables lock released here
 
         // Execute any deferred logged snapshots outside the tables lock.
@@ -292,7 +305,7 @@ impl Runtime {
             self.persistence.snapshot_logged_table(plan, rows)?;
         }
 
-        Ok(events)
+        Ok(())
     }
 
     pub(crate) fn apply_transaction(
@@ -343,7 +356,7 @@ impl Runtime {
                     }
                 };
 
-                let mut tables = module.tables.lock();
+                let mut tables = module.tables.write();
                 let table =
                     tables
                         .get_mut(&table_name)
@@ -429,7 +442,7 @@ impl Runtime {
                     }
                 };
 
-                let mut tables = module.tables.lock();
+                let mut tables = module.tables.write();
                 let table =
                     tables
                         .get_mut(&table_name)
@@ -510,7 +523,7 @@ impl Runtime {
                     }
                 };
 
-                let mut tables = module.tables.lock();
+                let mut tables = module.tables.write();
                 let table =
                     tables
                         .get_mut(&table_name)
@@ -584,7 +597,7 @@ impl Runtime {
                     }
                 };
 
-                let mut tables = module.tables.lock();
+                let mut tables = module.tables.write();
                 let table =
                     tables
                         .get_mut(&table_name)

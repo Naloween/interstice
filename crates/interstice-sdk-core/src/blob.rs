@@ -7,9 +7,9 @@
 //! graphics.reducers.update_texture(id, 0, 0, w, h, Blob::new(&pixels))?;
 //! ```
 //!
-//! A blob lives as long as the call that created it: callees (nested calls,
-//! queries) can read it, but it is gone when the creating reducer returns, so
-//! don't keep a `Blob` in an instance cache. Blobs cannot be stored in tables.
+//! A blob lives as long as the call that created it and the reducer calls it
+//! issued (they run after it commits, and still see it); queries it calls can
+//! read it too. Don't keep a `Blob` in an instance cache. Blobs cannot be stored in tables.
 //! A blob crossing to another node travels as bytes and is re-registered on
 //! arrival, so a `Blob` parameter works the same for remote callers.
 

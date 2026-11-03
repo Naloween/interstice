@@ -213,11 +213,13 @@ ctx.graphics().reducers.update_texture("page".into(), 0, 0, w, h, Blob::new(&pix
 fn update_texture(ctx: ReducerContext, id: String, x: u32, y: u32, w: u32, h: u32, pixels: Blob) { … }
 ```
 
-A blob lives as long as the call that created it, so it cannot be stored in a table or kept in an instance cache. Calls to another node send it inline, and it arrives as a fresh blob.
+A blob lives as long as the call that created it and every reducer call it issued, so it cannot be stored in a table or kept in an instance cache. Calls to another node send it inline, and it arrives as a fresh blob.
 
 ### Reducer
 
 After defining your data (tables and types), you will likely define reducers and queries. Reducers do not return anything and may update the tables of the current module. Reducers can call other queries and reducers from other modules.
+
+A query call runs immediately and returns its result; it sees the caller's pending writes. A reducer call is a message: it is recorded, and runs as its own transaction after the caller commits (in issue order, and never if the caller fails). The call returns `Err` only when the target doesn't exist, so a caller can't read a callee's effects in the same reducer — react to them with a subscription instead.
 
 You define them through the `#[reducer]` marker on top of a function:
 

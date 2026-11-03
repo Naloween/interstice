@@ -27,7 +27,7 @@ use crate::{
             network::NetworkState,
         },
         module::Module,
-        reducer::{ACTIVE_COMPLETION, CompletionToken, ReducerJob},
+        reducer::{ACTIVE_COMPLETION, CompletionToken, Job, ReducerJob, ReplicaChange},
         wasm::{StoreState, linker::define_host_calls},
     },
 };
@@ -75,8 +75,8 @@ pub struct Runtime {
         Arc<Mutex<HashMap<String, std_mpsc::Sender<IntersticeValue>>>>,
     pub(crate) pending_schema_responses: Arc<Mutex<HashMap<String, oneshot::Sender<NodeSchema>>>>,
     pub(crate) tokio_handle: tokio::runtime::Handle,
-    pub(crate) reducer_sender: CbSender<ReducerJob>,
-    reducer_receiver: CbReceiver<ReducerJob>,
+    pub(crate) reducer_sender: CbSender<Job>,
+    reducer_receiver: CbReceiver<Job>,
     /// Ordered staging queue feeding `reducer_sender`. Producers push here
     /// inline — it's unbounded so the send never blocks the async runtime — and
     /// a single forwarder thread (spawned in `run`) drains it in order and does
@@ -86,8 +86,8 @@ pub struct Runtime {
     /// spawned one OS thread per send to avoid blocking on the bounded channel;
     /// those threads raced, so e.g. a connection's final `Received` event could
     /// reach the scheduler *after* its `Closed`, truncating the buffered body.
-    pub(crate) reducer_ingress: CbSender<ReducerJob>,
-    reducer_ingress_rx: Mutex<Option<CbReceiver<ReducerJob>>>,
+    pub(crate) reducer_ingress: CbSender<Job>,
+    reducer_ingress_rx: Mutex<Option<CbReceiver<Job>>>,
     pub(crate) gpu_call_sender: mpsc::Sender<GpuCallRequest>,
     gpu_call_receiver: Mutex<Option<mpsc::Receiver<GpuCallRequest>>>,
     pub(crate) modules_path: Option<PathBuf>,
@@ -128,8 +128,8 @@ impl Runtime {
         gpu: Arc<Mutex<Option<GpuState>>>,
         run_app_notify: Arc<Notify>,
         logger: Logger,
-        reducer_sender: CbSender<ReducerJob>,
-        reducer_receiver: CbReceiver<ReducerJob>,
+        reducer_sender: CbSender<Job>,
+        reducer_receiver: CbReceiver<Job>,
     ) -> Result<Self, IntersticeError> {
         // reducer_sender/receiver are pre-created by the Node so the same sender can be
         // shared directly with the Network layer, bypassing the unbounded event channel.
@@ -149,7 +149,7 @@ impl Runtime {
         define_host_calls(&mut linker).map_err(|err| {
             IntersticeError::Internal(format!("Couldn't add host calls to the linker: {}", err))
         })?;
-        let (reducer_ingress, reducer_ingress_rx) = crossbeam_channel::unbounded::<ReducerJob>();
+        let (reducer_ingress, reducer_ingress_rx) = crossbeam_channel::unbounded::<Job>();
         Ok(Self {
             node_id,
             gpu,
@@ -201,7 +201,7 @@ impl Runtime {
     }
 
     pub async fn run(runtime: Arc<Runtime>, mut event_receiver: UnboundedReceiver<(EventInstance, Option<CompletionToken>)>) {
-        let (ready_tx, ready_rx) = crossbeam_channel::unbounded::<(u64, ReducerJob)>();
+        let (ready_tx, ready_rx) = crossbeam_channel::unbounded::<(u64, Job)>();
         let (done_tx, done_rx) = crossbeam_channel::unbounded::<u64>();
 
         {
@@ -210,7 +210,7 @@ impl Runtime {
             std::thread::Builder::new()
                 .name("reducer-scheduler".to_string())
                 .spawn(move || {
-                    let mut scheduler = crate::runtime::scheduler::ReducerScheduler::<ReducerJob>::new();
+                    let mut scheduler = crate::runtime::scheduler::ReducerScheduler::<Job>::new();
                     loop {
                         crossbeam_channel::select! {
                             recv(incoming_rx) -> msg => {
@@ -218,8 +218,7 @@ impl Runtime {
                                     Ok(job) => job,
                                     Err(_) => break,
                                 };
-                                let accesses =
-                                    reducer_accesses_cached(&rt, &job.module_name, &job.reducer_name);
+                                let accesses = job_accesses(&rt, &job);
                                 if let Some(runnable) = scheduler.enqueue(job, accesses) {
                                     if ready_tx.send((runnable.id, runnable.payload)).is_err() {
                                         return;
@@ -288,35 +287,50 @@ impl Runtime {
                             Ok(j) => j,
                             Err(_) => break,
                         };
-                        // Fork the token into TLS so that event dispatch (which
-                        // runs in a different async task) can attach its own fork
-                        // by reading the token out of the EventInstance.  We use
+                        // Fork the token into TLS so that everything this job
+                        // emits (events, call batches) holds its own fork. We use
                         // fork() — not clone() — so the count is incremented and
                         // the signal won't fire until both this guard AND all
-                        // dispatched-event forks have been dropped.
-                        let tls_fork = job.completion.as_ref().map(|t| t.fork());
+                        // emitted forks have been dropped.
+                        let completion = match &job {
+                            Job::Reducer(j) => j.completion.as_ref(),
+                            Job::Calls { completion, .. } | Job::Replica { completion, .. } => {
+                                completion.as_ref()
+                            }
+                        };
+                        let tls_fork = completion.map(|t| t.fork());
                         ACTIVE_COMPLETION.with(|c| *c.borrow_mut() = tls_fork);
-                        // Keep the original as the guard for THIS job's share.
-                        let _completion_guard = job.completion;
-                        if let Err(err) = rt.call_reducer(
-                            &job.module_name,
-                            &job.reducer_name,
-                            job.input,
-                            job.caller_node_id,
-                            &job.caller_module_name,
-                        ) {
-                            rt.logger.log(
-                                &format!(
-                                    "Reducer execution failed for '{}.{}': {}",
-                                    job.module_name, job.reducer_name, err
-                                ),
-                                LogSource::Runtime,
-                                LogLevel::Error,
-                            );
+                        match job {
+                            Job::Reducer(job) => {
+                                // Keep the original as the guard for THIS job's share.
+                                let _completion_guard = job.completion;
+                                if let Err(err) = rt.call_reducer(
+                                    &job.module_name,
+                                    &job.reducer_name,
+                                    job.input,
+                                    job.caller_node_id,
+                                    &job.caller_module_name,
+                                    None,
+                                ) {
+                                    rt.logger.log(
+                                        &format!(
+                                            "Reducer execution failed for '{}.{}': {}",
+                                            job.module_name, job.reducer_name, err
+                                        ),
+                                        LogSource::Runtime,
+                                        LogLevel::Error,
+                                    );
+                                }
+                            }
+                            Job::Calls { batch, completion: _completion_guard } => {
+                                rt.run_call_batch(batch);
+                            }
+                            Job::Replica { change, completion: _completion_guard } => {
+                                rt.apply_replica_change(change);
+                            }
                         }
-                        // Clear TLS *before* the guard drops so any event forks
-                        // made during call_reducer are counted, and the guard's
-                        // drop is the last decrement if no events were dispatched.
+                        // Clear TLS so any forks made during the job are counted
+                        // and the guard's drop (above) or this one is the last.
                         ACTIVE_COMPLETION.with(|c| *c.borrow_mut() = None);
                         let _ = done.send(job_id);
                     }
@@ -370,7 +384,7 @@ impl Runtime {
                                 caller_module_name: String::new(),
                                 completion: None,
                             };
-                            let _ = timer_reducer_sender.send(job);
+                            let _ = timer_reducer_sender.send(job.into());
                         }
                     }
                     msg = rx.recv() => {
@@ -448,7 +462,7 @@ impl Runtime {
                     caller_module_name: String::new(),
                     completion: None,
                 };
-                let _ = runtime.reducer_ingress.send(job);
+                let _ = runtime.reducer_ingress.send(job.into());
             }
             EventInstance::RemoteQueryCall {
                 requesting_node_id,
@@ -569,7 +583,7 @@ impl Runtime {
                             )));
                         }
 
-                        let tables = module.tables.lock();
+                        let tables = module.tables.read_recursive();
                         let table = tables.get(&table_name).ok_or_else(|| {
                             IntersticeError::TableNotFound {
                                 module_name: module_name.clone(),
@@ -602,7 +616,22 @@ impl Runtime {
                 table_name,
                 rows,
             } => {
-                runtime.apply_replica_full_sync(source_node_id, &module_name, &table_name, rows);
+                let change = ReplicaChange::FullSync {
+                    source_node_id,
+                    module_name,
+                    table_name,
+                    rows,
+                };
+                let _ = runtime.reducer_ingress.send(Job::Replica {
+                    change,
+                    completion: fork_token(&completion_token),
+                });
+            }
+            EventInstance::Calls(batch) => {
+                let _ = runtime.reducer_ingress.send(Job::Calls {
+                    batch,
+                    completion: fork_token(&completion_token),
+                });
             }
             EventInstance::LoadModule {
                 wasm_binary,
@@ -722,12 +751,18 @@ impl Runtime {
                 inserted_row,
             } => {
                 if let Some(source_node_id) = source_node_id {
-                    runtime.apply_replica_insert(
+                    // Enqueued before the subscriber jobs below, which declare
+                    // a read on the replica and so run after it (DESIGN §6.6).
+                    let change = ReplicaChange::Insert {
                         source_node_id,
-                        &module_name,
-                        &table_name,
-                        inserted_row.clone(),
-                    );
+                        module_name: module_name.clone(),
+                        table_name: table_name.clone(),
+                        row: inserted_row.clone(),
+                    };
+                    let _ = runtime.reducer_ingress.send(Job::Replica {
+                        change,
+                        completion: fork_token(&completion_token),
+                    });
                 }
 
                 let event = EventInstance::TableInsertEvent {
@@ -749,13 +784,17 @@ impl Runtime {
                 new_row,
             } => {
                 if let Some(source_node_id) = source_node_id {
-                    runtime.apply_replica_update(
+                    let change = ReplicaChange::Update {
                         source_node_id,
-                        &module_name,
-                        &table_name,
-                        old_row.clone(),
-                        new_row.clone(),
-                    );
+                        module_name: module_name.clone(),
+                        table_name: table_name.clone(),
+                        old_row: old_row.clone(),
+                        new_row: new_row.clone(),
+                    };
+                    let _ = runtime.reducer_ingress.send(Job::Replica {
+                        change,
+                        completion: fork_token(&completion_token),
+                    });
                 }
 
                 let event = EventInstance::TableUpdateEvent {
@@ -777,12 +816,16 @@ impl Runtime {
                 deleted_row,
             } => {
                 if let Some(source_node_id) = source_node_id {
-                    runtime.apply_replica_delete(
+                    let change = ReplicaChange::Delete {
                         source_node_id,
-                        &module_name,
-                        &table_name,
-                        deleted_row.clone(),
-                    );
+                        module_name: module_name.clone(),
+                        table_name: table_name.clone(),
+                        row: deleted_row.clone(),
+                    };
+                    let _ = runtime.reducer_ingress.send(Job::Replica {
+                        change,
+                        completion: fork_token(&completion_token),
+                    });
                 }
 
                 let event = EventInstance::TableDeleteEvent {
@@ -821,6 +864,94 @@ impl Runtime {
     }
 }
 
+/// Scheduler key for a declared table ref of `module_name`: `Current` module
+/// selections become the module's own name and names are lower-cased, so
+/// every job touching a table uses the same key for it.
+fn normalized_table_key(module_name: &str, table_ref: &interstice_abi::ReducerTableRef) -> scheduler::AccessKey {
+    use interstice_abi::{ModuleSelection, NodeSelection, ReducerTableRef};
+    let node_selection = match &table_ref.node_selection {
+        NodeSelection::Current => NodeSelection::Current,
+        NodeSelection::Other(n) => NodeSelection::Other(n.to_lowercase()),
+    };
+    let module_selection = match (&node_selection, &table_ref.module_selection) {
+        (NodeSelection::Current, ModuleSelection::Current) => {
+            ModuleSelection::Other(module_name.to_lowercase())
+        }
+        (_, ModuleSelection::Current) => ModuleSelection::Current,
+        (_, ModuleSelection::Other(m)) => ModuleSelection::Other(m.to_lowercase()),
+    };
+    scheduler::AccessKey::Table(ReducerTableRef {
+        node_selection,
+        module_selection,
+        table_name: table_ref.table_name.to_lowercase(),
+    })
+}
+
+/// The access set of any job (DESIGN §6.6, Jobs).
+fn job_accesses(runtime: &Arc<Runtime>, job: &Job) -> Arc<[scheduler::TableAccess]> {
+    match job {
+        Job::Reducer(j) => reducer_accesses_cached(runtime, &j.module_name, &j.reducer_name),
+        Job::Calls { batch, .. } => {
+            let mut out: Vec<scheduler::TableAccess> = Vec::new();
+            let mut callees: Vec<&str> = Vec::new();
+            for call in &batch.calls {
+                if callees.contains(&call.module_name.as_str()) {
+                    continue;
+                }
+                callees.push(&call.module_name);
+                out.push(scheduler::TableAccess {
+                    key: scheduler::AccessKey::Channel {
+                        from: batch.caller_module_name.clone(),
+                        to: call.module_name.clone(),
+                    },
+                    op: scheduler::TableOp::Update,
+                });
+            }
+            let mut reducers: Vec<(&str, &str)> = Vec::new();
+            for call in &batch.calls {
+                let key = (call.module_name.as_str(), call.reducer_name.as_str());
+                if !reducers.contains(&key) {
+                    reducers.push(key);
+                    out.extend(
+                        reducer_accesses_cached(runtime, key.0, key.1).iter().cloned(),
+                    );
+                }
+            }
+            scheduler::sort_table_accesses(&mut out);
+            out.dedup();
+            Arc::from(out.into_boxed_slice())
+        }
+        Job::Replica { change, .. } => {
+            let (source_node_id, module_name, table_name) = change.source();
+            let mut out: Vec<scheduler::TableAccess> = runtime
+                .replica_bindings
+                .lock()
+                .iter()
+                .filter(|b| {
+                    b.source_node_id == source_node_id
+                        && b.source_module_name == module_name
+                        && b.source_table_name == table_name
+                })
+                .map(|b| scheduler::TableAccess {
+                    key: scheduler::AccessKey::Table(interstice_abi::ReducerTableRef {
+                        node_selection: interstice_abi::NodeSelection::Other(
+                            b.source_node_name.to_lowercase(),
+                        ),
+                        module_selection: interstice_abi::ModuleSelection::Other(
+                            b.source_module_name.to_lowercase(),
+                        ),
+                        table_name: b.source_table_name.to_lowercase(),
+                    }),
+                    op: scheduler::TableOp::Update,
+                })
+                .collect();
+            scheduler::sort_table_accesses(&mut out);
+            out.dedup();
+            Arc::from(out.into_boxed_slice())
+        }
+    }
+}
+
 fn reducer_accesses_uncached(
     runtime: &Arc<Runtime>,
     module_name: &str,
@@ -842,25 +973,25 @@ fn reducer_accesses_uncached(
     let mut out = Vec::new();
     for table_ref in &reducer.reads {
         out.push(scheduler::TableAccess {
-            table_ref: table_ref.clone(),
+            key: normalized_table_key(module_name, table_ref),
             op: scheduler::TableOp::Read,
         });
     }
     for table_ref in &reducer.inserts {
         out.push(scheduler::TableAccess {
-            table_ref: table_ref.clone(),
+            key: normalized_table_key(module_name, table_ref),
             op: scheduler::TableOp::Insert,
         });
     }
     for table_ref in &reducer.updates {
         out.push(scheduler::TableAccess {
-            table_ref: table_ref.clone(),
+            key: normalized_table_key(module_name, table_ref),
             op: scheduler::TableOp::Update,
         });
     }
     for table_ref in &reducer.deletes {
         out.push(scheduler::TableAccess {
-            table_ref: table_ref.clone(),
+            key: normalized_table_key(module_name, table_ref),
             op: scheduler::TableOp::Delete,
         });
     }
@@ -891,4 +1022,43 @@ fn reducer_accesses_cached(
         .or_default()
         .insert(reducer_name.to_string(), arc.clone());
     arc
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use interstice_abi::{ModuleSelection, NodeSelection, ReducerTableRef};
+
+    fn table_ref(node: NodeSelection, module: ModuleSelection, table: &str) -> ReducerTableRef {
+        ReducerTableRef {
+            node_selection: node,
+            module_selection: module,
+            table_name: table.into(),
+        }
+    }
+
+    #[test]
+    fn own_and_foreign_refs_to_one_table_share_a_key() {
+        // `graphics` writing its own `Layer` and `desktop` reading
+        // `graphics.layer` must conflict in the scheduler.
+        let own = normalized_table_key(
+            "graphics",
+            &table_ref(NodeSelection::Current, ModuleSelection::Current, "Layer"),
+        );
+        let foreign = normalized_table_key(
+            "desktop",
+            &table_ref(
+                NodeSelection::Current,
+                ModuleSelection::Other("Graphics".into()),
+                "layer",
+            ),
+        );
+        assert_eq!(own, foreign);
+        // Same table name in two modules: distinct keys.
+        let other = normalized_table_key(
+            "desktop",
+            &table_ref(NodeSelection::Current, ModuleSelection::Current, "layer"),
+        );
+        assert_ne!(own, other);
+    }
 }

@@ -67,6 +67,10 @@ impl Runtime {
             call_sequence,
         );
 
+        // Share the caller's scope: blobs this query returns stay alive for
+        // it. An outermost query gets a fresh scope.
+        let scope = crate::runtime::blob::current_scope()
+            .unwrap_or_else(|| crate::runtime::blob::BlobScope::new(None));
         CALL_STACK.with(|s| {
             s.borrow_mut().push(CallFrame::new(
                 module_name.into(),
@@ -75,6 +79,7 @@ impl Runtime {
                 CallFrameKind::Query,
                 rng_seed,
                 table_access,
+                scope,
             ));
         });
 
@@ -85,21 +90,19 @@ impl Runtime {
                 module.state_epoch(),
             );
         let mut result = module.call_query(query_name, (query_context, args));
-        // Blobs in the result must outlive this frame: hand them to the caller's
-        // frame, or inline them when there is no caller (host or remote request).
+        // With no caller (host or remote request) the scope dies with this
+        // frame, so blobs in the result travel inline.
         let outermost = CALL_STACK.with(|s| s.borrow().len() == 1);
         if outermost {
             if let Ok(value) = &mut result {
-                crate::runtime::blob::inline_blobs(value).map_err(IntersticeError::Internal)?;
+                if let Err(err) = crate::runtime::blob::inline_blobs(value) {
+                    result = Err(IntersticeError::Internal(err).into());
+                }
             }
         }
-        CALL_STACK.with(|s| {
-            let mut stack = s.borrow_mut();
-            let frame = stack.pop().unwrap();
-            if let Some(parent) = stack.last_mut() {
-                parent.blobs.extend(frame.blobs);
-            }
-        });
+        // Popping the outermost query frame drops its pins.
+        let frame = CALL_STACK.with(|s| s.borrow_mut().pop().unwrap());
+        drop(frame);
         result
     }
 }

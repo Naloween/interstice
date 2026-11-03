@@ -121,7 +121,7 @@ impl ApplicationHandler for App {
                         caller_node_id: self.node_id,
                         caller_module_name: String::new(),
                         completion: Some(token),
-                    });
+                    }.into());
                     self.wait_for_render_completion(done_rx);
                 }
             }

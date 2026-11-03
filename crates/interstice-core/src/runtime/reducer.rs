@@ -1,6 +1,7 @@
 use crate::{
     error::IntersticeError,
     runtime::transaction::Transaction,
+    runtime::event::EventInstance,
     runtime::{Runtime, module::Module, table::{TableAutoIncSnapshot, TableOverlay}},
 };
 use interstice_abi::{IntersticeValue, QuerySchema, RawReducerContext as ReducerContext, ReducerTableRef};
@@ -10,6 +11,15 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
+
+use crate::network::protocol::NetworkPacket;
+use crate::runtime::blob::BlobScope;
+use crate::runtime::table::Table;
+
+/// A pinned read lock on one module's tables, held by the outermost query
+/// frame until it returns (DESIGN §6.6, Snapshots).
+pub type TablesPin =
+    parking_lot::ArcRwLockReadGuard<parking_lot::RawRwLock, HashMap<String, Table>>;
 
 thread_local! {
     /// Per-thread call stack.  No locking needed — each wasm-reducer thread and
@@ -34,13 +44,106 @@ pub struct ReducerJob {
     pub completion: Option<CompletionToken>,
 }
 
+/// What the scheduler runs (DESIGN §6.6, Jobs).
+#[derive(Debug)]
+pub enum Job {
+    Reducer(ReducerJob),
+    /// The deferred local calls of one committed transaction.
+    Calls {
+        batch: CallBatch,
+        completion: Option<CompletionToken>,
+    },
+    /// A remote table change to apply to the local replicas of that table.
+    Replica {
+        change: ReplicaChange,
+        completion: Option<CompletionToken>,
+    },
+}
+
+impl From<ReducerJob> for Job {
+    fn from(job: ReducerJob) -> Self {
+        Job::Reducer(job)
+    }
+}
+
+/// A reducer call recorded by a transaction, run after it commits.
+#[derive(Debug, Clone)]
+pub struct PendingCall {
+    pub module_name: String,
+    pub reducer_name: String,
+    pub input: IntersticeValue,
+}
+
+/// The local calls of one commit, run in issue order on one worker. Holds the
+/// caller's blob scope so `Blob` arguments stay valid until the batch has run.
+#[derive(Debug, Clone)]
+pub struct CallBatch {
+    pub caller_module_name: String,
+    pub caller_node_id: crate::node::NodeId,
+    pub calls: Vec<PendingCall>,
+    pub scope: Arc<BlobScope>,
+}
+
+/// One entry of a transaction's outbox.
+#[derive(Debug)]
+pub enum OutboxEntry {
+    Local(PendingCall),
+    /// Blobs already inlined; sent when the caller commits.
+    Remote {
+        node_id: crate::node::NodeId,
+        packet: NetworkPacket,
+    },
+}
+
+/// A change to a remote table that local modules replicate.
+#[derive(Debug, Clone)]
+pub enum ReplicaChange {
+    Insert {
+        source_node_id: crate::node::NodeId,
+        module_name: String,
+        table_name: String,
+        row: interstice_abi::Row,
+    },
+    Update {
+        source_node_id: crate::node::NodeId,
+        module_name: String,
+        table_name: String,
+        old_row: interstice_abi::Row,
+        new_row: interstice_abi::Row,
+    },
+    Delete {
+        source_node_id: crate::node::NodeId,
+        module_name: String,
+        table_name: String,
+        row: interstice_abi::Row,
+    },
+    FullSync {
+        source_node_id: crate::node::NodeId,
+        module_name: String,
+        table_name: String,
+        rows: Vec<interstice_abi::Row>,
+    },
+}
+
+impl ReplicaChange {
+    pub fn source(&self) -> (crate::node::NodeId, &str, &str) {
+        match self {
+            ReplicaChange::Insert { source_node_id, module_name, table_name, .. }
+            | ReplicaChange::Update { source_node_id, module_name, table_name, .. }
+            | ReplicaChange::Delete { source_node_id, module_name, table_name, .. }
+            | ReplicaChange::FullSync { source_node_id, module_name, table_name, .. } => {
+                (*source_node_id, module_name, table_name)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CallFrameKind {
     Reducer,
     Query,
 }
 
-#[derive(Debug)]
 pub struct CallFrame {
     pub module: String,
     pub reducer: String,
@@ -52,8 +155,13 @@ pub struct CallFrame {
     pub auto_inc_snapshots: HashMap<String, TableAutoIncSnapshot>,
     pub rng_state: u64,
     pub table_access: ReducerTableAccess,
-    /// Blobs created in (or adopted by) this call; freed when the frame pops.
-    pub blobs: HashMap<u64, crate::runtime::blob::BlobData>,
+    /// Blobs of this call (shared with the caller for query frames).
+    pub scope: Arc<BlobScope>,
+    /// Calls issued by this transaction, released only if it commits.
+    /// Only the root reducer frame uses it.
+    pub outbox: Vec<OutboxEntry>,
+    /// Read locks pinned by the outermost query frame, per module.
+    pub pins: HashMap<String, TablesPin>,
 }
 
 impl CallFrame {
@@ -64,6 +172,7 @@ impl CallFrame {
         kind: CallFrameKind,
         rng_state: u64,
         table_access: ReducerTableAccess,
+        scope: Arc<BlobScope>,
     ) -> Self {
         Self {
             module,
@@ -75,7 +184,9 @@ impl CallFrame {
             auto_inc_snapshots: HashMap::new(),
             rng_state,
             table_access,
-            blobs: HashMap::new(),
+            scope,
+            outbox: Vec::new(),
+            pins: HashMap::new(),
         }
     }
 }
@@ -155,6 +266,9 @@ impl Drop for CompletionToken {
 }
 
 impl Runtime {
+    /// Run one reducer transaction at top level (DESIGN §6.6): execute, commit,
+    /// then release its outbox. `parent_scope` is the blob scope the job
+    /// inherited (the caller's, for a call-batch callee).
     pub(crate) fn call_reducer(
         &self,
         module_name: &str,
@@ -162,42 +276,14 @@ impl Runtime {
         args: impl Serialize,
         caller_node_id: crate::node::NodeId,
         caller_module_name: &str,
+        parent_scope: Option<Arc<BlobScope>>,
     ) -> Result<(), IntersticeError> {
-        // ── Preamble: module lookup + cycle check + frame push ───────────────
-        let module = {
-            let mut modules = self.modules.lock();
-            modules
-                .get_mut(module_name)
-                .ok_or_else(|| {
-                    IntersticeError::ModuleNotFound(
-                        module_name.into(),
-                        format!(
-                            "When trying to invoke reducer '{}' from '{}'",
-                            reducer_name, module_name
-                        ),
-                    )
-                })?
-                .clone()
-        };
-
-        // Check that reducer exists in schema (O(1) HashSet lookup)
-        if !module.reducer_names.contains(reducer_name) {
-            return Err(IntersticeError::ReducerNotFound {
-                module: module_name.into(),
-                reducer: reducer_name.into(),
-            });
-        }
-
-        // Detect cycles — check the current thread's stack only.
-        let cycle = CALL_STACK.with(|s| s.borrow().iter().any(|f| f.module == module_name));
-        if cycle {
-            return Err(IntersticeError::ReducerCycle {
-                module: module_name.into(),
-                reducer: reducer_name.into(),
-            });
-        }
-
-        // Push frame onto current thread's stack (no lock needed — TLS).
+        let module = self.modules.lock().get(module_name).cloned().ok_or_else(|| {
+            IntersticeError::ModuleNotFound(
+                module_name.into(),
+                format!("When trying to invoke reducer '{reducer_name}'"),
+            )
+        })?;
         let reducer_schema = module
             .schema
             .reducers
@@ -207,6 +293,10 @@ impl Runtime {
                 module: module_name.into(),
                 reducer: reducer_name.into(),
             })?;
+        debug_assert!(
+            CALL_STACK.with(|s| s.borrow().is_empty()),
+            "reducers only run at top level"
+        );
         let table_access = ReducerTableAccess::from_schema(reducer_schema);
         let call_sequence = self
             .call_sequence
@@ -218,6 +308,7 @@ impl Runtime {
             CallFrameKind::Reducer,
             call_sequence,
         );
+        let scope = BlobScope::new(parent_scope);
 
         CALL_STACK.with(|s| {
             s.borrow_mut().push(CallFrame::new(
@@ -227,40 +318,78 @@ impl Runtime {
                 CallFrameKind::Reducer,
                 rng_seed,
                 table_access,
+                scope,
             ));
         });
 
         // ── WASM execution ───────────────────────────────────────────────────
-        let reducer_context =
-            ReducerContext::new(
-                caller_node_id.to_string(),
-                caller_module_name.to_string(),
-                module.state_epoch(),
-            );
+        let reducer_context = ReducerContext::new(
+            caller_node_id.to_string(),
+            caller_module_name.to_string(),
+            module.state_epoch(),
+        );
         let call_result = module.call_reducer(reducer_name, (reducer_context, args));
-        // Pop frame from current thread's stack; remove the entry when stack becomes empty.
-        let reducer_frame = CALL_STACK.with(|s| s.borrow_mut().pop().unwrap());
-
+        let frame = CALL_STACK.with(|s| s.borrow_mut().pop().unwrap());
+        // On error the outbox is dropped with the writes.
         call_result?;
 
-        // ── Transaction apply ────────────────────────────────────────────────
-        let emitted_events = self
-            .apply_all_transactions(reducer_frame.transactions, &reducer_frame.overlays, &module)
+        // ── Commit, then release the outbox in commit order ──────────────────
+        let mut locals = Vec::new();
+        let mut remotes = Vec::new();
+        for entry in frame.outbox {
+            match entry {
+                OutboxEntry::Local(call) => locals.push(call),
+                OutboxEntry::Remote { node_id, packet } => remotes.push((node_id, packet)),
+            }
+        }
+        let calls = (!locals.is_empty()).then(|| {
+            EventInstance::Calls(CallBatch {
+                caller_module_name: module_name.into(),
+                caller_node_id: self.network_handle.node_id,
+                calls: locals,
+                scope: frame.scope.clone(),
+            })
+        });
+        self.apply_all_transactions(frame.transactions, &frame.overlays, &module, calls)
             .inspect_err(|_| {
                 // The instance ran to completion and may have cached what it
                 // just wrote; those writes are now discarded.
                 module.bump_state_epoch();
             })?;
-
-        // ── Event dispatch ───────────────────────────────────────────────────
-        // For each event, fork the active completion token (if any) so the
-        // render-done signal stays open until the event is fully processed by
-        // the async event loop and any ReducerJobs it dispatches also complete.
-        for ev in emitted_events {
-            let token = ACTIVE_COMPLETION.with(|c| c.borrow().as_ref().map(|t| t.fork()));
-            self.event_sender.send((ev, token)).unwrap();
+        for (node_id, packet) in remotes {
+            self.network_handle.send_packet(node_id, packet);
         }
-
         Ok(())
+    }
+
+    /// Push `event` into the event channel with a fork of the active
+    /// completion token, so render-done waits for whatever it triggers.
+    pub(crate) fn emit_event(&self, event: EventInstance) {
+        let token = ACTIVE_COMPLETION.with(|c| c.borrow().as_ref().map(|t| t.fork()));
+        let _ = self.event_sender.send((event, token));
+    }
+
+    /// Run a call batch: each call is its own top-level transaction, in issue
+    /// order. A failing callee is logged and the batch continues.
+    pub(crate) fn run_call_batch(&self, batch: CallBatch) {
+        for call in batch.calls {
+            if let Err(err) = self.call_reducer(
+                &call.module_name,
+                &call.reducer_name,
+                call.input,
+                batch.caller_node_id,
+                &batch.caller_module_name,
+                Some(batch.scope.clone()),
+            ) {
+                self.logger.log(
+                    &format!(
+                        "Reducer '{}.{}' called by '{}' failed: {}",
+                        call.module_name, call.reducer_name, batch.caller_module_name, err
+                    ),
+                    crate::logger::LogSource::Runtime,
+                    crate::logger::LogLevel::Error,
+                );
+            }
+        }
     }
 }

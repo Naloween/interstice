@@ -24,7 +24,7 @@ uuid = { version = "1.20", features = ["v4"] }
 tokio = { version = "1.49", features = ["full"] }
 colored_text = "0.3.0"
 notify = "6.1"
-parking_lot = "0.12"
+parking_lot = { version = "0.12", features = ["arc_lock"] }
 crossbeam-channel = "0.5"
 tokio-rustls = "0.26"
 webpki-roots = "0.26"

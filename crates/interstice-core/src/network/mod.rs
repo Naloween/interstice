@@ -5,7 +5,7 @@ use crate::network::protocol::NetworkPacket;
 use crate::node::NodeId;
 use crate::persistence::PeerTokenStore;
 use crate::runtime::event::EventInstance;
-use crate::runtime::reducer::ReducerJob;
+use crate::runtime::reducer::{Job, ReducerJob};
 use crossbeam_channel::Sender as CbSender;
 use interstice_abi::{NodeSelection, SubscriptionEventSchema};
 use packet::{read_packet, write_packet};
@@ -35,7 +35,7 @@ pub struct Network {
     )>,
     /// Direct bounded channel to the reducer executor — bypasses the event channel
     /// to prevent unbounded buffering of remote reducer calls.
-    reducer_sender: CbSender<ReducerJob>,
+    reducer_sender: CbSender<Job>,
     logger: Logger,
 
     /// Packets coming *from* connection tasks
@@ -56,7 +56,7 @@ pub struct NetworkHandle {
         EventInstance,
         Option<crate::runtime::reducer::CompletionToken>,
     )>,
-    reducer_sender: CbSender<ReducerJob>,
+    reducer_sender: CbSender<Job>,
     logger: Logger,
     /// Stored at construction time (from async context) so that `send_packet` can
     /// call `tokio::spawn` even when invoked from a non-tokio OS thread (e.g. wasm-reducer-*).
@@ -155,7 +155,7 @@ impl Network {
             EventInstance,
             Option<crate::runtime::reducer::CompletionToken>,
         )>,
-        reducer_sender: CbSender<ReducerJob>,
+        reducer_sender: CbSender<Job>,
         peer_tokens: Arc<Mutex<PeerTokenStore>>,
         logger: Logger,
     ) -> Self {
@@ -532,7 +532,7 @@ async fn connection_task(
     stream: TcpStream,
     mut receiver: mpsc::Receiver<NetworkPacket>,
     sender: mpsc::Sender<(NodeId, NetworkPacket)>,
-    reducer_sender: CbSender<ReducerJob>,
+    reducer_sender: CbSender<Job>,
     close_receiver: watch::Receiver<bool>,
     logger: Logger,
 ) {
@@ -600,7 +600,7 @@ async fn connection_task(
                             };
                             let sender = reducer_sender.clone();
                             tokio::task::block_in_place(move || {
-                                let _ = sender.send(job);
+                                let _ = sender.send(job.into());
                             });
                         }
                         Ok(packet) => {
@@ -664,7 +664,7 @@ async fn handshake_incoming(
         EventInstance,
         Option<crate::runtime::reducer::CompletionToken>,
     )>,
-    reducer_sender: CbSender<ReducerJob>,
+    reducer_sender: CbSender<Job>,
     logger: Logger,
     peer_tokens: Arc<Mutex<PeerTokenStore>>,
     send_handshake_response: bool,

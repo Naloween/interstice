@@ -48,7 +48,7 @@ pub struct Module {
     state_epoch: std::sync::atomic::AtomicU64,
     wasm_bytes: Vec<u8>,
     pub schema: Arc<ModuleSchema>,
-    pub tables: Arc<Mutex<HashMap<String, Table>>>,
+    pub tables: Arc<parking_lot::RwLock<HashMap<String, Table>>>,
     pub reducer_names: HashSet<String>,
 }
 
@@ -141,7 +141,7 @@ impl Module {
             state_epoch: std::sync::atomic::AtomicU64::new(0),
             wasm_bytes: wasm_binary.to_vec(),
             schema,
-            tables: Arc::new(Mutex::new(tables)),
+            tables: Arc::new(parking_lot::RwLock::new(tables)),
             reducer_names,
         })
     }
@@ -506,7 +506,7 @@ impl Runtime {
             local_schema.name = local_table_name.clone();
             module
                 .tables
-                .lock()
+                .write()
                 
                 .insert(local_table_name.clone(), Table::new(local_schema));
 
@@ -562,7 +562,7 @@ impl Runtime {
         // On a reload, repopulate the module's tables from their persisted data.
         if is_reload {
             if let Some(module) = runtime.modules.lock().get(&module_schema.name) {
-                let mut tables = module.tables.lock();
+                let mut tables = module.tables.write();
                 for table in tables.values_mut() {
                     runtime
                         .persistence
@@ -670,6 +670,32 @@ impl Runtime {
                 Err(IntersticeError::Internal(
                     "Timed out while waiting for remote schema response".into(),
                 ))
+            }
+        }
+    }
+
+    /// Run a [`crate::runtime::reducer::Job::Replica`]: apply a remote change
+    /// to every local replica of that table.
+    pub(crate) fn apply_replica_change(&self, change: crate::runtime::reducer::ReplicaChange) {
+        use crate::runtime::reducer::ReplicaChange;
+        match change {
+            ReplicaChange::Insert { source_node_id, module_name, table_name, row } => {
+                self.apply_replica_insert(source_node_id, &module_name, &table_name, row)
+            }
+            ReplicaChange::Update { source_node_id, module_name, table_name, old_row, new_row } => {
+                self.apply_replica_update(
+                    source_node_id,
+                    &module_name,
+                    &table_name,
+                    old_row,
+                    new_row,
+                )
+            }
+            ReplicaChange::Delete { source_node_id, module_name, table_name, row } => {
+                self.apply_replica_delete(source_node_id, &module_name, &table_name, row)
+            }
+            ReplicaChange::FullSync { source_node_id, module_name, table_name, rows } => {
+                self.apply_replica_full_sync(source_node_id, &module_name, &table_name, rows)
             }
         }
     }
@@ -832,7 +858,7 @@ impl Runtime {
             if let Some(module) = self.modules.lock().get(&binding.owner_module_name) {
                 if let Some(table) = module
                     .tables
-                    .lock()
+                    .write()
                     
                     .get_mut(&binding.local_table_name)
                 {

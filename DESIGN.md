@@ -175,9 +175,11 @@ where Caps: CanRead<Tab> + CanUpdate<Tab> + CanInsert<NavRequest> { ... }
   re-validation of the whole batch against current committed state *before*
   anything is applied; a failure rejects the batch as a unit and bumps the
   module's `state_epoch` (§6.4).
-- **Not covered:** a *query* called from a reducer runs in its own frame and
-  does not see the reducer's pending writes; nested reducer calls commit
-  separately (§7.1, §11.3).
+- **Queries see pending writes.** A query called from a reducer reads the
+  calling reducer's module through that reducer's overlay (§6.6).
+- **Calls are part of the transaction.** Reducer calls issued by a reducer
+  are deferred: they leave only if it commits, and each callee then runs as
+  its own transaction (§6.6, §7.1).
 - **A host write error returned to the guest can be ignored.** If the guest
   ignores it, the reducer's other writes still commit.
 - **Duplicate keys no longer reach commit.** Within a reducer they are caught
@@ -286,7 +288,9 @@ has declared. A violation panics, so the module fails to load.
 ### 6.1 Pipeline
 
 ```
- events (table/lifecycle/authority) ──► event loop ──► ingress queue (FIFO) ─┐
+ commits (events + call batches, │
+   emitted under the table lock) ┴► event loop ──► ingress queue (FIFO) ─┐
+ lifecycle/authority events, replica jobs ──► event loop ──► ingress ───┤
  timers, remote reducer events ─────────────────────► ingress queue ─────────┤
  network ReducerCall, render ──────────────────────────────────────────────┐ │
                                                                            ▼ ▼
@@ -327,16 +331,21 @@ individual host calls and for commit.
 
 ### 6.3 Known holes in the model (Status)
 
-| Hole | Consequence |
-|---|---|
-| Nested reducer calls run inline on the caller's worker | The callee's access set is never checked by the scheduler |
-| Insert/Insert runs in parallel | Correct since commit re-validation (§4.1); the loser is rejected at commit rather than serialised up front |
-| Reducers with no declared access never conflict | Nothing serialises them against anything |
-| Replica writes and remote queries skip the scheduler | Replica writes are applied on the event-loop thread; remote queries run on `spawn_blocking` |
-| No consistent snapshot | Each host read takes the lock separately, so a function with several reads can see commits from non-conflicting jobs between them. Conflicting top-level jobs are already serialised. |
-| Network `ReducerCall` and render enqueue directly into the bounded queue | Their order relative to subscription and timer jobs is not guaranteed |
-| Access-set cache isn't invalidated on module reload unless explicitly cleared | The scheduler can use stale access sets |
-| Event emission happens after the lock is released | Under parallelism, the event order can differ from the commit order |
+The rows marked *closed* are closed by the isolation and ordering design (§6.6).
+
+| Hole | Consequence | Status |
+|---|---|---|
+| Nested reducer calls run inline on the caller's worker | The callee's access set is never checked by the scheduler | *closed*: calls are deferred jobs (§6.6) |
+| Insert/Insert runs in parallel | Correct since commit re-validation (§4.1); the loser is rejected at commit rather than serialised up front | by design |
+| Reducers with no declared access never conflict | Harmless: such a reducer can neither read nor write a table | by design |
+| Replica writes skip the scheduler | Applied on the event-loop thread, under reducers that read the replica | *closed*: replica jobs (§6.6) |
+| Remote queries skip the scheduler | They run on `spawn_blocking` | *closed*: query snapshots (§6.6) make that safe |
+| No consistent snapshot | Each host read takes the lock separately, so a function with several reads can see commits from non-conflicting jobs between them | *closed* for reducers and for each query (§6.6) |
+| Network `ReducerCall` and render enqueue directly into the bounded queue | Their order relative to subscription and timer jobs is not guaranteed | open (backpressure for network calls; render is a lone job) |
+| Access-set cache isn't invalidated on module reload unless explicitly cleared | The scheduler can use stale access sets | *closed*: cleared on load and on teardown |
+| Access keys weren't normalised | A module's own `Current.t` and another module's `m.t` were different keys, so a writer and a foreign reader of one table never conflicted | *closed*: keys use the owner's name, lower-cased |
+| Event emission happens after the lock is released | Under parallelism, the event order can differ from the commit order | *closed*: commit-ordered emission (§6.6) |
+| `send_packet` spawns one task per packet | Two packets to the same peer may overtake each other | open (§7.4 network work) |
 
 ### 6.4 Instances and memory
 
@@ -367,6 +376,136 @@ individual host calls and for commit.
 parallel workers the seeds are not reproducible across runs. Time is wall-clock
 time. Interstice is not currently a deterministic-replay system.
 
+### 6.6 Isolation and ordering
+
+**One rule:** the scheduler is the isolation mechanism. Everything that writes
+a table is a scheduled job, and every reducer transaction runs exactly once,
+at top level, on one worker. Reads that the scheduler cannot protect (queries)
+protect themselves with read locks.
+
+**Jobs.** The ingress and the bounded queue carry `Job`:
+
+| Job | Origin | Access set |
+|---|---|---|
+| `Reducer` | events, timers, render, network calls, the app | the reducer's declared set |
+| `Calls` (a *call batch*) | the deferred local calls of one committed transaction | union of the callees' declared sets, plus one channel key per callee module |
+| `Replica` | a remote table change for a local replica | `Update` on the replica's table, in the remote form consumers declare (`node.module.table`) |
+
+A *channel key* `caller → callee` is a pseudo-resource that conflicts only
+with itself. Two batches from the same caller module to the same callee
+module are therefore serialised in arrival order. Batches from different
+callers, or to different callees, still run in parallel when their tables
+allow it.
+
+**Calls are deferred messages.** This is the §11.3 decision.
+- **Issuing a call records it.** `ctx.<m>().reducers.<r>(..)` validates the
+  target (module and reducer exist) and appends the call to the calling
+  transaction's *outbox*. It returns `Err` only if that validation fails. It
+  never runs the callee and never reports the callee's own result.
+- **Calls leave only if the caller commits.** If the commit succeeds, the
+  outbox is released. If the caller returns `Err`, traps, or its commit is
+  rejected, the outbox is dropped together with the writes.
+- **One batch per commit.** The local calls of one commit form one batch,
+  executed in issue order on one worker. Each callee is its own transaction:
+  it commits, emits, and releases its own outbox. A failing callee is logged
+  and the rest of the batch continues.
+- **Remote calls are deferred too.** A remote call's blobs are inlined when it
+  is issued, and it is sent at release.
+- **Cycles are allowed.** Since nothing runs inline there is no re-entrancy:
+  a module may call itself, and the cycle check now applies to queries only.
+  An unbounded ping-pong is possible, exactly as with events.
+- **What this buys.**
+  - The scheduler sees every callee's access set.
+  - A caller's writes and its calls are atomic together.
+  - A callee sees its caller's committed writes, not a half-done state.
+
+**Commit-ordered emission.** A commit pushes its table events and then its
+outbox (as an `EventInstance::Calls` carrying the batch) into the event
+channel *inside* the module's table write lock.
+- The channel order is a linearisation of commit order: per module it is
+  exactly commit order, and causally related commits keep their order.
+- The event loop handles the channel FIFO, and the ingress forwarder is FIFO.
+  So a commit's subscriber jobs reach the scheduler before its call batch,
+  and both reach it before anything emitted by a later commit.
+- A transaction with no writes takes no lock and emits its outbox directly. It
+  has no commit to order against.
+
+**Snapshots.**
+- **Reducers.** Every reducer read targets a declared table. Every writer is
+  scheduled, replicas included. So no conflicting job runs while the reducer
+  executes, and its reads see one stable committed state plus its own pending
+  writes (the overlay, §4.1).
+- **Queries.** A query is not admitted by the scheduler, so it pins instead:
+  - `Module::tables` is a `RwLock`. On a query's first read of a module, the
+    outermost query frame takes a recursive read lock on that module and keeps
+    it until the outermost query returns.
+  - Commits take the write lock, so they wait for queries pinning their module.
+  - The query sees, for every module it reads, the state as of its last pin,
+    which is a consistent cut (two-phase locking on reads).
+  - This holds for nested queries, for queries called from a reducer, and for
+    remote queries, which stay on `spawn_blocking`.
+- **Queries called from a reducer see its pending writes.** For tables of the
+  calling reducer's module, reads in the query merge the root reducer frame's
+  overlay (§11.2).
+- **Limit.** Two separate queries in one reducer, or a query and a later read
+  of the same table, are each consistent but not necessarily with each other,
+  unless the reducer also declares `Read` on that table. The pins end with the
+  query, not with the reducer: holding them for the reducer's whole run would
+  stall every commit to e.g. `graphics` behind a 30 ms browser layout.
+- **Limit.** A query that calls a query on another node keeps its pins while
+  it waits for the answer, so commits to the modules it already read wait too
+  (bounded by the remote-query timeout). Read remote data first, or through a
+  replica, in hot paths.
+- **No deadlock.**
+  - A write-lock holder never waits for anything: a commit holds one module's
+    write lock, applies, emits into unbounded channels and releases it.
+  - Readers use `read_recursive`, which never waits while another reader holds
+    the lock. A reader therefore only waits for a running writer, which
+    finishes.
+  - A thread drops all its pins before it commits: queries never commit, and a
+    reducer's pins end with its queries.
+
+**Blobs (BlobScope).**
+- A call's blobs live in an `Arc<BlobScope>` holding a map of blobs and an
+  optional parent scope. A frame resolves an id through its scope chain.
+- **Reducer frame.** It creates a scope whose parent is the scope its job
+  inherited: none for a top-level job, the caller's root scope for a batch
+  callee.
+- **Query frame.** It shares the caller's scope, so blobs a query returns
+  simply stay alive for the caller. An outermost query, such as a host or
+  remote request, gets a fresh scope and inlines blobs in its result as bytes.
+- **Call batch.** It holds the caller's scope, so a `Blob` argument stays
+  valid until the batch has run, on whatever worker that is. A callee
+  forwarding a parent's blob in its own calls keeps the chain alive.
+- **Memory** is freed when the last batch referencing a scope completes.
+
+**Regression walk-through (verified against the code before implementing).**
+- **Draw order.** A frame handler's `draw_*` calls form one batch, executed in
+  issue order, so `Draw2DCommand` auto-inc ids ascend in call order as before.
+  The next frame's batch is serialised behind it by the channel key.
+- **Create, then use.** A batch is sequential, so a later call sees what an
+  earlier one committed. Examples: `create_texture` then `draw_image`;
+  `create_layer` then `draw_rect` (browser, agar, ui); `load_app` then
+  `create_surface` / `assign_module_surface` (desktop).
+- **Render-done.** A batch carries a fork of the active completion token, like
+  any event, so the GPU frame still waits for the whole cascade, calls
+  included.
+- **Reading a callee's effect in the same reducer.** Behaviour change. No
+  module does it: desktop, browser, agar, ui and http-get only issue calls,
+  and their only cross-module read is the `graphics.surface_info` query.
+- **Callee errors.** They are no longer returned to the caller. Every current
+  call site ignores the result (`let _ =`) or only logs it. Dispatch errors
+  (unknown module or reducer) are still returned.
+- **Blob uploads** (browser frames, desktop icons, cursor atlas). The batch
+  keeps the caller scope, the callee resolves through its parent chain, and
+  `WriteTextureBlob` is unchanged.
+- **Replica consumers** (the `caller` example). The replica job is enqueued
+  before the subscriber jobs of the same remote event and conflicts with their
+  declared `Read`, so they see the row.
+- **Cost.** Per call it is the same: one callee transaction. Per level of call
+  depth it adds one scheduler hop. For one commit, all its calls share a
+  single job.
+
 ---
 
 ## 7. Cross-module and cross-node interaction
@@ -375,14 +514,15 @@ time. Interstice is not currently a deterministic-replay system.
 
 | From → To | Semantics |
 |---|---|
-| Reducer → local reducer | Synchronous and inline. The callee is a **separate transaction**: it commits and emits its events before the caller commits. If the caller later traps, the callee's writes remain. |
-| Reducer → remote reducer | Fire-and-forget over the network. |
+| Reducer → local reducer | **Deferred message** (§6.6). The call is recorded and released only if the caller commits. All calls of one commit run as one scheduled batch, in issue order, each callee as its own transaction. The result returned to the caller covers dispatch only (unknown module or reducer). |
+| Reducer → remote reducer | Deferred the same way, then fire-and-forget over the network. |
 | Reducer or query → local query | Synchronous, on the target module's query instance. |
 | Reducer or query → remote query | Synchronous and blocking. ⚠ No timeout, and an error reply carries no request id, so the caller can hang forever. |
 | Query → reducer | Refused. |
 
-**Re-entrancy:** a call into any module already on the call stack is refused,
-even when it targets a different reducer.
+**Re-entrancy:** a query call into a module whose query is already on the
+call stack is refused. Reducer calls are deferred, so they cannot re-enter, and
+a module may call its own reducers.
 
 **Caller identity:** every context carries `caller_node_id` and `caller_module_name`.
 - `caller_module_name` is empty for jobs the runtime originates (events, timers,
@@ -393,12 +533,12 @@ even when it targets a different reducer.
 **Bulk data (blobs):** a reducer or query parameter typed `Blob` takes a handle
 to an immutable byte buffer held by the host (`runtime/blob.rs`), instead of
 the bytes themselves.
-- `Blob::new(&bytes)` copies once into the host; the blob belongs to the
-  current call frame and is freed when that frame pops. Nested calls run on
-  the caller's thread, so a callee resolves the id by walking the call stack:
-  callers' blobs are visible, nothing outlives the outermost call.
-- Blobs returned by a query move to the caller's frame (inlined as bytes when
-  the query is the outermost call, e.g. a remote request).
+- `Blob::new(&bytes)` copies once into the host. The blob belongs to the
+  current call's `BlobScope` (§6.6). A deferred call batch keeps its caller's
+  scope alive, and a callee resolves ids through its scope's parent chain.
+  A blob therefore lives until the last call that can see it has run.
+- A query shares its caller's scope, so the blobs it returns stay valid for the
+  caller. An outermost query (host or remote request) inlines them as bytes.
 - The GPU authority consumes blobs directly (`GpuCall::WriteTextureBlob`,
   `WriteBufferBlob`): the host passes the buffer to the wgpu queue, with no
   copy through the callee's memory. `graphics.create_texture` /
@@ -660,18 +800,24 @@ rows, or rebuilds. Writes always go to tables first.
 
 ### 11.2 Read-your-writes inside a reducer
 
-**Done** (§4.1): reads inside a reducer see its own pending writes, and commit
-is atomic. Remaining gap: queries called from a reducer do not see the
-caller's pending writes (they run in a separate frame).
+**Done** (§4.1, §6.6): reads inside a reducer see its own pending writes,
+commit is atomic, and queries called from the reducer see those pending writes
+too.
 
 ### 11.3 Atomic multi-module transactions
 
-A nested reducer call commits independently of its caller. The open choice is
-between two models:
-- **Nested transaction:** the callee's writes join the caller's commit and need
-  combined access sets for scheduling.
-- **Message passing:** document the current behaviour as asynchronous-style
-  semantics.
+**Decided: message passing with a transactional outbox** (§6.6). A reducer's
+calls are released only if it commits; each callee is its own transaction,
+scheduled with its own access set.
+
+Nested transactions were rejected:
+- Reducer schemas don't declare which reducers they call, so the scheduler
+  could not admit the combined access set up front.
+- Growing a running job's access set at call time either deadlocks or needs
+  abort-and-retry, and retrying is unsafe once authority calls (GPU, audio,
+  files) have run.
+- Cross-module atomicity of *writes* is rarely needed. When it is, the callee
+  can do the dependent work in its own transaction, triggered by the call.
 
 ### 11.4 Determinism and replay
 
@@ -779,15 +925,17 @@ but explicitly out of scope for now.
 - [ ] **View tables**: derived, read-only tables defined by a query over other
       tables, maintained by the engine. Not needed by the browser; next big
       feature after the items below.
-- [ ] **Nested / cross-module transactions** (§11.3): pick nested-commit or
-      documented message-passing semantics; today a callee commits first and
-      survives a caller trap.
-- [ ] **Queries from reducers see pending writes** (§11.2 remaining gap).
-- [ ] **Scheduler sees nested calls**: the callee's access set is not checked
-      (§6.3).
-- [ ] **Consistent snapshot per call** (§6.3): reads in one call can observe
-      commits of non-conflicting jobs between them.
-- [ ] **Event order = commit order** under parallelism (§6.3).
+- [x] **Isolation and ordering** (§6.6), done as one design:
+  - [x] **Cross-module transactions** (§11.3): reducer calls are deferred
+        messages in a transactional outbox, released only on commit.
+  - [x] **Scheduler sees nested calls**: call batches are jobs whose access
+        set is the union of the callees' sets plus a per-channel key.
+  - [x] **Queries from reducers see pending writes** (§11.2).
+  - [x] **Consistent snapshot per call**: reducers by scheduling (replica
+        writes are jobs too), queries by pinning read locks.
+  - [x] **Event order = commit order**: commits emit under the write lock.
+  - [x] Blob scopes follow the call batch (`BlobScope`), and scheduler
+        access keys are normalised (§6.3).
 - [x] **First-class event tables**: `#[table(event = N)]` (§3.1), replacing
       `network`'s hand-written `emit!` trimming. The browser's `DocEvent`
       stays app-compacted on purpose: it is a replay log, and dropping its

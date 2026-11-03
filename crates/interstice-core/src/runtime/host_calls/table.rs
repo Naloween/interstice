@@ -179,7 +179,7 @@ impl Runtime {
             Err(e) => return InsertRowResponse::Err(e),
         };
 
-        let tables = module_arc.tables.lock();
+        let tables = Self::read_tables(&module_arc);
         let table = match tables.get(&table_name) {
             Some(table) => table,
             None => return InsertRowResponse::Err("Table not found".into()),
@@ -254,7 +254,7 @@ impl Runtime {
             Ok(m) => m,
             Err(e) => return UpdateRowResponse::Err(e),
         };
-        let tables = module_arc.tables.lock();
+        let tables = Self::read_tables(&module_arc);
         let table = match tables.get(&table_name) {
             Some(table) => table,
             None => return UpdateRowResponse::Err("Table not found".into()),
@@ -310,7 +310,7 @@ impl Runtime {
             Ok(m) => m,
             Err(e) => return DeleteRowResponse::Err(e),
         };
-        let tables = module_arc.tables.lock();
+        let tables = Self::read_tables(&module_arc);
         let table = match tables.get(&table_name) {
             Some(table) => table,
             None => return DeleteRowResponse::Err("Table not found".into()),
@@ -355,7 +355,7 @@ impl Runtime {
             Ok(m) => m,
             Err(e) => return ClearTableResponse::Err(e),
         };
-        let tables = module_arc.tables.lock();
+        let tables = Self::read_tables(&module_arc);
         let table = match tables.get(&request.table_name) {
             Some(table) => table,
             None => return ClearTableResponse::Err("Table not found".into()),
@@ -379,8 +379,9 @@ impl Runtime {
         }
     }
 
-    /// Run `f` with the current frame's overlay for `module_name.table_name`
-    /// (only the frame's own module has pending writes).
+    /// Run `f` with the pending writes for `module_name.table_name`: those of
+    /// the root reducer frame, which is the only frame that writes. Queries it
+    /// calls therefore see its pending writes too (DESIGN §6.6).
     fn with_overlay<R>(
         module_name: &str,
         table_name: &str,
@@ -389,11 +390,31 @@ impl Runtime {
         CALL_STACK.with(|s| {
             let stack = s.borrow();
             let ov = stack
-                .last()
-                .filter(|frame| frame.module == module_name)
+                .first()
+                .filter(|frame| frame.kind == CallFrameKind::Reducer && frame.module == module_name)
                 .and_then(|frame| frame.overlays.get(table_name));
             f(ov)
         })
+    }
+
+    /// Read access to `module`'s tables. Inside a query, the outermost query
+    /// frame first pins the module with a read lock it keeps until it returns,
+    /// so the query sees one consistent cut of every module it reads
+    /// (DESIGN §6.6, Snapshots). Recursive reads never wait on other readers.
+    fn read_tables(
+        module: &Arc<Module>,
+    ) -> parking_lot::RwLockReadGuard<'_, std::collections::HashMap<String, crate::runtime::table::Table>> {
+        CALL_STACK.with(|s| {
+            let mut stack = s.borrow_mut();
+            if let Some(frame) = stack.iter_mut().find(|f| f.kind == CallFrameKind::Query) {
+                if !frame.pins.contains_key(&module.schema.name) {
+                    frame
+                        .pins
+                        .insert(module.schema.name.clone(), module.tables.read_arc_recursive());
+                }
+            }
+        });
+        module.tables.read_recursive()
     }
 
     pub(crate) fn handle_table_scan(
@@ -427,7 +448,7 @@ impl Runtime {
             }
         };
 
-        let tables = module_arc.tables.lock();
+        let tables = Self::read_tables(&module_arc);
         let table = match tables.get(&table_scan_request.table_name) {
             Some(table) => table,
             None => return TableScanResponse::Err("Table not found".into()),
@@ -472,7 +493,7 @@ impl Runtime {
         };
 
         let row = {
-            let tables = module_arc.tables.lock();
+            let tables = Self::read_tables(&module_arc);
             let table = match tables.get(&request.table_name) {
                 Some(table) => table,
                 None => return TableGetByPrimaryKeyResponse::Err("Table not found".into()),
@@ -516,7 +537,7 @@ impl Runtime {
         };
 
         let rows = {
-            let tables = module_arc.tables.lock();
+            let tables = Self::read_tables(&module_arc);
             let table = match tables.get(&request.table_name) {
                 Some(table) => table,
                 None => return TableIndexScanResponse::Err("Table not found".into()),
