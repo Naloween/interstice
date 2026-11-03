@@ -5,12 +5,12 @@ use crate::{
         event::EventInstance,
         host_calls::{
             gpu::{GpuCallRequest, GpuCallResult, GpuState},
-            input::from_winit::get_input_event_from_device_event,
+            input::from_winit::{get_input_event_from_device_event, get_input_event_from_key_event},
         },
         reducer::{CompletionToken, ReducerJob},
     },
 };
-use interstice_abi::{Authority, IntersticeValue};
+use interstice_abi::{Authority, InputEvent, IntersticeValue};
 use parking_lot::Mutex;
 use pollster::FutureExt;
 use std::{
@@ -20,7 +20,7 @@ use std::{
 use tokio::sync::{mpsc::UnboundedSender, oneshot::Receiver as OneshotReceiver};
 use winit::{
     application::ApplicationHandler,
-    event::{DeviceEvent, DeviceId, RawKeyEvent, WindowEvent},
+    event::{DeviceEvent, DeviceId, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     window::{Window, WindowId},
 };
@@ -155,18 +155,16 @@ impl ApplicationHandler for App {
                     state,
                 },
             ),
+            // Keys come from the window event, not raw `DeviceEvent::Key`:
+            // only it carries what the OS keyboard layout produced.
             WindowEvent::KeyboardInput {
                 device_id,
                 event,
                 is_synthetic: _is_synthetic,
-            } => self.device_event(
-                event_loop,
-                device_id,
-                DeviceEvent::Key(RawKeyEvent {
-                    physical_key: event.physical_key,
-                    state: event.state,
-                }),
-            ),
+            } => {
+                let input_event = get_input_event_from_key_event(hash_device(device_id), &event);
+                self.send_input(input_event);
+            }
             // WindowEvent::ActivationTokenDone { serial, token } => todo!(),
             // WindowEvent::Moved(physical_position) => todo!(),
             // WindowEvent::Destroyed => todo!(),
@@ -199,18 +197,30 @@ impl ApplicationHandler for App {
         device_id: DeviceId,
         event: DeviceEvent,
     ) {
+        // Raw key events (X11) duplicate `WindowEvent::KeyboardInput`
+        // without the keyboard layout's interpretation.
+        if matches!(event, DeviceEvent::Key(_)) {
+            return;
+        }
+        let input_event = get_input_event_from_device_event(hash_device(device_id), event);
+        self.send_input(input_event);
+    }
+}
+
+fn hash_device(device_id: DeviceId) -> u32 {
+    let mut hasher = std::hash::DefaultHasher::new();
+    device_id.hash(&mut hasher);
+    hasher.finish() as u32
+}
+
+impl App {
+    fn send_input(&mut self, input_event: InputEvent) {
         self.drain_gpu_calls();
-        let mut hasher = std::hash::DefaultHasher::new();
-        device_id.hash(&mut hasher);
-        let device_id = hasher.finish() as u32;
-        let input_event = get_input_event_from_device_event(device_id, event);
         self.event_sender
             .send((EventInstance::Input(input_event), None))
             .unwrap();
     }
-}
 
-impl App {
     fn wait_for_render_completion(&mut self, mut done_rx: OneshotReceiver<()>) {
         const GPU_WAIT: std::time::Duration = std::time::Duration::from_micros(100);
         loop {

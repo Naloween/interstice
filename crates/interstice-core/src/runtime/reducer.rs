@@ -1,7 +1,7 @@
 use crate::{
     error::IntersticeError,
     runtime::transaction::Transaction,
-    runtime::{Runtime, module::Module, table::TableAutoIncSnapshot},
+    runtime::{Runtime, module::Module, table::{TableAutoIncSnapshot, TableOverlay}},
 };
 use interstice_abi::{IntersticeValue, QuerySchema, RawReducerContext as ReducerContext, ReducerTableRef};
 use serde::Serialize;
@@ -47,6 +47,8 @@ pub struct CallFrame {
     pub module_arc: Arc<Module>,
     pub kind: CallFrameKind,
     pub transactions: Vec<Transaction>,
+    /// Read-your-writes view of `transactions`, per table of `module`.
+    pub overlays: HashMap<String, TableOverlay>,
     pub auto_inc_snapshots: HashMap<String, TableAutoIncSnapshot>,
     pub rng_state: u64,
     pub table_access: ReducerTableAccess,
@@ -67,6 +69,7 @@ impl CallFrame {
             module_arc,
             kind,
             transactions: Vec::new(),
+            overlays: HashMap::new(),
             auto_inc_snapshots: HashMap::new(),
             rng_state,
             table_access,
@@ -226,7 +229,11 @@ impl Runtime {
 
         // ── WASM execution ───────────────────────────────────────────────────
         let reducer_context =
-            ReducerContext::new(caller_node_id.to_string(), caller_module_name.to_string());
+            ReducerContext::new(
+                caller_node_id.to_string(),
+                caller_module_name.to_string(),
+                module.state_epoch(),
+            );
         let call_result = module.call_reducer(reducer_name, (reducer_context, args));
         // Pop frame from current thread's stack; remove the entry when stack becomes empty.
         let reducer_frame = CALL_STACK.with(|s| s.borrow_mut().pop().unwrap());
@@ -234,7 +241,13 @@ impl Runtime {
         call_result?;
 
         // ── Transaction apply ────────────────────────────────────────────────
-        let emitted_events = self.apply_all_transactions(reducer_frame.transactions, &module)?;
+        let emitted_events = self
+            .apply_all_transactions(reducer_frame.transactions, &reducer_frame.overlays, &module)
+            .inspect_err(|_| {
+                // The instance ran to completion and may have cached what it
+                // just wrote; those writes are now discarded.
+                module.bump_state_epoch();
+            })?;
 
         // ── Event dispatch ───────────────────────────────────────────────────
         // For each event, fork the active completion token (if any) so the

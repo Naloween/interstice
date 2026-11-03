@@ -86,8 +86,30 @@ pub struct HttpJob {
 }
 
 // ── Public result tables (apps subscribe, filter by `owner`) ────────────────────
+//
+// These are notification logs: a subscriber receives the full row in the
+// insert event, so the table itself only keeps a short rolling window of the
+// most recent rows (otherwise every HTTP body ever fetched would stay in
+// memory). See `emit!`.
 
-#[table(public)]
+/// Rows kept per small result table.
+const KEEP_EVENTS: u64 = 256;
+/// Rows kept in `HttpResponse` (bodies can be large).
+const KEEP_HTTP_RESPONSES: u64 = 16;
+
+/// Insert a result row, then drop the row `keep` ids older (auto_inc ids are
+/// monotonic, so this keeps a rolling window of about `keep` rows).
+macro_rules! emit {
+    ($handle:expr, $keep:expr, $row:expr) => {{
+        if let Ok(row) = $handle.insert($row) {
+            if row.id >= $keep {
+                let _ = $handle.delete(row.id - $keep);
+            }
+        }
+    }};
+}
+
+#[table(public, ephemeral)]
 #[derive(Debug)]
 pub struct Connection {
     #[primary_key(auto_inc)]
@@ -99,7 +121,7 @@ pub struct Connection {
     pub error: String,
 }
 
-#[table(public)]
+#[table(public, ephemeral)]
 #[derive(Debug)]
 pub struct Inbound {
     #[primary_key(auto_inc)]
@@ -109,7 +131,7 @@ pub struct Inbound {
     pub data: Vec<u8>,
 }
 
-#[table(public)]
+#[table(public, ephemeral)]
 #[derive(Debug)]
 pub struct ConnClosed {
     #[primary_key(auto_inc)]
@@ -118,7 +140,7 @@ pub struct ConnClosed {
     pub handle: u64,
 }
 
-#[table(public)]
+#[table(public, ephemeral)]
 #[derive(Debug)]
 pub struct Resolved {
     #[primary_key(auto_inc)]
@@ -130,7 +152,7 @@ pub struct Resolved {
     pub error: String,
 }
 
-#[table(public)]
+#[table(public, ephemeral)]
 #[derive(Debug)]
 pub struct HttpResponse {
     #[primary_key(auto_inc)]
@@ -336,10 +358,15 @@ where
         + CanInsert<HttpJob>
         + CanDelete<HttpJob>
         + CanInsert<Connection>
+        + CanDelete<Connection>
         + CanInsert<Inbound>
+        + CanDelete<Inbound>
         + CanInsert<ConnClosed>
+        + CanDelete<ConnClosed>
         + CanInsert<Resolved>
-        + CanInsert<HttpResponse>,
+        + CanDelete<Resolved>
+        + CanInsert<HttpResponse>
+        + CanDelete<HttpResponse>,
 {
     match event {
         NetworkEvent::Connected { handle } => {
@@ -347,7 +374,7 @@ where
                 return;
             };
             if p.kind == 0 {
-                let _ = ctx.current.tables.connection().insert(Connection {
+                emit!(ctx.current.tables.connection(), KEEP_EVENTS, Connection {
                     id: 0,
                     owner: p.owner,
                     req_id: p.req_id,
@@ -381,7 +408,7 @@ where
                 return;
             };
             if p.kind == 0 {
-                let _ = ctx.current.tables.connection().insert(Connection {
+                emit!(ctx.current.tables.connection(), KEEP_EVENTS, Connection {
                     id: 0,
                     owner: p.owner,
                     req_id: p.req_id,
@@ -401,7 +428,7 @@ where
                 return;
             };
             if p.kind == 0 {
-                let _ = ctx.current.tables.inbound().insert(Inbound {
+                emit!(ctx.current.tables.inbound(), KEEP_EVENTS, Inbound {
                     id: 0,
                     owner: p.owner,
                     handle,
@@ -418,7 +445,7 @@ where
                 return;
             };
             if p.kind == 0 {
-                let _ = ctx.current.tables.connclosed().insert(ConnClosed {
+                emit!(ctx.current.tables.connclosed(), KEEP_EVENTS, ConnClosed {
                     id: 0,
                     owner: p.owner,
                     handle,
@@ -454,7 +481,7 @@ where
                 }
 
                 let body = decode_body(&parsed);
-                let _ = ctx.current.tables.httpresponse().insert(HttpResponse {
+                emit!(ctx.current.tables.httpresponse(), KEEP_HTTP_RESPONSES, HttpResponse {
                     id: 0,
                     owner: job.owner,
                     req_id: job.req_id,
@@ -487,7 +514,7 @@ where
                     Some(ip) => (ip.clone(), String::new()),
                     None => (String::new(), "no A record".to_string()),
                 };
-                let _ = ctx.current.tables.resolved().insert(Resolved {
+                emit!(ctx.current.tables.resolved(), KEEP_EVENTS, Resolved {
                     id: 0,
                     owner: pending.owner,
                     req_id: pending.req_id,
@@ -572,9 +599,9 @@ where
 /// Emit a terminal `HttpResponse` carrying an error for `job`.
 fn finish_http_error<Caps>(ctx: &ReducerContext<Caps>, job: &HttpJob, error: &str)
 where
-    Caps: CanInsert<HttpResponse>,
+    Caps: CanInsert<HttpResponse> + CanDelete<HttpResponse>,
 {
-    let _ = ctx.current.tables.httpresponse().insert(HttpResponse {
+    emit!(ctx.current.tables.httpresponse(), KEEP_HTTP_RESPONSES, HttpResponse {
         id: 0,
         owner: job.owner.clone(),
         req_id: job.req_id,

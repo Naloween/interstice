@@ -1,5 +1,8 @@
 mod auto_inc;
 mod index;
+mod overlay;
+
+pub use overlay::TableOverlay;
 
 pub(crate) use auto_inc::{AutoIncCounter, TableAutoIncSnapshot};
 
@@ -15,6 +18,8 @@ pub struct Table {
     indexes: Vec<TableIndex>,
     primary_key_auto_inc: bool,
     primary_key_auto_inc_counter: Option<AutoIncCounter>,
+    /// Bumped by every mutation; lets a commit detect concurrent writers.
+    version: u64,
 }
 
 impl Table {
@@ -53,6 +58,7 @@ impl Table {
             indexes,
             primary_key_auto_inc,
             primary_key_auto_inc_counter,
+            version: 0,
         }
     }
 
@@ -61,83 +67,8 @@ impl Table {
         self.primary_key_auto_inc || self.indexes.iter().any(|i| i.auto_inc)
     }
 
-    pub fn validate_insert(&self, row: &Row) -> Result<(), IntersticeError> {
-        let primary_key_value: IndexKey = IndexKey::try_from(&row.primary_key)
-            .map_err(|err| IntersticeError::Internal(err))?;
-
-        if self.primary_key_index.contains_key(&primary_key_value) {
-            return Err(IntersticeError::UniqueConstraintViolation {
-                table_name: self.schema.name.clone(),
-                field_name: self.schema.primary_key.name.clone(),
-            });
-        }
-
-        for table_index in &self.indexes {
-            if table_index.unique {
-                let key = table_index.key_from_row(row)?;
-                if table_index.contains_key(&key) {
-                    return Err(IntersticeError::UniqueConstraintViolation {
-                        table_name: self.schema.name.clone(),
-                        field_name: table_index.field_name.clone(),
-                    });
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn validate_update(&self, row: &Row) -> Result<(), IntersticeError> {
-        let primary_key_value: IndexKey = IndexKey::try_from(&row.primary_key)
-            .map_err(|err| IntersticeError::Internal(err))?;
-
-        let current_index = *self
-            .primary_key_index
-            .get(&primary_key_value)
-            .ok_or(IntersticeError::RowNotFound { primary_key_value })?;
-
-        let existing_row = self
-            .rows
-            .get(current_index)
-            .ok_or_else(|| IntersticeError::Internal("Row index out of bounds".into()))?;
-
-        for table_index in &self.indexes {
-            let old_key = table_index.key_from_row(existing_row)?;
-            let new_key = table_index.key_from_row(row)?;
-
-            if table_index.auto_inc && old_key != new_key {
-                return Err(IntersticeError::AutoIncUpdateNotAllowed {
-                    table_name: self.schema.name.clone(),
-                    field_name: table_index.field_name.clone(),
-                });
-            }
-
-            if table_index.unique && old_key != new_key {
-                if let Some(positions) = table_index.positions(&new_key) {
-                    if positions.iter().any(|pos| *pos != current_index) {
-                        return Err(IntersticeError::UniqueConstraintViolation {
-                            table_name: self.schema.name.clone(),
-                            field_name: table_index.field_name.clone(),
-                        });
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn validate_delete(&self, primary_key_value: &IndexKey) -> Result<(), IntersticeError> {
-        if self.primary_key_index.contains_key(primary_key_value) {
-            Ok(())
-        } else {
-            Err(IntersticeError::RowNotFound {
-                primary_key_value: primary_key_value.clone(),
-            })
-        }
-    }
-
     pub fn insert(&mut self, row: Row) -> Result<(), IntersticeError> {
+        self.version = self.version.wrapping_add(1);
         let row = row;
         self.sync_auto_inc_from_row(&row)?;
 
@@ -163,8 +94,9 @@ impl Table {
     }
 
     /// Like `insert` but skips the primary key uniqueness check.
-    /// Caller must have already called `validate_insert` to ensure uniqueness.
+    /// Caller must have validated the insert (see `Table::ov_validate_insert`).
     pub fn insert_trusted(&mut self, row: Row) -> Result<(), IntersticeError> {
+        self.version = self.version.wrapping_add(1);
         self.sync_auto_inc_from_row(&row)?;
 
         let index = self.rows.len();
@@ -182,6 +114,7 @@ impl Table {
     }
 
     pub fn update(&mut self, row: Row) -> Result<Row, IntersticeError> {
+        self.version = self.version.wrapping_add(1);
         let primary_key_value: IndexKey = IndexKey::try_from(&row.primary_key)
             .map_err(|err| IntersticeError::Internal(err))?;
         if let Some(&index) = self.primary_key_index.get(&primary_key_value) {
@@ -198,6 +131,7 @@ impl Table {
     }
 
     pub fn delete(&mut self, primary_key_value: &IndexKey) -> Result<Row, IntersticeError> {
+        self.version = self.version.wrapping_add(1);
         if let Some(&index) = self.primary_key_index.get(primary_key_value) {
             let deleted_row = self.rows.swap_remove(index);
             self.primary_key_index.remove(primary_key_value);
@@ -230,6 +164,7 @@ impl Table {
     }
 
     pub fn clear(&mut self) {
+        self.version = self.version.wrapping_add(1);
         // Clear rows and indexes but PRESERVE auto_inc counters.
         // Resetting counters would cause ID reuse: threads holding snapshots from
         // before the clear share the same Arc<AtomicU64> — if we replaced it with
@@ -282,7 +217,9 @@ impl Table {
 
     pub fn restore_from_rows(&mut self, rows: Vec<Row>) -> Result<(), IntersticeError> {
         let schema = self.schema.clone();
+        let version = self.version.wrapping_add(1);
         *self = Table::new(schema);
+        self.version = version;
         for row in rows {
             self.insert(row)?;
         }

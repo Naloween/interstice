@@ -31,10 +31,21 @@ pub enum InputEvent {
         state: ElementState,
     },
 
+    /// A key transition. `physical_key` is the key's position (layout
+    /// independent); `logical_key` and `text` are what the host's keyboard
+    /// layout made of it, when the host can tell (empty otherwise):
+    /// - `logical_key`: a W3C `KeyboardEvent.key` value — the produced
+    ///   character (`"a"`, `"é"`, `"&"`) or a key name (`"Enter"`,
+    ///   `"ArrowLeft"`, `"Shift"`, `"Dead"`);
+    /// - `text`: the text the press types (empty for releases and keys that
+    ///   type nothing).
     Key {
         device_id: u32,
         physical_key: PhysicalKey,
         state: ElementState,
+        logical_key: String,
+        text: String,
+        repeat: bool,
     },
 }
 

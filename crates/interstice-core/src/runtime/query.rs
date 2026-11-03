@@ -79,7 +79,11 @@ impl Runtime {
         });
 
         let query_context =
-            QueryContext::new(caller_node_id.to_string(), caller_module_name.to_string());
+            QueryContext::new(
+                caller_node_id.to_string(),
+                caller_module_name.to_string(),
+                module.state_epoch(),
+            );
         let result = module.call_query(query_name, (query_context, args));
         CALL_STACK.with(|s| { s.borrow_mut().pop(); });
         result

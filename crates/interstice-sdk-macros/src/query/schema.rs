@@ -19,7 +19,12 @@ pub fn get_register_schema_function(
 
     let schema_entries = arg_names.iter().skip(1).zip(arg_types.iter().skip(1)).map(
         |(arg_name, arg_type)| {
-            let arg_name_str = quote! { #arg_name }.to_string();
+            // Use the bare identifier: `mut x` / `ref x` patterns must not leak
+            // their binding modifiers into the schema (and generated bindings).
+            let arg_name_str = match &***arg_name {
+                Pat::Ident(pat_ident) => pat_ident.ident.to_string(),
+                other => quote! { #other }.to_string(),
+            };
             let arg_type_str = quote! { #arg_type }.to_string();
             quote! {
                 interstice_sdk::FieldDef {

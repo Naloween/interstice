@@ -1,4 +1,5 @@
 use std::convert::TryInto;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use interstice_abi::{IndexKey, PersistenceKind, Row};
@@ -6,7 +7,12 @@ use interstice_abi::{IndexKey, PersistenceKind, Row};
 use crate::{
     error::IntersticeError,
     persistence::{LogOperation, SnapshotPlan},
-    runtime::{Runtime, event::EventInstance, module::Module},
+    runtime::{
+        Runtime,
+        event::EventInstance,
+        module::Module,
+        table::{Table, TableOverlay},
+    },
 };
 
 #[derive(Debug)]
@@ -37,9 +43,16 @@ impl Runtime {
     /// `module.tables` locked exactly once for the full batch. Avoids the
     /// per-transaction lock/unlock overhead, and skips the `Row::clone()`
     /// when the table is ephemeral and there are no subscribers.
+    ///
+    /// The commit is all-or-nothing: every write was validated against the
+    /// reducer's merged view when it was issued (see `TableOverlay`). If any
+    /// touched table was modified by someone else since, the whole batch is
+    /// re-validated against the current committed state *before* anything is
+    /// applied, under the same lock, and rejected as a unit on conflict.
     pub(crate) fn apply_all_transactions(
         &self,
         transactions: Vec<Transaction>,
+        overlays: &HashMap<String, TableOverlay>,
         module: &Arc<Module>,
     ) -> Result<Vec<EventInstance>, IntersticeError> {
         if transactions.is_empty() {
@@ -57,6 +70,15 @@ impl Runtime {
 
         {
             let mut tables = module.tables.lock();
+
+            let stale = overlays.iter().any(|(name, ov)| {
+                tables
+                    .get(name)
+                    .is_none_or(|t| t.version() != ov.base_version)
+            });
+            if stale {
+                validate_batch(&transactions, &tables)?;
+            }
 
             for transaction in transactions {
                 match transaction {
@@ -327,7 +349,7 @@ impl Runtime {
                 persistence_kind = table.schema.persistence.clone();
 
                 if module_arc.is_some() {
-                    // Reducer path: validate_insert was already called in handle_insert_row
+                    // Reducer path: the insert was validated in handle_insert_row / validate_batch
                     table.insert_trusted(new_row.clone())?;
                 } else {
                     table.insert(new_row.clone())?;
@@ -622,4 +644,46 @@ fn row_primary_key(row: &Row) -> Result<IndexKey, IntersticeError> {
         .clone()
         .try_into()
         .map_err(|err| IntersticeError::Internal(format!("Failed to convert primary key: {}", err)))
+}
+
+/// Replay a batch on a scratch overlay over the committed tables, checking
+/// every operation without mutating anything.
+fn validate_batch(
+    transactions: &[Transaction],
+    tables: &HashMap<String, Table>,
+) -> Result<(), IntersticeError> {
+    let mut scratch: HashMap<&str, TableOverlay> = HashMap::new();
+    for transaction in transactions {
+        let (module_name, table_name) = match transaction {
+            Transaction::Insert { module_name, table_name, .. }
+            | Transaction::Update { module_name, table_name, .. }
+            | Transaction::Delete { module_name, table_name, .. }
+            | Transaction::Clear { module_name, table_name } => (module_name, table_name),
+        };
+        let table = tables
+            .get(table_name)
+            .ok_or_else(|| IntersticeError::TableNotFound {
+                module_name: module_name.clone(),
+                table_name: table_name.clone(),
+            })?;
+        let ov = scratch
+            .entry(table_name.as_str())
+            .or_insert_with(|| TableOverlay::new(table.version()));
+        match transaction {
+            Transaction::Insert { new_row, .. } => {
+                table.ov_validate_insert(Some(ov), new_row)?;
+                table.ov_record(ov, row_primary_key(new_row)?, Some(new_row.clone()))?;
+            }
+            Transaction::Update { update_row, .. } => {
+                table.ov_validate_update(Some(ov), update_row)?;
+                table.ov_record(ov, row_primary_key(update_row)?, Some(update_row.clone()))?;
+            }
+            Transaction::Delete { deleted_row_id, .. } => {
+                table.ov_validate_delete(Some(ov), deleted_row_id)?;
+                table.ov_record(ov, deleted_row_id.clone(), None)?;
+            }
+            Transaction::Clear { .. } => table.ov_record_clear(ov),
+        }
+    }
+    Ok(())
 }

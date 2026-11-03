@@ -1,71 +1,246 @@
-//! A minimal web browser, the flagship Interstice example. It proves the OS
-//! model end-to-end: it fetches pages over the shared `network` broker (no NIC
-//! authority of its own), parses static HTML with `tl`, translates the DOM into a
-//! `UiElement` tree, and renders through the graphics ABI like any other app —
-//! routed to its own surface by the desktop compositor.
+//! A Firefox-style web browser, the flagship Interstice example.
 //!
-//! Scope (v1): static HTML only (no JavaScript / CSS engine). Styling is a tiny
-//! built-in user-agent stylesheet (see [`style`]). Images are really fetched and
-//! decoded (PNG/JPEG) and uploaded as textures. See the plan's deferred list for
-//! what's intentionally out of scope.
+//! The web engine is [Blitz](https://github.com/DioxusLabs/blitz): html5ever
+//! parsing, Servo's Stylo CSS cascade, Taffy layout and Parley text, all pure
+//! Rust so they build for `wasm32-unknown-unknown`. Pages are rasterised on the
+//! CPU (vello_cpu) and uploaded as textures to the `graphics` module. The browser
+//! chrome (tab strip, toolbar, URL bar) is itself an HTML document rendered by
+//! the same engine (see [`chrome`]).
 //!
-//! The implementation is split across focused submodules:
-//! - [`tables`] — module state tables + the UA palette / element-id constants.
-//! - [`nav`] — navigation + history primitives.
-//! - [`page`] — HTTP-response → parsed-page pipeline (incl. stylesheet gathering).
-//! - [`render`] — `Block` tree → `UiElement` materialisation (box model / flex).
-//! - [`images`] — image decode (raster + SVG) and texture upload.
-//! - [`widgets`] — chrome/content `UiElement` builders + toolbar sync helpers.
-//! - [`html`] / [`css`] / [`style`] / [`url`] — parsing, the cascade, and URLs.
+//! The module never touches the NIC: every request goes through the shared
+//! `network` broker and comes back as an `HttpResponse` row.
 //!
-//! `lib.rs` itself is just the wiring: the module declaration, the UI subsystem,
-//! and the three reducer entry points (`on_load` / `on_http` / `on_frame`), each
-//! delegating into the submodules above.
+//! All browser state is in tables ([`model`]): tabs and history (stateful,
+//! restored on restart), the pointer/focus/URL-field state, documents, their
+//! input logs, requests and the sub-resource cache (ephemeral). Parsed Blitz
+//! documents are instance caches derived from those rows ([`cache`]), so any
+//! pool instance can serve any reducer.
+//!
+//! - [`model`] — the tables.
+//! - [`engine`] — tabs, history, network plumbing, input routing, painting.
+//! - [`cache`] — parsed documents (instance caches).
+//! - [`chrome`] — the Proton-style toolbar document + its event handler.
+//! - [`providers`] — Blitz net/navigation/shell providers (queue-based).
+//! - [`pages`] — built-in `about:` and error pages.
+//! - [`keys`] — Interstice key codes → DOM keyboard events.
+//! - [`fonts`] — embedded fonts (no system font discovery on wasm).
 
 use crate::bindings::{graphics::*, input::*, network::*};
-use interstice_sdk::key_code::KeyCode;
+use crate::cache::{Caches, CACHES};
+use crate::model::*;
 use interstice_sdk::*;
 
-mod css;
-mod dom;
+mod cache;
+mod chrome;
+mod cursor;
 mod encoding;
-mod grid;
-mod html;
-mod images;
+mod engine;
+mod fonts;
 mod js;
-mod nav;
-mod page;
-mod render;
-mod style;
-mod table;
-mod tables;
-mod url;
-mod widgets;
+mod keys;
+mod model;
+mod pages;
+mod providers;
+
+use engine::{Browser, Store};
 
 interstice_module!(visibility: Public, authorities: [File]);
 
-// Module-local UI subsystem (own tables, helpers, render + key reducer), wired to
-// this module's own graphics/input bindings so the compositor can route us to our
-// own surface.
-interstice_ui::ui_subsystem!();
+const ME: &str = "browser-example";
+const LAYER: &str = "browser";
+const OVERLAY_LAYER: &str = "browser_overlay";
+const CURSOR_LAYER: &str = "browser_cursor";
 
-use crate::tables::*;
-use crate::ui::*;
-
+// Blitz/Stylo pull `getrandom` 0.3, which needs a custom backend on
+// wasm32-unknown-unknown (the workspace sets `getrandom_backend="custom"`).
+// Nothing here needs cryptographic randomness: a splitmix64 stream will do.
 thread_local! {
-    /// Optional homepage to auto-navigate to on the first frame. Populated in
-    /// `on_load` from the `browser_home` file (a single URL) if it exists next to
-    /// the host process, and consumed once by `on_frame`. Lets a headless/testing
-    /// run open a page without typing; empty by default (blank start page).
-    static HOMEPAGE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+    static RNG_STATE: std::cell::Cell<u64> = const { std::cell::Cell::new(0x9E3779B97F4A7C15) };
+}
 
-    /// Optional scripted clicks for headless testing. Populated in `on_load` from a
-    /// `browser_click` file (one `frame x y` triple per line) if present next to the
-    /// host process. `on_frame` synthesises a left-button click at `(x, y)` on the
-    /// matching frame, driving the same path as a real mouse click so interactivity
-    /// (JS event dispatch, link follows) can be exercised without a display. Empty by
-    /// default (no scripted clicks).
-    static SCRIPTED_CLICKS: std::cell::RefCell<Vec<(u64, f32, f32)>> = const { std::cell::RefCell::new(Vec::new()) };
+#[unsafe(no_mangle)]
+unsafe extern "Rust" fn __getrandom_v03_custom(
+    dest: *mut u8,
+    len: usize,
+) -> Result<(), getrandom::Error> {
+    RNG_STATE.with(|s| {
+        let mut x = s.get();
+        let mut i = 0;
+        while i < len {
+            x = x.wrapping_add(0x9E3779B97F4A7C15);
+            let mut z = x;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+            z ^= z >> 31;
+            for b in z.to_le_bytes() {
+                if i < len {
+                    unsafe { *dest.add(i) = b };
+                    i += 1;
+                }
+            }
+        }
+        s.set(x);
+    });
+    Ok(())
+}
+
+fn log(msg: &str) {
+    interstice_sdk::host_calls::log(msg);
+}
+
+/// Wall-clock milliseconds.
+pub fn now_ms() -> f64 {
+    interstice_sdk::host_calls::time_now_ms().unwrap_or(0) as f64
+}
+
+fn set_clock() -> f64 {
+    let ms = interstice_sdk::host_calls::time_now_ms().unwrap_or(0);
+    web_time::set_now(std::time::Duration::from_millis(ms));
+    ms as f64 / 1000.0
+}
+
+// ── Table access ─────────────────────────────────────────────────────────────
+
+/// Full access to every browser table. Reducers must still spell their
+/// capabilities out in their `where` clause (the macro reads them to declare
+/// the reducer's table dependencies); this trait only lets helpers name the set.
+macro_rules! full_caps_trait {
+    ($($t:ty),*) => {
+        pub trait Full: $(CanRead<$t> + CanInsert<$t> + CanUpdate<$t> + CanDelete<$t> +)* Sized {}
+        impl<C> Full for C where C: $(CanRead<$t> + CanInsert<$t> + CanUpdate<$t> + CanDelete<$t> +)* Sized {}
+    };
+}
+full_caps_trait!(Session, Tab, Ui, Document, DocEvent, PendingInput, Request, Resource, ResourceMeta, ScriptedInput, WebStorage);
+
+struct Db<'a, Caps>(&'a ReducerContext<Caps>);
+
+impl<Caps: Full> Store for Db<'_, Caps> {
+    fn document(&self, id: u64) -> Option<Document> {
+        self.0.current.tables.document().get(id)
+    }
+    fn insert_document(&self, doc: Document) {
+        let _ = self.0.current.tables.document().insert(doc);
+    }
+    fn drop_document(&self, id: u64) {
+        let t = &self.0.current.tables;
+        let _ = t.document().delete(id);
+        for e in t.docevent().scan_by_doc_eq(id) {
+            let _ = t.docevent().delete(e.seq);
+        }
+    }
+    fn doc_events(&self, doc: u64) -> Vec<DocEvent> {
+        let mut v = self.0.current.tables.docevent().scan_by_doc_eq(doc);
+        v.sort_by_key(|e| e.seq);
+        v
+    }
+    fn push_doc_event(&self, ev: DocEvent) -> u64 {
+        self.0.current.tables.docevent().insert(ev).map(|r| r.seq).unwrap_or(0)
+    }
+    fn clear_doc_events(&self, doc: u64) {
+        let t = &self.0.current.tables;
+        for e in t.docevent().scan_by_doc_eq(doc) {
+            let _ = t.docevent().delete(e.seq);
+        }
+    }
+    fn resource(&self, url: &str) -> Option<Vec<u8>> {
+        self.0.current.tables.resource().get(url.to_string()).map(|r| r.body)
+    }
+    fn has_resource(&self, url: &str) -> bool {
+        self.0.current.tables.resourcemeta().get(url.to_string()).is_some()
+    }
+    fn insert_resource(&self, url: &str, body: Vec<u8>, stamp: u64) {
+        let t = &self.0.current.tables;
+        let size = body.len() as u64;
+        let _ = t.resource().insert(Resource { url: url.to_string(), body });
+        let _ = t.resourcemeta().insert(ResourceMeta { url: url.to_string(), size, stamp });
+    }
+    fn evict_oldest_resource(&self) -> Option<u64> {
+        let t = &self.0.current.tables;
+        let oldest = t.resourcemeta().scan().into_iter().min_by_key(|m| m.stamp)?;
+        let _ = t.resource().delete(oldest.url.clone());
+        let _ = t.resourcemeta().delete(oldest.url);
+        Some(oldest.size)
+    }
+    fn request_pending_for(&self, url: &str) -> bool {
+        !self.0.current.tables.request().scan_by_url_eq(url.to_string()).is_empty()
+    }
+    fn insert_request(&self, req: Request) {
+        let _ = self.0.current.tables.request().insert(req);
+    }
+    fn delete_request(&self, req_id: u64) {
+        let _ = self.0.current.tables.request().delete(req_id);
+    }
+    fn web_storage(&self, origin: &str) -> Vec<(String, String)> {
+        let rows = self.0.current.tables.webstorage().scan_by_origin_eq(origin.to_string());
+        rows.into_iter().map(|r| (r.name, r.value)).collect()
+    }
+    fn set_web_storage(&self, origin: &str, name: &str, value: Option<String>) {
+        let t = &self.0.current.tables;
+        let key = format!("{origin}\0{name}");
+        match value {
+            None => {
+                let _ = t.webstorage().delete(key);
+            }
+            Some(value) => {
+                let row = WebStorage { key, origin: origin.to_string(), name: name.to_string(), value };
+                if t.webstorage().update(row.clone()).is_err() {
+                    let _ = t.webstorage().insert(row);
+                }
+            }
+        }
+    }
+}
+
+type Rows = (Session, Ui, Vec<Tab>);
+
+fn load_rows<Caps: Full>(ctx: &ReducerContext<Caps>) -> Rows {
+    let t = &ctx.current.tables;
+    let session = t.session().get(SESSION).unwrap_or_else(|| Session { id: SESSION, ..Default::default() });
+    let ui = t.ui().get(UI).unwrap_or_else(|| Ui { id: UI, ..Default::default() });
+    (session, ui, t.tab().scan())
+}
+
+/// Write back what a [`Browser`] changed.
+fn save_rows<Caps: Full>(ctx: &ReducerContext<Caps>, before: &Rows, after: Rows) {
+    let t = &ctx.current.tables;
+    let (session, ui, tabs) = after;
+    if session != before.0 && t.session().update(session.clone()).is_err() {
+        let _ = t.session().insert(session);
+    }
+    if ui != before.1 && t.ui().update(ui.clone()).is_err() {
+        let _ = t.ui().insert(ui);
+    }
+    for tab in &before.2 {
+        if !tabs.iter().any(|n| n.id == tab.id) {
+            let _ = t.tab().delete(tab.id);
+        }
+    }
+    for tab in tabs {
+        match before.2.iter().find(|o| o.id == tab.id) {
+            Some(old) if *old == tab => {}
+            Some(_) => {
+                let _ = t.tab().update(tab);
+            }
+            None => {
+                let _ = t.tab().insert(tab);
+            }
+        }
+    }
+}
+
+/// Run browser logic over the tables: load rows, run `f`, save changes.
+fn with_browser<Caps: Full, R>(ctx: &ReducerContext<Caps>, f: impl FnOnce(&mut Browser) -> R) -> R {
+    let before = load_rows(ctx);
+    let db = Db(ctx);
+    CACHES.with(|c| {
+        c.with(Caches::default, |caches| {
+            let (s, u, t) = before.clone();
+            let mut b = Browser::new(&db, caches, s, u, t);
+            let r = f(&mut b);
+            save_rows(ctx, &before, b.into_rows());
+            r
+        })
+    })
 }
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
@@ -73,513 +248,397 @@ thread_local! {
 #[reducer(on = "load")]
 pub fn on_load<Caps>(ctx: ReducerContext<Caps>)
 where
-    Caps: CanInsert<NavState>
-        + CanInsert<ui::UiElement>
-        + CanUpdate<ui::UiElement>
-        + CanInsert<ui::InputFocus>
-        + CanUpdate<ui::InputFocus>,
+    Caps: CanRead<Session> + CanInsert<Session> + CanUpdate<Session> + CanDelete<Session>
+        + CanRead<Tab> + CanInsert<Tab> + CanUpdate<Tab> + CanDelete<Tab>
+        + CanRead<Ui> + CanInsert<Ui> + CanUpdate<Ui> + CanDelete<Ui>
+        + CanRead<Document> + CanInsert<Document> + CanUpdate<Document> + CanDelete<Document>
+        + CanRead<DocEvent> + CanInsert<DocEvent> + CanUpdate<DocEvent> + CanDelete<DocEvent>
+        + CanRead<PendingInput> + CanInsert<PendingInput> + CanUpdate<PendingInput> + CanDelete<PendingInput>
+        + CanRead<Request> + CanInsert<Request> + CanUpdate<Request> + CanDelete<Request>
+        + CanRead<Resource> + CanInsert<Resource> + CanUpdate<Resource> + CanDelete<Resource>
+        + CanRead<ResourceMeta> + CanInsert<ResourceMeta> + CanUpdate<ResourceMeta> + CanDelete<ResourceMeta>
+        + CanRead<ScriptedInput> + CanInsert<ScriptedInput> + CanUpdate<ScriptedInput> + CanDelete<ScriptedInput>
+        + CanRead<WebStorage> + CanInsert<WebStorage> + CanUpdate<WebStorage> + CanDelete<WebStorage>,
 {
-    ui::install(&ctx);
+    let g = ctx.graphics();
+    let _ = g.reducers.create_layer(LAYER.to_string(), 100, false);
+    let _ = g.reducers.create_layer(OVERLAY_LAYER.to_string(), 500, false);
+    let _ = g.reducers.create_layer(CURSOR_LAYER.to_string(), 1000, false);
 
-    // Root column: URL bar on top, scrollable page viewport below.
-    ui::create_element(
-        &ctx,
-        UiElement {
-            id: "root".into(),
-            parent: None,
-            order: 0,
-            width: Size::Grow,
-            height: Size::Grow,
-            layout_direction: LayoutDirection::Column,
-            gap: 0.0,
-            padding: 0.0,
-            margin: 0.0,
-            background_color: ROOT_BG,
-            corner_radius: 0.0,
-            border_width: 0.0,
-            border_color: TRANSPARENT,
-            text: None,
-            text_size: 0.0,
-            text_color: TRANSPARENT,
-            text_wrap: TextWrap::Words,
-            image: None,
-            is_input: false,
-            cursor_pos: 0,
-            scrollable_x: false,
-            scrollable_y: false,
-            scroll_x: 0.0,
-            scroll_y: 0.0,
-            visible: true,
-            ..Default::default()
-        },
-    );
+    let home = interstice_sdk::host_calls::read_file("browser_home".into())
+        .ok()
+        .and_then(|b| String::from_utf8(b).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "about:newtab".to_string());
+    log(&format!("browser: homepage = {home:?}"));
 
-    // Toolbar — a row holding the back/forward buttons and the URL bar.
-    ui::create_element(
-        &ctx,
-        UiElement {
-            id: TOOLBAR_ID.into(),
-            parent: Some("root".into()),
-            order: 0,
-            width: Size::Grow,
-            height: Size::Fixed(42.0),
-            layout_direction: LayoutDirection::Row,
-            gap: 6.0,
-            padding: 6.0,
-            margin: 0.0,
-            background_color: ROOT_BG,
-            corner_radius: 0.0,
-            border_width: 0.0,
-            border_color: TRANSPARENT,
-            text: None,
-            text_size: 0.0,
-            text_color: TRANSPARENT,
-            text_wrap: TextWrap::None,
-            image: None,
-            is_input: false,
-            cursor_pos: 0,
-            scrollable_x: false,
-            scrollable_y: false,
-            scroll_x: 0.0,
-            scroll_y: 0.0,
-            visible: true,
-            ..Default::default()
-        },
-    );
-    // Back / forward buttons (start dimmed — no history yet).
-    ui::create_element(&ctx, widgets::nav_button_el(BACK_BTN_ID.into(), 0, "<"));
-    ui::create_element(&ctx, widgets::nav_button_el(FWD_BTN_ID.into(), 1, ">"));
+    let t = &ctx.current.tables;
+    let _ = t.scriptedinput().clear();
+    // Headless test script: `<frame> <command…>` per line, `#` comments.
+    if let Some(text) = interstice_sdk::host_calls::read_file("browser_script".into())
+        .ok()
+        .and_then(|b| String::from_utf8(b).ok())
+    {
+        for l in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+            let (frame, command) = l.split_once(char::is_whitespace).unwrap_or((l, ""));
+            if let Ok(frame) = frame.parse() {
+                let _ = t.scriptedinput().insert(ScriptedInput { id: 0, frame, command: command.trim().to_string() });
+            }
+        }
+    }
 
-    // URL bar — an editable text input. Focused below so typing edits it and
-    // Enter navigates. Starts empty; the user types a URL to load a page.
-    ui::create_element(
-        &ctx,
-        UiElement {
-            id: URLBAR_ID.into(),
-            parent: Some(TOOLBAR_ID.into()),
-            order: 2,
-            width: Size::Grow,
-            height: Size::Grow,
-            layout_direction: LayoutDirection::Row,
-            gap: 0.0,
-            padding: 7.0,
-            margin: 0.0,
-            background_color: BAR_BG,
-            corner_radius: 6.0,
-            border_width: 1.0,
-            border_color: (0.30, 0.30, 0.36, 1.0),
-            text: Some(String::new()),
-            text_size: 14.0,
-            text_color: BAR_TEXT,
-            text_wrap: TextWrap::None,
-            image: None,
-            is_input: true,
-            cursor_pos: 0,
-            scrollable_x: false,
-            scrollable_y: false,
-            scroll_x: 0.0,
-            scroll_y: 0.0,
-            visible: true,
-            ..Default::default()
-        },
-    );
-
-    // Viewport — vertically scrollable, holds the rendered page content.
-    ui::create_element(
-        &ctx,
-        UiElement {
-            id: VIEWPORT_ID.into(),
-            parent: Some("root".into()),
-            order: 1,
-            width: Size::Grow,
-            height: Size::Grow,
-            layout_direction: LayoutDirection::Column,
-            gap: 0.0,
-            padding: 18.0,
-            margin: 0.0,
-            background_color: VIEWPORT_BG,
-            corner_radius: 0.0,
-            border_width: 0.0,
-            border_color: TRANSPARENT,
-            text: None,
-            text_size: 0.0,
-            text_color: TRANSPARENT,
-            text_wrap: TextWrap::Words,
-            image: None,
-            is_input: false,
-            cursor_pos: 0,
-            scrollable_x: false,
-            scrollable_y: true,
-            scroll_x: 0.0,
-            scroll_y: 0.0,
-            visible: true,
-            ..Default::default()
-        },
-    );
-
-    ui::set_focus(&ctx, URLBAR_ID);
-
-    // Start blank — no page loaded. The user types a URL and presses Enter to
-    // navigate (handled in `on_frame`).
-    let nav = NavState {
-        id: 0,
-        url: String::new(),
-        host: String::new(),
-        path: String::new(),
-        tls: false,
-        main_req_id: 0,
-        next_req_id: 1,
-        nav_gen: 0,
-        prev_left: false,
-        prev_enter: false,
-        hist_len: 0,
-        hist_pos: 0,
-        pending_css: 0,
-        pending_js: 0,
-        page_gen: 0,
+    let session = match t.session().get(SESSION) {
+        Some(mut s) => {
+            s.home = home;
+            s
+        }
+        None => Session { id: SESSION, next_tab: 1, next_doc: 1, next_req: 1, home, ..Default::default() },
     };
-    if let Err(err) = ctx.current.tables.navstate().insert(nav) {
-        ctx.log(&format!("browser: failed to seed NavState: {err}"));
+    if t.session().update(session.clone()).is_err() {
+        let _ = t.session().insert(session);
+    }
+    if t.ui().get(UI).is_none() {
+        let _ = t.ui().insert(Ui { id: UI, next_stamp: 2, ..Default::default() });
     }
 
-    // Optional homepage: if a `browser_home` file sits next to the host process,
-    // read a single URL from it and auto-navigate on the first frame. Handy for
-    // headless/screenshot runs; absent by default (blank start page).
-    match interstice_sdk::host_calls::read_file("browser_home".into()) {
-        Ok(bytes) => {
-            if let Ok(text) = String::from_utf8(bytes) {
-                let url = text.trim().to_string();
-                interstice_sdk::host_calls::log(&format!("browser: homepage = {url:?}"));
-                if !url.is_empty() {
-                    HOMEPAGE.with(|h| *h.borrow_mut() = Some(url));
-                }
-            }
+    with_browser(&ctx, |b| {
+        if b.tabs.is_empty() {
+            let home = b.session.home.clone();
+            b.new_tab(&home);
+        } else {
+            // Tabs survived a restart (stateful); their documents did not.
+            b.restore();
         }
-        Err(e) => interstice_sdk::host_calls::log(&format!("browser: no homepage file: {e}")),
-    }
-
-    // Optional scripted clicks (headless interactivity testing). Each line is
-    // `frame x y`; `on_frame` fires a synthetic click at that frame. Absent normally.
-    if let Ok(bytes) = interstice_sdk::host_calls::read_file("browser_click".into()) {
-        if let Ok(text) = String::from_utf8(bytes) {
-            let clicks: Vec<(u64, f32, f32)> = text
-                .lines()
-                .filter_map(|l| {
-                    let mut it = l.split_whitespace();
-                    Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?, it.next()?.parse().ok()?))
-                })
-                .collect();
-            if !clicks.is_empty() {
-                interstice_sdk::host_calls::log(&format!("browser: scripted clicks = {clicks:?}"));
-                SCRIPTED_CLICKS.with(|c| *c.borrow_mut() = clicks);
-            }
-        }
-    }
+    });
 }
 
-// ── Network responses ────────────────────────────────────────────────────────
+// ── Network ──────────────────────────────────────────────────────────────────
 
 #[reducer(on = "network.httpresponse.insert")]
 pub fn on_http<Caps>(ctx: ReducerContext<Caps>, row: HttpResponse)
 where
-    Caps: CanRead<NavState>
-        + CanUpdate<NavState>
-        + CanRead<ui::UiElement>
-        + CanInsert<ui::UiElement>
-        + CanUpdate<ui::UiElement>
-        + CanDelete<ui::UiElement>
-        + CanRead<LinkMap>
-        + CanInsert<LinkMap>
-        + CanDelete<LinkMap>
-        + CanRead<ImageReq>
-        + CanInsert<ImageReq>
-        + CanDelete<ImageReq>
-        + CanRead<ImageWaiter>
-        + CanInsert<ImageWaiter>
-        + CanDelete<ImageWaiter>
-        + CanInsert<ImageFetchQueue>
-        + CanRead<PageDoc>
-        + CanInsert<PageDoc>
-        + CanUpdate<PageDoc>
-        + CanDelete<PageDoc>
-        + CanRead<StyleSheet>
-        + CanInsert<StyleSheet>
-        + CanUpdate<StyleSheet>
-        + CanDelete<StyleSheet>
-        + CanInsert<CssFetchQueue>
-        + CanInsert<ScriptSheet>
-        + CanRead<ScriptSheet>
-        + CanUpdate<ScriptSheet>
-        + CanDelete<ScriptSheet>
-        + CanInsert<ScriptFetchQueue>,
+    Caps: CanRead<Session> + CanInsert<Session> + CanUpdate<Session> + CanDelete<Session>
+        + CanRead<Tab> + CanInsert<Tab> + CanUpdate<Tab> + CanDelete<Tab>
+        + CanRead<Ui> + CanInsert<Ui> + CanUpdate<Ui> + CanDelete<Ui>
+        + CanRead<Document> + CanInsert<Document> + CanUpdate<Document> + CanDelete<Document>
+        + CanRead<DocEvent> + CanInsert<DocEvent> + CanUpdate<DocEvent> + CanDelete<DocEvent>
+        + CanRead<PendingInput> + CanInsert<PendingInput> + CanUpdate<PendingInput> + CanDelete<PendingInput>
+        + CanRead<Request> + CanInsert<Request> + CanUpdate<Request> + CanDelete<Request>
+        + CanRead<Resource> + CanInsert<Resource> + CanUpdate<Resource> + CanDelete<Resource>
+        + CanRead<ResourceMeta> + CanInsert<ResourceMeta> + CanUpdate<ResourceMeta> + CanDelete<ResourceMeta>
+        + CanRead<ScriptedInput> + CanInsert<ScriptedInput> + CanUpdate<ScriptedInput> + CanDelete<ScriptedInput>
+        + CanRead<WebStorage> + CanInsert<WebStorage> + CanUpdate<WebStorage> + CanDelete<WebStorage>,
 {
     if row.owner != ME {
-        return; // another app's request
-    }
-    // A fetch()/XHR response? Deliver it to the waiting promise/XHR and stop —
-    // its high req_id can't match any nav/CSS/image request. Checked before
-    // loading NavState so it works even mid-navigation.
-    if js::deliver_fetch(row.req_id, &row.body, row.error.is_empty(), &row.error) {
         return;
     }
-
-    let Some(mut nav) = ctx.current.tables.navstate().get(0) else {
-        return;
+    let requests = ctx.current.tables.request();
+    let Some(req) = requests.get(row.req_id) else { return };
+    let _ = requests.delete(row.req_id);
+    set_clock();
+    let final_url = if row.final_host.is_empty() {
+        None
+    } else {
+        let scheme = if row.final_tls { "https" } else { "http" };
+        Some(format!("{scheme}://{}{}", row.final_host, row.final_path))
     };
+    with_browser(&ctx, |b| b.on_response(req, row.body, &row.error, final_url));
+}
 
-    if row.req_id == nav.main_req_id {
-        page::prepare_page(&ctx, &mut nav, &row);
-    } else if ctx.current.tables.stylesheet().get(row.req_id).is_some() {
-        page::on_css_response(&ctx, &mut nav, &row);
-    } else if ctx.current.tables.scriptsheet().get(row.req_id).is_some() {
-        page::on_script_response(&ctx, &mut nav, &row);
-    } else if ctx.current.tables.imagereq().get(row.req_id).is_some() {
-        // An image fetch completed. Drop the request record (so a duplicate
-        // delivery is ignored) and hand the decoded texture to every element that
-        // was waiting on this URL.
-        let _ = ctx.current.tables.imagereq().delete(row.req_id);
-        images::place_image(&ctx, row.req_id, &row.body, row.error.is_empty());
+// ── Input ────────────────────────────────────────────────────────────────────
+// Input reducers only queue events; `on_frame` applies them in order.
+
+fn queue<Caps: CanInsert<PendingInput>>(ctx: &ReducerContext<Caps>, kind: u8, code: u32, pressed: bool, repeat: bool) {
+    queue_key(ctx, kind, code, pressed, repeat, String::new(), String::new());
+}
+
+fn queue_key<Caps: CanInsert<PendingInput>>(
+    ctx: &ReducerContext<Caps>, kind: u8, code: u32, pressed: bool, repeat: bool, key: String, text: String,
+) {
+    let _ = ctx.current.tables.pendinginput().insert(PendingInput { seq: 0, kind, code, pressed, repeat, key, text });
+}
+
+#[reducer(on = "input.keystate.insert")]
+pub fn on_key_insert<Caps>(ctx: ReducerContext<Caps>, row: KeyState)
+where
+    Caps: CanInsert<PendingInput>,
+{
+    queue_key(&ctx, IN_KEY, row.code, row.pressed, false, row.key, row.text);
+}
+
+#[reducer(on = "input.keystate.update")]
+pub fn on_key_update<Caps>(ctx: ReducerContext<Caps>, prev: KeyState, new: KeyState)
+where
+    Caps: CanInsert<PendingInput>,
+{
+    // winit key repeat arrives as pressed → pressed.
+    let repeat = prev.pressed && new.pressed;
+    queue_key(&ctx, IN_KEY, new.code, new.pressed, repeat, new.key, new.text);
+}
+
+#[reducer(on = "input.mousebutton.insert")]
+pub fn on_button_insert<Caps>(ctx: ReducerContext<Caps>, row: MouseButton)
+where
+    Caps: CanInsert<PendingInput>,
+{
+    queue(&ctx, IN_BUTTON, row.button_id as u32, row.pressed, false);
+}
+
+#[reducer(on = "input.mousebutton.update")]
+pub fn on_button_update<Caps>(ctx: ReducerContext<Caps>, prev: MouseButton, new: MouseButton)
+where
+    Caps: CanInsert<PendingInput>,
+{
+    if prev.pressed != new.pressed {
+        queue(&ctx, IN_BUTTON, new.button_id as u32, new.pressed, false);
     }
 }
 
-// ── Per-frame input + render ─────────────────────────────────────────────────
+// ── Frame ────────────────────────────────────────────────────────────────────
 
 #[reducer(on = "graphics.frametick.update")]
 pub fn on_frame<Caps>(ctx: ReducerContext<Caps>, _prev: FrameTick, tick: FrameTick)
 where
-    Caps: CanRead<NavState>
-        + CanUpdate<NavState>
-        + CanRead<ui::UiElement>
-        + CanInsert<ui::UiElement>
-        + CanUpdate<ui::UiElement>
-        + CanDelete<ui::UiElement>
-        + CanRead<ui::InputFocus>
-        + CanRead<LinkMap>
-        + CanDelete<LinkMap>
-        + CanRead<History>
-        + CanInsert<History>
-        + CanUpdate<History>
-        + CanDelete<History>
-        + CanRead<ImageReq>
-        + CanInsert<ImageReq>
-        + CanDelete<ImageReq>
-        + CanRead<ImageWaiter>
-        + CanInsert<ImageWaiter>
-        + CanDelete<ImageWaiter>
-        + CanRead<ImageFetchQueue>
-        + CanInsert<ImageFetchQueue>
-        + CanDelete<ImageFetchQueue>
-        + CanRead<CssFetchQueue>
-        + CanDelete<CssFetchQueue>
-        + CanRead<ScriptFetchQueue>
-        + CanDelete<ScriptFetchQueue>
-        + CanRead<StyleSheet>
-        + CanRead<MouseState>
-        + CanRead<MouseButton>
-        + CanRead<KeyState>,
+    Caps: CanRead<MouseState>
+        + CanRead<Session> + CanInsert<Session> + CanUpdate<Session> + CanDelete<Session>
+        + CanRead<Tab> + CanInsert<Tab> + CanUpdate<Tab> + CanDelete<Tab>
+        + CanRead<Ui> + CanInsert<Ui> + CanUpdate<Ui> + CanDelete<Ui>
+        + CanRead<Document> + CanInsert<Document> + CanUpdate<Document> + CanDelete<Document>
+        + CanRead<DocEvent> + CanInsert<DocEvent> + CanUpdate<DocEvent> + CanDelete<DocEvent>
+        + CanRead<PendingInput> + CanInsert<PendingInput> + CanUpdate<PendingInput> + CanDelete<PendingInput>
+        + CanRead<Request> + CanInsert<Request> + CanUpdate<Request> + CanDelete<Request>
+        + CanRead<Resource> + CanInsert<Resource> + CanUpdate<Resource> + CanDelete<Resource>
+        + CanRead<ResourceMeta> + CanInsert<ResourceMeta> + CanUpdate<ResourceMeta> + CanDelete<ResourceMeta>
+        + CanRead<ScriptedInput> + CanInsert<ScriptedInput> + CanUpdate<ScriptedInput> + CanDelete<ScriptedInput>
+        + CanRead<WebStorage> + CanInsert<WebStorage> + CanUpdate<WebStorage> + CanDelete<WebStorage>,
 {
-    // Drain queued fetches OUTSIDE the on_http re-entrant path: prepare_page/rebuild
-    // (which run inside the network subscription reducer) only enqueue fetches; we
-    // issue the actual http_get here, where re-entering the broker can't make it
-    // re-deliver a response and double-fire fetches. See ImageFetchQueue docs.
-    for q in ctx.current.tables.cssfetchqueue().scan() {
-        let _ = ctx
-            .network()
-            .reducers
-            .http_get(q.req_id, q.host.clone(), q.path.clone(), q.tls);
-        let _ = ctx.current.tables.cssfetchqueue().delete(q.req_id);
-    }
-    for q in ctx.current.tables.imagefetchqueue().scan() {
-        let _ = ctx
-            .network()
-            .reducers
-            .http_get(q.req_id, q.host.clone(), q.path.clone(), q.tls);
-        let _ = ctx.current.tables.imagefetchqueue().delete(q.req_id);
-    }
-    for q in ctx.current.tables.scriptfetchqueue().scan() {
-        let _ = ctx
-            .network()
-            .reducers
-            .http_get(q.req_id, q.host.clone(), q.path.clone(), q.tls);
-        let _ = ctx.current.tables.scriptfetchqueue().delete(q.req_id);
-    }
-    // fetch()/XHR queue their requests in the JS runtime (no table needed — the
-    // pending promise/XHR is held there); issue them here, same as the CSS/image
-    // queues. Responses come back through `on_http` → `js::deliver_fetch`.
-    for (req_id, host, path, tls) in js::take_fetch_queue() {
-        let _ = ctx.network().reducers.http_get(req_id, host, path, tls);
-    }
-
-    let Some(mut nav) = ctx.current.tables.navstate().get(0) else {
-        ui::render(&ctx);
+    let now = set_clock();
+    let Ok(info) = ctx.graphics().queries.surface_info() else { return };
+    let (w, h) = (info.width, info.height);
+    if w < 64 || h < engine::content_height(0) + 64 {
         return;
-    };
+    }
+    let mouse = ctx.input().tables.mousestate().get(0);
+    let t = &ctx.current.tables;
+    let mut inputs = t.pendinginput().scan();
+    inputs.sort_by_key(|e| e.seq);
+    for e in &inputs {
+        let _ = t.pendinginput().delete(e.seq);
+    }
+    let mut script: Vec<ScriptedInput> = t.scriptedinput().scan().into_iter().filter(|c| c.frame <= tick.frame).collect();
+    script.sort_by_key(|c| (c.frame, c.id));
+    for c in &script {
+        let _ = t.scriptedinput().delete(c.id);
+    }
 
-    // Auto-navigate to the configured homepage once, on the first idle frame.
-    if let Some(url) = HOMEPAGE.with(|h| h.borrow_mut().take()) {
-        if nav.url.is_empty() && nav.main_req_id == 0 {
-            nav::start_navigation(&ctx, &mut nav, &url);
-            let _ = ctx.current.tables.navstate().update(nav.clone());
+    let mut uploads: Vec<Upload> = Vec::new();
+    let mut overlay: Option<String> = None;
+    let mut cursor = (0.0, 0.0, cursor_icon::CursorIcon::Default);
+
+    with_browser(&ctx, |b| {
+        b.ui.viewport = (w, h);
+        // The active document and the chrome must reflect the tables before
+        // input is applied to them.
+        b.ensure_active_doc(now);
+        b.sync_chrome();
+
+        // Mouse: integrate deltas of the raw position into our own clamped cursor.
+        if let Some(m) = &mouse {
+            let raw = m.position;
+            let (mut x, mut y) = b.ui.mouse;
+            match b.ui.last_raw {
+                Some(prev) => {
+                    x += raw.0 - prev.0;
+                    y += raw.1 - prev.1;
+                }
+                None => (x, y) = raw,
+            }
+            b.ui.last_raw = Some(raw);
+            b.mouse_move(x.clamp(0.0, w as f32 - 1.0), y.clamp(0.0, h as f32 - 1.0));
+
+            let wheel = m.wheel_delta;
+            if let Some(prev) = b.ui.last_wheel {
+                let (dx, dy) = (wheel.0 - prev.0, wheel.1 - prev.1);
+                if dx != 0.0 || dy != 0.0 {
+                    // Positive wheel delta = scroll up (content moves down).
+                    b.wheel(-dx, -dy);
+                }
+            }
+            b.ui.last_wheel = Some(wheel);
         }
-    }
 
-    // Advance the page's JS event loop once per frame: fire due timers,
-    // requestAnimationFrame callbacks, and microtasks. If a callback mutated the
-    // DOM, re-render from the live arena before handling this frame's input.
-    js::pump_frame(tick.frame);
-    if dom::take_dirty() {
-        let (h, p, tls) = (nav.host.clone(), nav.path.clone(), nav.tls);
-        let sheets = page::current_sheets(&ctx, nav.page_gen);
-        render::rebuild(&ctx, &mut nav, &h, &p, tls, &sheets);
-    }
-
-    // Apply any navigations the page's JS requested (location.* / history.*). These
-    // were queued from native fns with no `ctx`; drain them here, outside the broker
-    // re-entrant path, resolving each raw URL against the live page base.
-    let actions = js::take_nav_actions();
-    let had_actions = !actions.is_empty();
-    for action in actions {
-        match action {
-            js::NavAction::Load(raw) => {
-                if let Some(loc) = url::resolve(&nav.host, &nav.path, nav.tls, &raw) {
-                    nav::start_navigation(&ctx, &mut nav, &loc.to_url());
-                }
-            }
-            js::NavAction::ReplaceLoad(raw) => {
-                if let Some(loc) = url::resolve(&nav.host, &nav.path, nav.tls, &raw) {
-                    nav::replace_navigation(&ctx, &mut nav, &loc.to_url());
-                }
-            }
-            js::NavAction::Reload => {
-                nav::load_current_history(&ctx, &mut nav);
-            }
-            js::NavAction::Go(delta) => {
-                let target = nav.hist_pos as i64 + delta as i64;
-                if delta != 0 && target >= 0 && (target as u32) < nav.hist_len {
-                    nav.hist_pos = target as u32;
-                    nav::load_current_history(&ctx, &mut nav);
-                }
-            }
-            js::NavAction::SoftPush(raw) => {
-                if let Some(loc) = url::resolve(&nav.host, &nav.path, nav.tls, &raw) {
-                    nav::soft_push(&ctx, &mut nav, loc);
-                }
-            }
-            js::NavAction::SoftReplace(raw) => {
-                if let Some(loc) = url::resolve(&nav.host, &nav.path, nav.tls, &raw) {
-                    nav::soft_replace(&ctx, &mut nav, loc);
-                }
-            }
+        // Scripted input for headless testing.
+        for c in &script {
+            b.script(&c.command, tick.frame, now);
         }
-    }
-    if had_actions {
-        // Reflect the new URL in the bar and refresh the JS `location`/`history` view.
-        // (A fetching action reloads the page and re-seeds location in prepare_page;
-        // soft history changes rely on this refresh to keep location.href current.)
-        widgets::set_urlbar(&ctx, &nav.url.clone());
-        js::set_location(&nav.url, &nav.host, &nav.path, nav.tls, nav.hist_len);
-    }
+        for e in &inputs {
+            b.input(e);
+        }
 
-    let (mx, my) = ctx
-        .input()
-        .tables
-        .mousestate()
-        .get(0)
-        .map(|m| m.position)
-        .unwrap_or((0.0, 0.0));
-    let left_down = ctx
-        .input()
-        .tables
-        .mousebutton()
-        .get(0)
-        .map(|b| b.pressed)
-        .unwrap_or(false);
-    let enter_down = ctx.input().tables.keystate().scan().iter().any(|k| {
-        k.pressed && (k.code == KeyCode::Enter as u32 || k.code == KeyCode::NumpadEnter as u32)
+        b.update(now);
+
+        if let Some(px) = b.paint_chrome() {
+            uploads.push(Upload::new(&mut b.ui.chrome_tex, &mut b.ui.chrome_tex_size, &mut b.ui.tex_gen, "chrome", (w, chrome::CHROME_H), px));
+        }
+        if let Some(p) = b.paint_content() {
+            let size = (w, engine::content_height(h));
+            let mut u = Upload::new(&mut b.ui.content_tex, &mut b.ui.content_tex_size, &mut b.ui.tex_gen, "content", size, p.pixels);
+            // `paint_content` only returns a partial rect while the texture
+            // is current, so this never needs to create one.
+            u.rect = (p.x, p.y, p.w, p.h);
+            debug_assert!(!u.create || u.rect == (0, 0, size.0, size.1));
+            uploads.push(u);
+        }
+        overlay = b.hovered_link();
+        cursor = (b.ui.mouse.0, b.ui.mouse.1, b.cursor());
     });
 
-    let mut left_edge = left_down && !nav.prev_left;
-    let enter_edge = enter_down && !nav.prev_enter;
-    nav.prev_left = left_down;
-    nav.prev_enter = enter_down;
+    // Hand new requests to the network broker. Done here rather than where
+    // they are created so a reducer triggered by the broker (`on_http`) never
+    // calls back into it.
+    for mut r in t.request().scan().into_iter().filter(|r| !r.sent) {
+        match engine::parse_url(&r.url) {
+            Some((host, path, tls)) => {
+                let _ = ctx.network().reducers.http_get(r.req_id, host, path, tls);
+                r.sent = true;
+                let _ = t.request().update(r);
+            }
+            None => {
+                let _ = t.request().delete(r.req_id);
+            }
+        }
+    }
 
-    // Headless testing: a scripted click for this frame overrides the mouse.
-    let (mut mx, mut my) = (mx, my);
-    if let Some((x, y)) = SCRIPTED_CLICKS.with(|c| {
-        let mut b = c.borrow_mut();
-        if let Some(pos) = b.iter().position(|(f, _, _)| *f == tick.frame) {
-            let (_, x, y) = b.remove(pos);
-            Some((x, y))
+    let g = ctx.graphics();
+    for u in uploads {
+        if let Some(old) = u.destroy {
+            let _ = g.reducers.destroy_resource(old);
+        }
+        if u.create {
+            let _ = g.reducers.create_texture(u.id, texture_desc(u.size.0, u.size.1), u.pixels);
         } else {
-            None
-        }
-    }) {
-        mx = x;
-        my = y;
-        left_edge = true;
-        interstice_sdk::host_calls::log(&format!("browser: scripted click @frame {} ({x},{y})", tick.frame));
-    }
-
-    // A click can hit a toolbar button or a page link. Resolve the target element
-    // once, then dispatch.
-    if left_edge {
-        let hit = ui::element_at(&ctx, (mx, my));
-        if let Some(id) = hit {
-            if id == BACK_BTN_ID && nav.hist_pos > 0 {
-                // Back: step to the previous entry and re-fetch it (no history push).
-                nav.hist_pos -= 1;
-                if let Some(url) = nav::load_current_history(&ctx, &mut nav) {
-                    widgets::set_urlbar(&ctx, &url);
-                }
-            } else if id == FWD_BTN_ID && nav.hist_pos + 1 < nav.hist_len {
-                // Forward: step to the next entry and re-fetch it.
-                nav.hist_pos += 1;
-                if let Some(url) = nav::load_current_history(&ctx, &mut nav) {
-                    widgets::set_urlbar(&ctx, &url);
-                }
-            } else {
-                // Page content click. Give the page's JS listeners the first crack:
-                // if a handler mutated the DOM, re-render from the live arena; if a
-                // handler called preventDefault, swallow the default link follow.
-                let mut handled = false;
-                if let Some(node) = render::node_for_element(&id) {
-                    let prevented = js::dispatch_event(node, "click");
-                    if dom::take_dirty() {
-                        let (h, p, tls) = (nav.host.clone(), nav.path.clone(), nav.tls);
-                        let sheets = page::current_sheets(&ctx, nav.page_gen);
-                        render::rebuild(&ctx, &mut nav, &h, &p, tls, &sheets);
-                        handled = true;
-                    }
-                    handled |= prevented;
-                }
-                if !handled {
-                    if let Some(href) = ui::link_at(&ctx, (mx, my)) {
-                        // Inline link span → resolve + navigate, reflect the URL.
-                        if let Some(loc) = url::resolve(&nav.host, &nav.path, nav.tls, &href) {
-                            nav::start_navigation(&ctx, &mut nav, &loc.to_url());
-                            widgets::set_urlbar(&ctx, &nav.url.clone());
-                        }
-                    }
-                }
-            }
+            let (x, y, w, h) = u.rect;
+            let _ = g.reducers.update_texture(u.id, x, y, w, h, u.pixels);
         }
     }
 
-    // Enter → navigate to whatever is typed in the URL bar.
-    if enter_edge {
-        if let Some(bar) = ctx.current.tables.uielement().get(URLBAR_ID.to_string()) {
-            if let Some(text) = bar.text.clone() {
-                nav::start_navigation(&ctx, &mut nav, &text);
-            }
+    // Composite: chrome on top, content below it.
+    let full = || Rect { x: 0.0, y: 0.0, w: 1.0, h: 1.0 };
+    let white = || Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
+    if let Some(ui) = t.ui().get(UI) {
+        if !ui.content_tex.is_empty() {
+            let (tw, th) = ui.content_tex_size;
+            let rect = Rect { x: 0.0, y: chrome::CHROME_H as f32, w: tw as f32, h: th as f32 };
+            let _ = g.reducers.draw_image(LAYER.into(), ui.content_tex.clone(), rect, white(), full());
+        }
+        if !ui.chrome_tex.is_empty() {
+            let (tw, th) = ui.chrome_tex_size;
+            let rect = Rect { x: 0.0, y: 0.0, w: tw as f32, h: th as f32 };
+            let _ = g.reducers.draw_image(LAYER.into(), ui.chrome_tex.clone(), rect, white(), full());
         }
     }
 
-    // Dim the buttons that lead nowhere so it's clear when back/forward is available.
-    widgets::update_button_state(&ctx, BACK_BTN_ID, nav.hist_pos > 0);
-    widgets::update_button_state(&ctx, FWD_BTN_ID, nav.hist_pos + 1 < nav.hist_len);
+    // Link status panel (bottom-left), like Firefox.
+    if let Some(link) = overlay {
+        let text: String = if link.chars().count() > 120 {
+            link.chars().take(117).collect::<String>() + "..."
+        } else {
+            link
+        };
+        let size = 12.0;
+        let tw = text.chars().count() as f32 * 6.6 + 14.0;
+        let (x, y) = (0.0, h as f32 - 22.0);
+        let _ = g.reducers.draw_rect(
+            OVERLAY_LAYER.into(),
+            Rect { x, y, w: tw.min(w as f32), h: 22.0 },
+            Color { r: 0.94, g: 0.94, b: 0.957, a: 1.0 },
+            true,
+            0.0,
+            Some(3.0),
+        );
+        let _ = g.reducers.draw_text(
+            OVERLAY_LAYER.into(),
+            text,
+            Vec2 { x: x + 7.0, y: y + 5.0 },
+            size,
+            Color { r: 0.08, g: 0.08, b: 0.1, a: 1.0 },
+            None,
+        );
+    }
 
-    let _ = ctx.current.tables.navstate().update(nav);
+    if info.id == 0 {
+        draw_cursor(&ctx, cursor.0, cursor.1, cursor.2);
+    }
+}
 
-    // Lay out + draw (also handles wheel scrolling of the viewport).
-    ui::render(&ctx);
+/// A texture write for the graphics module. Texture ids/sizes live in `Ui`.
+struct Upload {
+    id: String,
+    size: (u32, u32),
+    create: bool,
+    destroy: Option<String>,
+    /// Region of the texture `pixels` cover (the whole texture on create).
+    rect: (u32, u32, u32, u32),
+    pixels: Vec<u8>,
+}
+
+impl Upload {
+    fn new(slot: &mut String, slot_size: &mut (u32, u32), gen_: &mut u64, name: &str, size: (u32, u32), pixels: Vec<u8>) -> Self {
+        if !slot.is_empty() && *slot_size == size {
+            return Upload { id: slot.clone(), size, create: false, destroy: None, rect: (0, 0, size.0, size.1), pixels };
+        }
+        *gen_ += 1;
+        let id = format!("browser_{name}_{gen_}");
+        let destroy = (!slot.is_empty()).then(|| std::mem::replace(slot, id.clone()));
+        *slot = id.clone();
+        *slot_size = size;
+        Upload { id, size, create: true, destroy, rect: (0, 0, size.0, size.1), pixels }
+    }
+}
+
+// ── Cursor ───────────────────────────────────────────────────────────────────
+
+fn draw_cursor<Caps>(ctx: &ReducerContext<Caps>, x: f32, y: f32, icon: cursor_icon::CursorIcon)
+where
+    Caps: CanRead<Ui> + CanUpdate<Ui>,
+{
+    let g = ctx.graphics();
+    let t = &ctx.current.tables;
+    let Some(mut ui) = t.ui().get(UI) else { return };
+    if ui.cursor_tex.is_empty() {
+        let (w, h) = cursor::atlas_size();
+        ui.tex_gen += 1;
+        ui.cursor_tex = format!("browser_cursor_{}", ui.tex_gen);
+        let _ = g.reducers.create_texture(ui.cursor_tex.clone(), texture_desc(w, h), cursor::atlas());
+        let _ = t.ui().update(ui.clone());
+    }
+    let (w, _) = cursor::atlas_size();
+    let (cell, (hx, hy)) = cursor::cell(icon);
+    let size = cursor::CELL as f32;
+    let _ = g.reducers.draw_image(
+        CURSOR_LAYER.into(),
+        ui.cursor_tex,
+        // Whole pixels: a fractional origin would blur the atlas (bilinear).
+        Rect { x: (x - hx).round(), y: (y - hy).round(), w: size, h: size },
+        Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 },
+        Rect { x: (cell * cursor::CELL) as f32 / w as f32, y: 0.0, w: size / w as f32, h: 1.0 },
+    );
+}
+
+fn texture_desc(width: u32, height: u32) -> TextureDescriptorInput {
+    TextureDescriptorInput {
+        width,
+        height,
+        format: "rgba8unorm_srgb".into(),
+        mip_levels: 1,
+        sample_count: 1,
+        usage: TextureUsageFlags {
+            copy_src: false,
+            copy_dst: true,
+            texture_binding: true,
+            storage_binding: false,
+            render_attachment: false,
+        },
+    }
 }

@@ -401,8 +401,9 @@ pub fn draw_mesh<
 #[reducer]
 pub fn submit_render_pass<Caps: CanRead<Layer> + CanInsert<RenderPassCommand>>(
     ctx: ReducerContext<Caps>,
-    mut submission: RenderPassSubmission,
+    submission: RenderPassSubmission,
 ) {
+    let mut submission = submission;
     submission.layer = layer_key(&ctx, &submission.layer);
     if !ensure_layer_exists(&ctx, &submission.layer) {
         return;

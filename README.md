@@ -558,6 +558,8 @@ Authorities are typed tokens granting modules access to privileged host function
 
 This roadmap is a living checklist of the main directions for Interstice. It favors clarity over fixed timelines and can evolve as the runtime grows.
 
+The detailed, design-level TODO list (engine semantics, storage, security, SDK, examples) lives in [DESIGN.md §13](DESIGN.md#13-roadmap--todo); this section keeps the high-level directions.
+
 ---
 
 ## Runtime

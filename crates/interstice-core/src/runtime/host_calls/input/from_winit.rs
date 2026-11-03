@@ -1,5 +1,6 @@
 use interstice_abi::{ElementState, InputEvent, PhysicalKey, key_code::KeyCode};
-use winit::event::{DeviceEvent, MouseScrollDelta};
+use winit::event::{DeviceEvent, KeyEvent, MouseScrollDelta};
+use winit::keyboard::{Key, NamedKey};
 
 pub fn get_input_event_from_device_event(device_id: u32, event: DeviceEvent) -> InputEvent {
     return match event {
@@ -29,14 +30,53 @@ pub fn get_input_event_from_device_event(device_id: u32, event: DeviceEvent) -> 
         DeviceEvent::Button { button, state } => InputEvent::Button {
             device_id,
             button_id: button,
-            state: match state {
-                winit::event::ElementState::Pressed => ElementState::Pressed,
-                winit::event::ElementState::Released => ElementState::Released,
-            },
+            state: element_state(state),
         },
         DeviceEvent::Key(raw_key_event) => InputEvent::Key {
             device_id,
-            physical_key: match raw_key_event.physical_key {
+            physical_key: physical_key(raw_key_event.physical_key),
+            state: element_state(raw_key_event.state),
+            logical_key: String::new(),
+            text: String::new(),
+            repeat: false,
+        },
+    };
+}
+
+/// A window keyboard event, with what the OS keyboard layout made of it.
+pub fn get_input_event_from_key_event(device_id: u32, event: &KeyEvent) -> InputEvent {
+    InputEvent::Key {
+        device_id,
+        physical_key: physical_key(event.physical_key),
+        state: element_state(event.state),
+        logical_key: logical_key_name(&event.logical_key),
+        text: event.text.as_ref().map(|t| t.to_string()).unwrap_or_default(),
+        repeat: event.repeat,
+    }
+}
+
+/// W3C `KeyboardEvent.key` value for a winit logical key ("" = unknown).
+fn logical_key_name(key: &Key) -> String {
+    match key {
+        Key::Character(c) => c.to_string(),
+        // winit's named keys follow the W3C key names, except for the
+        // "Windows"/"Command" key.
+        Key::Named(NamedKey::Super) => "Meta".into(),
+        Key::Named(n) => format!("{n:?}"),
+        Key::Dead(_) => "Dead".into(),
+        Key::Unidentified(_) => String::new(),
+    }
+}
+
+fn element_state(state: winit::event::ElementState) -> ElementState {
+    match state {
+        winit::event::ElementState::Pressed => ElementState::Pressed,
+        winit::event::ElementState::Released => ElementState::Released,
+    }
+}
+
+fn physical_key(key: winit::keyboard::PhysicalKey) -> PhysicalKey {
+    match key {
                 winit::keyboard::PhysicalKey::Code(key_code) => match key_code {
                     winit::keyboard::KeyCode::Backquote => PhysicalKey::Code(KeyCode::Backquote),
                     winit::keyboard::KeyCode::Backslash => PhysicalKey::Code(KeyCode::Backslash),
@@ -325,11 +365,5 @@ pub fn get_input_event_from_device_event(device_id: u32, event: DeviceEvent) -> 
                         winit::keyboard::NativeKeyCode::Xkb(c) => PhysicalKey::Unidentified(c),
                     }
                 }
-            },
-            state: match raw_key_event.state {
-                winit::event::ElementState::Pressed => ElementState::Pressed,
-                winit::event::ElementState::Released => ElementState::Released,
-            },
-        },
-    };
+            }
 }

@@ -9,26 +9,40 @@ crate-type = ["cdylib"]
 
 [dependencies]
 interstice-sdk = "0.5.0"
-interstice-ui = "0.5.0"
-# Pure-Rust HTML parser (no_std-friendly, builds for wasm).
-tl = "0.7"
-# Image decoding for <img>. Pure-Rust decoders only — keeps the wasm small and
-# avoids C dependencies. GIF decodes to its first frame (no animation); WebP
-# covers the lossy/lossless stills modern sites serve.
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
-# SVG rasterization for <img src=*.svg> (Wikipedia serves many icons/logos as
-# SVG). `text` enables glyph shaping so SVGs with <text> render; we drop
-# `system-fonts`/`memmap-fonts` (the OS font-discovery path that doesn't build
-# for wasm) and instead feed usvg a single embedded font (assets/DejaVuSans.ttf).
-# `raster-images` lets SVGs that embed <image> bitmaps decode too.
-resvg = { version = "0.45", default-features = false, features = ["text", "raster-images"] }
-# JavaScript engine (Phase 0 spike). Pure Rust → builds for wasm32-unknown-unknown,
-# unlike V8/QuickJS (C/native). Defaults off to start from the smallest surface;
-# we add features (intl, etc.) only as the runtime needs them.
-boa_engine = { version = "0.21", default-features = false }
-# Direct dep only so the module can name `getrandom::Error` for the custom backend
-# it must define (boa → rand → getrandom 0.3 on wasm32-unknown-unknown). See js.rs.
+
+# ── Web engine ──────────────────────────────────────────────────────────────
+# Blitz: a real HTML/CSS engine (html5ever parser, Servo's Stylo cascade,
+# Taffy block/flex/grid/float layout, Parley text). Pure Rust → builds for
+# wasm32-unknown-unknown. Default features are off to drop OS font discovery
+# (`system-fonts`) and accesskit; fonts are embedded instead (see fonts.rs).
+blitz-dom = { version = "=0.3.0-beta.4", default-features = false, features = ["svg", "floats", "woff", "autofocus"] }
+blitz-html = "=0.3.0-beta.4"
+blitz-paint = { version = "=0.3.0-beta.4", default-features = false, features = ["svg", "scrollbars"] }
+blitz-traits = "=0.3.0-beta.4"
+# CPU rasteriser: Blitz paints into an anyrender scene, vello_cpu turns it into
+# RGBA8 pixels that we upload as a texture to the graphics module.
+anyrender = "0.14"
+anyrender_vello_cpu = "0.18"
+# Same versions anyrender uses; needed to pre-fill the canvas (Blitz leaves it
+# transparent when neither <html> nor <body> sets a background).
+kurbo = "0.13"
+peniko = "0.6"
+parley = "0.12"
+keyboard-types = "0.8"
+url = "2"
+cursor-icon = "1"
+bytes = "1"
+# Patched to vendor/web-time (workspace root): we drive its clock via `set_now`.
+web-time = "1.1"
+# Decoders for <img> (Blitz decodes through `image` with no formats enabled by
+# itself; enabling them here unifies the features).
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico"] }
+# blitz/stylo pull getrandom 0.3 which needs a custom backend on
+# wasm32-unknown-unknown; we define `__getrandom_v03_custom` in lib.rs.
 getrandom = "0.3"
+# JavaScript engine (pure Rust, builds for wasm). 0.22: 0.21 pins icu ~2.0,
+# which conflicts with blitz-dom's icu_properties ^2.3.
+boa_engine = { version = "0.22", default-features = false }
 
 [build-dependencies]
 interstice-sdk = "0.5.0"

@@ -36,12 +36,51 @@ const REDUCER_POOL_SIZE: usize = 8;
 pub struct Module {
     /// Pool of WASM instances for reducer execution. Multiple threads draw from this pool,
     /// enabling parallel reducer execution for independent reducers.
-    instance_pool: Arc<(parking_lot::Mutex<Vec<WasmInstance>>, parking_lot::Condvar)>,
+    /// Each idle instance is paired with the reducer it last ran (see
+    /// [`Module::call_reducer`] for the affinity rule).
+    instance_pool: Arc<(parking_lot::Mutex<Vec<(WasmInstance, Option<String>)>>, parking_lot::Condvar)>,
     query_instance: Arc<Mutex<WasmInstance>>,
+    /// Builds a fresh, fully initialised instance. Used to replace an
+    /// instance after a trap: its linear memory may be mid-update, so it is
+    /// never reused.
+    factory: InstanceFactory,
+    /// See [`interstice_abi::RawReducerContext::state_epoch`].
+    state_epoch: std::sync::atomic::AtomicU64,
     wasm_bytes: Vec<u8>,
     pub schema: Arc<ModuleSchema>,
     pub tables: Arc<Mutex<HashMap<String, Table>>>,
     pub reducer_names: HashSet<String>,
+}
+
+/// Instantiates `wasm_module` in a fresh store. `schema` is `None` while the
+/// schema is still unknown (first instance, used to load it).
+struct InstanceFactory {
+    runtime: Arc<Runtime>,
+    wasm_module: wasmtimeModule,
+}
+
+impl InstanceFactory {
+    fn instantiate(&self, schema: Option<&Arc<ModuleSchema>>) -> Result<WasmInstance, IntersticeError> {
+        let mut store = Store::new(&self.runtime.engine, StoreState::new(self.runtime.clone()));
+        let raw = self
+            .runtime
+            .linker
+            .instantiate(&mut store, &self.wasm_module)
+            .map_err(|e| IntersticeError::Internal(format!("wasm instantiation failed: {e}")))?;
+        let mut inst = WasmInstance::new(store, raw)?;
+        if let Some(schema) = schema {
+            let funcs: Vec<String> = schema
+                .reducers
+                .iter()
+                .map(|r| get_reducer_wrapper_name(&r.name))
+                .chain(schema.queries.iter().map(|q| get_query_wrapper_name(&q.name)))
+                .collect();
+            inst.store.data_mut().module_schema = schema.clone();
+            inst.preload_funcs(&funcs);
+            inst.init_scratch(4096).ok();
+        }
+        Ok(inst)
+    }
 }
 
 impl std::fmt::Debug for Module {
@@ -54,70 +93,24 @@ impl std::fmt::Debug for Module {
 
 impl Module {
     pub async fn from_file(runtime: Arc<Runtime>, path: &Path) -> Result<Self, IntersticeError> {
-        let wasm_bytes = std::fs::read(path).unwrap();
-        let wasm_module = wasmtimeModule::from_file(&runtime.engine, path).unwrap();
-
-        let mut instances = Vec::with_capacity(REDUCER_POOL_SIZE);
-        for _ in 0..REDUCER_POOL_SIZE {
-            let mut store = Store::new(
-                &runtime.engine,
-                StoreState::new(runtime.clone()),
-            );
-            let raw = runtime.linker.instantiate(&mut store, &wasm_module).unwrap();
-            instances.push(WasmInstance::new(store, raw)?);
-        }
-
-        let mut query_store = Store::new(
-            &runtime.engine,
-            StoreState::new(runtime.clone()),
-        );
-        let query_raw = runtime
-            .linker
-            .instantiate(&mut query_store, &wasm_module)
-            .unwrap();
-        let query_instance = WasmInstance::new(query_store, query_raw)?;
-
-        let module = Module::new(instances, query_instance, wasm_bytes).await?;
-        Ok(module)
+        let wasm_bytes = std::fs::read(path).map_err(|e| {
+            IntersticeError::Internal(format!("cannot read module {}: {e}", path.display()))
+        })?;
+        Self::from_bytes(runtime, &wasm_bytes).await
     }
 
     pub async fn from_bytes(
         runtime: Arc<Runtime>,
         wasm_binary: &[u8],
     ) -> Result<Self, IntersticeError> {
-        let wasm_module = wasmtimeModule::new(&runtime.engine, wasm_binary).unwrap();
+        let wasm_module = wasmtimeModule::new(&runtime.engine, wasm_binary)
+            .map_err(|e| IntersticeError::Internal(format!("invalid wasm module: {e}")))?;
+        let factory = InstanceFactory {
+            runtime,
+            wasm_module,
+        };
 
-        let mut instances = Vec::with_capacity(REDUCER_POOL_SIZE);
-        for _ in 0..REDUCER_POOL_SIZE {
-            let mut store = Store::new(
-                &runtime.engine,
-                StoreState::new(runtime.clone()),
-            );
-            let raw = runtime.linker.instantiate(&mut store, &wasm_module).unwrap();
-            instances.push(WasmInstance::new(store, raw)?);
-        }
-
-        let mut query_store = Store::new(
-            &runtime.engine,
-            StoreState::new(runtime.clone()),
-        );
-        let query_raw = runtime
-            .linker
-            .instantiate(&mut query_store, &wasm_module)
-            .unwrap();
-        let query_instance = WasmInstance::new(query_store, query_raw)?;
-
-        let module = Module::new(instances, query_instance, wasm_binary.to_vec()).await?;
-        Ok(module)
-    }
-
-    pub async fn new(
-        mut instances: Vec<WasmInstance>,
-        mut query_instance: WasmInstance,
-        wasm_bytes: Vec<u8>,
-    ) -> Result<Self, IntersticeError> {
-        assert!(!instances.is_empty(), "at least one reducer instance required");
-        let schema = Arc::new(instances[0].load_schema()?);
+        let schema = Arc::new(factory.instantiate(None)?.load_schema()?);
         if schema.abi_version != ABI_VERSION {
             return Err(IntersticeError::AbiVersionMismatch {
                 expected: ABI_VERSION,
@@ -125,48 +118,61 @@ impl Module {
             });
         }
 
+        let mut instances = Vec::with_capacity(REDUCER_POOL_SIZE);
+        for _ in 0..REDUCER_POOL_SIZE {
+            instances.push((factory.instantiate(Some(&schema))?, None));
+        }
+        let query_instance = factory.instantiate(Some(&schema))?;
+
         let tables = schema
             .tables
             .iter()
             .map(|table_schema| (table_schema.name.clone(), Table::new(table_schema.clone())))
             .collect();
-
         let reducer_names = schema.reducers.iter().map(|r| r.name.clone()).collect();
 
-        // Pre-cache func handles and allocate scratch buffers in every pool instance.
-        let reducer_func_names: Vec<String> = schema
-            .reducers
-            .iter()
-            .map(|r| get_reducer_wrapper_name(&r.name))
-            .collect();
-        for inst in &mut instances {
-            inst.store.data_mut().module_schema = schema.clone();
-            inst.preload_funcs(&reducer_func_names);
-            inst.init_scratch(4096).ok();
-        }
-
-        let query_func_names: Vec<String> = schema
-            .queries
-            .iter()
-            .map(|q| get_query_wrapper_name(&q.name))
-            .collect();
-        query_instance.store.data_mut().module_schema = schema.clone();
-        query_instance.preload_funcs(&query_func_names);
-        query_instance.init_scratch(4096).ok();
-
-        let instance_pool = Arc::new((
-            parking_lot::Mutex::new(instances),
-            parking_lot::Condvar::new(),
-        ));
-
         Ok(Self {
-            instance_pool,
+            instance_pool: Arc::new((
+                parking_lot::Mutex::new(instances),
+                parking_lot::Condvar::new(),
+            )),
             query_instance: Arc::new(Mutex::new(query_instance)),
-            wasm_bytes,
+            factory,
+            state_epoch: std::sync::atomic::AtomicU64::new(0),
+            wasm_bytes: wasm_binary.to_vec(),
             schema,
             tables: Arc::new(Mutex::new(tables)),
             reducer_names,
         })
+    }
+
+    /// Current [`interstice_abi::RawReducerContext::state_epoch`].
+    pub fn state_epoch(&self) -> u64 {
+        self.state_epoch.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Signal that effects of a call were dropped after the instance had
+    /// already observed them (rejected commit): instance caches must reset.
+    pub fn bump_state_epoch(&self) {
+        self.state_epoch
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+    }
+
+    /// Replace `instance` with a fresh one if the call trapped.
+    fn recycle<T>(&self, instance: &mut WasmInstance, result: &Result<T, IntersticeError>) {
+        if matches!(result, Err(IntersticeError::WasmTrap(_))) {
+            match self.factory.instantiate(Some(&self.schema)) {
+                Ok(fresh) => *instance = fresh,
+                Err(err) => self.factory.runtime.logger.log(
+                    &format!(
+                        "Module '{}': could not replace trapped instance: {err}",
+                        self.schema.name
+                    ),
+                    LogSource::Runtime,
+                    LogLevel::Error,
+                ),
+            }
+        }
     }
 
     pub fn call_reducer(
@@ -176,19 +182,32 @@ impl Module {
     ) -> Result<(), IntersticeError> {
         let func_name = get_reducer_wrapper_name(reducer);
         // Borrow an instance from the pool; block if all are in use.
+        //
+        // Affinity: prefer the idle instance that last ran this same reducer,
+        // else the least recently returned one, so other reducers' warm
+        // instances are left alone. Instances may hold
+        // instance caches (`interstice_sdk::InstanceCache`) that a reducer
+        // builds for itself; keeping a reducer on the same instance keeps
+        // those warm. This is purely a performance property: any instance can
+        // serve any call, and caches are rebuilt from tables when missing.
         let (lock, cvar) = &*self.instance_pool;
         let mut instance = {
             let mut pool = lock.lock();
             while pool.is_empty() {
                 cvar.wait(&mut pool);
             }
-            pool.pop().unwrap()
+            let idx = pool
+                .iter()
+                .rposition(|(_, last)| last.as_deref() == Some(reducer))
+                .unwrap_or(0);
+            pool.remove(idx).0
         };
         let result = instance.call_reducer(&func_name, args);
+        self.recycle(&mut instance, &result);
         // Return the instance to the pool and wake a waiting thread if any.
         {
             let mut pool = lock.lock();
-            pool.push(instance);
+            pool.push((instance, Some(reducer.to_string())));
             cvar.notify_one();
         }
         result
@@ -200,7 +219,10 @@ impl Module {
         args: (QueryContext, impl Serialize),
     ) -> Result<IntersticeValue, IntersticeError> {
         let func_name = get_query_wrapper_name(query);
-        self.query_instance.lock().call_query(&func_name, args)
+        let mut instance = self.query_instance.lock();
+        let result = instance.call_query(&func_name, args);
+        self.recycle(&mut instance, &result);
+        result
     }
 }
 

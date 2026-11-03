@@ -100,6 +100,7 @@ impl TryFrom<&IntersticeValue> for IndexKey {
                 Err("Float values cannot be used as index keys".to_string())
             }
             IntersticeValue::Vec(_)
+            | IntersticeValue::Bytes(_)
             | IntersticeValue::Struct { .. }
             | IntersticeValue::Enum { .. } => Err(
                 "Only primitive, Option, and Tuple values are supported as index keys".to_string(),

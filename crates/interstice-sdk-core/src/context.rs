@@ -50,6 +50,7 @@ pub struct ReducerContext<Caps = ()> {
 
 impl<Caps> From<RawReducerContext> for ReducerContext<Caps> {
     fn from(raw: RawReducerContext) -> Self {
+        crate::cache::__observe_state_epoch(raw.state_epoch);
         Self {
             caller_node_id: raw.caller_node_id,
             caller_module_name: raw.caller_module_name,
@@ -70,6 +71,7 @@ pub struct QueryContext<Caps = ()> {
 
 impl<Caps> From<RawQueryContext> for QueryContext<Caps> {
     fn from(raw: RawQueryContext) -> Self {
+        crate::cache::__observe_state_epoch(raw.state_epoch);
         Self {
             caller_node_id: raw.caller_node_id,
             caller_module_name: raw.caller_module_name,

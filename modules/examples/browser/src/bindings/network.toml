@@ -1,4 +1,4 @@
-abi_version = 6
+abi_version = 7
 name = "network"
 visibility = "Public"
 queries = []
@@ -149,7 +149,7 @@ type_name = "Inbound"
 visibility = "Public"
 primary_key_auto_inc = true
 indexes = []
-persistence = "Logged"
+persistence = "Ephemeral"
 
 [[tables.fields]]
 name = "owner"
@@ -175,7 +175,7 @@ type_name = "Resolved"
 visibility = "Public"
 primary_key_auto_inc = true
 indexes = []
-persistence = "Logged"
+persistence = "Ephemeral"
 
 [[tables.fields]]
 name = "owner"
@@ -207,7 +207,7 @@ type_name = "ConnClosed"
 visibility = "Public"
 primary_key_auto_inc = true
 indexes = []
-persistence = "Logged"
+persistence = "Ephemeral"
 
 [[tables.fields]]
 name = "owner"
@@ -227,7 +227,7 @@ type_name = "Connection"
 visibility = "Public"
 primary_key_auto_inc = true
 indexes = []
-persistence = "Logged"
+persistence = "Ephemeral"
 
 [[tables.fields]]
 name = "owner"
@@ -259,7 +259,7 @@ type_name = "HttpResponse"
 visibility = "Public"
 primary_key_auto_inc = true
 indexes = []
-persistence = "Logged"
+persistence = "Ephemeral"
 
 [[tables.fields]]
 name = "owner"
@@ -303,6 +303,27 @@ field_type = "Bool"
 name = "id"
 field_type = "U64"
 
+[type_definitions.Inbound.Struct]
+name = "Inbound"
+
+[[type_definitions.Inbound.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.Inbound.Struct.fields]]
+name = "owner"
+field_type = "String"
+
+[[type_definitions.Inbound.Struct.fields]]
+name = "handle"
+field_type = "U64"
+
+[[type_definitions.Inbound.Struct.fields]]
+name = "data"
+
+[type_definitions.Inbound.Struct.fields.field_type]
+Vec = "U8"
+
 [type_definitions.Resolved.Struct]
 name = "Resolved"
 
@@ -330,6 +351,21 @@ field_type = "String"
 name = "error"
 field_type = "String"
 
+[type_definitions.ConnClosed.Struct]
+name = "ConnClosed"
+
+[[type_definitions.ConnClosed.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.ConnClosed.Struct.fields]]
+name = "owner"
+field_type = "String"
+
+[[type_definitions.ConnClosed.Struct.fields]]
+name = "handle"
+field_type = "U64"
+
 [type_definitions.Connection.Struct]
 name = "Connection"
 
@@ -356,21 +392,6 @@ field_type = "String"
 [[type_definitions.Connection.Struct.fields]]
 name = "error"
 field_type = "String"
-
-[type_definitions.ConnClosed.Struct]
-name = "ConnClosed"
-
-[[type_definitions.ConnClosed.Struct.fields]]
-name = "id"
-field_type = "U64"
-
-[[type_definitions.ConnClosed.Struct.fields]]
-name = "owner"
-field_type = "String"
-
-[[type_definitions.ConnClosed.Struct.fields]]
-name = "handle"
-field_type = "U64"
 
 [type_definitions.HttpResponse.Struct]
 name = "HttpResponse"
@@ -416,24 +437,3 @@ field_type = "String"
 [[type_definitions.HttpResponse.Struct.fields]]
 name = "final_tls"
 field_type = "Bool"
-
-[type_definitions.Inbound.Struct]
-name = "Inbound"
-
-[[type_definitions.Inbound.Struct.fields]]
-name = "id"
-field_type = "U64"
-
-[[type_definitions.Inbound.Struct.fields]]
-name = "owner"
-field_type = "String"
-
-[[type_definitions.Inbound.Struct.fields]]
-name = "handle"
-field_type = "U64"
-
-[[type_definitions.Inbound.Struct.fields]]
-name = "data"
-
-[type_definitions.Inbound.Struct.fields.field_type]
-Vec = "U8"

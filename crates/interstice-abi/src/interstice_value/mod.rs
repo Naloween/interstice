@@ -37,6 +37,48 @@ pub enum IntersticeValue {
         variant: String,
         value: Box<IntersticeValue>,
     },
+
+    /// A `Vec<u8>`, stored contiguously. Semantically identical to a `Vec` of
+    /// `U8` (it validates against `IntersticeType::Vec(U8)`), but encodes as
+    /// one length + raw bytes instead of one tagged value per byte — the
+    /// difference between ~1 ms and ~250 ms for a 4 MB texture upload.
+    /// Appended last so existing encoded values keep their variant indices.
+    Bytes(#[serde(with = "raw_bytes")] Vec<u8>),
+}
+
+/// (De)serialize a `Vec<u8>` as one byte string instead of a sequence of
+/// `u8`s. Postcard's encoding is identical (varint length + raw bytes); only
+/// the work differs — a memcpy instead of a visitor call per byte.
+mod raw_bytes {
+    use serde::{Deserializer, Serializer, de};
+
+    pub fn serialize<S: Serializer>(bytes: &Vec<u8>, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_bytes(bytes)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        struct V;
+        impl<'de> de::Visitor<'de> for V {
+            type Value = Vec<u8>;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a byte string")
+            }
+            fn visit_bytes<E: de::Error>(self, v: &[u8]) -> Result<Vec<u8>, E> {
+                Ok(v.to_vec())
+            }
+            fn visit_byte_buf<E: de::Error>(self, v: Vec<u8>) -> Result<Vec<u8>, E> {
+                Ok(v)
+            }
+            fn visit_seq<A: de::SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<u8>, A::Error> {
+                let mut out = Vec::with_capacity(seq.size_hint().unwrap_or(0).min(1 << 20));
+                while let Some(b) = seq.next_element()? {
+                    out.push(b);
+                }
+                Ok(out)
+            }
+        }
+        d.deserialize_byte_buf(V)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -67,6 +109,7 @@ impl IntersticeValue {
             IntersticeValue::F64(value) => write!(f, "{value}"),
             IntersticeValue::Bool(value) => write!(f, "{value}"),
             IntersticeValue::String(value) => write!(f, "\"{value}\""),
+            IntersticeValue::Bytes(bytes) => write!(f, "<{} bytes>", bytes.len()),
             IntersticeValue::Vec(values) => {
                 write!(f, "[\n")?;
                 for value in values {

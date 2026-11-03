@@ -1,9 +1,9 @@
 use crate::{
     runtime::transaction::Transaction,
-    runtime::{Runtime, module::Module, reducer::{CallFrameKind, CALL_STACK}},
+    runtime::{Runtime, module::Module, reducer::{CallFrameKind, CALL_STACK}, table::TableOverlay},
 };
 use interstice_abi::{
-    ClearTableRequest, ClearTableResponse, DeleteRowRequest, DeleteRowResponse, InsertRowRequest,
+    ClearTableRequest, ClearTableResponse, IndexKey, DeleteRowRequest, DeleteRowResponse, InsertRowRequest,
     InsertRowResponse, ModuleSchema, ModuleSelection, NodeSelection, ReducerTableRef,
     TableGetByPrimaryKeyRequest, TableGetByPrimaryKeyResponse, TableIndexScanRequest,
     TableIndexScanResponse, TableScanRequest, TableScanResponse, UpdateRowRequest, UpdateRowResponse,
@@ -130,16 +130,44 @@ impl Runtime {
             .ok_or_else(|| "No active call frame".to_string())
     }
 
+    /// Validate a pending write against the frame's merged view (committed
+    /// rows + earlier writes of this call), record it in the overlay and
+    /// queue the transaction. Runs with `table` locked.
+    fn stage_write(
+        table: &crate::runtime::table::Table,
+        table_name: &str,
+        validate: impl FnOnce(&crate::runtime::table::Table, Option<&TableOverlay>) -> Result<(), String>,
+        record: impl FnOnce(&crate::runtime::table::Table, &mut TableOverlay) -> Result<(), String>,
+        transaction: Transaction,
+    ) -> Result<(), String> {
+        CALL_STACK.with(|s| {
+            let mut stack = s.borrow_mut();
+            let frame = stack.last_mut().ok_or("No active call frame")?;
+            if frame.kind == CallFrameKind::Query {
+                return Err("Writes are not allowed in query context".to_string());
+            }
+            validate(table, frame.overlays.get(table_name))?;
+            let ov = frame
+                .overlays
+                .entry(table_name.to_string())
+                .or_insert_with(|| TableOverlay::new(table.version()));
+            record(table, ov)?;
+            frame.transactions.push(transaction);
+            Ok(())
+        })
+    }
+
     pub(crate) fn handle_insert_row(
         &self,
         caller_module_schema: &ModuleSchema,
         insert_row_request: InsertRowRequest,
     ) -> InsertRowResponse {
         let module_name = caller_module_schema.name.clone();
+        let table_name = insert_row_request.table_name;
         let mut row = insert_row_request.row;
         if let Err(err) = self.ensure_current_frame_table_access(
             &ModuleSelection::Current,
-            &insert_row_request.table_name,
+            &table_name,
             TableAccessOp::Insert,
         ) {
             return InsertRowResponse::Err(err);
@@ -151,77 +179,60 @@ impl Runtime {
             Err(e) => return InsertRowResponse::Err(e),
         };
 
-        let has_auto_inc;
-        {
-            let mut tables = module_arc.tables.lock();
-            let table = match tables.get_mut(&insert_row_request.table_name) {
-                Some(table) => table,
-                None => return InsertRowResponse::Err("Table not found".into()),
-            };
+        let tables = module_arc.tables.lock();
+        let table = match tables.get(&table_name) {
+            Some(table) => table,
+            None => return InsertRowResponse::Err("Table not found".into()),
+        };
+        let has_auto_inc = table.has_auto_inc();
 
-            has_auto_inc = table.has_auto_inc();
+        if let Err(detail) = table.schema.validate_row(&row, &caller_module_schema.type_definitions) {
+            return InsertRowResponse::Err(format!(
+                "Invalid row for table '{}' in module '{}': {}",
+                table.schema.name, caller_module_schema.name, detail,
+            ));
+        }
 
-            if let Err(detail) = table.schema.validate_row(&row, &caller_module_schema.type_definitions) {
-                return InsertRowResponse::Err(format!(
-                    "Invalid row for table '{}' in module '{}': {}",
-                    table.schema.name, caller_module_schema.name, detail,
-                ));
-            }
-
-            // Initialise auto-inc snapshot if this is the first insert into this table
-            // in the current reducer call (snapshot creation needs &table, done outside TLS borrow).
-            let needs_snapshot = CALL_STACK.with(|s| {
-                s.borrow()
-                    .last()
-                    .map_or(true, |f| !f.auto_inc_snapshots.contains_key(&insert_row_request.table_name))
-            });
-            if needs_snapshot {
-                let snapshot = table.auto_inc_snapshot();
-                CALL_STACK.with(|s| {
-                    if let Some(f) = s.borrow_mut().last_mut() {
-                        f.auto_inc_snapshots.insert(insert_row_request.table_name.clone(), snapshot);
-                    }
-                });
-            }
-
-            if let Err(err) = CALL_STACK.with(|s| {
+        if has_auto_inc {
+            // The auto-inc snapshot shares the table's atomic counters, so ids
+            // handed out here never collide with concurrent reducers.
+            let res = CALL_STACK.with(|s| {
                 let mut stack = s.borrow_mut();
-                let frame = stack.last_mut().unwrap();
-                let snapshot = frame.auto_inc_snapshots.get(&insert_row_request.table_name).unwrap();
-                table.apply_auto_inc_from_snapshot(&mut row, snapshot)
-            }) {
-                return InsertRowResponse::Err(err.to_string());
-            }
-
-            if let Err(err) = table.validate_insert(&row) {
-                return InsertRowResponse::Err(err.to_string());
+                let frame = stack.last_mut().ok_or("No active call frame".to_string())?;
+                let snapshot = frame
+                    .auto_inc_snapshots
+                    .entry(table_name.clone())
+                    .or_insert_with(|| table.auto_inc_snapshot());
+                table
+                    .apply_auto_inc_from_snapshot(&mut row, snapshot)
+                    .map_err(|e| e.to_string())
+            });
+            if let Err(err) = res {
+                return InsertRowResponse::Err(err);
             }
         }
 
-        CALL_STACK.with(|s| {
-            let mut stack = s.borrow_mut();
-            let reducer_frame = stack.last_mut().unwrap();
-            if reducer_frame.kind == CallFrameKind::Query {
-                return InsertRowResponse::Err("Insert not allowed in query context".into());
-            }
-
-            if has_auto_inc {
-                let resp_row = row.clone();
-                reducer_frame.transactions.push(Transaction::Insert {
-                    module_name,
-                    table_name: insert_row_request.table_name,
-                    new_row: row,
-                });
-                InsertRowResponse::Ok(Some(resp_row))
-            } else {
-                reducer_frame.transactions.push(Transaction::Insert {
-                    module_name,
-                    table_name: insert_row_request.table_name,
-                    new_row: row,
-                });
-                InsertRowResponse::Ok(None)
-            }
-        })
+        let pk = match IndexKey::try_from(&row.primary_key) {
+            Ok(pk) => pk,
+            Err(err) => return InsertRowResponse::Err(err),
+        };
+        let resp_row = has_auto_inc.then(|| row.clone());
+        let staged_row = row.clone();
+        let result = Self::stage_write(
+            table,
+            &table_name,
+            |t, ov| t.ov_validate_insert(ov, &row).map_err(|e| e.to_string()),
+            |t, ov| t.ov_record(ov, pk, Some(staged_row)).map_err(|e| e.to_string()),
+            Transaction::Insert {
+                module_name,
+                table_name: table_name.clone(),
+                new_row: row.clone(),
+            },
+        );
+        match result {
+            Ok(()) => InsertRowResponse::Ok(resp_row),
+            Err(err) => InsertRowResponse::Err(err),
+        }
     }
 
     pub(crate) fn handle_update_row(
@@ -230,51 +241,54 @@ impl Runtime {
         update_row_request: UpdateRowRequest,
     ) -> UpdateRowResponse {
         let module_name = caller_module_schema.name.clone();
+        let table_name = update_row_request.table_name;
+        let row = update_row_request.row;
         if let Err(err) = self.ensure_current_frame_table_access(
             &ModuleSelection::Current,
-            &update_row_request.table_name,
+            &table_name,
             TableAccessOp::Update,
         ) {
             return UpdateRowResponse::Err(err);
         }
+        let module_arc = match self.current_frame_module_arc() {
+            Ok(m) => m,
+            Err(e) => return UpdateRowResponse::Err(e),
+        };
+        let tables = module_arc.tables.lock();
+        let table = match tables.get(&table_name) {
+            Some(table) => table,
+            None => return UpdateRowResponse::Err("Table not found".into()),
+        };
+        // validate_row via the table's own schema — avoids a linear schema scan.
+        if let Err(detail) = table
+            .schema
+            .validate_row(&row, &caller_module_schema.type_definitions)
         {
-            let module_arc = match self.current_frame_module_arc() {
-                Ok(m) => m,
-                Err(e) => return UpdateRowResponse::Err(e),
-            };
-            let tables = module_arc.tables.lock();
-            let table = match tables.get(&update_row_request.table_name) {
-                Some(table) => table,
-                None => return UpdateRowResponse::Err("Table not found".into()),
-            };
-            // validate_row via the table's own schema — avoids a linear schema scan.
-            if let Err(detail) = table.schema.validate_row(
-                &update_row_request.row,
-                &caller_module_schema.type_definitions,
-            ) {
-                return UpdateRowResponse::Err(format!(
-                    "Invalid row for table '{}' in module '{}': {}",
-                    table.schema.name, caller_module_schema.name, detail,
-                ));
-            }
-            if let Err(err) = table.validate_update(&update_row_request.row) {
-                return UpdateRowResponse::Err(err.to_string());
-            }
+            return UpdateRowResponse::Err(format!(
+                "Invalid row for table '{}' in module '{}': {}",
+                table.schema.name, caller_module_schema.name, detail,
+            ));
         }
-
-        CALL_STACK.with(|s| {
-            let mut stack = s.borrow_mut();
-            let reducer_frame = stack.last_mut().unwrap();
-            if reducer_frame.kind == CallFrameKind::Query {
-                return UpdateRowResponse::Err("Update not allowed in query context".into());
-            }
-            reducer_frame.transactions.push(Transaction::Update {
+        let pk = match IndexKey::try_from(&row.primary_key) {
+            Ok(pk) => pk,
+            Err(err) => return UpdateRowResponse::Err(err),
+        };
+        let staged_row = row.clone();
+        let result = Self::stage_write(
+            table,
+            &table_name,
+            |t, ov| t.ov_validate_update(ov, &row).map_err(|e| e.to_string()),
+            |t, ov| t.ov_record(ov, pk, Some(staged_row)).map_err(|e| e.to_string()),
+            Transaction::Update {
                 module_name,
-                table_name: update_row_request.table_name,
-                update_row: update_row_request.row,
-            });
-            UpdateRowResponse::Ok
-        })
+                table_name: table_name.clone(),
+                update_row: row.clone(),
+            },
+        );
+        match result {
+            Ok(()) => UpdateRowResponse::Ok,
+            Err(err) => UpdateRowResponse::Err(err),
+        }
     }
 
     pub(crate) fn handle_delete_row(
@@ -283,41 +297,39 @@ impl Runtime {
         delete_row_request: DeleteRowRequest,
     ) -> DeleteRowResponse {
         let module_name = caller_module_name;
+        let table_name = delete_row_request.table_name;
+        let pk = delete_row_request.primary_key;
         if let Err(err) = self.ensure_current_frame_table_access(
             &ModuleSelection::Current,
-            &delete_row_request.table_name,
+            &table_name,
             TableAccessOp::Delete,
         ) {
             return DeleteRowResponse::Err(err);
         }
-        {
-            let module_arc = match self.current_frame_module_arc() {
-                Ok(m) => m,
-                Err(e) => return DeleteRowResponse::Err(e),
-            };
-            let tables = module_arc.tables.lock();
-            let table = match tables.get(&delete_row_request.table_name) {
-                Some(table) => table,
-                None => return DeleteRowResponse::Err("Table not found".into()),
-            };
-            if let Err(err) = table.validate_delete(&delete_row_request.primary_key) {
-                return DeleteRowResponse::Err(err.to_string());
-            }
-        }
-
-        CALL_STACK.with(|s| {
-            let mut stack = s.borrow_mut();
-            let reducer_frame = stack.last_mut().unwrap();
-            if reducer_frame.kind == CallFrameKind::Query {
-                return DeleteRowResponse::Err("Delete not allowed in query context".into());
-            }
-            reducer_frame.transactions.push(Transaction::Delete {
+        let module_arc = match self.current_frame_module_arc() {
+            Ok(m) => m,
+            Err(e) => return DeleteRowResponse::Err(e),
+        };
+        let tables = module_arc.tables.lock();
+        let table = match tables.get(&table_name) {
+            Some(table) => table,
+            None => return DeleteRowResponse::Err("Table not found".into()),
+        };
+        let result = Self::stage_write(
+            table,
+            &table_name,
+            |t, ov| t.ov_validate_delete(ov, &pk).map_err(|e| e.to_string()),
+            |t, ov| t.ov_record(ov, pk.clone(), None).map_err(|e| e.to_string()),
+            Transaction::Delete {
                 module_name,
-                table_name: delete_row_request.table_name,
-                deleted_row_id: delete_row_request.primary_key,
-            });
-            DeleteRowResponse::Ok
-        })
+                table_name: table_name.clone(),
+                deleted_row_id: pk.clone(),
+            },
+        );
+        match result {
+            Ok(()) => DeleteRowResponse::Ok,
+            Err(err) => DeleteRowResponse::Err(err),
+        }
     }
 
     pub(crate) fn handle_clear_table(
@@ -339,28 +351,48 @@ impl Runtime {
         ) {
             return ClearTableResponse::Err(err);
         }
-        {
-            let module_arc = match self.current_frame_module_arc() {
-                Ok(m) => m,
-                Err(e) => return ClearTableResponse::Err(e),
-            };
-            let tables = module_arc.tables.lock();
-            if !tables.contains_key(&request.table_name) {
-                return ClearTableResponse::Err("Table not found".into());
-            }
-        }
-
-        CALL_STACK.with(|s| {
-            let mut stack = s.borrow_mut();
-            let reducer_frame = stack.last_mut().unwrap();
-            if reducer_frame.kind == CallFrameKind::Query {
-                return ClearTableResponse::Err("Clear not allowed in query context".into());
-            }
-            reducer_frame.transactions.push(Transaction::Clear {
+        let module_arc = match self.current_frame_module_arc() {
+            Ok(m) => m,
+            Err(e) => return ClearTableResponse::Err(e),
+        };
+        let tables = module_arc.tables.lock();
+        let table = match tables.get(&request.table_name) {
+            Some(table) => table,
+            None => return ClearTableResponse::Err("Table not found".into()),
+        };
+        let result = Self::stage_write(
+            table,
+            &request.table_name,
+            |_, _| Ok(()),
+            |t, ov| {
+                t.ov_record_clear(ov);
+                Ok(())
+            },
+            Transaction::Clear {
                 module_name,
-                table_name: request.table_name,
-            });
-            ClearTableResponse::Ok
+                table_name: request.table_name.clone(),
+            },
+        );
+        match result {
+            Ok(()) => ClearTableResponse::Ok,
+            Err(err) => ClearTableResponse::Err(err),
+        }
+    }
+
+    /// Run `f` with the current frame's overlay for `module_name.table_name`
+    /// (only the frame's own module has pending writes).
+    fn with_overlay<R>(
+        module_name: &str,
+        table_name: &str,
+        f: impl FnOnce(Option<&TableOverlay>) -> R,
+    ) -> R {
+        CALL_STACK.with(|s| {
+            let stack = s.borrow();
+            let ov = stack
+                .last()
+                .filter(|frame| frame.module == module_name)
+                .and_then(|frame| frame.overlays.get(table_name));
+            f(ov)
         })
     }
 
@@ -401,8 +433,11 @@ impl Runtime {
             None => return TableScanResponse::Err("Table not found".into()),
         };
 
-        TableScanResponse::Ok {
-            rows: table.scan().to_vec(),
+        match Self::with_overlay(&module_name, &table_scan_request.table_name, |ov| {
+            table.ov_scan(ov)
+        }) {
+            Ok(rows) => TableScanResponse::Ok { rows },
+            Err(err) => TableScanResponse::Err(err.to_string()),
         }
     }
 
@@ -442,7 +477,9 @@ impl Runtime {
                 Some(table) => table,
                 None => return TableGetByPrimaryKeyResponse::Err("Table not found".into()),
             };
-            table.get_by_primary_key(&request.primary_key).cloned()
+            Self::with_overlay(&module_name, &request.table_name, |ov| {
+                table.ov_get(ov, &request.primary_key).cloned()
+            })
         };
 
         TableGetByPrimaryKeyResponse::Ok(row)
@@ -485,10 +522,10 @@ impl Runtime {
                 None => return TableIndexScanResponse::Err("Table not found".into()),
             };
 
-            match table.get_by_index(&request.field_name, &request.query) {
-                Ok(rows) => Ok(rows.into_iter().cloned().collect::<Vec<_>>()),
-                Err(err) => Err(err.to_string()),
-            }
+            Self::with_overlay(&module_name, &request.table_name, |ov| {
+                table.ov_index_scan(ov, &request.field_name, &request.query)
+            })
+            .map_err(|err| err.to_string())
         };
 
         match rows {

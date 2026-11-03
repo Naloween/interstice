@@ -1,7 +1,6 @@
-abi_version = 6
+abi_version = 8
 name = "input"
 visibility = "Private"
-reducers = []
 queries = []
 subscriptions = []
 authorities = ["Input"]
@@ -14,6 +13,29 @@ major = 0
 minor = 1
 patch = 0
 
+[[reducers]]
+name = "set_keyboard_layout"
+deletes = []
+
+[[reducers.arguments]]
+name = "name"
+field_type = "String"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "keyboardlayout"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "keyboardlayout"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "keyboardlayout"
+
 [[tables]]
 name = "keystate"
 type_name = "KeyState"
@@ -25,6 +47,14 @@ persistence = "Ephemeral"
 [[tables.fields]]
 name = "pressed"
 field_type = "Bool"
+
+[[tables.fields]]
+name = "key"
+field_type = "String"
+
+[[tables.fields]]
+name = "text"
+field_type = "String"
 
 [tables.primary_key]
 name = "code"
@@ -71,6 +101,22 @@ name = "button_id"
 field_type = "U32"
 
 [[tables]]
+name = "keyboardlayout"
+type_name = "KeyboardLayout"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Stateful"
+
+[[tables.fields]]
+name = "name"
+field_type = "String"
+
+[tables.primary_key]
+name = "id"
+field_type = "U32"
+
+[[tables]]
 name = "textinputbuffer"
 type_name = "TextInputBuffer"
 visibility = "Public"
@@ -85,17 +131,6 @@ field_type = "String"
 [tables.primary_key]
 name = "id"
 field_type = "U32"
-
-[type_definitions.TextInputBuffer.Struct]
-name = "TextInputBuffer"
-
-[[type_definitions.TextInputBuffer.Struct.fields]]
-name = "id"
-field_type = "U32"
-
-[[type_definitions.TextInputBuffer.Struct.fields]]
-name = "character"
-field_type = "String"
 
 [type_definitions.MouseState.Struct]
 name = "MouseState"
@@ -127,6 +162,14 @@ field_type = "U32"
 name = "pressed"
 field_type = "Bool"
 
+[[type_definitions.KeyState.Struct.fields]]
+name = "key"
+field_type = "String"
+
+[[type_definitions.KeyState.Struct.fields]]
+name = "text"
+field_type = "String"
+
 [type_definitions.MouseButton.Struct]
 name = "MouseButton"
 
@@ -137,3 +180,25 @@ field_type = "U32"
 [[type_definitions.MouseButton.Struct.fields]]
 name = "pressed"
 field_type = "Bool"
+
+[type_definitions.KeyboardLayout.Struct]
+name = "KeyboardLayout"
+
+[[type_definitions.KeyboardLayout.Struct.fields]]
+name = "id"
+field_type = "U32"
+
+[[type_definitions.KeyboardLayout.Struct.fields]]
+name = "name"
+field_type = "String"
+
+[type_definitions.TextInputBuffer.Struct]
+name = "TextInputBuffer"
+
+[[type_definitions.TextInputBuffer.Struct.fields]]
+name = "id"
+field_type = "U32"
+
+[[type_definitions.TextInputBuffer.Struct.fields]]
+name = "character"
+field_type = "String"

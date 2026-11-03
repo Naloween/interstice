@@ -46,6 +46,10 @@ pub fn validate_value_detailed(
         IntersticeValue::String(_) => {
             if let IntersticeType::String = ty { Ok(()) } else { Err(format!("expected String, got {:?}", ty)) }
         }
+        IntersticeValue::Bytes(_) => match ty {
+            IntersticeType::Vec(inner) if matches!(**inner, IntersticeType::U8) => Ok(()),
+            _ => Err(format!("expected Vec<u8>, got {:?}", ty)),
+        },
         IntersticeValue::Vec(v) => {
             if let IntersticeType::Vec(inner) = ty {
                 for (i, x) in v.iter().enumerate() {

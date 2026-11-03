@@ -192,6 +192,99 @@ where
     ));
 }
 
+/// Overwrite a sub-rectangle `(x, y, width, height)` of an existing texture
+/// owned by the caller with tightly-packed `bytes`. Lets a module stream a
+/// CPU-rasterised image (e.g. a browser page) into one persistent texture
+/// instead of destroying and re-creating it every time it changes.
+#[reducer]
+pub fn update_texture<Caps>(
+    ctx: ReducerContext<Caps>,
+    local_id: String,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    bytes: Vec<u8>,
+) where
+    Caps: CanRead<TextureBinding>,
+{
+    let key = namespaced_key(&ctx, &local_id);
+    let Some(binding) = ctx.current.tables.texturebinding().get(key) else {
+        ctx.log(&format!("update_texture: no texture '{}' for caller", local_id));
+        return;
+    };
+    if width == 0 || height == 0 || x + width > binding.width || y + height > binding.height {
+        ctx.log("update_texture: region out of bounds");
+        return;
+    }
+    let format = match parse_texture_format(&binding.format) {
+        Ok(f) => f,
+        Err(e) => {
+            ctx.log(&e);
+            return;
+        }
+    };
+    let bpp = bytes_per_pixel(format);
+    if bytes.len() != (width * height * bpp) as usize {
+        ctx.log("update_texture: data size mismatch");
+        return;
+    }
+    if let Err(e) = upload_region(&ctx, binding.gpu_id, bpp, x, y, width, height, &bytes) {
+        ctx.log(&format!("update_texture failed: {e}"));
+    }
+}
+
+/// Copy tightly-packed pixels into `texture` at `(x, y)` via a staging buffer
+/// (rows padded to wgpu's 256-byte `bytes_per_row` alignment).
+#[allow(clippy::too_many_arguments)]
+fn upload_region<Caps>(
+    ctx: &ReducerContext<Caps>,
+    texture: u32,
+    bpp: u32,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    bytes: &[u8],
+) -> Result<(), String> {
+    let gpu = ctx.gpu();
+    const ALIGN: u32 = 256;
+    let unpadded_row = width * bpp;
+    let padded_row = unpadded_row.div_ceil(ALIGN) * ALIGN;
+    let staged: Vec<u8> = if padded_row == unpadded_row {
+        bytes.to_vec()
+    } else {
+        let urow = unpadded_row as usize;
+        let prow = padded_row as usize;
+        let mut buf = vec![0u8; prow * height as usize];
+        for r in 0..height as usize {
+            buf[r * prow..r * prow + urow].copy_from_slice(&bytes[r * urow..r * urow + urow]);
+        }
+        buf
+    };
+    let staging = gpu.create_buffer(
+        staged.len() as u64,
+        BufferUsage::COPY_SRC | BufferUsage::COPY_DST,
+        false,
+    )?;
+    gpu.write_buffer(staging, 0, staged)?;
+    let encoder = gpu.create_command_encoder()?;
+    gpu.copy_buffer_to_texture(CopyBufferToTexture {
+        encoder,
+        src_buffer: staging,
+        src_offset: 0,
+        bytes_per_row: padded_row,
+        rows_per_image: height,
+        dst_texture: texture,
+        mip_level: 0,
+        origin: [x, y, 0],
+        extent: [width, height, 1],
+    })?;
+    gpu.submit(encoder)?;
+    let _ = gpu.destroy_buffer(staging);
+    Ok(())
+}
+
 fn allocate_texture<Caps>(
     ctx: &ReducerContext<Caps>,
     desc: &TextureDescriptorInput,

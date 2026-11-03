@@ -9,3 +9,12 @@ interstice-sdk = { path = "crates/interstice-sdk" }
 interstice-sdk-core = { path = "crates/interstice-sdk-core" }
 interstice-sdk-macros = { path = "crates/interstice-sdk-macros" }
 interstice-ui = { path = "crates/interstice-ui" }
+# blitz-dom → web-time, which on wasm32 calls into JS via wasm-bindgen (no JS
+# host here). The vendored shim keeps the same API but reads a clock the
+# browser module advances from `time_now_ms` each frame.
+web-time = { path = "vendor/web-time" }
+# blitz-dom 0.3.0-beta.4 with one layout fix (search "interstice patch"): a
+# table's specified width acts as a minimum, as CSS 2.1 §17.5.2 requires
+# (used width = max(width, min-content)), instead of a fixed size that its
+# content overflows (e.g. Wikipedia infoboxes).
+blitz-dom = { path = "vendor/blitz-dom" }
