@@ -168,7 +168,11 @@ where
 }
 
 #[reducer(on = "graphics.frametick.update")]
-pub fn on_frame<Caps>(ctx: ReducerContext<Caps>, _prev: FrameTick, _tick: FrameTick)
+pub fn on_frame<Caps>(
+    ctx: ReducerContext<Caps>,
+    _prev: FrameTick,
+    _tick: FrameTick,
+) -> Result<(), String>
 where
     Caps: CanRead<Window>
         + CanUpdate<Window>
@@ -187,11 +191,11 @@ where
     // the real screen size — surface 0 is 0×0 until the first render.
     let info = match ctx.graphics().queries.surface_info() {
         Ok(info) => info,
-        Err(_) => return,
+        Err(_) => return Ok(()),
     };
     let (sw, sh) = (info.width as f32, info.height as f32);
     if sw < 1.0 || sh < 1.0 {
-        return;
+        return Ok(());
     }
 
     // --- Read input + derive click edges -----------------------------------
@@ -199,21 +203,21 @@ where
         .input()
         .tables
         .mousestate()
-        .get(0)
+        .get(0)?
         .map(|m| m.position)
         .unwrap_or((0.0, 0.0));
     let left_down = ctx
         .input()
         .tables
         .mousebutton()
-        .get(0)
+        .get(0)?
         .map(|b| b.pressed)
         .unwrap_or(false);
     let prev_down = ctx
         .current
         .tables
         .prevmouse()
-        .get(0)
+        .get(0)?
         .map(|p| p.left_down)
         .unwrap_or(false);
     let pressed_edge = left_down && !prev_down;
@@ -223,7 +227,7 @@ where
         .current
         .tables
         .desktopstate()
-        .get(0)
+        .get(0)?
         .unwrap_or(DesktopState {
             id: 0,
             show_launcher: true,
@@ -234,7 +238,7 @@ where
         .current
         .tables
         .interaction()
-        .get(0)
+        .get(0)?
         .unwrap_or(Interaction {
             id: 0,
             mode: 0,
@@ -247,7 +251,7 @@ where
     // (avoids multiple updates of the same row within one reducer run). `existing`
     // records which ids were already committed so the writeback inserts freshly
     // opened windows and updates the rest.
-    let mut windows: Vec<Window> = ctx.current.tables.window().scan();
+    let mut windows: Vec<Window> = ctx.current.tables.window().scan()?;
     let existing: std::collections::HashSet<u32> = windows.iter().map(|w| w.id).collect();
 
     // --- Continuous drag / resize (while the button is held) ----------------
@@ -651,6 +655,7 @@ where
         id: 0,
         left_down,
     });
+    Ok(())
 }
 
 #[reducer]

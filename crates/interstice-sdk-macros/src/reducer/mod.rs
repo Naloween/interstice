@@ -106,14 +106,17 @@ pub fn reducer_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    let returns_unit = match &input_fn.sig.output {
-        syn::ReturnType::Default => true,
-        syn::ReturnType::Type(_, ty) => {
-            matches!(ty.as_ref(), syn::Type::Tuple(t) if t.elems.is_empty())
+    // Reducers return `()` or `Result<(), E: Display>` (checked through
+    // `interstice_sdk::ReducerOutcome` in the wrapper); an `Err` aborts the call.
+    if let syn::ReturnType::Type(_, ty) = &input_fn.sig.output {
+        let ok = match ty.as_ref() {
+            syn::Type::Tuple(t) => t.elems.is_empty(),
+            syn::Type::Path(p) => p.path.segments.last().is_some_and(|s| s.ident == "Result"),
+            _ => false,
+        };
+        if !ok {
+            return quote! {compile_error!("Reducers return `()` or `Result<(), E>`. Use #[query] for read-only return values.");}.into();
         }
-    };
-    if !returns_unit {
-        return quote! {compile_error!("Reducers must not return a value. Use #[query] for read-only return values.");}.into();
     }
 
     let attributes: syn::punctuated::Punctuated<Meta, syn::Token![,]> = if attr.is_empty() {

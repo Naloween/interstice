@@ -65,17 +65,25 @@ where
     if let Err(err) = render_inner(&ctx) {
         ctx.log(&format!("Render failed: {}", err));
     }
-    bump_frame_tick(&ctx);
+    if let Err(err) = bump_frame_tick(&ctx) {
+        ctx.log(&format!("Failed to bump frame tick: {}", err));
+    }
     clear_commands_tables(&ctx);
 }
 
-fn bump_frame_tick<Caps>(ctx: &ReducerContext<Caps>)
+fn bump_frame_tick<Caps>(ctx: &ReducerContext<Caps>) -> Result<(), String>
 where
     Caps: CanRead<FrameTick> + CanUpdate<FrameTick>,
 {
-    let mut row = ctx.current.tables.frametick().get(0).unwrap();
+    let mut row = ctx
+        .current
+        .tables
+        .frametick()
+        .get(0)?
+        .ok_or_else(|| "frame tick row missing".to_string())?;
     row.frame = row.frame.saturating_add(1);
     let _ = ctx.current.tables.frametick().update(row);
+    Ok(())
 }
 
 fn render_inner<Caps>(ctx: &ReducerContext<Caps>) -> Result<(), String>
@@ -101,7 +109,7 @@ where
 
     let (surface_width, surface_height) = gpu.get_surface_size()?;
 
-    if let Some(mut info) = ctx.current.tables.surfaceinfo().get(SWAPCHAIN_SURFACE_ID) {
+    if let Some(mut info) = ctx.current.tables.surfaceinfo().get(SWAPCHAIN_SURFACE_ID)? {
         info.width = surface_width;
         info.height = surface_height;
         let _ = ctx.current.tables.surfaceinfo().update(info);
@@ -120,10 +128,10 @@ where
     })?;
     let surface_view = SurfaceViewGuard::new(ctx.gpu(), surface_view_id);
 
-    let mut layers = ctx.current.tables.layer().scan();
+    let mut layers = ctx.current.tables.layer().scan()?;
     layers.sort_by_key(|layer| layer.z);
 
-    let draw_rows = ctx.current.tables.draw2dcommand().scan();
+    let draw_rows = ctx.current.tables.draw2dcommand().scan()?;
     let mut commands_by_layer: HashMap<String, Vec<Draw2DCommand>> = HashMap::new();
     for row in draw_rows {
         // Queue any not-yet-baked characters (CJK etc.) this frame's text uses so
@@ -146,7 +154,7 @@ where
         .current
         .tables
         .surfaceassignment()
-        .scan()
+        .scan()?
         .into_iter()
         .map(|a| (a.module_name, a.surface_id))
         .collect();
@@ -173,7 +181,7 @@ where
     // layers this frame). `surface_views` maps each surface id to its view for
     // draw_surface to bind.
     let mut surface_views: HashMap<u32, u32> = HashMap::new();
-    for mut target in ctx.current.tables.surfacetarget().scan() {
+    for mut target in ctx.current.tables.surfacetarget().scan()? {
         let view_id = ensure_surface_view(&gpu, surface_format, &mut target)?;
         let _ = ctx.current.tables.surfacetarget().update(target.clone());
         surface_views.insert(target.id, view_id);
@@ -250,11 +258,11 @@ where
     // Queue next frame so render continues
     let _ = gpu.request_redraw();
 
-    let render_passes = ctx.current.tables.renderpasscommand().scan();
+    let render_passes = ctx.current.tables.renderpasscommand().scan()?;
     if !render_passes.is_empty() {
         ctx.log("Render pass submissions are queued but not executed yet");
     }
-    let compute_passes = ctx.current.tables.computecommand().scan();
+    let compute_passes = ctx.current.tables.computecommand().scan()?;
     if !compute_passes.is_empty() {
         ctx.log("Compute submissions are queued but not executed yet");
     }
@@ -407,31 +415,22 @@ fn ensure_pipelines<Caps>(
 where
     Caps: CanRead<RendererCache> + CanInsert<RendererCache> + CanUpdate<RendererCache>,
 {
-    let existed = ctx
-        .current
-        .tables
-        .renderercache()
-        .get(RENDERER_CACHE_KEY)
-        .is_some();
-    let mut cache = ctx
-        .current
-        .tables
-        .renderercache()
-        .get(RENDERER_CACHE_KEY)
-        .unwrap_or(RendererCache {
-            id: RENDERER_CACHE_KEY,
-            surface_format: None,
-            shader_module: None,
-            pipeline_layout: None,
-            pipeline_id: None,
-            tex_shader_module: None,
-            tex_pipeline_layout: None,
-            tex_bind_group_layout: None,
-            tex_pipeline_id: None,
-            sampler: None,
-            glyph_atlas_textures: Vec::new(),
-            glyph_atlas_views: Vec::new(),
-        });
+    let existing = ctx.current.tables.renderercache().get(RENDERER_CACHE_KEY)?;
+    let existed = existing.is_some();
+    let mut cache = existing.unwrap_or(RendererCache {
+        id: RENDERER_CACHE_KEY,
+        surface_format: None,
+        shader_module: None,
+        pipeline_layout: None,
+        pipeline_id: None,
+        tex_shader_module: None,
+        tex_pipeline_layout: None,
+        tex_bind_group_layout: None,
+        tex_pipeline_id: None,
+        sampler: None,
+        glyph_atlas_textures: Vec::new(),
+        glyph_atlas_views: Vec::new(),
+    });
 
     let format_label = format_label(format);
     let mut dirty = false;
@@ -965,7 +964,7 @@ where
         payload.texture.owner_node_id.clone(),
         payload.texture.local_id.clone(),
     );
-    let Some(binding) = ctx.current.tables.texturebinding().get(key) else {
+    let Some(binding) = ctx.current.tables.texturebinding().get(key)? else {
         ctx.log("Skipping draw_image: texture binding not found");
         return Ok(());
     };
@@ -1064,12 +1063,12 @@ where
         payload.pipeline.local_id.clone(),
     );
 
-    let Some(mesh) = ctx.current.tables.meshbinding().get(mesh_key) else {
+    let Some(mesh) = ctx.current.tables.meshbinding().get(mesh_key)? else {
         ctx.log("Skipping mesh draw: mesh binding not found");
         return Ok(());
     };
 
-    let Some(pipeline_binding) = ctx.current.tables.pipelinebinding().get(pipeline_key) else {
+    let Some(pipeline_binding) = ctx.current.tables.pipelinebinding().get(pipeline_key)? else {
         ctx.log("Skipping mesh draw: pipeline binding not found");
         return Ok(());
     };

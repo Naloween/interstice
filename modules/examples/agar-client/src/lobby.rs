@@ -277,7 +277,12 @@ where
     ui::set_focus(ctx, UI_LOBBY_INPUT);
 }
 
-pub fn handle_lobby_input<Caps>(ctx: &ReducerContext<Caps>, cs: &mut ClientState, sw: f32, sh: f32)
+pub fn handle_lobby_input<Caps>(
+    ctx: &ReducerContext<Caps>,
+    cs: &mut ClientState,
+    sw: f32,
+    sh: f32,
+) -> Result<(), String>
 where
     Caps: CanRead<ClientState>
         + CanUpdate<ClientState>
@@ -287,16 +292,22 @@ where
         + CanUpdate<ui::InputFocus>,
 {
     // Check Enter or NumpadEnter to submit.
-    let key_states = ctx.input().tables.keystate().scan();
+    let key_states = ctx.input().tables.keystate().scan()?;
     let enter_pressed = key_states.iter().any(|k| {
         k.pressed && (k.code == KeyCode::Enter as u32 || k.code == KeyCode::NumpadEnter as u32)
     });
     if enter_pressed {
-        start_game(ctx, cs, sw, sh);
+        start_game(ctx, cs, sw, sh)?;
     }
+    Ok(())
 }
 
-fn start_game<Caps>(ctx: &ReducerContext<Caps>, cs: &mut ClientState, _sw: f32, _sh: f32)
+fn start_game<Caps>(
+    ctx: &ReducerContext<Caps>,
+    cs: &mut ClientState,
+    _sw: f32,
+    _sh: f32,
+) -> Result<(), String>
 where
     Caps: CanRead<ClientState>
         + CanUpdate<ClientState>
@@ -309,7 +320,7 @@ where
         .current
         .tables
         .uielement()
-        .get(UI_LOBBY_INPUT.to_string())
+        .get(UI_LOBBY_INPUT.to_string())?
         .and_then(|el| el.text)
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty())
@@ -318,16 +329,17 @@ where
     let server = ctx.agar_server_example().agar_server();
     if let Err(err) = server.reducers.join(name) {
         ctx.log(&format!("join failed: {err}"));
-        return;
+        return Ok(());
     }
 
     // Clear focus BEFORE clearing elements so the render pass doesn't try to
     // update the focused (now-deleted) lobby input element on subsequent frames.
     ui::clear_focus(ctx);
-    ui::clear_elements(ctx);
+    ui::clear_elements(ctx)?;
     build_hud_ui(ctx);
 
     cs.state = GameState::InGame;
     cs.zoom = BASE_ZOOM;
     cs.target_zoom = BASE_ZOOM;
+    Ok(())
 }

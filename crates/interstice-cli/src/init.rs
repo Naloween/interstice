@@ -126,7 +126,7 @@ fn on_greeting_insert(ctx: ReducerContext, inserted_row: Greetings) {
 }
 
 #[query]
-fn get_greetings<Caps>(ctx: QueryContext<Caps>) -> Vec<Greetings>
+fn get_greetings<Caps>(ctx: QueryContext<Caps>) -> Result<Vec<Greetings>, String>
 where
     Caps: CanRead<Greetings>,
 {

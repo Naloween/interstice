@@ -26,12 +26,13 @@ pub fn create_texture<Caps>(
     local_id: String,
     desc: TextureDescriptorInput,
     bytes: Vec<u8>,
-) where
+) -> Result<(), String>
+where
     Caps: CanRead<TextureBinding> + CanInsert<TextureBinding>,
 {
     if desc.width == 0 || desc.height == 0 {
         ctx.log("Texture dimensions must be greater than zero");
-        return;
+        return Ok(());
     }
 
     let key = namespaced_key(&ctx, &local_id);
@@ -39,14 +40,14 @@ pub fn create_texture<Caps>(
         .current
         .tables
         .texturebinding()
-        .get(key.clone())
+        .get(key.clone())?
         .is_some()
     {
         ctx.log(&format!(
             "Texture '{}' already exists for this caller",
             local_id
         ));
-        return;
+        return Ok(());
     }
 
     match allocate_texture(&ctx, &desc, &bytes) {
@@ -64,22 +65,27 @@ pub fn create_texture<Caps>(
         }
         Err(err) => ctx.log(&format!("Texture allocation failed: {}", err)),
     }
+    Ok(())
 }
 
 #[reducer]
-pub fn create_mesh<Caps>(ctx: ReducerContext<Caps>, local_id: String, mesh: MeshDescriptor)
+pub fn create_mesh<Caps>(
+    ctx: ReducerContext<Caps>,
+    local_id: String,
+    mesh: MeshDescriptor,
+) -> Result<(), String>
 where
     Caps: CanRead<MeshBinding> + CanInsert<MeshBinding>,
 {
     if mesh.vertices.is_empty() {
         ctx.log("Mesh must include at least one vertex");
-        return;
+        return Ok(());
     }
 
     let key = namespaced_key(&ctx, &local_id);
-    if ctx.current.tables.meshbinding().get(key.clone()).is_some() {
+    if ctx.current.tables.meshbinding().get(key.clone())?.is_some() {
         ctx.log(&format!("Mesh '{}' already exists", local_id));
-        return;
+        return Ok(());
     }
 
     match allocate_mesh(&ctx, key.clone(), &mesh) {
@@ -90,6 +96,7 @@ where
         }
         Err(err) => ctx.log(&format!("Mesh allocation failed: {}", err)),
     }
+    Ok(())
 }
 
 #[reducer]
@@ -97,7 +104,8 @@ pub fn create_pipeline<Caps>(
     ctx: ReducerContext<Caps>,
     local_id: String,
     descriptor: PipelineDescriptorInput,
-) where
+) -> Result<(), String>
+where
     Caps: CanRead<PipelineBinding> + CanInsert<PipelineBinding>,
 {
     let key = namespaced_key(&ctx, &local_id);
@@ -105,11 +113,11 @@ pub fn create_pipeline<Caps>(
         .current
         .tables
         .pipelinebinding()
-        .get(key.clone())
+        .get(key.clone())?
         .is_some()
     {
         ctx.log(&format!("Pipeline '{}' already exists", local_id));
-        return;
+        return Ok(());
     }
     match allocate_render_pipeline(&ctx, &descriptor) {
         Ok((shader_module_id, pipeline_layout_id, pipeline_id)) => {
@@ -128,6 +136,7 @@ pub fn create_pipeline<Caps>(
             ctx.log(&format!("Pipeline creation failed: {}", err));
         }
     }
+    Ok(())
 }
 
 #[reducer]
@@ -135,7 +144,8 @@ pub fn create_bind_group<Caps>(
     ctx: ReducerContext<Caps>,
     local_id: String,
     descriptor: BindGroupDescriptorInput,
-) where
+) -> Result<(), String>
+where
     Caps: CanRead<BindGroupBinding> + CanInsert<BindGroupBinding>,
 {
     let key = namespaced_key(&ctx, &local_id);
@@ -143,11 +153,11 @@ pub fn create_bind_group<Caps>(
         .current
         .tables
         .bindgroupbinding()
-        .get(key.clone())
+        .get(key.clone())?
         .is_some()
     {
         ctx.log(&format!("Bind group '{}' already exists", local_id));
-        return;
+        return Ok(());
     }
     let row = BindGroupBinding {
         key,
@@ -159,10 +169,11 @@ pub fn create_bind_group<Caps>(
     } else {
         ctx.log("Stored bind group descriptor (GPU allocation not implemented yet)");
     }
+    Ok(())
 }
 
 #[reducer]
-pub fn destroy_resource<Caps>(ctx: ReducerContext<Caps>, local_id: String)
+pub fn destroy_resource<Caps>(ctx: ReducerContext<Caps>, local_id: String) -> Result<(), String>
 where
     Caps: CanRead<TextureBinding>
         + CanRead<MeshBinding>
@@ -174,22 +185,23 @@ where
         + CanDelete<BindGroupBinding>,
 {
     let key = namespaced_key(&ctx, &local_id);
-    if try_destroy_texture(&ctx, &key).is_some() {
-        return;
+    if try_destroy_texture(&ctx, &key)? {
+        return Ok(());
     }
-    if try_destroy_mesh(&ctx, &key).is_some() {
-        return;
+    if try_destroy_mesh(&ctx, &key)? {
+        return Ok(());
     }
-    if try_destroy_pipeline(&ctx, &key).is_some() {
-        return;
+    if try_destroy_pipeline(&ctx, &key)? {
+        return Ok(());
     }
-    if try_destroy_bind_group(&ctx, &key).is_some() {
-        return;
+    if try_destroy_bind_group(&ctx, &key)? {
+        return Ok(());
     }
     ctx.log(&format!(
         "No resource named '{}' found for caller",
         local_id
     ));
+    Ok(())
 }
 
 /// Overwrite a sub-rectangle `(x, y, width, height)` of an existing texture
@@ -205,33 +217,35 @@ pub fn update_texture<Caps>(
     width: u32,
     height: u32,
     bytes: Vec<u8>,
-) where
+) -> Result<(), String>
+where
     Caps: CanRead<TextureBinding>,
 {
     let key = namespaced_key(&ctx, &local_id);
-    let Some(binding) = ctx.current.tables.texturebinding().get(key) else {
+    let Some(binding) = ctx.current.tables.texturebinding().get(key)? else {
         ctx.log(&format!("update_texture: no texture '{}' for caller", local_id));
-        return;
+        return Ok(());
     };
     if width == 0 || height == 0 || x + width > binding.width || y + height > binding.height {
         ctx.log("update_texture: region out of bounds");
-        return;
+        return Ok(());
     }
     let format = match parse_texture_format(&binding.format) {
         Ok(f) => f,
         Err(e) => {
             ctx.log(&e);
-            return;
+            return Ok(());
         }
     };
     let bpp = bytes_per_pixel(format);
     if bytes.len() != (width * height * bpp) as usize {
         ctx.log("update_texture: data size mismatch");
-        return;
+        return Ok(());
     }
     if let Err(e) = upload_region(&ctx, binding.gpu_id, bpp, x, y, width, height, &bytes) {
         ctx.log(&format!("update_texture failed: {e}"));
     }
+    Ok(())
 }
 
 /// Copy tightly-packed pixels into `texture` at `(x, y)` via a staging buffer
@@ -413,11 +427,13 @@ fn allocate_mesh<Caps>(
     Ok(binding)
 }
 
-fn try_destroy_texture<Caps>(ctx: &ReducerContext<Caps>, key: &(String, String)) -> Option<()>
+fn try_destroy_texture<Caps>(ctx: &ReducerContext<Caps>, key: &(String, String)) -> Result<bool, String>
 where
     Caps: CanRead<TextureBinding> + CanDelete<TextureBinding>,
 {
-    let row = ctx.current.tables.texturebinding().get(key.clone())?;
+    let Some(row) = ctx.current.tables.texturebinding().get(key.clone())? else {
+        return Ok(false);
+    };
     if let Err(err) = ctx.current.tables.texturebinding().delete(key.clone()) {
         ctx.log(&format!("Failed to delete texture binding: {}", err));
     }
@@ -425,14 +441,16 @@ where
     if let Err(err) = gpu.destroy_texture(row.gpu_id) {
         ctx.log(&format!("Failed to destroy GPU texture: {}", err));
     }
-    Some(())
+    Ok(true)
 }
 
-fn try_destroy_mesh<Caps>(ctx: &ReducerContext<Caps>, key: &(String, String)) -> Option<()>
+fn try_destroy_mesh<Caps>(ctx: &ReducerContext<Caps>, key: &(String, String)) -> Result<bool, String>
 where
     Caps: CanRead<MeshBinding> + CanDelete<MeshBinding>,
 {
-    let row = ctx.current.tables.meshbinding().get(key.clone())?;
+    let Some(row) = ctx.current.tables.meshbinding().get(key.clone())? else {
+        return Ok(false);
+    };
     if let Err(err) = ctx.current.tables.meshbinding().delete(key.clone()) {
         ctx.log(&format!("Failed to delete mesh binding: {}", err));
     }
@@ -445,14 +463,16 @@ where
             ctx.log(&format!("Failed to destroy index buffer: {}", err));
         }
     }
-    Some(())
+    Ok(true)
 }
 
-fn try_destroy_pipeline<Caps>(ctx: &ReducerContext<Caps>, key: &(String, String)) -> Option<()>
+fn try_destroy_pipeline<Caps>(ctx: &ReducerContext<Caps>, key: &(String, String)) -> Result<bool, String>
 where
     Caps: CanRead<PipelineBinding> + CanDelete<PipelineBinding>,
 {
-    let row = ctx.current.tables.pipelinebinding().get(key.clone())?;
+    let Some(row) = ctx.current.tables.pipelinebinding().get(key.clone())? else {
+        return Ok(false);
+    };
     if let Err(err) = ctx.current.tables.pipelinebinding().delete(key.clone()) {
         ctx.log(&format!("Failed to delete pipeline descriptor: {}", err));
     }
@@ -474,21 +494,23 @@ where
         }
     }
 
-    Some(())
+    Ok(true)
 }
 
-fn try_destroy_bind_group<Caps>(ctx: &ReducerContext<Caps>, key: &(String, String)) -> Option<()>
+fn try_destroy_bind_group<Caps>(ctx: &ReducerContext<Caps>, key: &(String, String)) -> Result<bool, String>
 where
     Caps: CanRead<BindGroupBinding> + CanDelete<BindGroupBinding>,
 {
-    let row = ctx.current.tables.bindgroupbinding().get(key.clone())?;
+    let Some(row) = ctx.current.tables.bindgroupbinding().get(key.clone())? else {
+        return Ok(false);
+    };
     if let Err(err) = ctx.current.tables.bindgroupbinding().delete(key.clone()) {
         ctx.log(&format!("Failed to delete bind group descriptor: {}", err));
     }
     if row.bind_group_id.is_some() {
         ctx.log("Destroying GPU bind groups is not implemented yet");
     }
-    Some(())
+    Ok(true)
 }
 
 fn texture_usage_flags(flags: &TextureUsageFlags) -> TextureUsage {

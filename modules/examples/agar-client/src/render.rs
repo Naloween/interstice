@@ -50,7 +50,11 @@ where
 }
 
 #[reducer(on = "graphics.frametick.update")]
-pub fn on_frame<Caps>(ctx: ReducerContext<Caps>, _prev: FrameTick, _tick: FrameTick)
+pub fn on_frame<Caps>(
+    ctx: ReducerContext<Caps>,
+    _prev: FrameTick,
+    _tick: FrameTick,
+) -> Result<(), String>
 where
     Caps: CanRead<ClientState>
         + CanUpdate<ClientState>
@@ -65,19 +69,19 @@ where
         + CanInsert<ui::InputFocus>
         + CanUpdate<ui::InputFocus>,
 {
-    let Some(mut cs) = ctx.current.tables.clientstate().get(0) else {
-        return;
+    let Some(mut cs) = ctx.current.tables.clientstate().get(0)? else {
+        return Ok(());
     };
     let g = ctx.graphics();
-    let surface = g.tables.surfaceinfo().get(0);
+    let surface = g.tables.surfaceinfo().get(0)?;
     let (sw, sh) = match surface {
         Some(s) if s.width > 0 && s.height > 0 => (s.width as f32, s.height as f32),
-        _ => return,
+        _ => return Ok(()),
     };
 
     match cs.state {
         GameState::Lobby => {
-            handle_lobby_input(&ctx, &mut cs, sw, sh);
+            handle_lobby_input(&ctx, &mut cs, sw, sh)?;
         }
         GameState::InGame => {
             // Check for own death.
@@ -87,46 +91,52 @@ where
                 .agar_server()
                 .tables
                 .deadplayer()
-                .scan();
+                .scan()?;
             if dead.iter().any(|d| d.id == my_id) {
                 let my_radius = ctx
                     .agar_server_example()
                     .agar_server()
                     .tables
                     .player()
-                    .get(my_id)
+                    .get(my_id)?
                     .map(|p| p.radius)
                     .unwrap_or(0.0);
                 cs.final_score = my_radius;
                 cs.state = GameState::Dead;
                 ui::clear_focus(&ctx);
-                ui::clear_elements(&ctx);
+                ui::clear_elements(&ctx)?;
                 show_dead_screen(&ctx, cs.final_score);
                 let _ = ctx.current.tables.clientstate().update(cs);
-                return;
+                return Ok(());
             }
-            handle_ingame_input(&ctx, sw, sh);
-            render_world(&ctx, &mut cs, sw, sh);
-            update_hud(&ctx, sw, sh);
+            handle_ingame_input(&ctx, sw, sh)?;
+            render_world(&ctx, &mut cs, sw, sh)?;
+            update_hud(&ctx, sw, sh)?;
         }
         GameState::Dead => {
-            handle_dead_input(&ctx, &mut cs);
+            handle_dead_input(&ctx, &mut cs)?;
         }
     }
 
     // Lay out + draw our UI tree (lobby / HUD / death) into our own layer/surface.
-    ui::render(&ctx);
+    ui::render(&ctx)?;
 
     let _ = ctx.current.tables.clientstate().update(cs);
+    Ok(())
 }
 
-fn render_world<Caps>(ctx: &ReducerContext<Caps>, cs: &mut ClientState, sw: f32, sh: f32)
+fn render_world<Caps>(
+    ctx: &ReducerContext<Caps>,
+    cs: &mut ClientState,
+    sw: f32,
+    sh: f32,
+) -> Result<(), String>
 where
     Caps: CanRead<Player> + CanRead<Food>,
 {
     let server = ctx.agar_server_example().agar_server();
-    let players = server.tables.player().scan();
-    let foods = server.tables.food().scan();
+    let players = server.tables.player().scan()?;
+    let foods = server.tables.food().scan()?;
     let my_id = ctx.current_node_id();
 
     let camera = players
@@ -358,6 +368,7 @@ where
             None,
         );
     }
+    Ok(())
 }
 
 fn world_to_screen(

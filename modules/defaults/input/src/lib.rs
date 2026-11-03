@@ -60,7 +60,7 @@ pub struct TextInputBuffer {
 }
 
 #[reducer(on = "load")]
-fn on_load<Caps>(ctx: ReducerContext<Caps>)
+fn on_load<Caps>(ctx: ReducerContext<Caps>) -> Result<(), String>
 where
     Caps: CanInsert<KeyState>
         + CanInsert<MouseState>
@@ -94,7 +94,7 @@ where
             character: String::new(),
         });
 
-    if ctx.current.tables.keyboardlayout().get(0).is_none() {
+    if ctx.current.tables.keyboardlayout().get(0)?.is_none() {
         let _ = ctx.current.tables.keyboardlayout().insert(KeyboardLayout {
             id: 0,
             name: "system".into(),
@@ -115,11 +115,12 @@ where
             ));
         }
     }
+    Ok(())
 }
 
 /// Select the keyboard layout (one of `LAYOUTS`).
 #[reducer]
-fn set_keyboard_layout<Caps>(ctx: ReducerContext<Caps>, name: String)
+fn set_keyboard_layout<Caps>(ctx: ReducerContext<Caps>, name: String) -> Result<(), String>
 where
     Caps: CanRead<KeyboardLayout> + CanInsert<KeyboardLayout> + CanUpdate<KeyboardLayout>,
 {
@@ -127,19 +128,20 @@ where
         ctx.log(&format!(
             "Unknown keyboard layout {name:?} (expected one of {LAYOUTS:?})"
         ));
-        return;
+        return Ok(());
     }
     let row = KeyboardLayout { id: 0, name };
     let t = ctx.current.tables.keyboardlayout();
-    if t.get(0).is_some() {
+    if t.get(0)?.is_some() {
         let _ = t.update(row);
     } else {
         let _ = t.insert(row);
     }
+    Ok(())
 }
 
 #[reducer(on = "input")]
-fn on_input<Caps>(ctx: ReducerContext<Caps>, event: InputEvent)
+fn on_input<Caps>(ctx: ReducerContext<Caps>, event: InputEvent) -> Result<(), String>
 where
     Caps: CanRead<MouseState>
         + CanUpdate<MouseState>
@@ -157,7 +159,12 @@ where
         InputEvent::Added { .. } => {}
         InputEvent::Removed { .. } => {}
         InputEvent::MouseMotion { delta, .. } => {
-            let mouse_state = ctx.current.tables.mousestate().get(0).unwrap();
+            let mouse_state = ctx
+                .current
+                .tables
+                .mousestate()
+                .get(0)?
+                .ok_or("mouse state row missing")?;
             let new_position = (
                 mouse_state.position.0 + delta.0 as f32,
                 mouse_state.position.1 + delta.1 as f32,
@@ -169,7 +176,12 @@ where
             });
         }
         InputEvent::MouseWheel { delta, .. } => {
-            let mouse_state = ctx.current.tables.mousestate().get(0).unwrap();
+            let mouse_state = ctx
+                .current
+                .tables
+                .mousestate()
+                .get(0)?
+                .ok_or("mouse state row missing")?;
             let new_wheel_delta = (
                 mouse_state.wheel_delta.0 + delta.0 as f32,
                 mouse_state.wheel_delta.1 + delta.1 as f32,
@@ -186,7 +198,7 @@ where
         } => {
             let pressed = matches!(state, ElementState::Pressed);
             let row = MouseButton { button_id, pressed };
-            if ctx.current.tables.mousebutton().get(button_id).is_some() {
+            if ctx.current.tables.mousebutton().get(button_id)?.is_some() {
                 let _ = ctx.current.tables.mousebutton().update(row);
             } else {
                 let _ = ctx.current.tables.mousebutton().insert(row);
@@ -210,7 +222,7 @@ where
                 .current
                 .tables
                 .keyboardlayout()
-                .get(0)
+                .get(0)?
                 .map(|l| l.name)
                 .unwrap_or_default();
             let host_resolved = !logical_key.is_empty() || !text.is_empty();
@@ -218,15 +230,15 @@ where
                 (logical_key, printable(text))
             } else {
                 // Built-in table: printable keys only; named keys keep "".
+                let shift = is_shift_pressed(&ctx)?;
                 let ch = key_code_opt.as_ref().and_then(|kc| {
-                    let shift = is_shift_pressed(&ctx);
                     if layout == "fr" { fr_char(kc, shift) } else { us_char(kc, shift) }
                 });
                 let ch = ch.map(String::from).unwrap_or_default();
                 (ch.clone(), if pressed { ch } else { String::new() })
             };
 
-            let current = ctx.current.tables.keystate().get(code);
+            let current = ctx.current.tables.keystate().get(code)?;
             let was_pressed = current.as_ref().map(|ks| ks.pressed).unwrap_or(false);
 
             let new_ks = KeyState {
@@ -252,7 +264,7 @@ where
                     Some(text)
                 };
                 if let Some(ch) = typed {
-                    if let Some(mut buf) = ctx.current.tables.textinputbuffer().get(0) {
+                    if let Some(mut buf) = ctx.current.tables.textinputbuffer().get(0)? {
                         buf.character = ch;
                         let _ = ctx.current.tables.textinputbuffer().update(buf);
                     }
@@ -260,6 +272,7 @@ where
             }
         }
     }
+    Ok(())
 }
 
 /// Typed text without control characters (hosts report e.g. "\r" for
@@ -272,18 +285,19 @@ fn printable(text: String) -> String {
     }
 }
 
-fn is_shift_pressed<Caps>(ctx: &ReducerContext<Caps>) -> bool
+fn is_shift_pressed<Caps>(ctx: &ReducerContext<Caps>) -> Result<bool, String>
 where
     Caps: CanRead<KeyState>,
 {
     let shift_l = KeyCode::ShiftLeft as u32;
     let shift_r = KeyCode::ShiftRight as u32;
-    ctx.current
+    Ok(ctx
+        .current
         .tables
         .keystate()
-        .scan()
+        .scan()?
         .iter()
-        .any(|k| (k.code == shift_l || k.code == shift_r) && k.pressed)
+        .any(|k| (k.code == shift_l || k.code == shift_r) && k.pressed))
 }
 
 /// Character a physical key types on a US QWERTY layout (None if none).

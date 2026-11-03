@@ -45,16 +45,16 @@ pub struct DeadPlayer {
 }
 
 #[reducer]
-pub fn join<Caps>(ctx: ReducerContext<Caps>, name: String)
+pub fn join<Caps>(ctx: ReducerContext<Caps>, name: String) -> Result<(), String>
 where
     Caps: CanRead<Player> + CanInsert<Player>,
 {
-    if ctx.current.tables.player().get(ctx.caller_node_id.clone()).is_some() {
-        return;
+    if ctx.current.tables.player().get(ctx.caller_node_id.clone())?.is_some() {
+        return Ok(());
     }
 
     let pos = rand_pos();
-    let count = ctx.current.tables.player().scan().len();
+    let count = ctx.current.tables.player().scan()?.len();
     let color = PLAYER_COLORS[count % PLAYER_COLORS.len()];
 
     let player = Player {
@@ -66,15 +66,16 @@ where
         color,
     };
     let _ = ctx.current.tables.player().insert(player);
+    Ok(())
 }
 
 #[reducer]
-pub fn set_direction<Caps>(ctx: ReducerContext<Caps>, dx: f32, dy: f32)
+pub fn set_direction<Caps>(ctx: ReducerContext<Caps>, dx: f32, dy: f32) -> Result<(), String>
 where
     Caps: CanRead<Player> + CanUpdate<Player>,
 {
-    let Some(mut p) = ctx.current.tables.player().get(ctx.caller_node_id) else {
-        return;
+    let Some(mut p) = ctx.current.tables.player().get(ctx.caller_node_id)? else {
+        return Ok(());
     };
     let len = (dx * dx + dy * dy).sqrt();
     if len > 0.001 {
@@ -83,4 +84,5 @@ where
         p.dir = Vec2 { x: 0.0, y: 0.0 };
     }
     let _ = ctx.current.tables.player().update(p);
+    Ok(())
 }

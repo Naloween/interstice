@@ -6,19 +6,24 @@ use crate::helpers::{layer_key, owns_layer, purge_layer_draws};
 use crate::tables::{Draw2DCommand, HasLayerEditHandle, Layer};
 
 #[reducer]
-pub fn create_layer<Caps>(ctx: ReducerContext<Caps>, name: String, z: i32, clear: bool)
+pub fn create_layer<Caps>(
+    ctx: ReducerContext<Caps>,
+    name: String,
+    z: i32,
+    clear: bool,
+) -> Result<(), String>
 where
     Caps: CanInsert<Layer> + CanRead<Layer>,
 {
     if name.trim().is_empty() {
         ctx.log("Layer name cannot be empty");
-        return;
+        return Ok(());
     }
 
     let key = layer_key(&ctx, &name);
-    if ctx.current.tables.layer().get(key.clone()).is_some() {
+    if ctx.current.tables.layer().get(key.clone())?.is_some() {
         ctx.log(&format!("Layer '{}' already exists", name));
-        return;
+        return Ok(());
     }
 
     let layer = Layer {
@@ -31,21 +36,22 @@ where
     if let Err(err) = ctx.current.tables.layer().insert(layer) {
         ctx.log(&format!("Failed to insert layer: {}", err));
     }
+    Ok(())
 }
 
 #[reducer]
-pub fn set_layer_z<Caps>(ctx: ReducerContext<Caps>, name: String, z: i32)
+pub fn set_layer_z<Caps>(ctx: ReducerContext<Caps>, name: String, z: i32) -> Result<(), String>
 where
     Caps: CanRead<Layer> + CanUpdate<Layer>,
 {
-    match ctx.current.tables.layer().get(layer_key(&ctx, &name)) {
+    match ctx.current.tables.layer().get(layer_key(&ctx, &name))? {
         Some(mut layer) => {
             if !owns_layer(&ctx, &layer) {
                 ctx.log(&format!(
                     "Layer '{}' cannot be modified by this caller",
                     name
                 ));
-                return;
+                return Ok(());
             }
             layer.z = z;
             if let Err(err) = ctx.current.tables.layer().update(layer) {
@@ -54,21 +60,26 @@ where
         }
         None => ctx.log(&format!("Layer '{}' not found", name)),
     }
+    Ok(())
 }
 
 #[reducer]
-pub fn set_layer_clear<Caps>(ctx: ReducerContext<Caps>, name: String, clear: bool)
+pub fn set_layer_clear<Caps>(
+    ctx: ReducerContext<Caps>,
+    name: String,
+    clear: bool,
+) -> Result<(), String>
 where
     Caps: CanRead<Layer> + CanUpdate<Layer>,
 {
-    match ctx.current.tables.layer().get(layer_key(&ctx, &name)) {
+    match ctx.current.tables.layer().get(layer_key(&ctx, &name))? {
         Some(mut layer) => {
             if !owns_layer(&ctx, &layer) {
                 ctx.log(&format!(
                     "Layer '{}' cannot be modified by this caller",
                     name
                 ));
-                return;
+                return Ok(());
             }
             layer.clear = clear;
             if let Err(err) = ctx.current.tables.layer().update(layer) {
@@ -77,28 +88,30 @@ where
         }
         None => ctx.log(&format!("Layer '{}' not found", name)),
     }
+    Ok(())
 }
 
 #[reducer]
-pub fn destroy_layer<Caps>(ctx: ReducerContext<Caps>, name: String)
+pub fn destroy_layer<Caps>(ctx: ReducerContext<Caps>, name: String) -> Result<(), String>
 where
     Caps: CanRead<Layer> + CanDelete<Layer> + CanRead<Draw2DCommand> + CanDelete<Draw2DCommand>,
 {
     let key = layer_key(&ctx, &name);
-    match ctx.current.tables.layer().get(key.clone()) {
+    match ctx.current.tables.layer().get(key.clone())? {
         Some(layer) => {
             if !owns_layer(&ctx, &layer) {
                 ctx.log(&format!(
                     "Layer '{}' cannot be deleted by this caller",
                     name
                 ));
-                return;
+                return Ok(());
             }
             if let Err(err) = ctx.current.tables.layer().delete(key.clone()) {
                 ctx.log(&format!("Failed to delete layer: {}", err));
             }
-            purge_layer_draws(&ctx, &key);
+            purge_layer_draws(&ctx, &key)?;
         }
         None => ctx.log(&format!("Layer '{}' not found", name)),
     }
+    Ok(())
 }

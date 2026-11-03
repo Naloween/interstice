@@ -46,7 +46,12 @@ fn on_module_remove(_ctx: ReducerContext) {}
 
 /// Register an app (upsert by name) and immediately load it onto this node.
 #[reducer]
-fn load<Caps>(ctx: ReducerContext<Caps>, name: String, wasm_binary: Vec<u8>, icon: Option<Vec<u8>>)
+fn load<Caps>(
+    ctx: ReducerContext<Caps>,
+    name: String,
+    wasm_binary: Vec<u8>,
+    icon: Option<Vec<u8>>,
+) -> Result<(), String>
 where
     Caps: CanRead<App> + CanInsert<App> + CanUpdate<App>,
 {
@@ -55,9 +60,9 @@ where
         .load(NodeSelection::Current, wasm_binary.clone())
     {
         ctx.log(&format!("module_manager: failed to load '{name}': {err}"));
-        return;
+        return Ok(());
     }
-    upsert_app(&ctx, name, wasm_binary, icon, true);
+    upsert_app(&ctx, name, wasm_binary, icon, true)
 }
 
 /// Register an app without loading it (e.g. install for later launch).
@@ -67,76 +72,81 @@ fn register_app<Caps>(
     name: String,
     wasm_binary: Vec<u8>,
     icon: Option<Vec<u8>>,
-) where
+) -> Result<(), String>
+where
     Caps: CanRead<App> + CanInsert<App> + CanUpdate<App>,
 {
-    upsert_app(&ctx, name, wasm_binary, icon, false);
+    upsert_app(&ctx, name, wasm_binary, icon, false)
 }
 
 /// Load an already-registered app onto this node by name.
 #[reducer]
-fn load_app<Caps>(ctx: ReducerContext<Caps>, name: String)
+fn load_app<Caps>(ctx: ReducerContext<Caps>, name: String) -> Result<(), String>
 where
     Caps: CanRead<App> + CanUpdate<App>,
 {
-    let Some(mut app) = find_app(&ctx, &name) else {
+    let Some(mut app) = find_app(&ctx, &name)? else {
         ctx.log(&format!("module_manager: unknown app '{name}'"));
-        return;
+        return Ok(());
     };
     if let Err(err) = ctx.module().load(NodeSelection::Current, app.bin.clone()) {
         ctx.log(&format!("module_manager: failed to load '{name}': {err}"));
-        return;
+        return Ok(());
     }
     app.loaded = true;
     let _ = ctx.current.tables.app().update(app);
+    Ok(())
 }
 
 /// Unload an app from this node (keeps it in the registry).
 #[reducer]
-fn unload_app<Caps>(ctx: ReducerContext<Caps>, name: String)
+fn unload_app<Caps>(ctx: ReducerContext<Caps>, name: String) -> Result<(), String>
 where
     Caps: CanRead<App> + CanUpdate<App>,
 {
-    let Some(mut app) = find_app(&ctx, &name) else {
+    let Some(mut app) = find_app(&ctx, &name)? else {
         ctx.log(&format!("module_manager: unknown app '{name}'"));
-        return;
+        return Ok(());
     };
     if let Err(err) = ctx.module().unload(NodeSelection::Current, name.clone()) {
         ctx.log(&format!("module_manager: failed to unload '{name}': {err}"));
-        return;
+        return Ok(());
     }
     app.loaded = false;
     let _ = ctx.current.tables.app().update(app);
+    Ok(())
 }
 
 /// Unload (if loaded) and forget an app entirely.
 #[reducer]
-fn remove_app<Caps>(ctx: ReducerContext<Caps>, name: String)
+fn remove_app<Caps>(ctx: ReducerContext<Caps>, name: String) -> Result<(), String>
 where
     Caps: CanRead<App> + CanDelete<App>,
 {
-    let Some(app) = find_app(&ctx, &name) else {
+    let Some(app) = find_app(&ctx, &name)? else {
         ctx.log(&format!("module_manager: unknown app '{name}'"));
-        return;
+        return Ok(());
     };
     if app.loaded {
         let _ = ctx.module().remove(NodeSelection::Current, name.clone());
     }
     let _ = ctx.current.tables.app().delete(app.id);
+    Ok(())
 }
 
 // ── Queries ────────────────────────────────────────────────────────────────────
 
 /// List all registered apps (without their wasm bytes).
 #[query]
-fn list_apps<Caps>(ctx: QueryContext<Caps>) -> Vec<AppInfo>
+fn list_apps<Caps>(ctx: QueryContext<Caps>) -> Result<Vec<AppInfo>, String>
 where
     Caps: CanRead<App>,
 {
-    ctx.current
+    Ok(ctx
+        .current
         .tables
         .app()
-        .scan()
+        .scan()?
         .into_iter()
         .map(|app| AppInfo {
             id: app.id,
@@ -144,21 +154,22 @@ where
             icon: app.icon,
             loaded: app.loaded,
         })
-        .collect()
+        .collect())
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-fn find_app<Caps>(ctx: &ReducerContext<Caps>, name: &str) -> Option<App>
+fn find_app<Caps>(ctx: &ReducerContext<Caps>, name: &str) -> Result<Option<App>, String>
 where
     Caps: CanRead<App>,
 {
-    ctx.current
+    Ok(ctx
+        .current
         .tables
         .app()
-        .scan()
+        .scan()?
         .into_iter()
-        .find(|app| app.name == name)
+        .find(|app| app.name == name))
 }
 
 fn upsert_app<Caps>(
@@ -167,10 +178,11 @@ fn upsert_app<Caps>(
     wasm_binary: Vec<u8>,
     icon: Option<Vec<u8>>,
     loaded: bool,
-) where
+) -> Result<(), String>
+where
     Caps: CanRead<App> + CanInsert<App> + CanUpdate<App>,
 {
-    if let Some(mut app) = find_app(ctx, &name) {
+    if let Some(mut app) = find_app(ctx, &name)? {
         app.bin = wasm_binary;
         app.icon = icon;
         app.loaded = loaded;
@@ -184,4 +196,5 @@ fn upsert_app<Caps>(
             loaded,
         });
     }
+    Ok(())
 }

@@ -12,15 +12,18 @@ pub(crate) fn owns_layer<Caps>(ctx: &ReducerContext<Caps>, layer: &Layer) -> boo
 pub(crate) fn ensure_layer_exists<Caps: CanRead<Layer>>(
     ctx: &ReducerContext<Caps>,
     name: &str,
-) -> bool {
-    if ctx.current.tables.layer().get(name.to_string()).is_none() {
+) -> Result<bool, String> {
+    if ctx.current.tables.layer().get(name.to_string())?.is_none() {
         ctx.log(&format!("Layer '{}' not found", name));
-        return false;
+        return Ok(false);
     }
-    true
+    Ok(true)
 }
 
-pub(crate) fn purge_layer_draws<Caps>(ctx: &ReducerContext<Caps>, layer: &str)
+pub(crate) fn purge_layer_draws<Caps>(
+    ctx: &ReducerContext<Caps>,
+    layer: &str,
+) -> Result<(), String>
 where
     Caps: CanRead<Draw2DCommand> + CanDelete<Draw2DCommand>,
 {
@@ -28,12 +31,13 @@ where
         .current
         .tables
         .draw2dcommand()
-        .scan()
+        .scan()?
         .into_iter()
         .filter(|row| row.layer == layer)
     {
         let _ = ctx.current.tables.draw2dcommand().delete(row.id);
     }
+    Ok(())
 }
 
 pub(crate) fn enqueue_draw_command<Caps>(ctx: &ReducerContext<Caps>, command: Draw2DCommand)

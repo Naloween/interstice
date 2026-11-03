@@ -17,13 +17,14 @@ pub(crate) const SWAPCHAIN_SURFACE_ID: u32 = 0;
 pub(crate) fn is_compositor<Caps: CanRead<Compositor>>(
     ctx: &ReducerContext<Caps>,
     caller: &str,
-) -> bool {
-    ctx.current
+) -> Result<bool, String> {
+    Ok(ctx
+        .current
         .tables
         .compositor()
-        .get(COMPOSITOR_KEY)
+        .get(COMPOSITOR_KEY)?
         .map(|row| row.module_name == caller)
-        .unwrap_or(false)
+        .unwrap_or(false))
 }
 
 /// Report the surface the calling module's layers render into, resolved from the
@@ -33,7 +34,7 @@ pub(crate) fn is_compositor<Caps: CanRead<Compositor>>(
 /// dimensions are real. NOTE: surface 0's dimensions are 0×0 until the first
 /// render frame populates them.
 #[query]
-fn surface_info<Caps>(ctx: QueryContext<Caps>) -> SurfaceInfo
+fn surface_info<Caps>(ctx: QueryContext<Caps>) -> Result<SurfaceInfo, String>
 where
     Caps: CanRead<SurfaceAssignment> + CanRead<SurfaceInfo>,
 {
@@ -41,29 +42,30 @@ where
         .current
         .tables
         .surfaceassignment()
-        .get(ctx.caller_module_name.clone())
+        .get(ctx.caller_module_name.clone())?
         .map(|a| a.surface_id)
         .unwrap_or(SWAPCHAIN_SURFACE_ID);
-    ctx.current
+    Ok(ctx
+        .current
         .tables
         .surfaceinfo()
-        .get(surface_id)
+        .get(surface_id)?
         .unwrap_or(SurfaceInfo {
             id: surface_id,
             width: 0,
             height: 0,
-        })
+        }))
 }
 
 /// Claim exclusive authority to manage surfaces. The first caller wins; repeat
 /// calls by the same owner are idempotent, others are rejected.
 #[reducer]
-pub fn claim_compositor<Caps>(ctx: ReducerContext<Caps>)
+pub fn claim_compositor<Caps>(ctx: ReducerContext<Caps>) -> Result<(), String>
 where
     Caps: CanRead<Compositor> + CanInsert<Compositor>,
 {
     let caller = ctx.caller_node_id.clone();
-    match ctx.current.tables.compositor().get(COMPOSITOR_KEY) {
+    match ctx.current.tables.compositor().get(COMPOSITOR_KEY)? {
         Some(row) if row.module_name == caller => {
             ctx.log(&format!("Compositor already claimed by '{}'", caller));
         }
@@ -84,12 +86,18 @@ where
             }
         }
     }
+    Ok(())
 }
 
 /// Create an offscreen surface with a caller-chosen id (reducers can't return
 /// values, so the compositor owns the id namespace, like `ui.create_element`).
 #[reducer]
-pub fn create_surface<Caps>(ctx: ReducerContext<Caps>, id: u32, width: u32, height: u32)
+pub fn create_surface<Caps>(
+    ctx: ReducerContext<Caps>,
+    id: u32,
+    width: u32,
+    height: u32,
+) -> Result<(), String>
 where
     Caps: CanRead<Compositor>
         + CanRead<SurfaceInfo>
@@ -97,21 +105,21 @@ where
         + CanRead<SurfaceTarget>
         + CanInsert<SurfaceTarget>,
 {
-    if !is_compositor(&ctx, &ctx.caller_node_id) {
+    if !is_compositor(&ctx, &ctx.caller_node_id)? {
         ctx.log("create_surface refused: caller is not the compositor");
-        return;
+        return Ok(());
     }
     if id == SWAPCHAIN_SURFACE_ID {
         ctx.log("Surface id 0 is reserved for the swapchain");
-        return;
+        return Ok(());
     }
     if width == 0 || height == 0 {
         ctx.log("Surface dimensions must be greater than zero");
-        return;
+        return Ok(());
     }
-    if ctx.current.tables.surfacetarget().get(id).is_some() {
+    if ctx.current.tables.surfacetarget().get(id)?.is_some() {
         ctx.log(&format!("Surface {} already exists", id));
-        return;
+        return Ok(());
     }
 
     if let Err(err) = ctx
@@ -121,7 +129,7 @@ where
         .insert(SurfaceInfo { id, width, height })
     {
         ctx.log(&format!("Failed to insert surface info: {}", err));
-        return;
+        return Ok(());
     }
     if let Err(err) = ctx.current.tables.surfacetarget().insert(SurfaceTarget {
         id,
@@ -132,12 +140,18 @@ where
     }) {
         ctx.log(&format!("Failed to insert surface target: {}", err));
     }
+    Ok(())
 }
 
 /// Resize an offscreen surface. Clears the cached texture/view so the render
 /// loop reallocates at the new size; the old GPU resources are freed here.
 #[reducer]
-pub fn resize_surface<Caps>(ctx: ReducerContext<Caps>, id: u32, width: u32, height: u32)
+pub fn resize_surface<Caps>(
+    ctx: ReducerContext<Caps>,
+    id: u32,
+    width: u32,
+    height: u32,
+) -> Result<(), String>
 where
     Caps: CanRead<Compositor>
         + CanRead<SurfaceInfo>
@@ -145,17 +159,17 @@ where
         + CanRead<SurfaceTarget>
         + CanUpdate<SurfaceTarget>,
 {
-    if !is_compositor(&ctx, &ctx.caller_node_id) {
+    if !is_compositor(&ctx, &ctx.caller_node_id)? {
         ctx.log("resize_surface refused: caller is not the compositor");
-        return;
+        return Ok(());
     }
     if width == 0 || height == 0 {
         ctx.log("Surface dimensions must be greater than zero");
-        return;
+        return Ok(());
     }
-    let Some(mut target) = ctx.current.tables.surfacetarget().get(id) else {
+    let Some(mut target) = ctx.current.tables.surfacetarget().get(id)? else {
         ctx.log(&format!("Surface {} not found", id));
-        return;
+        return Ok(());
     };
 
     free_target_gpu(&ctx, &target);
@@ -165,17 +179,18 @@ where
     target.view_id = None;
     let _ = ctx.current.tables.surfacetarget().update(target);
 
-    if let Some(mut info) = ctx.current.tables.surfaceinfo().get(id) {
+    if let Some(mut info) = ctx.current.tables.surfaceinfo().get(id)? {
         info.width = width;
         info.height = height;
         let _ = ctx.current.tables.surfaceinfo().update(info);
     }
+    Ok(())
 }
 
 /// Destroy an offscreen surface: free its GPU resources, drop its registry rows,
 /// and reset any module routed to it back to the swapchain.
 #[reducer]
-pub fn destroy_surface<Caps>(ctx: ReducerContext<Caps>, id: u32)
+pub fn destroy_surface<Caps>(ctx: ReducerContext<Caps>, id: u32) -> Result<(), String>
 where
     Caps: CanRead<Compositor>
         + CanRead<SurfaceInfo>
@@ -186,17 +201,17 @@ where
         + CanUpdate<SurfaceAssignment>
         + CanDelete<SurfaceAssignment>,
 {
-    if !is_compositor(&ctx, &ctx.caller_node_id) {
+    if !is_compositor(&ctx, &ctx.caller_node_id)? {
         ctx.log("destroy_surface refused: caller is not the compositor");
-        return;
+        return Ok(());
     }
     if id == SWAPCHAIN_SURFACE_ID {
         ctx.log("The swapchain surface cannot be destroyed");
-        return;
+        return Ok(());
     }
-    let Some(target) = ctx.current.tables.surfacetarget().get(id) else {
+    let Some(target) = ctx.current.tables.surfacetarget().get(id)? else {
         ctx.log(&format!("Surface {} not found", id));
-        return;
+        return Ok(());
     };
 
     free_target_gpu(&ctx, &target);
@@ -208,43 +223,48 @@ where
         .current
         .tables
         .surfaceassignment()
-        .scan()
+        .scan()?
         .into_iter()
         .filter(|a| a.surface_id == id)
     {
         assignment.surface_id = SWAPCHAIN_SURFACE_ID;
         let _ = ctx.current.tables.surfaceassignment().update(assignment);
     }
+    Ok(())
 }
 
 /// Route a module's layers into a surface (or back to the swapchain with id 0).
 #[reducer]
-pub fn assign_module_surface<Caps>(ctx: ReducerContext<Caps>, module_name: String, surface_id: u32)
+pub fn assign_module_surface<Caps>(
+    ctx: ReducerContext<Caps>,
+    module_name: String,
+    surface_id: u32,
+) -> Result<(), String>
 where
     Caps: CanRead<Compositor>
         + CanRead<SurfaceTarget>
         + CanAll<SurfaceAssignment>,
 {
-    if !is_compositor(&ctx, &ctx.caller_node_id) {
+    if !is_compositor(&ctx, &ctx.caller_node_id)? {
         ctx.log("assign_module_surface refused: caller is not the compositor");
-        return;
+        return Ok(());
     }
-    if surface_id != SWAPCHAIN_SURFACE_ID && ctx.current.tables.surfacetarget().get(surface_id).is_none() {
+    if surface_id != SWAPCHAIN_SURFACE_ID && ctx.current.tables.surfacetarget().get(surface_id)?.is_none() {
         ctx.log(&format!("Surface {} does not exist", surface_id));
-        return;
+        return Ok(());
     }
 
     if surface_id == SWAPCHAIN_SURFACE_ID {
         // Default routing — drop any explicit assignment.
         let _ = ctx.current.tables.surfaceassignment().delete(module_name);
-        return;
+        return Ok(());
     }
 
     if ctx
         .current
         .tables
         .surfaceassignment()
-        .get(module_name.clone())
+        .get(module_name.clone())?
         .is_some()
     {
         let _ = ctx.current.tables.surfaceassignment().update(SurfaceAssignment {
@@ -257,6 +277,7 @@ where
     }) {
         ctx.log(&format!("Failed to insert surface assignment: {}", err));
     }
+    Ok(())
 }
 
 fn free_target_gpu<Caps>(ctx: &ReducerContext<Caps>, target: &SurfaceTarget) {

@@ -155,7 +155,8 @@ where Caps: CanRead<Tab> + CanUpdate<Tab> + CanInsert<NavRequest> { ... }
 
 **Design: a reducer is a transaction.**
 - Its writes either all commit or none do.
-- It aborts by panicking or trapping, and nothing is committed.
+- It aborts by returning `Err` (reducers may return `Result<(), E>`), panicking
+  or trapping, and nothing is committed.
 - Committed writes produce table events after commit.
 
 **Status** (`core/runtime/reducer.rs`, `transaction.rs`):
@@ -540,7 +541,6 @@ it is not a default module.
   - paths and references panic.
 - **Enum field names are lost.** Enum variants with named fields lose their
   field names in bindings.
-- **Read methods panic.** Generated table read methods `expect` on host errors.
 - **`sync` arm likely fails to compile.** The `sync` subscription arm in
   `reducer/subscription.rs` calls `to_string` on a token stream of a type with
   no `Display`.
@@ -798,7 +798,11 @@ but explicitly out of scope for now.
 
 ### 13.4 SDK / tooling
 - [ ] The remaining SDK bugs in §10.1.
-- [ ] Generated read methods return `Result` instead of panicking.
+- [x] Generated read methods return `Result` instead of panicking: `scan`,
+      `get`, `scan_by_*`, `get_by_*` (local and bindings) go through
+      `sdk-core/reads.rs`; row decode is `TryFrom<Row>`; the panicking
+      `IntoIterator` on table handles is gone. Reducers may return
+      `Result<(), E>` and queries `Result<T, E>`; `Err` aborts the call.
 - [x] A shorthand for "full access to these tables": `CanAll<T>`, tuple rows
       in `where` clauses, and `caps!` named sets (§5). The browser's
       engine reducers share `BrowserCaps`.

@@ -372,7 +372,7 @@ macro_rules! ui_subsystem {
                 }
             }
 
-            fn delete_recursive<Caps>(ctx: &ReducerContext<Caps>, id: &str)
+            fn delete_recursive<Caps>(ctx: &ReducerContext<Caps>, id: &str) -> Result<(), String>
             where
                 Caps: CanRead<UiElement> + CanDelete<UiElement>,
             {
@@ -380,31 +380,32 @@ macro_rules! ui_subsystem {
                     .current
                     .tables
                     .uielement()
-                    .scan()
+                    .scan()?
                     .into_iter()
                     .filter(|e| e.parent.as_deref() == Some(id))
                     .map(|e| e.id)
                     .collect();
                 for child_id in children {
-                    delete_recursive(ctx, &child_id);
+                    delete_recursive(ctx, &child_id)?;
                 }
-                let _ = ctx.current.tables.uielement().delete(id.to_string());
+                ctx.current.tables.uielement().delete(id.to_string())
             }
 
-            pub fn delete_element<Caps>(ctx: &ReducerContext<Caps>, id: &str)
+            pub fn delete_element<Caps>(ctx: &ReducerContext<Caps>, id: &str) -> Result<(), String>
             where
                 Caps: CanRead<UiElement> + CanDelete<UiElement>,
             {
-                delete_recursive(ctx, id);
+                delete_recursive(ctx, id)
             }
 
-            pub fn clear_elements<Caps>(ctx: &ReducerContext<Caps>)
+            pub fn clear_elements<Caps>(ctx: &ReducerContext<Caps>) -> Result<(), String>
             where
                 Caps: CanRead<UiElement> + CanDelete<UiElement>,
             {
-                for el in ctx.current.tables.uielement().scan() {
-                    let _ = ctx.current.tables.uielement().delete(el.id);
+                for el in ctx.current.tables.uielement().scan()? {
+                    ctx.current.tables.uielement().delete(el.id)?;
                 }
+                Ok(())
             }
 
             // Focus is a singleton (id 0). These upsert WITHOUT reading first:
@@ -470,6 +471,7 @@ macro_rules! ui_subsystem {
                     .tables
                     .uielement()
                     .scan()
+                    .ok()?
                     .into_iter()
                     .map(into_lib)
                     .collect();
@@ -494,6 +496,7 @@ macro_rules! ui_subsystem {
                     .tables
                     .uielement()
                     .scan()
+                    .ok()?
                     .into_iter()
                     .map(into_lib)
                     .collect();
@@ -505,20 +508,20 @@ macro_rules! ui_subsystem {
             /// Lay out and draw this module's UI tree into its own layer. Sizes
             /// from the module's OWN surface (`surface_info`), so it composites
             /// 1:1 whether rendering to the swapchain or to an offscreen surface.
-            pub fn render<Caps>(ctx: &ReducerContext<Caps>)
+            pub fn render<Caps>(ctx: &ReducerContext<Caps>) -> Result<(), String>
             where
                 Caps: CanRead<UiElement>
                     + CanUpdate<UiElement>
                     + CanRead<InputFocus>
                     + CanRead<MouseState>,
             {
-                let info = match ctx.graphics().queries.surface_info() {
-                    Ok(info) => info,
-                    Err(_) => return,
+                // No surface yet (graphics not ready): nothing to draw.
+                let Ok(info) = ctx.graphics().queries.surface_info() else {
+                    return Ok(());
                 };
                 let (sw, sh) = (info.width as f32, info.height as f32);
                 if sw < 1.0 || sh < 1.0 {
-                    return;
+                    return Ok(());
                 }
 
                 // Scroll: nudge the innermost scrollable under the cursor.
@@ -530,7 +533,7 @@ macro_rules! ui_subsystem {
                 // The wasm instance persists between frame calls, so a module-local
                 // static is the right place for this tiny bit of bookkeeping (no
                 // table / capability needed).
-                if let Some(mouse) = ctx.input().tables.mousestate().get(0) {
+                if let Some(mouse) = ctx.input().tables.mousestate().get(0)? {
                     static mut PREV_WHEEL: (f32, f32) = (0.0, 0.0);
                     let (cum_x, cum_y) = mouse.wheel_delta;
                     let (prev_x, prev_y) = unsafe { PREV_WHEEL };
@@ -542,7 +545,7 @@ macro_rules! ui_subsystem {
                             .current
                             .tables
                             .uielement()
-                            .scan()
+                            .scan()?
                             .into_iter()
                             .map(into_lib)
                             .collect();
@@ -554,7 +557,7 @@ macro_rules! ui_subsystem {
                             );
                         }
                         if let Some((sid, sx, sy)) = best {
-                            if let Some(mut el) = ctx.current.tables.uielement().get(sid) {
+                            if let Some(mut el) = ctx.current.tables.uielement().get(sid)? {
                                 // Wheel deltas arrive already normalised to pixels by
                                 // the input authority. Touchpads (PixelDelta) report
                                 // large raw pixel deltas per gesture, so we damp them
@@ -570,7 +573,7 @@ macro_rules! ui_subsystem {
                                 if sy {
                                     el.scroll_y = (el.scroll_y - wy * SCROLL_SPEED).max(0.0);
                                 }
-                                let _ = ctx.current.tables.uielement().update(el);
+                                ctx.current.tables.uielement().update(el)?;
                             }
                         }
                     }
@@ -580,13 +583,13 @@ macro_rules! ui_subsystem {
                     .current
                     .tables
                     .inputfocus()
-                    .get(0)
+                    .get(0)?
                     .and_then(|f| f.focused_element);
                 let all: Vec<interstice_ui::UiElement> = ctx
                     .current
                     .tables
                     .uielement()
-                    .scan()
+                    .scan()?
                     .into_iter()
                     .map(into_lib)
                     .collect();
@@ -601,7 +604,7 @@ macro_rules! ui_subsystem {
                 // desktop window), the compositor owns the global cursor — drawing
                 // our own would trap it inside the window.
                 if info.id == 0 {
-                    if let Some(mouse) = ctx.input().tables.mousestate().get(0) {
+                    if let Some(mouse) = ctx.input().tables.mousestate().get(0)? {
                         let (mx, my) = mouse.position;
                         // Draw into the dedicated cursor layer so it stays above
                         // page images (which the renderer composites after the
@@ -613,6 +616,7 @@ macro_rules! ui_subsystem {
                         interstice_ui::draw_cursor(&mut cursor_target, mx, my);
                     }
                 }
+                Ok(())
             }
 
             // ── Text input ───────────────────────────────────────────────────
@@ -622,18 +626,19 @@ macro_rules! ui_subsystem {
                 ctx: ReducerContext<Caps>,
                 _previous_buf: TextInputBuffer,
                 new_buf: TextInputBuffer,
-            ) where
+            ) -> Result<(), String>
+            where
                 Caps: CanRead<InputFocus> + CanRead<UiElement> + CanUpdate<UiElement>,
             {
                 let focused_id = ctx
                     .current
                     .tables
                     .inputfocus()
-                    .get(0)
+                    .get(0)?
                     .and_then(|f| f.focused_element.clone());
 
                 if let Some(ref fid) = focused_id {
-                    if let Some(mut el) = ctx.current.tables.uielement().get(fid.clone()) {
+                    if let Some(mut el) = ctx.current.tables.uielement().get(fid.clone())? {
                         if el.is_input {
                             let mut text = el.text.clone().unwrap_or_default();
                             if new_buf.character == "\x08" {
@@ -658,10 +663,11 @@ macro_rules! ui_subsystem {
                                 el.cursor_pos += 1;
                             }
                             el.text = Some(text);
-                            let _ = ctx.current.tables.uielement().update(el);
+                            ctx.current.tables.uielement().update(el)?;
                         }
                     }
                 }
+                Ok(())
             }
         }
     };

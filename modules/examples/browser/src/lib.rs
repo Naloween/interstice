@@ -115,9 +115,18 @@ type Ctx = ReducerContext<BrowserCaps>;
 
 struct Db<'a>(&'a Ctx);
 
+/// `Store` methods can't fail (the engine calls them from Blitz/Boa callbacks),
+/// so a failed table read is logged and treated as empty.
+fn read_or_default<T: Default>(r: Result<T, String>) -> T {
+    r.unwrap_or_else(|err| {
+        log(&format!("browser: table read failed: {err}"));
+        T::default()
+    })
+}
+
 impl Store for Db<'_> {
     fn document(&self, id: u64) -> Option<Document> {
-        self.0.current.tables.document().get(id)
+        read_or_default(self.0.current.tables.document().get(id))
     }
     fn insert_document(&self, doc: Document) {
         let _ = self.0.current.tables.document().insert(doc);
@@ -125,12 +134,12 @@ impl Store for Db<'_> {
     fn drop_document(&self, id: u64) {
         let t = &self.0.current.tables;
         let _ = t.document().delete(id);
-        for e in t.docevent().scan_by_doc_eq(id) {
+        for e in read_or_default(t.docevent().scan_by_doc_eq(id)) {
             let _ = t.docevent().delete(e.seq);
         }
     }
     fn doc_events(&self, doc: u64) -> Vec<DocEvent> {
-        let mut v = self.0.current.tables.docevent().scan_by_doc_eq(doc);
+        let mut v = read_or_default(self.0.current.tables.docevent().scan_by_doc_eq(doc));
         v.sort_by_key(|e| e.seq);
         v
     }
@@ -139,15 +148,15 @@ impl Store for Db<'_> {
     }
     fn clear_doc_events(&self, doc: u64) {
         let t = &self.0.current.tables;
-        for e in t.docevent().scan_by_doc_eq(doc) {
+        for e in read_or_default(t.docevent().scan_by_doc_eq(doc)) {
             let _ = t.docevent().delete(e.seq);
         }
     }
     fn resource(&self, url: &str) -> Option<Vec<u8>> {
-        self.0.current.tables.resource().get(url.to_string()).map(|r| r.body)
+        read_or_default(self.0.current.tables.resource().get(url.to_string())).map(|r| r.body)
     }
     fn has_resource(&self, url: &str) -> bool {
-        self.0.current.tables.resourcemeta().get(url.to_string()).is_some()
+        read_or_default(self.0.current.tables.resourcemeta().get(url.to_string())).is_some()
     }
     fn insert_resource(&self, url: &str, body: Vec<u8>, stamp: u64) {
         let t = &self.0.current.tables;
@@ -157,13 +166,13 @@ impl Store for Db<'_> {
     }
     fn evict_oldest_resource(&self) -> Option<u64> {
         let t = &self.0.current.tables;
-        let oldest = t.resourcemeta().scan().into_iter().min_by_key(|m| m.stamp)?;
+        let oldest = read_or_default(t.resourcemeta().scan()).into_iter().min_by_key(|m| m.stamp)?;
         let _ = t.resource().delete(oldest.url.clone());
         let _ = t.resourcemeta().delete(oldest.url);
         Some(oldest.size)
     }
     fn request_pending_for(&self, url: &str) -> bool {
-        !self.0.current.tables.request().scan_by_url_eq(url.to_string()).is_empty()
+        !read_or_default(self.0.current.tables.request().scan_by_url_eq(url.to_string())).is_empty()
     }
     fn insert_request(&self, req: Request) {
         let _ = self.0.current.tables.request().insert(req);
@@ -172,7 +181,7 @@ impl Store for Db<'_> {
         let _ = self.0.current.tables.request().delete(req_id);
     }
     fn web_storage(&self, origin: &str) -> Vec<(String, String)> {
-        let rows = self.0.current.tables.webstorage().scan_by_origin_eq(origin.to_string());
+        let rows = read_or_default(self.0.current.tables.webstorage().scan_by_origin_eq(origin.to_string()));
         rows.into_iter().map(|r| (r.name, r.value)).collect()
     }
     fn set_web_storage(&self, origin: &str, name: &str, value: Option<String>) {
@@ -194,11 +203,11 @@ impl Store for Db<'_> {
 
 type Rows = (Session, Ui, Vec<Tab>);
 
-fn load_rows(ctx: &Ctx) -> Rows {
+fn load_rows(ctx: &Ctx) -> Result<Rows, String> {
     let t = &ctx.current.tables;
-    let session = t.session().get(SESSION).unwrap_or_else(|| Session { id: SESSION, ..Default::default() });
-    let ui = t.ui().get(UI).unwrap_or_else(|| Ui { id: UI, ..Default::default() });
-    (session, ui, t.tab().scan())
+    let session = t.session().get(SESSION)?.unwrap_or_else(|| Session { id: SESSION, ..Default::default() });
+    let ui = t.ui().get(UI)?.unwrap_or_else(|| Ui { id: UI, ..Default::default() });
+    Ok((session, ui, t.tab().scan()?))
 }
 
 /// Write back what a [`Browser`] changed.
@@ -230,10 +239,10 @@ fn save_rows(ctx: &Ctx, before: &Rows, after: Rows) {
 }
 
 /// Run browser logic over the tables: load rows, run `f`, save changes.
-fn with_browser<R>(ctx: &Ctx, f: impl FnOnce(&mut Browser) -> R) -> R {
-    let before = load_rows(ctx);
+fn with_browser<R>(ctx: &Ctx, f: impl FnOnce(&mut Browser) -> R) -> Result<R, String> {
+    let before = load_rows(ctx)?;
     let db = Db(ctx);
-    CACHES.with(|c| {
+    let r = CACHES.with(|c| {
         c.with(Caches::default, |caches| {
             let (s, u, t) = before.clone();
             let mut b = Browser::new(&db, caches, s, u, t);
@@ -241,13 +250,14 @@ fn with_browser<R>(ctx: &Ctx, f: impl FnOnce(&mut Browser) -> R) -> R {
             save_rows(ctx, &before, b.into_rows());
             r
         })
-    })
+    });
+    Ok(r)
 }
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 
 #[reducer(on = "load")]
-pub fn on_load(ctx: ReducerContext<BrowserCaps>)
+pub fn on_load(ctx: ReducerContext<BrowserCaps>) -> Result<(), String>
 {
     let g = ctx.graphics();
     let _ = g.reducers.create_layer(LAYER.to_string(), 100, false);
@@ -277,7 +287,7 @@ pub fn on_load(ctx: ReducerContext<BrowserCaps>)
         }
     }
 
-    let session = match t.session().get(SESSION) {
+    let session = match t.session().get(SESSION)? {
         Some(mut s) => {
             s.home = home;
             s
@@ -287,7 +297,7 @@ pub fn on_load(ctx: ReducerContext<BrowserCaps>)
     if t.session().update(session.clone()).is_err() {
         let _ = t.session().insert(session);
     }
-    if t.ui().get(UI).is_none() {
+    if t.ui().get(UI)?.is_none() {
         let _ = t.ui().insert(Ui { id: UI, next_stamp: 2, ..Default::default() });
     }
 
@@ -299,19 +309,19 @@ pub fn on_load(ctx: ReducerContext<BrowserCaps>)
             // Tabs survived a restart (stateful); their documents did not.
             b.restore();
         }
-    });
+    })
 }
 
 // ── Network ──────────────────────────────────────────────────────────────────
 
 #[reducer(on = "network.httpresponse.insert")]
-pub fn on_http(ctx: ReducerContext<BrowserCaps>, row: HttpResponse)
+pub fn on_http(ctx: ReducerContext<BrowserCaps>, row: HttpResponse) -> Result<(), String>
 {
     if row.owner != ME {
-        return;
+        return Ok(());
     }
     let requests = ctx.current.tables.request();
-    let Some(req) = requests.get(row.req_id) else { return };
+    let Some(req) = requests.get(row.req_id)? else { return Ok(()) };
     let _ = requests.delete(row.req_id);
     set_clock();
     let final_url = if row.final_host.is_empty() {
@@ -320,7 +330,7 @@ pub fn on_http(ctx: ReducerContext<BrowserCaps>, row: HttpResponse)
         let scheme = if row.final_tls { "https" } else { "http" };
         Some(format!("{scheme}://{}{}", row.final_host, row.final_path))
     };
-    with_browser(&ctx, |b| b.on_response(req, row.body, &row.error, final_url));
+    with_browser(&ctx, |b| b.on_response(req, row.body, &row.error, final_url))
 }
 
 // ── Input ────────────────────────────────────────────────────────────────────
@@ -375,22 +385,22 @@ where
 // ── Frame ────────────────────────────────────────────────────────────────────
 
 #[reducer(on = "graphics.frametick.update")]
-pub fn on_frame(ctx: ReducerContext<BrowserCaps>, _prev: FrameTick, tick: FrameTick)
+pub fn on_frame(ctx: ReducerContext<BrowserCaps>, _prev: FrameTick, tick: FrameTick) -> Result<(), String>
 {
     let now = set_clock();
-    let Ok(info) = ctx.graphics().queries.surface_info() else { return };
+    let Ok(info) = ctx.graphics().queries.surface_info() else { return Ok(()) };
     let (w, h) = (info.width, info.height);
     if w < 64 || h < engine::content_height(0) + 64 {
-        return;
+        return Ok(());
     }
-    let mouse = ctx.input().tables.mousestate().get(0);
+    let mouse = ctx.input().tables.mousestate().get(0)?;
     let t = &ctx.current.tables;
-    let mut inputs = t.pendinginput().scan();
+    let mut inputs = t.pendinginput().scan()?;
     inputs.sort_by_key(|e| e.seq);
     for e in &inputs {
         let _ = t.pendinginput().delete(e.seq);
     }
-    let mut script: Vec<ScriptedInput> = t.scriptedinput().scan().into_iter().filter(|c| c.frame <= tick.frame).collect();
+    let mut script: Vec<ScriptedInput> = t.scriptedinput().scan()?.into_iter().filter(|c| c.frame <= tick.frame).collect();
     script.sort_by_key(|c| (c.frame, c.id));
     for c in &script {
         let _ = t.scriptedinput().delete(c.id);
@@ -456,12 +466,12 @@ pub fn on_frame(ctx: ReducerContext<BrowserCaps>, _prev: FrameTick, tick: FrameT
         }
         overlay = b.hovered_link();
         cursor = (b.ui.mouse.0, b.ui.mouse.1, b.cursor());
-    });
+    })?;
 
     // Hand new requests to the network broker. Done here rather than where
     // they are created so a reducer triggered by the broker (`on_http`) never
     // calls back into it.
-    for mut r in t.request().scan().into_iter().filter(|r| !r.sent) {
+    for mut r in t.request().scan()?.into_iter().filter(|r| !r.sent) {
         match engine::parse_url(&r.url) {
             Some((host, path, tls)) => {
                 let _ = ctx.network().reducers.http_get(r.req_id, host, path, tls);
@@ -490,7 +500,7 @@ pub fn on_frame(ctx: ReducerContext<BrowserCaps>, _prev: FrameTick, tick: FrameT
     // Composite: chrome on top, content below it.
     let full = || Rect { x: 0.0, y: 0.0, w: 1.0, h: 1.0 };
     let white = || Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
-    if let Some(ui) = t.ui().get(UI) {
+    if let Some(ui) = t.ui().get(UI)? {
         if !ui.content_tex.is_empty() {
             let (tw, th) = ui.content_tex_size;
             let rect = Rect { x: 0.0, y: chrome::CHROME_H as f32, w: tw as f32, h: th as f32 };
@@ -532,8 +542,9 @@ pub fn on_frame(ctx: ReducerContext<BrowserCaps>, _prev: FrameTick, tick: FrameT
     }
 
     if info.id == 0 {
-        draw_cursor(&ctx, cursor.0, cursor.1, cursor.2);
+        draw_cursor(&ctx, cursor.0, cursor.1, cursor.2)?;
     }
+    Ok(())
 }
 
 /// A texture write for the graphics module. Texture ids/sizes live in `Ui`.
@@ -563,13 +574,13 @@ impl Upload {
 
 // ── Cursor ───────────────────────────────────────────────────────────────────
 
-fn draw_cursor<Caps>(ctx: &ReducerContext<Caps>, x: f32, y: f32, icon: cursor_icon::CursorIcon)
+fn draw_cursor<Caps>(ctx: &ReducerContext<Caps>, x: f32, y: f32, icon: cursor_icon::CursorIcon) -> Result<(), String>
 where
     Caps: CanRead<Ui> + CanUpdate<Ui>,
 {
     let g = ctx.graphics();
     let t = &ctx.current.tables;
-    let Some(mut ui) = t.ui().get(UI) else { return };
+    let Some(mut ui) = t.ui().get(UI)? else { return Ok(()) };
     if ui.cursor_tex.is_empty() {
         let (w, h) = cursor::atlas_size();
         ui.tex_gen += 1;
@@ -588,6 +599,7 @@ where
         Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 },
         Rect { x: (cell * cursor::CELL) as f32 / w as f32, y: 0.0, w: size / w as f32, h: 1.0 },
     );
+    Ok(())
 }
 
 fn texture_desc(width: u32, height: u32) -> TextureDescriptorInput {

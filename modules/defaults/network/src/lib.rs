@@ -218,11 +218,11 @@ where
 }
 
 #[reducer]
-fn send<Caps>(ctx: ReducerContext<Caps>, handle: u64, data: Vec<u8>)
+fn send<Caps>(ctx: ReducerContext<Caps>, handle: u64, data: Vec<u8>) -> Result<(), String>
 where
     Caps: CanRead<TcpPending>,
 {
-    match ctx.current.tables.tcppending().get(handle) {
+    match ctx.current.tables.tcppending().get(handle)? {
         Some(p) if p.owner == ctx.caller_module_name => {
             if let Err(err) = tcp_send(handle, data) {
                 ctx.log(&format!("network: send failed on {handle}: {err}"));
@@ -234,14 +234,15 @@ where
         )),
         None => ctx.log(&format!("network: send on unknown handle {handle}")),
     }
+    Ok(())
 }
 
 #[reducer]
-fn close<Caps>(ctx: ReducerContext<Caps>, handle: u64)
+fn close<Caps>(ctx: ReducerContext<Caps>, handle: u64) -> Result<(), String>
 where
     Caps: CanRead<TcpPending> + CanDelete<TcpPending>,
 {
-    match ctx.current.tables.tcppending().get(handle) {
+    match ctx.current.tables.tcppending().get(handle)? {
         Some(p) if p.owner == ctx.caller_module_name => {
             let _ = tcp_close(handle);
             let _ = ctx.current.tables.tcppending().delete(handle);
@@ -252,18 +253,19 @@ where
         )),
         None => {}
     }
+    Ok(())
 }
 
 // ── DNS resolver ────────────────────────────────────────────────────────────────
 
 #[reducer]
-fn resolve<Caps>(ctx: ReducerContext<Caps>, req_id: u64, host: String)
+fn resolve<Caps>(ctx: ReducerContext<Caps>, req_id: u64, host: String) -> Result<(), String>
 where
     Caps: CanRead<NetCfg> + CanUpdate<NetCfg> + CanInsert<DnsPending>,
 {
     let owner = ctx.caller_module_name.clone();
-    let Some(txid) = send_dns_query(&ctx, &host) else {
-        return;
+    let Some(txid) = send_dns_query(&ctx, &host)? else {
+        return Ok(());
     };
     let _ = ctx.current.tables.dnspending().insert(DnsPending {
         txid: txid as u64,
@@ -272,17 +274,25 @@ where
         host,
         is_http: false,
     });
+    Ok(())
 }
 
 // ── HTTP GET helper ─────────────────────────────────────────────────────────────
 
 #[reducer]
-fn http_get<Caps>(ctx: ReducerContext<Caps>, req_id: u64, host: String, path: String, tls: bool)
+fn http_get<Caps>(
+    ctx: ReducerContext<Caps>,
+    req_id: u64,
+    host: String,
+    path: String,
+    tls: bool,
+) -> Result<(), String>
 where
     Caps: CanRead<NetCfg> + CanUpdate<NetCfg> + CanInsert<DnsPending> + CanInsert<HttpJob>,
 {
     let owner = ctx.caller_module_name.clone();
-    start_http_job(&ctx, owner, req_id, host, path, tls, 0);
+    start_http_job(&ctx, owner, req_id, host, path, tls, 0)?;
+    Ok(())
 }
 
 /// Kick off (or continue, after a redirect) an HTTP job: fire the DNS query and
@@ -296,11 +306,12 @@ fn start_http_job<Caps>(
     path: String,
     tls: bool,
     redirects: u32,
-) where
+) -> Result<(), String>
+where
     Caps: CanRead<NetCfg> + CanUpdate<NetCfg> + CanInsert<DnsPending> + CanInsert<HttpJob>,
 {
-    let Some(txid) = send_dns_query(ctx, &host) else {
-        return;
+    let Some(txid) = send_dns_query(ctx, &host)? else {
+        return Ok(());
     };
     let _ = ctx.current.tables.dnspending().insert(DnsPending {
         txid: txid as u64,
@@ -321,12 +332,13 @@ fn start_http_job<Caps>(
         tls,
         redirects,
     });
+    Ok(())
 }
 
 // ── Authority event pump ────────────────────────────────────────────────────────
 
 #[reducer(on = "network")]
-fn on_network<Caps>(ctx: ReducerContext<Caps>, event: NetworkEvent)
+fn on_network<Caps>(ctx: ReducerContext<Caps>, event: NetworkEvent) -> Result<(), String>
 where
     Caps: CanRead<TcpPending>
         + CanDelete<TcpPending>
@@ -353,8 +365,8 @@ where
 {
     match event {
         NetworkEvent::Connected { handle } => {
-            let Some(p) = ctx.current.tables.tcppending().get(handle) else {
-                return;
+            let Some(p) = ctx.current.tables.tcppending().get(handle)? else {
+                return Ok(());
             };
             if p.kind == 0 {
                 let _ = ctx.current.tables.connection().insert(Connection {
@@ -365,7 +377,7 @@ where
                     status: "connected".to_string(),
                     error: String::new(),
                 });
-            } else if let Some(mut job) = ctx.current.tables.httpjob().get(p.job_txid) {
+            } else if let Some(mut job) = ctx.current.tables.httpjob().get(p.job_txid)? {
                 let request = format!(
                     "GET {} HTTP/1.1\r\n\
                      Host: {}\r\n\
@@ -387,8 +399,8 @@ where
         }
 
         NetworkEvent::ConnectFailed { handle, error } | NetworkEvent::Failed { handle, error } => {
-            let Some(p) = ctx.current.tables.tcppending().get(handle) else {
-                return;
+            let Some(p) = ctx.current.tables.tcppending().get(handle)? else {
+                return Ok(());
             };
             if p.kind == 0 {
                 let _ = ctx.current.tables.connection().insert(Connection {
@@ -399,7 +411,7 @@ where
                     status: "failed".to_string(),
                     error,
                 });
-            } else if let Some(job) = ctx.current.tables.httpjob().get(p.job_txid) {
+            } else if let Some(job) = ctx.current.tables.httpjob().get(p.job_txid)? {
                 finish_http_error(&ctx, &job, &error);
                 let _ = ctx.current.tables.httpjob().delete(job.txid);
             }
@@ -407,8 +419,8 @@ where
         }
 
         NetworkEvent::Received { handle, data } => {
-            let Some(p) = ctx.current.tables.tcppending().get(handle) else {
-                return;
+            let Some(p) = ctx.current.tables.tcppending().get(handle)? else {
+                return Ok(());
             };
             if p.kind == 0 {
                 let _ = ctx.current.tables.inbound().insert(Inbound {
@@ -417,15 +429,15 @@ where
                     handle,
                     data,
                 });
-            } else if let Some(mut job) = ctx.current.tables.httpjob().get(p.job_txid) {
+            } else if let Some(mut job) = ctx.current.tables.httpjob().get(p.job_txid)? {
                 job.buffer.extend_from_slice(&data);
                 let _ = ctx.current.tables.httpjob().update(job);
             }
         }
 
         NetworkEvent::Closed { handle } => {
-            let Some(p) = ctx.current.tables.tcppending().get(handle) else {
-                return;
+            let Some(p) = ctx.current.tables.tcppending().get(handle)? else {
+                return Ok(());
             };
             if p.kind == 0 {
                 let _ = ctx.current.tables.connclosed().insert(ConnClosed {
@@ -433,7 +445,7 @@ where
                     owner: p.owner,
                     handle,
                 });
-            } else if let Some(job) = ctx.current.tables.httpjob().get(p.job_txid) {
+            } else if let Some(job) = ctx.current.tables.httpjob().get(p.job_txid)? {
                 let _ = ctx.current.tables.httpjob().delete(job.txid);
                 let parsed = parse_http(&job.buffer);
 
@@ -456,9 +468,9 @@ where
                                 path,
                                 tls,
                                 job.redirects + 1,
-                            );
+                            )?;
                             let _ = ctx.current.tables.tcppending().delete(handle);
-                            return;
+                            return Ok(());
                         }
                     }
                 }
@@ -485,10 +497,10 @@ where
 
         NetworkEvent::UdpReceived { data, .. } => {
             let Some((txid, ip_opt)) = dns::parse_response(&data) else {
-                return;
+                return Ok(());
             };
-            let Some(pending) = ctx.current.tables.dnspending().get(txid as u64) else {
-                return;
+            let Some(pending) = ctx.current.tables.dnspending().get(txid as u64)? else {
+                return Ok(());
             };
             let _ = ctx.current.tables.dnspending().delete(txid as u64);
 
@@ -505,12 +517,12 @@ where
                     ip,
                     error,
                 });
-                return;
+                return Ok(());
             }
 
             // HTTP job: turn the resolved IP into a TCP connection, or fail it.
-            let Some(mut job) = ctx.current.tables.httpjob().get(txid as u64) else {
-                return;
+            let Some(mut job) = ctx.current.tables.httpjob().get(txid as u64)? else {
+                return Ok(());
             };
             match ip_opt {
                 Some(ip) => {
@@ -554,17 +566,20 @@ where
             // The broker does not expose listening sockets yet.
         }
     }
+    Ok(())
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
 /// Allocate a transaction id, send a DNS A-record query for `host`, and return
 /// the txid. `None` if the DNS socket isn't ready.
-fn send_dns_query<Caps>(ctx: &ReducerContext<Caps>, host: &str) -> Option<u16>
+fn send_dns_query<Caps>(ctx: &ReducerContext<Caps>, host: &str) -> Result<Option<u16>, String>
 where
     Caps: CanRead<NetCfg> + CanUpdate<NetCfg>,
 {
-    let mut cfg = ctx.current.tables.netcfg().get(0)?;
+    let Some(mut cfg) = ctx.current.tables.netcfg().get(0)? else {
+        return Ok(None);
+    };
     let txid = (cfg.next_txid & 0xFFFF) as u16;
     cfg.next_txid = cfg.next_txid.wrapping_add(1);
     let dns_handle = cfg.dns_handle;
@@ -574,9 +589,9 @@ where
     let query = dns::build_query(txid, host);
     if let Err(err) = udp_send_to(dns_handle, dns_server, DNS_PORT, query) {
         ctx.log(&format!("network: DNS query for {host} failed: {err}"));
-        return None;
+        return Ok(None);
     }
-    Some(txid)
+    Ok(Some(txid))
 }
 
 /// Emit a terminal `HttpResponse` carrying an error for `job`.

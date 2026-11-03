@@ -141,7 +141,7 @@ where
     );
 }
 
-pub fn handle_dead_input<Caps>(ctx: &ReducerContext<Caps>, cs: &mut ClientState)
+pub fn handle_dead_input<Caps>(ctx: &ReducerContext<Caps>, cs: &mut ClientState) -> Result<(), String>
 where
     Caps: CanRead<KeyState>
         + CanRead<ClientState>
@@ -152,14 +152,15 @@ where
         + CanInsert<ui::InputFocus>
         + CanUpdate<ui::InputFocus>,
 {
-    let key_states = ctx.input().tables.keystate().scan();
+    let key_states = ctx.input().tables.keystate().scan()?;
     let enter = key_states.iter().any(|k| {
         k.pressed && (k.code == KeyCode::Enter as u32 || k.code == KeyCode::NumpadEnter as u32)
     });
     if enter {
         ui::clear_focus(ctx);
-        ui::clear_elements(ctx);
+        ui::clear_elements(ctx)?;
         build_lobby_ui(ctx);
         cs.state = GameState::Lobby;
     }
+    Ok(())
 }

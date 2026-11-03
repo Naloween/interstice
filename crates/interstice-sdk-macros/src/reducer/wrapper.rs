@@ -34,7 +34,9 @@ pub fn get_wrapper_function(
             };
             if interstice_args_vec.len() != #arg_count - 1 { panic!("Expected {} reducer arguments, got {}", #arg_count-1, interstice_args_vec.len()) }
 
-            #reducer_ident(reducer_context, #(#args),*);
+            if let Err(err) = interstice_sdk::ReducerOutcome::into_outcome(#reducer_ident(reducer_context, #(#args),*)) {
+                panic!("reducer `{}` failed: {}", stringify!(#reducer_ident), err);
+            }
         }
     }
 }

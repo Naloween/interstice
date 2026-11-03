@@ -72,11 +72,11 @@ where
 }
 
 #[reducer(on = "audio_output")]
-fn on_audio_output<Caps>(ctx: ReducerContext<Caps>)
+fn on_audio_output<Caps>(ctx: ReducerContext<Caps>) -> Result<(), String>
 where
     Caps: CanRead<AudioState> + CanUpdate<AudioState>,
 {
-    let mut state = ctx.current.tables.audiostate().get(0).unwrap_or_else(|| {
+    let mut state = ctx.current.tables.audiostate().get(0)?.unwrap_or_else(|| {
         ctx.log("Audio state not found");
         AudioState {
             id: 0,
@@ -89,7 +89,7 @@ where
     let stream_id = state.output_stream_id;
     if stream_id == 0 {
         ctx.log("Audio output stream not initialized");
-        return;
+        return Ok(());
     }
 
     let frames = FRAMES_PER_BUFFER as usize;
@@ -113,10 +113,11 @@ where
             .write_frames_f32_planar(stream_id, FRAMES_PER_BUFFER, CHANNELS, data)
     {
         ctx.log(&format!("Audio write failed: {err}"));
-        return;
+        return Ok(());
     }
 
     let _ = ctx.current.tables.audiostate().update(state);
+    Ok(())
 }
 
 #[reducer(on = "audio_input")]

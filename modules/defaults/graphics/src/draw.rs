@@ -23,14 +23,14 @@ pub fn draw_circle<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     color: Color,
     filled: bool,
     stroke_width: f32,
-) {
+) -> Result<(), String> {
     let layer = layer_key(&ctx, &layer);
-    if !ensure_layer_exists(&ctx, &layer) {
-        return;
+    if !ensure_layer_exists(&ctx, &layer)? {
+        return Ok(());
     }
     if radius <= 0.0 {
         ctx.log("Circle radius must be positive");
-        return;
+        return Ok(());
     }
     let command = Draw2DCommand {
         id: 0,
@@ -52,6 +52,7 @@ pub fn draw_circle<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
         mesh: None,
     };
     enqueue_draw_command(&ctx, command);
+    Ok(())
 }
 
 #[reducer]
@@ -63,14 +64,14 @@ pub fn draw_circles<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     color: Color,
     filled: bool,
     stroke_width: f32,
-) {
+) -> Result<(), String> {
     let layer = layer_key(&ctx, &layer);
-    if !ensure_layer_exists(&ctx, &layer) {
-        return;
+    if !ensure_layer_exists(&ctx, &layer)? {
+        return Ok(());
     }
     if centers.len() != radii.len() {
         ctx.log("draw_circles: centers and radii length mismatch");
-        return;
+        return Ok(());
     }
 
     let circles = centers
@@ -92,7 +93,7 @@ pub fn draw_circles<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
         .collect::<Vec<_>>();
 
     if circles.is_empty() {
-        return;
+        return Ok(());
     }
 
     let command = Draw2DCommand {
@@ -109,6 +110,7 @@ pub fn draw_circles<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
         mesh: None,
     };
     enqueue_draw_command(&ctx, command);
+    Ok(())
 }
 
 #[reducer]
@@ -120,14 +122,14 @@ pub fn draw_polyline<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     color: Color,
     closed: bool,
     filled: bool,
-) {
+) -> Result<(), String> {
     let layer = layer_key(&ctx, &layer);
-    if !ensure_layer_exists(&ctx, &layer) {
-        return;
+    if !ensure_layer_exists(&ctx, &layer)? {
+        return Ok(());
     }
     if points.len() < 2 {
         ctx.log("Polyline requires at least two points");
-        return;
+        return Ok(());
     }
     let command = Draw2DCommand {
         id: 0,
@@ -149,6 +151,7 @@ pub fn draw_polyline<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
         mesh: None,
     };
     enqueue_draw_command(&ctx, command);
+    Ok(())
 }
 
 #[reducer]
@@ -160,14 +163,14 @@ pub fn draw_rect<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     filled: bool,
     stroke_width: f32,
     corner_radius: Option<f32>,
-) {
+) -> Result<(), String> {
     let layer = layer_key(&ctx, &layer);
-    if !ensure_layer_exists(&ctx, &layer) {
-        return;
+    if !ensure_layer_exists(&ctx, &layer)? {
+        return Ok(());
     }
     if rect.w <= 0.0 || rect.h <= 0.0 {
         ctx.log("Rect width and height must be positive");
-        return;
+        return Ok(());
     }
     let command = Draw2DCommand {
         id: 0,
@@ -189,6 +192,7 @@ pub fn draw_rect<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
         mesh: None,
     };
     enqueue_draw_command(&ctx, command);
+    Ok(())
 }
 
 #[reducer]
@@ -199,24 +203,24 @@ pub fn draw_image<Caps: CanInsert<Draw2DCommand> + CanRead<Layer> + CanRead<Text
     rect: Rect,
     tint: Color,
     src_uv: Rect,
-) {
+) -> Result<(), String> {
     let layer = layer_key(&ctx, &layer);
-    if !ensure_layer_exists(&ctx, &layer) {
-        return;
+    if !ensure_layer_exists(&ctx, &layer)? {
+        return Ok(());
     }
     let key = namespaced_key(&ctx, &texture_local_id);
     if ctx
         .current
         .tables
         .texturebinding()
-        .get(key.clone())
+        .get(key.clone())?
         .is_none()
     {
         ctx.log(&format!(
             "Texture '{}' not found for draw_image",
             texture_local_id
         ));
-        return;
+        return Ok(());
     }
     let command = Draw2DCommand {
         id: 0,
@@ -240,6 +244,7 @@ pub fn draw_image<Caps: CanInsert<Draw2DCommand> + CanRead<Layer> + CanRead<Text
         mesh: None,
     };
     enqueue_draw_command(&ctx, command);
+    Ok(())
 }
 
 /// Composite an offscreen surface (produced by a module routed to `surface_id`
@@ -253,10 +258,10 @@ pub fn draw_surface<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     surface_id: u32,
     dest: Rect,
     tint: Color,
-) {
+) -> Result<(), String> {
     let layer = layer_key(&ctx, &layer);
-    if !ensure_layer_exists(&ctx, &layer) {
-        return;
+    if !ensure_layer_exists(&ctx, &layer)? {
+        return Ok(());
     }
     let command = Draw2DCommand {
         id: 0,
@@ -276,6 +281,7 @@ pub fn draw_surface<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
         mesh: None,
     };
     enqueue_draw_command(&ctx, command);
+    Ok(())
 }
 
 #[reducer]
@@ -287,17 +293,17 @@ pub fn draw_text<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
     size: f32,
     color: Color,
     font: Option<String>,
-) {
+) -> Result<(), String> {
     let layer = layer_key(&ctx, &layer);
-    if !ensure_layer_exists(&ctx, &layer) {
-        return;
+    if !ensure_layer_exists(&ctx, &layer)? {
+        return Ok(());
     }
     if content.is_empty() {
-        return;
+        return Ok(());
     }
     if size <= 0.0 {
         ctx.log("Text size must be positive");
-        return;
+        return Ok(());
     }
     let command = Draw2DCommand {
         id: 0,
@@ -319,6 +325,7 @@ pub fn draw_text<Caps: CanInsert<Draw2DCommand> + CanRead<Layer>>(
         mesh: None,
     };
     enqueue_draw_command(&ctx, command);
+    Ok(())
 }
 
 #[reducer]
@@ -330,10 +337,10 @@ pub fn draw_mesh<
     mesh_local_id: String,
     pipeline_local_id: String,
     instances: u32,
-) {
+) -> Result<(), String> {
     let layer = layer_key(&ctx, &layer);
-    if !ensure_layer_exists(&ctx, &layer) {
-        return;
+    if !ensure_layer_exists(&ctx, &layer)? {
+        return Ok(());
     }
 
     let mesh_key = namespaced_key(&ctx, &mesh_local_id);
@@ -341,11 +348,11 @@ pub fn draw_mesh<
         .current
         .tables
         .meshbinding()
-        .get(mesh_key.clone())
+        .get(mesh_key.clone())?
         .is_none()
     {
         ctx.log(&format!("Mesh '{}' not found for draw_mesh", mesh_local_id));
-        return;
+        return Ok(());
     }
 
     let pipeline_key = namespaced_key(&ctx, &pipeline_local_id);
@@ -353,7 +360,7 @@ pub fn draw_mesh<
         .current
         .tables
         .pipelinebinding()
-        .get(pipeline_key.clone())
+        .get(pipeline_key.clone())?
     {
         Some(value) => value,
         None => {
@@ -361,7 +368,7 @@ pub fn draw_mesh<
                 "Pipeline '{}' not found for draw_mesh",
                 pipeline_local_id
             ));
-            return;
+            return Ok(());
         }
     };
     if pipeline.pipeline_id.is_none() {
@@ -369,7 +376,7 @@ pub fn draw_mesh<
             "Pipeline '{}' is not compiled yet",
             pipeline_local_id
         ));
-        return;
+        return Ok(());
     }
 
     let command = Draw2DCommand {
@@ -396,17 +403,18 @@ pub fn draw_mesh<
         }),
     };
     enqueue_draw_command(&ctx, command);
+    Ok(())
 }
 
 #[reducer]
 pub fn submit_render_pass<Caps: CanRead<Layer> + CanInsert<RenderPassCommand>>(
     ctx: ReducerContext<Caps>,
     submission: RenderPassSubmission,
-) {
+) -> Result<(), String> {
     let mut submission = submission;
     submission.layer = layer_key(&ctx, &submission.layer);
-    if !ensure_layer_exists(&ctx, &submission.layer) {
-        return;
+    if !ensure_layer_exists(&ctx, &submission.layer)? {
+        return Ok(());
     }
     if let Err(err) = ctx
         .current
@@ -419,6 +427,7 @@ pub fn submit_render_pass<Caps: CanRead<Layer> + CanInsert<RenderPassCommand>>(
     {
         ctx.log(&format!("Failed to enqueue render pass: {}", err));
     }
+    Ok(())
 }
 
 #[reducer]

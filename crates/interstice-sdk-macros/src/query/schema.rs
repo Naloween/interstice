@@ -38,6 +38,8 @@ pub fn get_register_schema_function(
     let return_type = match &input_fn.sig.output {
         syn::ReturnType::Default => quote! { interstice_sdk::IntersticeType::Void },
         syn::ReturnType::Type(_, ty) => {
+            // `Result<T, E>` queries expose `T`; an `Err` aborts the call.
+            let ty = crate::query::result_ok_type(ty).unwrap_or(ty);
             let ty = ty.to_token_stream().to_string();
             quote! {
                interstice_sdk::IntersticeType::from_str(#ty).unwrap()

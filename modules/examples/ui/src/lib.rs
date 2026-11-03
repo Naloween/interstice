@@ -232,7 +232,7 @@ where
 }
 
 #[reducer(on = "graphics.frametick.update")]
-pub fn on_frame<Caps>(ctx: ReducerContext<Caps>, _prev: FrameTick, _tick: FrameTick)
+pub fn on_frame<Caps>(ctx: ReducerContext<Caps>, _prev: FrameTick, _tick: FrameTick) -> Result<(), String>
 where
     Caps: CanRead<ui::UiElement>
         + CanUpdate<ui::UiElement>
@@ -243,7 +243,7 @@ where
         .input()
         .tables
         .mousestate()
-        .get(0)
+        .get(0)?
         .map(|m| m.position)
         .unwrap_or((0.0, 0.0));
 
@@ -254,7 +254,7 @@ where
     ui::update_element(&ctx, button_element(bg));
 
     // Lay out + draw our UI tree into our own layer/surface.
-    ui::render(&ctx);
+    ui::render(&ctx)
 }
 
 fn button_element(bg: (f32, f32, f32, f32)) -> UiElement {

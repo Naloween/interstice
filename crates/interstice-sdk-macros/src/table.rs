@@ -329,154 +329,80 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         );
         let fn_get = syn::Ident::new(&format!("get_by_{}", index_name), struct_ident.span());
 
-        index_read_methods.push(quote! {
-            pub fn #fn_eq(&self, value: #index_ty_ident) -> Vec<#struct_ident>
-            where
-                Caps: interstice_sdk::CanRead<#struct_ident>,
-            {
-                interstice_sdk::host_calls::scan_index(
-                    interstice_sdk::ModuleSelection::Current,
-                    #table_name.to_string(),
-                    #index_name.to_string(),
-                    interstice_sdk::IndexQuery::Eq(TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(value)).expect("Failed to convert IntersticeValue to IndexKey")),
-                )
-                .expect("Index scan failed")
-                .into_iter()
-                .map(|x| x.into())
-                .collect()
-            }
-        });
-
-        if *unique {
-            index_read_methods.push(quote! {
-                pub fn #fn_get(&self, value: #index_ty_ident) -> Option<#struct_ident>
+        let scan_op = |fn_name: &syn::Ident, variant: proc_macro2::TokenStream| {
+            quote! {
+                pub fn #fn_name(&self, value: #index_ty_ident) -> Result<Vec<#struct_ident>, String>
                 where
                     Caps: interstice_sdk::CanRead<#struct_ident>,
                 {
-                    self.#fn_eq(value).into_iter().next()
+                    interstice_sdk::reads::read_index(
+                        interstice_sdk::ModuleSelection::Current,
+                        #table_name,
+                        #index_name,
+                        interstice_sdk::IndexQuery::#variant(interstice_sdk::reads::to_index_key(value)?),
+                    )
+                }
+            }
+        };
+
+        index_read_methods.push(scan_op(&fn_eq, quote!(Eq)));
+
+        if *unique {
+            index_read_methods.push(quote! {
+                pub fn #fn_get(&self, value: #index_ty_ident) -> Result<Option<#struct_ident>, String>
+                where
+                    Caps: interstice_sdk::CanRead<#struct_ident>,
+                {
+                    Ok(self.#fn_eq(value)?.into_iter().next())
                 }
             });
         }
 
         if *is_btree {
+            index_read_methods.push(scan_op(&fn_lt, quote!(Lt)));
+            index_read_methods.push(scan_op(&fn_lte, quote!(Lte)));
+            index_read_methods.push(scan_op(&fn_gt, quote!(Gt)));
+            index_read_methods.push(scan_op(&fn_gte, quote!(Gte)));
             index_read_methods.push(quote! {
-                pub fn #fn_lt(&self, value: #index_ty_ident) -> Vec<#struct_ident>
-                where
-                    Caps: interstice_sdk::CanRead<#struct_ident>,
-                {
-                    interstice_sdk::host_calls::scan_index(
-                        interstice_sdk::ModuleSelection::Current,
-                        #table_name.to_string(),
-                        #index_name.to_string(),
-                        interstice_sdk::IndexQuery::Lt(TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(value)).expect("Failed to convert IntersticeValue to IndexKey")),
-                    )
-                    .expect("Index scan failed")
-                    .into_iter()
-                    .map(|x| x.into())
-                    .collect()
-                }
-
-                pub fn #fn_lte(&self, value: #index_ty_ident) -> Vec<#struct_ident>
-                where
-                    Caps: interstice_sdk::CanRead<#struct_ident>,
-                {
-                    interstice_sdk::host_calls::scan_index(
-                        interstice_sdk::ModuleSelection::Current,
-                        #table_name.to_string(),
-                        #index_name.to_string(),
-                        interstice_sdk::IndexQuery::Lte(TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(value)).expect("Failed to convert IntersticeValue to IndexKey")),
-                    )
-                    .expect("Index scan failed")
-                    .into_iter()
-                    .map(|x| x.into())
-                    .collect()
-                }
-
-                pub fn #fn_gt(&self, value: #index_ty_ident) -> Vec<#struct_ident>
-                where
-                    Caps: interstice_sdk::CanRead<#struct_ident>,
-                {
-                    interstice_sdk::host_calls::scan_index(
-                        interstice_sdk::ModuleSelection::Current,
-                        #table_name.to_string(),
-                        #index_name.to_string(),
-                        interstice_sdk::IndexQuery::Gt(TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(value)).expect("Failed to convert IntersticeValue to IndexKey")),
-                    )
-                    .expect("Index scan failed")
-                    .into_iter()
-                    .map(|x| x.into())
-                    .collect()
-                }
-
-                pub fn #fn_gte(&self, value: #index_ty_ident) -> Vec<#struct_ident>
-                where
-                    Caps: interstice_sdk::CanRead<#struct_ident>,
-                {
-                    interstice_sdk::host_calls::scan_index(
-                        interstice_sdk::ModuleSelection::Current,
-                        #table_name.to_string(),
-                        #index_name.to_string(),
-                        interstice_sdk::IndexQuery::Gte(TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(value)).expect("Failed to convert IntersticeValue to IndexKey")),
-                    )
-                    .expect("Index scan failed")
-                    .into_iter()
-                    .map(|x| x.into())
-                    .collect()
-                }
-
                 pub fn #fn_range(
                     &self,
                     min: #index_ty_ident,
                     max: #index_ty_ident,
                     include_min: bool,
                     include_max: bool,
-                ) -> Vec<#struct_ident>
+                ) -> Result<Vec<#struct_ident>, String>
                 where
                     Caps: interstice_sdk::CanRead<#struct_ident>,
                 {
-                    interstice_sdk::host_calls::scan_index(
+                    interstice_sdk::reads::read_index(
                         interstice_sdk::ModuleSelection::Current,
-                        #table_name.to_string(),
-                        #index_name.to_string(),
+                        #table_name,
+                        #index_name,
                         interstice_sdk::IndexQuery::Range {
-                            min: TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(min)).expect("Failed to convert IntersticeValue to IndexKey"),
-                            max: TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(max)).expect("Failed to convert IntersticeValue to IndexKey"),
+                            min: interstice_sdk::reads::to_index_key(min)?,
+                            max: interstice_sdk::reads::to_index_key(max)?,
                             include_min,
                             include_max,
                         },
                     )
-                    .expect("Index scan failed")
-                    .into_iter()
-                    .map(|x| x.into())
-                    .collect()
                 }
             });
         }
     }
 
     let read_table_imp = quote! {
-        pub fn scan(&self) -> Vec<#struct_ident>
+        pub fn scan(&self) -> Result<Vec<#struct_ident>, String>
         where
             Caps: interstice_sdk::CanRead<#struct_ident>,
         {
-            interstice_sdk::host_calls::scan(interstice_sdk::ModuleSelection::Current, #table_name.to_string())
-                .expect("Table scan failed")
-                .into_iter()
-                .map(|x| x.into())
-                .collect()
+            interstice_sdk::reads::read_scan(interstice_sdk::ModuleSelection::Current, #table_name)
         }
 
-        pub fn get(&self, primary_key: #pk_type_ident) -> Option<#struct_ident>
+        pub fn get(&self, primary_key: #pk_type_ident) -> Result<Option<#struct_ident>, String>
         where
             Caps: interstice_sdk::CanRead<#struct_ident>,
         {
-            interstice_sdk::host_calls::get_by_primary_key(
-                interstice_sdk::ModuleSelection::Current,
-                #table_name,
-                TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(primary_key)).expect("Failed to convert IntersticeValue to IndexKey"),
-            )
-            .expect("Table get_by_primary_key failed")
-            .map(|row| row.into())
+            interstice_sdk::reads::read_get(interstice_sdk::ModuleSelection::Current, #table_name, primary_key)
         }
 
         #(#index_read_methods)*
@@ -589,15 +515,21 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
-        impl From<interstice_sdk::Row> for #struct_ident {
-            fn from(row: interstice_sdk::Row) -> #struct_ident{
+        impl TryFrom<interstice_sdk::Row> for #struct_ident {
+            type Error = String;
+            fn try_from(row: interstice_sdk::Row) -> Result<#struct_ident, String> {
+                #[allow(unused_mut, unused_variables)]
                 let mut row_entries = row.entries.into_iter();
-                #struct_ident {
-                    #pk_ident: row.primary_key.try_into().unwrap(),
+                Ok(#struct_ident {
+                    #pk_ident: row.primary_key.try_into().map_err(|e| format!("{}.{}: {}", #struct_name, stringify!(#pk_ident), e))?,
                     #(
-                        #entry_fields: row_entries.next().unwrap().try_into().unwrap(),
+                        #entry_fields: row_entries
+                            .next()
+                            .ok_or_else(|| format!("{}: row is missing field {}", #struct_name, stringify!(#entry_fields)))?
+                            .try_into()
+                            .map_err(|e| format!("{}.{}: {}", #struct_name, stringify!(#entry_fields), e))?,
                     )*
-                }
+                })
             }
         }
 
@@ -635,7 +567,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                     #table_name,
                     row.into(),
                 )
-                .map(|row| row.into())
+                .and_then(|row| row.try_into())
             }
 
             pub fn update(&self, row: #struct_ident) -> Result<(), String>
@@ -654,7 +586,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             {
                 interstice_sdk::host_calls::delete_row(
                     #table_name,
-                    TryInto::<interstice_sdk::IndexKey>::try_into(Into::<interstice_sdk::IntersticeValue>::into(primary_key)).expect("Failed to convert IntersticeValue to IndexKey"),
+                    interstice_sdk::reads::to_index_key(primary_key)?,
                 )
             }
 
@@ -681,31 +613,6 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         impl<Caps> #table_read_handle_struct<Caps> {
             #read_table_imp
         }
-
-        impl<Caps> IntoIterator for #table_edit_handle_struct<Caps>
-        where
-            Caps: interstice_sdk::CanRead<#struct_ident>,
-        {
-            type Item = #struct_ident;
-            type IntoIter = std::vec::IntoIter<#struct_ident>;
-
-            fn into_iter(self) -> Self::IntoIter {
-                self.scan().into_iter()
-            }
-        }
-
-        impl<Caps> IntoIterator for #table_read_handle_struct<Caps>
-        where
-            Caps: interstice_sdk::CanRead<#struct_ident>,
-        {
-            type Item = #struct_ident;
-            type IntoIter = std::vec::IntoIter<#struct_ident>;
-
-            fn into_iter(self) -> Self::IntoIter {
-                self.scan().into_iter()
-            }
-        }
-
 
         pub trait #has_table_edit_handle_trait<Caps> {
             fn #get_table_edit_handle_fn(&self) -> #table_edit_handle_struct<Caps>;

@@ -24,11 +24,11 @@ pub struct Food {
     pub color: Color,
 }
 
-pub fn spawn_missing_foods<Caps>(ctx: &ReducerContext<Caps>)
+pub fn spawn_missing_foods<Caps>(ctx: &ReducerContext<Caps>) -> Result<(), String>
 where
     Caps: CanRead<Food> + CanInsert<Food>,
 {
-    let mut count = ctx.current.tables.food().scan().len();
+    let mut count = ctx.current.tables.food().scan()?.len();
     while count < TARGET_FOOD {
         let pos = rand_pos();
         let color_idx = (deterministic_random_u64().unwrap_or(count as u64) as usize) % FOOD_COLORS.len();
@@ -41,4 +41,5 @@ where
         });
         count += 1;
     }
+    Ok(())
 }

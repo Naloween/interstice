@@ -27,7 +27,7 @@ fn caller(ctx: ReducerContext) {
 }
 
 #[reducer(on = "hello-example.hello-example.greetings.insert")]
-fn on_insert_greetings<Caps>(ctx: ReducerContext<Caps>, inserted_row: Greetings)
+fn on_insert_greetings<Caps>(ctx: ReducerContext<Caps>, inserted_row: Greetings) -> Result<(), String>
 where
     Caps: CanRead<Greetings>,
 {
@@ -41,8 +41,9 @@ where
         .hello_example()
         .tables
         .greetings()
-        .scan()
+        .scan()?
     {
         ctx.log(&format!("Remote greeting row: {:?}", greeting.greeting));
     }
+    Ok(())
 }

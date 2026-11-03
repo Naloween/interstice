@@ -153,7 +153,11 @@ where
 /// Completion barrier — reads target tables (conflicts with bench_tx_insert writes) so the scheduler
 /// guarantees it runs after all inserts finish. Records elapsed time and committed count on BenchRun.
 #[reducer]
-pub fn bench_end_run<Caps>(ctx: ReducerContext<Caps>, run_id: String, requests: u64)
+pub fn bench_end_run<Caps>(
+    ctx: ReducerContext<Caps>,
+    run_id: String,
+    requests: u64,
+) -> Result<(), String>
 where
     Caps: CanRead<BenchRun>
         + CanUpdate<BenchRun>
@@ -161,20 +165,26 @@ where
         + CanRead<BenchStateful>
         + CanRead<BenchLogged>,
 {
-    let Some(mut run) = ctx.current.tables.benchrun().get("active".to_string()) else {
-        return;
+    let Some(mut run) = ctx.current.tables.benchrun().get("active".to_string())? else {
+        return Ok(());
     };
     if run.run_id != run_id || run.completed_ms > 0 {
-        return;
+        return Ok(());
     }
     run.committed = requests;
     run.completed_ms = now_ms(&ctx);
     let _ = ctx.current.tables.benchrun().update(run);
+    Ok(())
 }
 
 /// Serialized reducer for update/delete operations (these inherently conflict at the table level).
 #[reducer]
-pub fn bench_tx<Caps>(ctx: ReducerContext<Caps>, run_id: String, seq: u64, payload_bytes: u64)
+pub fn bench_tx<Caps>(
+    ctx: ReducerContext<Caps>,
+    run_id: String,
+    seq: u64,
+    payload_bytes: u64,
+) -> Result<(), String>
 where
     Caps: CanRead<BenchRun>
         + CanUpdate<BenchRun>
@@ -182,11 +192,11 @@ where
         + CanAll<BenchStateful>
         + CanAll<BenchLogged>,
 {
-    let Some(mut run) = ctx.current.tables.benchrun().get("active".to_string()) else {
-        return;
+    let Some(mut run) = ctx.current.tables.benchrun().get("active".to_string())? else {
+        return Ok(());
     };
     if run.run_id != run_id {
-        return;
+        return Ok(());
     }
     let payload = "x".repeat(payload_bytes as usize);
     let key = seq.to_string();
@@ -200,7 +210,7 @@ where
             });
         }
         ("ephemeral", "update") => {
-            if let Some(mut row) = ctx.current.tables.benchephemeral().get(key.clone()) {
+            if let Some(mut row) = ctx.current.tables.benchephemeral().get(key.clone())? {
                 row.value = seq;
                 row.payload = payload;
                 let _ = ctx.current.tables.benchephemeral().update(row);
@@ -217,7 +227,7 @@ where
             });
         }
         ("stateful", "update") => {
-            if let Some(mut row) = ctx.current.tables.benchstateful().get(key.clone()) {
+            if let Some(mut row) = ctx.current.tables.benchstateful().get(key.clone())? {
                 row.value = seq;
                 row.payload = payload;
                 let _ = ctx.current.tables.benchstateful().update(row);
@@ -234,7 +244,7 @@ where
             });
         }
         ("logged", "update") => {
-            if let Some(mut row) = ctx.current.tables.benchlogged().get(key.clone()) {
+            if let Some(mut row) = ctx.current.tables.benchlogged().get(key.clone())? {
                 row.value = seq;
                 row.payload = payload;
                 let _ = ctx.current.tables.benchlogged().update(row);
@@ -243,7 +253,7 @@ where
         ("logged", "delete") => {
             let _ = ctx.current.tables.benchlogged().delete(key);
         }
-        _ => return,
+        _ => return Ok(()),
     }
 
     run.committed = run.committed.saturating_add(1);
@@ -251,15 +261,16 @@ where
         run.completed_ms = now_ms(&ctx);
     }
     let _ = ctx.current.tables.benchrun().update(run);
+    Ok(())
 }
 
 #[query]
 pub fn bench_snapshot<Caps: CanRead<BenchRun>>(
     ctx: QueryContext<Caps>,
     run_id: String,
-) -> BenchSnapshot {
-    let Some(run) = ctx.current.tables.benchrun().get("active".to_string()) else {
-        return BenchSnapshot {
+) -> Result<BenchSnapshot, String> {
+    let Some(run) = ctx.current.tables.benchrun().get("active".to_string())? else {
+        return Ok(BenchSnapshot {
             run_id,
             table_kind: String::new(),
             operation: String::new(),
@@ -268,10 +279,10 @@ pub fn bench_snapshot<Caps: CanRead<BenchRun>>(
             completed: false,
             elapsed_ms: 0,
             tps: 0.0,
-        };
+        });
     };
     if run.run_id != run_id {
-        return BenchSnapshot {
+        return Ok(BenchSnapshot {
             run_id,
             table_kind: String::new(),
             operation: String::new(),
@@ -280,7 +291,7 @@ pub fn bench_snapshot<Caps: CanRead<BenchRun>>(
             completed: false,
             elapsed_ms: 0,
             tps: 0.0,
-        };
+        });
     }
     let end_ms = if run.completed_ms > 0 {
         run.completed_ms
@@ -293,7 +304,7 @@ pub fn bench_snapshot<Caps: CanRead<BenchRun>>(
     } else {
         0.0
     };
-    BenchSnapshot {
+    Ok(BenchSnapshot {
         run_id: run.run_id,
         table_kind: run.table_kind,
         operation: run.operation,
@@ -302,13 +313,13 @@ pub fn bench_snapshot<Caps: CanRead<BenchRun>>(
         completed: run.completed_ms > 0,
         elapsed_ms,
         tps,
-    }
+    })
 }
 
 #[query]
-pub fn bench_snapshot_active<Caps: CanRead<BenchRun>>(ctx: QueryContext<Caps>) -> BenchSnapshot {
-    let Some(run) = ctx.current.tables.benchrun().get("active".to_string()) else {
-        return BenchSnapshot {
+pub fn bench_snapshot_active<Caps: CanRead<BenchRun>>(ctx: QueryContext<Caps>) -> Result<BenchSnapshot, String> {
+    let Some(run) = ctx.current.tables.benchrun().get("active".to_string())? else {
+        return Ok(BenchSnapshot {
             run_id: String::new(),
             table_kind: String::new(),
             operation: String::new(),
@@ -317,7 +328,7 @@ pub fn bench_snapshot_active<Caps: CanRead<BenchRun>>(ctx: QueryContext<Caps>) -
             completed: false,
             elapsed_ms: 0,
             tps: 0.0,
-        };
+        });
     };
     let end_ms = if run.completed_ms > 0 {
         run.completed_ms
@@ -330,7 +341,7 @@ pub fn bench_snapshot_active<Caps: CanRead<BenchRun>>(ctx: QueryContext<Caps>) -
     } else {
         0.0
     };
-    BenchSnapshot {
+    Ok(BenchSnapshot {
         run_id: run.run_id,
         table_kind: run.table_kind,
         operation: run.operation,
@@ -339,7 +350,7 @@ pub fn bench_snapshot_active<Caps: CanRead<BenchRun>>(ctx: QueryContext<Caps>) -
         completed: run.completed_ms > 0,
         elapsed_ms,
         tps,
-    }
+    })
 }
 
 fn now_ms<Caps>(ctx: &ReducerContext<Caps>) -> u64 {

@@ -200,7 +200,7 @@ where
     }
 }
 
-pub fn update_hud<Caps>(ctx: &ReducerContext<Caps>, _sw: f32, _sh: f32)
+pub fn update_hud<Caps>(ctx: &ReducerContext<Caps>, _sw: f32, _sh: f32) -> Result<(), String>
 where
     Caps: CanRead<Player> + CanUpdate<UiElement>,
 {
@@ -210,7 +210,7 @@ where
         .agar_server()
         .tables
         .player()
-        .scan();
+        .scan()?;
     players.sort_by(|a, b| {
         b.radius
             .partial_cmp(&a.radius)
@@ -298,4 +298,5 @@ where
             ..Default::default()
         });
     }
+    Ok(())
 }

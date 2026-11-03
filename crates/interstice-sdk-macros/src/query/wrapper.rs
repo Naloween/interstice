@@ -6,6 +6,7 @@ pub fn get_wrapper_function(
     query_ident: Ident,
     caps_ty: Type,
     arg_count: usize,
+    returns_result: bool,
 ) -> proc_macro2::TokenStream {
     let wrapper_name = syn::Ident::new(
         &get_query_wrapper_name(&query_ident.to_string()),
@@ -15,6 +16,17 @@ pub fn get_wrapper_function(
         let index = LitInt::new(&i.to_string(), proc_macro2::Span::call_site());
         quote! { interstice_args_vec[#index].clone().try_into().unwrap() }
     });
+
+    let call_result = if returns_result {
+        quote! {
+            match #query_ident(query_context, #(#args),*) {
+                Ok(value) => value.into(),
+                Err(err) => panic!("query `{}` failed: {}", stringify!(#query_ident), err),
+            }
+        }
+    } else {
+        quote! { #query_ident(query_context, #(#args),*).into() }
+    };
 
     quote! {
         #[unsafe(no_mangle)]
@@ -29,7 +41,7 @@ pub fn get_wrapper_function(
             };
             if interstice_args_vec.len() != #arg_count - 1 { panic!("Expected {} query arguments, got {}", #arg_count-1, interstice_args_vec.len()) }
 
-            let res: interstice_sdk::IntersticeValue = #query_ident(query_context, #(#args),*).into();
+            let res: interstice_sdk::IntersticeValue = #call_result;
 
             let bytes = interstice_sdk::encode(&res).unwrap();
             let out_ptr = crate::alloc(bytes.len() as i32);

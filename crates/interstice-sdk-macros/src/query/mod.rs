@@ -8,6 +8,20 @@ use syn::{ItemFn, Meta, parse_macro_input};
 use crate::context_caps::query_caps_ty;
 use crate::query::{schema::get_register_schema_function, wrapper::get_wrapper_function};
 
+/// `Some(T)` when `ty` is spelled `Result<T, E>` (any path ending in `Result`).
+pub(crate) fn result_ok_type(ty: &syn::Type) -> Option<&syn::Type> {
+    let syn::Type::Path(p) = ty else { return None };
+    let seg = p.path.segments.last()?;
+    if seg.ident != "Result" {
+        return None;
+    }
+    let syn::PathArguments::AngleBracketed(args) = &seg.arguments else { return None };
+    match args.args.first()? {
+        syn::GenericArgument::Type(t) => Some(t),
+        _ => None,
+    }
+}
+
 fn validate_query_attrs(attributes: &syn::punctuated::Punctuated<Meta, syn::Token![,]>) -> syn::Result<()> {
     for meta in attributes {
         return Err(syn::Error::new_spanned(
@@ -114,7 +128,12 @@ pub fn query_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         })
         .collect();
 
-    let wrapper_function = get_wrapper_function(query_ident.clone(), caps_ty.clone(), arg_count);
+    let returns_result = match &input_fn.sig.output {
+        syn::ReturnType::Type(_, ty) => result_ok_type(ty).is_some(),
+        syn::ReturnType::Default => false,
+    };
+    let wrapper_function =
+        get_wrapper_function(query_ident.clone(), caps_ty.clone(), arg_count, returns_result);
     let register_schema = get_register_schema_function(
         query_ident.clone(),
         input_fn.clone(),

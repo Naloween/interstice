@@ -119,23 +119,23 @@ where
 }
 
 #[reducer(on = "render")]
-pub fn render<Caps>(ctx: ReducerContext<Caps>)
+pub fn render<Caps>(ctx: ReducerContext<Caps>) -> Result<(), String>
 where
     Caps: CanRead<PipelineTable>,
 {
     let gpu = ctx.gpu();
 
     // Get pipeline from table
-    let pipeline_rows = ctx.current.tables.pipelinetable().scan();
+    let pipeline_rows = ctx.current.tables.pipelinetable().scan()?;
     let pipeline = match pipeline_rows.get(0) {
         Some(p) => p.pipeline_id,
-        None => return,
+        None => return Ok(()),
     };
 
     // Begin frame
     if let Err(err) = gpu.begin_frame() {
         ctx.log(&format!("Failed to begin frame: {}", err));
-        return;
+        return Ok(());
     }
 
     // Get current surface texture
@@ -143,14 +143,14 @@ where
         Ok(id) => id,
         Err(err) => {
             ctx.log(&format!("Failed to get surface texture: {}", err));
-            return;
+            return Ok(());
         }
     };
     let surface_format = match gpu.get_surface_format() {
         Ok(format) => format,
         Err(err) => {
             ctx.log(&format!("Failed to get surface format: {}", err));
-            return;
+            return Ok(());
         }
     };
     let surface_view = match gpu.create_texture_view(CreateTextureView {
@@ -165,7 +165,7 @@ where
         Ok(id) => id,
         Err(err) => {
             ctx.log(&format!("Failed to create surface view: {}", err));
-            return;
+            return Ok(());
         }
     };
 
@@ -174,7 +174,7 @@ where
         Ok(id) => id,
         Err(err) => {
             ctx.log(&format!("Failed to create command encoder: {}", err));
-            return;
+            return Ok(());
         }
     };
 
@@ -193,34 +193,35 @@ where
         Ok(id) => id,
         Err(err) => {
             ctx.log(&format!("Failed to begin render pass: {}", err));
-            return;
+            return Ok(());
         }
     };
 
     // Set pipeline and draw
     if let Err(err) = gpu.set_render_pipeline(pass, pipeline) {
         ctx.log(&format!("Failed to set render pipeline: {}", err));
-        return;
+        return Ok(());
     }
     if let Err(err) = gpu.draw(pass, 3, 1) {
         ctx.log(&format!("Failed to draw: {}", err));
-        return;
+        return Ok(());
     }
 
     // End render pass
     if let Err(err) = gpu.end_render_pass(pass) {
         ctx.log(&format!("Failed to end render pass: {}", err));
-        return;
+        return Ok(());
     }
 
     // Submit and present
     if let Err(err) = gpu.submit(encoder) {
         ctx.log(&format!("Failed to submit encoder: {}", err));
-        return;
+        return Ok(());
     }
     if let Err(err) = gpu.present() {
         ctx.log(&format!("Failed to present frame: {}", err));
     }
+    Ok(())
 }
 
 // #[reducer(on = "input")]

@@ -218,6 +218,21 @@ where
 The first argument of a reducer should always be a `ReducerContext<Caps>`, with explicit table-access bounds.
 Use `ctx.current.tables.<table>().insert(...)` and `ctx.current.tables.<table>().scan()` for table operations.
 
+Table operations never panic: reads return `Result` (`scan() -> Result<Vec<T>, String>`,
+`get(pk) -> Result<Option<T>, String>`, same for `scan_by_*` / `get_by_*`), like writes do.
+A reducer may return `Result<(), E>` (any `E: Display`) and use `?`; an `Err` aborts the
+reducer, so none of its writes commit, and the error is logged. A query may return
+`Result<T, E>`, where its schema exposes `T`.
+
+```rust
+#[reducer]
+fn rename(ctx: ReducerContext<AppCaps>, id: u64, name: String) -> Result<(), String> {
+    let mut user = ctx.current.tables.user().get(id)?.ok_or("no such user")?;
+    user.name = name;
+    ctx.current.tables.user().update(user)
+}
+```
+
 Reducers can also subscribe to events, in which case they cannot be called externally.
 There are different kinds of events, all following the format:
 `#[reducer(on = "<event>")]`
@@ -321,7 +336,7 @@ where
 }
 
 #[query]
-pub fn list_greetings<Caps>(ctx: QueryContext<Caps>) -> Vec<Greetings>
+pub fn list_greetings<Caps>(ctx: QueryContext<Caps>) -> Result<Vec<Greetings>, String>
 where
     Caps: CanRead<Greetings>,
 {

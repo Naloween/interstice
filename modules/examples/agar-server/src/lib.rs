@@ -30,32 +30,33 @@ pub struct Vec2 {
 }
 
 #[reducer(on = "load")]
-pub fn init<Caps>(ctx: ReducerContext<Caps>)
+pub fn init<Caps>(ctx: ReducerContext<Caps>) -> Result<(), String>
 where
     Caps: CanAll<(Food, Player)>,
 {
     ctx.log("agar-server ready");
-    spawn_missing_foods(&ctx);
+    spawn_missing_foods(&ctx)?;
     ctx.schedule("tick", DT_MS).expect("Couldn't schedule tick");
+    Ok(())
 }
 
 #[reducer]
-pub fn tick<Caps>(ctx: ReducerContext<Caps>)
+pub fn tick<Caps>(ctx: ReducerContext<Caps>) -> Result<(), String>
 where
     Caps: CanAll<(Food, Player)> + CanRead<DeadPlayer> + CanInsert<DeadPlayer> + CanDelete<DeadPlayer>,
 {
     if ctx.caller_node_id != ctx.current_node_id() {
         ctx.log("tick can only be called by the server itself");
-        return;
+        return Ok(());
     }
 
     // Clear last tick's death notifications.
-    for dead in ctx.current.tables.deadplayer().scan() {
+    for dead in ctx.current.tables.deadplayer().scan()? {
         let _ = ctx.current.tables.deadplayer().delete(dead.id);
     }
 
     let dt = DT_MS as f32 / 1000.0;
-    let mut players = ctx.current.tables.player().scan();
+    let mut players = ctx.current.tables.player().scan()?;
 
     // Move players.
     for p in players.iter_mut() {
@@ -65,7 +66,7 @@ where
     }
 
     // Food collisions.
-    let foods = ctx.current.tables.food().scan();
+    let foods = ctx.current.tables.food().scan()?;
     let mut eaten_food_ids = Vec::new();
     for food in &foods {
         for p in players.iter_mut() {
@@ -109,8 +110,9 @@ where
         let _ = ctx.current.tables.food().delete(food_id);
     }
 
-    spawn_missing_foods(&ctx);
+    spawn_missing_foods(&ctx)?;
     ctx.schedule("tick", DT_MS).expect("Couldn't schedule tick");
+    Ok(())
 }
 
 fn collides(a: &Vec2, ar: f32, b: &Vec2, br: f32) -> bool {
