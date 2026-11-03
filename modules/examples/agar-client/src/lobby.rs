@@ -282,10 +282,7 @@ where
     Caps: CanRead<ClientState>
         + CanUpdate<ClientState>
         + CanRead<KeyState>
-        + CanRead<UiElement>
-        + CanInsert<UiElement>
-        + CanUpdate<UiElement>
-        + CanDelete<UiElement>
+        + CanAll<UiElement>
         + CanInsert<ui::InputFocus>
         + CanUpdate<ui::InputFocus>,
 {
@@ -303,10 +300,7 @@ fn start_game<Caps>(ctx: &ReducerContext<Caps>, cs: &mut ClientState, _sw: f32, 
 where
     Caps: CanRead<ClientState>
         + CanUpdate<ClientState>
-        + CanRead<UiElement>
-        + CanInsert<UiElement>
-        + CanUpdate<UiElement>
-        + CanDelete<UiElement>
+        + CanAll<UiElement>
         + CanInsert<ui::InputFocus>
         + CanUpdate<ui::InputFocus>,
 {

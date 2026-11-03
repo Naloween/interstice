@@ -39,6 +39,25 @@ pub struct ParsedCanBounds {
     pub deletes: Vec<Type>,
 }
 
+impl ParsedCanBounds {
+    /// Union with `other`, keeping each (access, row) once.
+    fn merge(&mut self, other: ParsedCanBounds) {
+        let op = |s: &str| Ident::new(s, proc_macro2::Span::call_site());
+        for t in other.reads {
+            merge_bounds(self, &op("CanRead"), t);
+        }
+        for t in other.inserts {
+            merge_bounds(self, &op("CanInsert"), t);
+        }
+        for t in other.updates {
+            merge_bounds(self, &op("CanUpdate"), t);
+        }
+        for t in other.deletes {
+            merge_bounds(self, &op("CanDelete"), t);
+        }
+    }
+}
+
 pub enum ContextCapsKind {
     /// `ReducerContext` / `QueryContext` without `<…>` — no table access in schema (`Caps = ()`).
     DefaultEmptyCaps,
@@ -58,7 +77,7 @@ fn is_can_trait_path(path: &syn::Path) -> bool {
     };
     matches!(
         seg.ident.to_string().as_str(),
-        "CanRead" | "CanInsert" | "CanUpdate" | "CanDelete"
+        "CanRead" | "CanInsert" | "CanUpdate" | "CanDelete" | "CanAll"
     )
 }
 
@@ -79,12 +98,34 @@ fn row_ty_from_can_trait(b: &TraitBound) -> Option<(Ident, Type)> {
     Some((op, row_ty.clone()))
 }
 
+/// Record `op<row_ty>`. `CanAll` expands to the four accesses and a tuple of rows
+/// (`CanRead<(A, B)>`) to one entry per row; duplicates are dropped so overlapping
+/// bounds don't produce conflicting impls on the synthetic caps type.
 fn merge_bounds(summary: &mut ParsedCanBounds, op: &Ident, row_ty: Type) {
+    if let Type::Tuple(t) = unwrap_type(&row_ty) {
+        for elem in &t.elems {
+            merge_bounds(summary, op, elem.clone());
+        }
+        return;
+    }
+    let row_ty = unwrap_type(&row_ty).clone();
+    let push = |list: &mut Vec<Type>, ty: &Type| {
+        let key = quote!(#ty).to_string();
+        if !list.iter().any(|t| quote!(#t).to_string() == key) {
+            list.push(ty.clone());
+        }
+    };
     match op.to_string().as_str() {
-        "CanRead" => summary.reads.push(row_ty),
-        "CanInsert" => summary.inserts.push(row_ty),
-        "CanUpdate" => summary.updates.push(row_ty),
-        "CanDelete" => summary.deletes.push(row_ty),
+        "CanRead" => push(&mut summary.reads, &row_ty),
+        "CanInsert" => push(&mut summary.inserts, &row_ty),
+        "CanUpdate" => push(&mut summary.updates, &row_ty),
+        "CanDelete" => push(&mut summary.deletes, &row_ty),
+        "CanAll" => {
+            push(&mut summary.reads, &row_ty);
+            push(&mut summary.inserts, &row_ty);
+            push(&mut summary.updates, &row_ty);
+            push(&mut summary.deletes, &row_ty);
+        }
         _ => {}
     }
 }
@@ -277,18 +318,12 @@ pub fn classify_and_rewrite_context_fn(
                             .find(|p| matches!(p, GenericParam::Type(t) if t.ident == *id))
                         {
                             let from_tp = strip_can_bounds_from_type_param(tp);
-                            bounds.reads.extend(from_tp.reads);
-                            bounds.inserts.extend(from_tp.inserts);
-                            bounds.updates.extend(from_tp.updates);
-                            bounds.deletes.extend(from_tp.deletes);
+                            bounds.merge(from_tp);
                         }
 
                         if let Some(ref mut wc) = item.sig.generics.where_clause {
                             let from_where = strip_can_bounds_from_where(wc, id)?;
-                            bounds.reads.extend(from_where.reads);
-                            bounds.inserts.extend(from_where.inserts);
-                            bounds.updates.extend(from_where.updates);
-                            bounds.deletes.extend(from_where.deletes);
+                            bounds.merge(from_where);
                         }
 
                         if bounds.reads.is_empty()
@@ -298,7 +333,7 @@ pub fn classify_and_rewrite_context_fn(
                         {
                             return Err(syn::Error::new_spanned(
                                 id,
-                                "add `CanRead` / `CanInsert` / `CanUpdate` / `CanDelete` bounds on the context type parameter (for example `Caps: CanRead<Food>` or `where Caps: CanRead<Food>`)",
+                                "add `CanRead` / `CanInsert` / `CanUpdate` / `CanDelete` / `CanAll` bounds on the context type parameter (for example `Caps: CanRead<Food>` or `where Caps: CanRead<Food>`)",
                             ));
                         }
 
@@ -386,7 +421,7 @@ pub fn validate_query_can_bounds(bounds: &ParsedCanBounds) -> syn::Result<()> {
     if !bounds.inserts.is_empty() || !bounds.updates.is_empty() || !bounds.deletes.is_empty() {
         return Err(syn::Error::new(
             proc_macro2::Span::call_site(),
-            "queries only support `CanRead<Row>` bounds on the context type parameter",
+            "queries only support `CanRead<Row>` bounds (not `CanAll` or write access) on the context type parameter",
         ));
     }
     Ok(())

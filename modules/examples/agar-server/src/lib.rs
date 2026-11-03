@@ -32,14 +32,7 @@ pub struct Vec2 {
 #[reducer(on = "load")]
 pub fn init<Caps>(ctx: ReducerContext<Caps>)
 where
-    Caps: CanRead<Food>
-        + CanInsert<Food>
-        + CanUpdate<Food>
-        + CanDelete<Food>
-        + CanRead<Player>
-        + CanInsert<Player>
-        + CanUpdate<Player>
-        + CanDelete<Player>,
+    Caps: CanAll<(Food, Player)>,
 {
     ctx.log("agar-server ready");
     spawn_missing_foods(&ctx);
@@ -49,17 +42,7 @@ where
 #[reducer]
 pub fn tick<Caps>(ctx: ReducerContext<Caps>)
 where
-    Caps: CanRead<Food>
-        + CanInsert<Food>
-        + CanUpdate<Food>
-        + CanDelete<Food>
-        + CanRead<Player>
-        + CanInsert<Player>
-        + CanUpdate<Player>
-        + CanDelete<Player>
-        + CanInsert<DeadPlayer>
-        + CanRead<DeadPlayer>
-        + CanDelete<DeadPlayer>,
+    Caps: CanAll<(Food, Player)> + CanRead<DeadPlayer> + CanInsert<DeadPlayer> + CanDelete<DeadPlayer>,
 {
     if ctx.caller_node_id != ctx.current_node_id() {
         ctx.log("tick can only be called by the server itself");

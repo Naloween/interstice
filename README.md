@@ -275,7 +275,28 @@ Interstice enforces table access through capability traits on context generics:
 - `CanUpdate<Row>`
 - `CanDelete<Row>`
 
-`Row` is the actual `#[table]` row struct type. There is no implicit "allow all" shortcut.
+`Row` is the actual `#[table]` row struct type. There is no implicit "allow all": every
+table a reducer touches is declared, but there are shorthands for declaring many at once:
+
+- `CanAll<Row>` = read + insert + update + delete (works on helper functions too).
+- A tuple of rows in a reducer `where` clause: `CanRead<(A, B)>`, `CanAll<(A, B, C)>`.
+- `caps!` names a concrete set once, for reducers that share it:
+
+```rust
+caps! {
+    pub struct AppCaps {
+        all: [Session, Tab],      // read + insert + update + delete
+        read: [MouseState],
+        write: [Log],             // insert + update + delete
+    }
+}
+
+#[reducer]
+pub fn step(ctx: ReducerContext<AppCaps>) { /* … */ }
+```
+
+Narrow `where` bounds remain preferable where they fit: the scheduler runs reducers whose
+access sets don't conflict in parallel.
 
 Example:
 

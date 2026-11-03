@@ -101,20 +101,21 @@ fn set_clock() -> f64 {
 
 // ── Table access ─────────────────────────────────────────────────────────────
 
-/// Full access to every browser table. Reducers must still spell their
-/// capabilities out in their `where` clause (the macro reads them to declare
-/// the reducer's table dependencies); this trait only lets helpers name the set.
-macro_rules! full_caps_trait {
-    ($($t:ty),*) => {
-        pub trait Full: $(CanRead<$t> + CanInsert<$t> + CanUpdate<$t> + CanDelete<$t> +)* Sized {}
-        impl<C> Full for C where C: $(CanRead<$t> + CanInsert<$t> + CanUpdate<$t> + CanDelete<$t> +)* Sized {}
-    };
+caps! {
+    /// Full access to every browser table (plus the pointer position), for the
+    /// reducers that drive the engine. The small input reducers declare just
+    /// what they touch, so the scheduler can run them alongside a frame.
+    pub struct BrowserCaps {
+        all: [Session, Tab, Ui, Document, DocEvent, PendingInput, Request, Resource, ResourceMeta, ScriptedInput, WebStorage],
+        read: [MouseState],
+    }
 }
-full_caps_trait!(Session, Tab, Ui, Document, DocEvent, PendingInput, Request, Resource, ResourceMeta, ScriptedInput, WebStorage);
 
-struct Db<'a, Caps>(&'a ReducerContext<Caps>);
+type Ctx = ReducerContext<BrowserCaps>;
 
-impl<Caps: Full> Store for Db<'_, Caps> {
+struct Db<'a>(&'a Ctx);
+
+impl Store for Db<'_> {
     fn document(&self, id: u64) -> Option<Document> {
         self.0.current.tables.document().get(id)
     }
@@ -193,7 +194,7 @@ impl<Caps: Full> Store for Db<'_, Caps> {
 
 type Rows = (Session, Ui, Vec<Tab>);
 
-fn load_rows<Caps: Full>(ctx: &ReducerContext<Caps>) -> Rows {
+fn load_rows(ctx: &Ctx) -> Rows {
     let t = &ctx.current.tables;
     let session = t.session().get(SESSION).unwrap_or_else(|| Session { id: SESSION, ..Default::default() });
     let ui = t.ui().get(UI).unwrap_or_else(|| Ui { id: UI, ..Default::default() });
@@ -201,7 +202,7 @@ fn load_rows<Caps: Full>(ctx: &ReducerContext<Caps>) -> Rows {
 }
 
 /// Write back what a [`Browser`] changed.
-fn save_rows<Caps: Full>(ctx: &ReducerContext<Caps>, before: &Rows, after: Rows) {
+fn save_rows(ctx: &Ctx, before: &Rows, after: Rows) {
     let t = &ctx.current.tables;
     let (session, ui, tabs) = after;
     if session != before.0 && t.session().update(session.clone()).is_err() {
@@ -229,7 +230,7 @@ fn save_rows<Caps: Full>(ctx: &ReducerContext<Caps>, before: &Rows, after: Rows)
 }
 
 /// Run browser logic over the tables: load rows, run `f`, save changes.
-fn with_browser<Caps: Full, R>(ctx: &ReducerContext<Caps>, f: impl FnOnce(&mut Browser) -> R) -> R {
+fn with_browser<R>(ctx: &Ctx, f: impl FnOnce(&mut Browser) -> R) -> R {
     let before = load_rows(ctx);
     let db = Db(ctx);
     CACHES.with(|c| {
@@ -246,19 +247,7 @@ fn with_browser<Caps: Full, R>(ctx: &ReducerContext<Caps>, f: impl FnOnce(&mut B
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 
 #[reducer(on = "load")]
-pub fn on_load<Caps>(ctx: ReducerContext<Caps>)
-where
-    Caps: CanRead<Session> + CanInsert<Session> + CanUpdate<Session> + CanDelete<Session>
-        + CanRead<Tab> + CanInsert<Tab> + CanUpdate<Tab> + CanDelete<Tab>
-        + CanRead<Ui> + CanInsert<Ui> + CanUpdate<Ui> + CanDelete<Ui>
-        + CanRead<Document> + CanInsert<Document> + CanUpdate<Document> + CanDelete<Document>
-        + CanRead<DocEvent> + CanInsert<DocEvent> + CanUpdate<DocEvent> + CanDelete<DocEvent>
-        + CanRead<PendingInput> + CanInsert<PendingInput> + CanUpdate<PendingInput> + CanDelete<PendingInput>
-        + CanRead<Request> + CanInsert<Request> + CanUpdate<Request> + CanDelete<Request>
-        + CanRead<Resource> + CanInsert<Resource> + CanUpdate<Resource> + CanDelete<Resource>
-        + CanRead<ResourceMeta> + CanInsert<ResourceMeta> + CanUpdate<ResourceMeta> + CanDelete<ResourceMeta>
-        + CanRead<ScriptedInput> + CanInsert<ScriptedInput> + CanUpdate<ScriptedInput> + CanDelete<ScriptedInput>
-        + CanRead<WebStorage> + CanInsert<WebStorage> + CanUpdate<WebStorage> + CanDelete<WebStorage>,
+pub fn on_load(ctx: ReducerContext<BrowserCaps>)
 {
     let g = ctx.graphics();
     let _ = g.reducers.create_layer(LAYER.to_string(), 100, false);
@@ -316,19 +305,7 @@ where
 // ── Network ──────────────────────────────────────────────────────────────────
 
 #[reducer(on = "network.httpresponse.insert")]
-pub fn on_http<Caps>(ctx: ReducerContext<Caps>, row: HttpResponse)
-where
-    Caps: CanRead<Session> + CanInsert<Session> + CanUpdate<Session> + CanDelete<Session>
-        + CanRead<Tab> + CanInsert<Tab> + CanUpdate<Tab> + CanDelete<Tab>
-        + CanRead<Ui> + CanInsert<Ui> + CanUpdate<Ui> + CanDelete<Ui>
-        + CanRead<Document> + CanInsert<Document> + CanUpdate<Document> + CanDelete<Document>
-        + CanRead<DocEvent> + CanInsert<DocEvent> + CanUpdate<DocEvent> + CanDelete<DocEvent>
-        + CanRead<PendingInput> + CanInsert<PendingInput> + CanUpdate<PendingInput> + CanDelete<PendingInput>
-        + CanRead<Request> + CanInsert<Request> + CanUpdate<Request> + CanDelete<Request>
-        + CanRead<Resource> + CanInsert<Resource> + CanUpdate<Resource> + CanDelete<Resource>
-        + CanRead<ResourceMeta> + CanInsert<ResourceMeta> + CanUpdate<ResourceMeta> + CanDelete<ResourceMeta>
-        + CanRead<ScriptedInput> + CanInsert<ScriptedInput> + CanUpdate<ScriptedInput> + CanDelete<ScriptedInput>
-        + CanRead<WebStorage> + CanInsert<WebStorage> + CanUpdate<WebStorage> + CanDelete<WebStorage>,
+pub fn on_http(ctx: ReducerContext<BrowserCaps>, row: HttpResponse)
 {
     if row.owner != ME {
         return;
@@ -398,20 +375,7 @@ where
 // ── Frame ────────────────────────────────────────────────────────────────────
 
 #[reducer(on = "graphics.frametick.update")]
-pub fn on_frame<Caps>(ctx: ReducerContext<Caps>, _prev: FrameTick, tick: FrameTick)
-where
-    Caps: CanRead<MouseState>
-        + CanRead<Session> + CanInsert<Session> + CanUpdate<Session> + CanDelete<Session>
-        + CanRead<Tab> + CanInsert<Tab> + CanUpdate<Tab> + CanDelete<Tab>
-        + CanRead<Ui> + CanInsert<Ui> + CanUpdate<Ui> + CanDelete<Ui>
-        + CanRead<Document> + CanInsert<Document> + CanUpdate<Document> + CanDelete<Document>
-        + CanRead<DocEvent> + CanInsert<DocEvent> + CanUpdate<DocEvent> + CanDelete<DocEvent>
-        + CanRead<PendingInput> + CanInsert<PendingInput> + CanUpdate<PendingInput> + CanDelete<PendingInput>
-        + CanRead<Request> + CanInsert<Request> + CanUpdate<Request> + CanDelete<Request>
-        + CanRead<Resource> + CanInsert<Resource> + CanUpdate<Resource> + CanDelete<Resource>
-        + CanRead<ResourceMeta> + CanInsert<ResourceMeta> + CanUpdate<ResourceMeta> + CanDelete<ResourceMeta>
-        + CanRead<ScriptedInput> + CanInsert<ScriptedInput> + CanUpdate<ScriptedInput> + CanDelete<ScriptedInput>
-        + CanRead<WebStorage> + CanInsert<WebStorage> + CanUpdate<WebStorage> + CanDelete<WebStorage>,
+pub fn on_frame(ctx: ReducerContext<BrowserCaps>, _prev: FrameTick, tick: FrameTick)
 {
     let now = set_clock();
     let Ok(info) = ctx.graphics().queries.surface_info() else { return };

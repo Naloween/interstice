@@ -88,10 +88,7 @@ where
         + CanRead<MeshBinding>
         + CanRead<PipelineBinding>
         + CanRead<TextureBinding>
-        + CanRead<RendererCache>
-        + CanInsert<RendererCache>
-        + CanUpdate<RendererCache>
-        + CanDelete<RendererCache>
+        + CanAll<RendererCache>
         + CanRead<SurfaceInfo>
         + CanUpdate<SurfaceInfo>
         + CanRead<SurfaceTarget>

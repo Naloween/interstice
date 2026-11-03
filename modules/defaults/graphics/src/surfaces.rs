@@ -223,10 +223,7 @@ pub fn assign_module_surface<Caps>(ctx: ReducerContext<Caps>, module_name: Strin
 where
     Caps: CanRead<Compositor>
         + CanRead<SurfaceTarget>
-        + CanRead<SurfaceAssignment>
-        + CanInsert<SurfaceAssignment>
-        + CanUpdate<SurfaceAssignment>
-        + CanDelete<SurfaceAssignment>,
+        + CanAll<SurfaceAssignment>,
 {
     if !is_compositor(&ctx, &ctx.caller_node_id) {
         ctx.log("assign_module_surface refused: caller is not the compositor");

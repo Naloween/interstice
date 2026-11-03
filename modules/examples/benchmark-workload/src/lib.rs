@@ -65,22 +65,10 @@ pub fn bench_begin_run<Caps>(
     requests: u64,
     payload_bytes: u64,
 ) where
-    Caps: CanRead<BenchRun>
-        + CanInsert<BenchRun>
-        + CanUpdate<BenchRun>
-        + CanDelete<BenchRun>
-        + CanRead<BenchEphemeral>
-        + CanInsert<BenchEphemeral>
-        + CanUpdate<BenchEphemeral>
-        + CanDelete<BenchEphemeral>
-        + CanRead<BenchStateful>
-        + CanInsert<BenchStateful>
-        + CanUpdate<BenchStateful>
-        + CanDelete<BenchStateful>
-        + CanRead<BenchLogged>
-        + CanInsert<BenchLogged>
-        + CanUpdate<BenchLogged>
-        + CanDelete<BenchLogged>,
+    Caps: CanAll<BenchRun>
+        + CanAll<BenchEphemeral>
+        + CanAll<BenchStateful>
+        + CanAll<BenchLogged>,
 {
     let table = table_kind.to_lowercase();
     let op = operation.to_lowercase();
@@ -190,18 +178,9 @@ pub fn bench_tx<Caps>(ctx: ReducerContext<Caps>, run_id: String, seq: u64, paylo
 where
     Caps: CanRead<BenchRun>
         + CanUpdate<BenchRun>
-        + CanRead<BenchEphemeral>
-        + CanInsert<BenchEphemeral>
-        + CanUpdate<BenchEphemeral>
-        + CanDelete<BenchEphemeral>
-        + CanRead<BenchStateful>
-        + CanInsert<BenchStateful>
-        + CanUpdate<BenchStateful>
-        + CanDelete<BenchStateful>
-        + CanRead<BenchLogged>
-        + CanInsert<BenchLogged>
-        + CanUpdate<BenchLogged>
-        + CanDelete<BenchLogged>,
+        + CanAll<BenchEphemeral>
+        + CanAll<BenchStateful>
+        + CanAll<BenchLogged>,
 {
     let Some(mut run) = ctx.current.tables.benchrun().get("active".to_string()) else {
         return;

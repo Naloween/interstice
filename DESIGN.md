@@ -248,8 +248,13 @@ There is no fixed tick.
 `Can*` bounds become schema data. `CanRead<T>`, `CanInsert<T>`, `CanUpdate<T>`
 and `CanDelete<T>` are each turned into a `ReducerTableRef { node, module, table }`
 in the reducer's `reads` / `inserts` / `updates` / `deletes` lists
-(`interstice-sdk-macros/src/caps_bounds.rs`). That one declaration is used three
-ways:
+(`interstice-sdk-macros/src/caps_bounds.rs`). Shorthands: `CanAll<T>` (all four;
+a real supertrait, so helpers can use it too), tuples of rows in reducer `where`
+clauses (`CanRead<(A, B)>`, expanded and de-duplicated by the macro), and the
+`caps!` macro, which defines a named concrete caps struct (`all` / `read` /
+`write` / `insert` / `update` / `delete` lists) taken as `ReducerContext<Name>`.
+The tuple form only means something to the macro: as a helper bound it is not
+implied. That one declaration is used three ways:
 
 1. **Type safety.** The generated table handles require the matching cap trait,
    so code cannot reach an undeclared table.
@@ -788,8 +793,9 @@ but explicitly out of scope for now.
 ### 13.4 SDK / tooling
 - [ ] The remaining SDK bugs in §10.1.
 - [ ] Generated read methods return `Result` instead of panicking.
-- [ ] A shorthand for "full access to these tables" in reducer `where`
-      clauses (the browser spells out 40 bounds per reducer).
+- [x] A shorthand for "full access to these tables": `CanAll<T>`, tuple rows
+      in `where` clauses, and `caps!` named sets (§5). The browser's
+      engine reducers share `BrowserCaps`.
 - [ ] Benchmarks for the overlay / re-validation path and pool affinity.
 - [ ] Large payloads between modules are still copied ~4 times (guest →
       host → callee guest → host GPU call): ~12 ms for a 4 MB texture.

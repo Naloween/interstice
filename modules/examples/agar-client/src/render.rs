@@ -60,10 +60,7 @@ where
         + CanRead<Food>
         + CanRead<DeadPlayer>
         + CanRead<SurfaceInfo>
-        + CanRead<UiElement>
-        + CanInsert<UiElement>
-        + CanUpdate<UiElement>
-        + CanDelete<UiElement>
+        + CanAll<UiElement>
         + CanRead<ui::InputFocus>
         + CanInsert<ui::InputFocus>
         + CanUpdate<ui::InputFocus>,
