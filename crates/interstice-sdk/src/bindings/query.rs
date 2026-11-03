@@ -12,7 +12,7 @@ pub fn get_query_code(
     let method_name = Ident::new(&query_schema.name, span);
     let module_name_lit = LitStr::new(module_name, span);
     let query_name_lit = LitStr::new(&query_schema.name, span);
-    let return_type: Type = syn::parse_str(&query_schema.return_type.to_string())
+    let return_type: Type = syn::parse_str(&super::rust_type_string(&query_schema.return_type))
         .expect("Failed to parse query return type");
 
     let argument_defs: Vec<TokenStream> = query_schema
@@ -20,7 +20,7 @@ pub fn get_query_code(
         .iter()
         .map(|arg| {
             let arg_ident = Ident::new(&arg.name, span);
-            let arg_type: Type = syn::parse_str(&arg.field_type.to_string())
+            let arg_type: Type = syn::parse_str(&super::rust_type_string(&arg.field_type))
                 .expect("Failed to parse query argument type");
             quote! { #arg_ident: #arg_type }
         })

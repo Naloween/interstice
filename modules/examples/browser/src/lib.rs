@@ -490,10 +490,10 @@ pub fn on_frame(ctx: ReducerContext<BrowserCaps>, _prev: FrameTick, tick: FrameT
             let _ = g.reducers.destroy_resource(old);
         }
         if u.create {
-            let _ = g.reducers.create_texture(u.id, texture_desc(u.size.0, u.size.1), u.pixels);
+            let _ = g.reducers.create_texture(u.id, texture_desc(u.size.0, u.size.1), Blob::new(&u.pixels));
         } else {
             let (x, y, w, h) = u.rect;
-            let _ = g.reducers.update_texture(u.id, x, y, w, h, u.pixels);
+            let _ = g.reducers.update_texture(u.id, x, y, w, h, Blob::new(&u.pixels));
         }
     }
 
@@ -585,7 +585,7 @@ where
         let (w, h) = cursor::atlas_size();
         ui.tex_gen += 1;
         ui.cursor_tex = format!("browser_cursor_{}", ui.tex_gen);
-        let _ = g.reducers.create_texture(ui.cursor_tex.clone(), texture_desc(w, h), cursor::atlas());
+        let _ = g.reducers.create_texture(ui.cursor_tex.clone(), texture_desc(w, h), Blob::new(&cursor::atlas()));
         let _ = t.ui().update(ui.clone());
     }
     let (w, _) = cursor::atlas_size();

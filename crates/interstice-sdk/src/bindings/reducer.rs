@@ -18,7 +18,7 @@ pub fn get_reducer_code(
         .iter()
         .map(|arg| {
             let arg_ident = Ident::new(&arg.name, span);
-            let arg_type: Type = syn::parse_str(&arg.field_type.to_string())
+            let arg_type: Type = syn::parse_str(&super::rust_type_string(&arg.field_type))
                 .expect("Failed to parse reducer argument type");
             quote! { #arg_ident: #arg_type }
         })

@@ -1,4 +1,4 @@
-abi_version = 6
+abi_version = 8
 name = "graphics"
 visibility = "Private"
 subscriptions = []
@@ -11,198 +11,6 @@ replicated_tables = []
 major = 0
 minor = 1
 patch = 0
-
-[[reducers]]
-name = "create_mesh"
-updates = []
-deletes = []
-
-[[reducers.arguments]]
-name = "local_id"
-field_type = "String"
-
-[[reducers.arguments]]
-name = "mesh"
-
-[reducers.arguments.field_type]
-Named = "MeshDescriptor"
-
-[[reducers.reads]]
-node_selection = "Current"
-module_selection = "Current"
-table_name = "meshbinding"
-
-[[reducers.inserts]]
-node_selection = "Current"
-module_selection = "Current"
-table_name = "meshbinding"
-
-[[reducers]]
-name = "create_texture"
-updates = []
-deletes = []
-
-[[reducers.arguments]]
-name = "local_id"
-field_type = "String"
-
-[[reducers.arguments]]
-name = "desc"
-
-[reducers.arguments.field_type]
-Named = "TextureDescriptorInput"
-
-[[reducers.arguments]]
-name = "bytes"
-
-[reducers.arguments.field_type]
-Vec = "U8"
-
-[[reducers.reads]]
-node_selection = "Current"
-module_selection = "Current"
-table_name = "texturebinding"
-
-[[reducers.inserts]]
-node_selection = "Current"
-module_selection = "Current"
-table_name = "texturebinding"
-
-[[reducers]]
-name = "update_texture"
-inserts = []
-updates = []
-deletes = []
-
-[[reducers.arguments]]
-name = "local_id"
-field_type = "String"
-
-[[reducers.arguments]]
-name = "x"
-field_type = "U32"
-
-[[reducers.arguments]]
-name = "y"
-field_type = "U32"
-
-[[reducers.arguments]]
-name = "width"
-field_type = "U32"
-
-[[reducers.arguments]]
-name = "height"
-field_type = "U32"
-
-[[reducers.arguments]]
-name = "bytes"
-
-[reducers.arguments.field_type]
-Vec = "U8"
-
-[[reducers.reads]]
-node_selection = "Current"
-module_selection = "Current"
-table_name = "texturebinding"
-
-[[reducers]]
-name = "create_pipeline"
-updates = []
-deletes = []
-
-[[reducers.arguments]]
-name = "local_id"
-field_type = "String"
-
-[[reducers.arguments]]
-name = "descriptor"
-
-[reducers.arguments.field_type]
-Named = "PipelineDescriptorInput"
-
-[[reducers.reads]]
-node_selection = "Current"
-module_selection = "Current"
-table_name = "pipelinebinding"
-
-[[reducers.inserts]]
-node_selection = "Current"
-module_selection = "Current"
-table_name = "pipelinebinding"
-
-[[reducers]]
-name = "destroy_resource"
-inserts = []
-updates = []
-
-[[reducers.arguments]]
-name = "local_id"
-field_type = "String"
-
-[[reducers.reads]]
-node_selection = "Current"
-module_selection = "Current"
-table_name = "texturebinding"
-
-[[reducers.reads]]
-node_selection = "Current"
-module_selection = "Current"
-table_name = "meshbinding"
-
-[[reducers.reads]]
-node_selection = "Current"
-module_selection = "Current"
-table_name = "pipelinebinding"
-
-[[reducers.reads]]
-node_selection = "Current"
-module_selection = "Current"
-table_name = "bindgroupbinding"
-
-[[reducers.deletes]]
-node_selection = "Current"
-module_selection = "Current"
-table_name = "texturebinding"
-
-[[reducers.deletes]]
-node_selection = "Current"
-module_selection = "Current"
-table_name = "meshbinding"
-
-[[reducers.deletes]]
-node_selection = "Current"
-module_selection = "Current"
-table_name = "pipelinebinding"
-
-[[reducers.deletes]]
-node_selection = "Current"
-module_selection = "Current"
-table_name = "bindgroupbinding"
-
-[[reducers]]
-name = "create_bind_group"
-updates = []
-deletes = []
-
-[[reducers.arguments]]
-name = "local_id"
-field_type = "String"
-
-[[reducers.arguments]]
-name = "descriptor"
-
-[reducers.arguments.field_type]
-Named = "BindGroupDescriptorInput"
-
-[[reducers.reads]]
-node_selection = "Current"
-module_selection = "Current"
-table_name = "bindgroupbinding"
-
-[[reducers.inserts]]
-node_selection = "Current"
-module_selection = "Current"
-table_name = "bindgroupbinding"
 
 [[reducers]]
 name = "draw_mesh"
@@ -586,6 +394,194 @@ module_selection = "Current"
 table_name = "renderpasscommand"
 
 [[reducers]]
+name = "create_mesh"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "mesh"
+
+[reducers.arguments.field_type]
+Named = "MeshDescriptor"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "meshbinding"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "meshbinding"
+
+[[reducers]]
+name = "create_texture"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "desc"
+
+[reducers.arguments.field_type]
+Named = "TextureDescriptorInput"
+
+[[reducers.arguments]]
+name = "pixels"
+field_type = "Blob"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "texturebinding"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "texturebinding"
+
+[[reducers]]
+name = "update_texture"
+inserts = []
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "x"
+field_type = "U32"
+
+[[reducers.arguments]]
+name = "y"
+field_type = "U32"
+
+[[reducers.arguments]]
+name = "width"
+field_type = "U32"
+
+[[reducers.arguments]]
+name = "height"
+field_type = "U32"
+
+[[reducers.arguments]]
+name = "pixels"
+field_type = "Blob"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "texturebinding"
+
+[[reducers]]
+name = "create_pipeline"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "descriptor"
+
+[reducers.arguments.field_type]
+Named = "PipelineDescriptorInput"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "pipelinebinding"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "pipelinebinding"
+
+[[reducers]]
+name = "destroy_resource"
+inserts = []
+updates = []
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "texturebinding"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "meshbinding"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "pipelinebinding"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "bindgroupbinding"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "texturebinding"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "meshbinding"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "pipelinebinding"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "bindgroupbinding"
+
+[[reducers]]
+name = "create_bind_group"
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "local_id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "descriptor"
+
+[reducers.arguments.field_type]
+Named = "BindGroupDescriptorInput"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "bindgroupbinding"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "bindgroupbinding"
+
+[[reducers]]
 name = "create_surface"
 updates = []
 deletes = []
@@ -929,43 +925,28 @@ field_type = "U32"
 name = "id"
 field_type = "U32"
 
-[type_definitions.BindGroupDescriptorInput.Struct]
-name = "BindGroupDescriptorInput"
+[type_definitions.TextureUsageFlags.Struct]
+name = "TextureUsageFlags"
 
-[[type_definitions.BindGroupDescriptorInput.Struct.fields]]
-name = "label"
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "copy_src"
+field_type = "Bool"
 
-[type_definitions.BindGroupDescriptorInput.Struct.fields.field_type]
-Option = "String"
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "copy_dst"
+field_type = "Bool"
 
-[type_definitions.TextureDescriptorInput.Struct]
-name = "TextureDescriptorInput"
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "texture_binding"
+field_type = "Bool"
 
-[[type_definitions.TextureDescriptorInput.Struct.fields]]
-name = "width"
-field_type = "U32"
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "storage_binding"
+field_type = "Bool"
 
-[[type_definitions.TextureDescriptorInput.Struct.fields]]
-name = "height"
-field_type = "U32"
-
-[[type_definitions.TextureDescriptorInput.Struct.fields]]
-name = "format"
-field_type = "String"
-
-[[type_definitions.TextureDescriptorInput.Struct.fields]]
-name = "mip_levels"
-field_type = "U32"
-
-[[type_definitions.TextureDescriptorInput.Struct.fields]]
-name = "sample_count"
-field_type = "U32"
-
-[[type_definitions.TextureDescriptorInput.Struct.fields]]
-name = "usage"
-
-[type_definitions.TextureDescriptorInput.Struct.fields.field_type]
-Named = "TextureUsageFlags"
+[[type_definitions.TextureUsageFlags.Struct.fields]]
+name = "render_attachment"
+field_type = "Bool"
 
 [type_definitions.Rect.Struct]
 name = "Rect"
@@ -985,6 +966,56 @@ field_type = "F32"
 [[type_definitions.Rect.Struct.fields]]
 name = "h"
 field_type = "F32"
+
+[type_definitions.SurfaceInfo.Struct]
+name = "SurfaceInfo"
+
+[[type_definitions.SurfaceInfo.Struct.fields]]
+name = "id"
+field_type = "U32"
+
+[[type_definitions.SurfaceInfo.Struct.fields]]
+name = "width"
+field_type = "U32"
+
+[[type_definitions.SurfaceInfo.Struct.fields]]
+name = "height"
+field_type = "U32"
+
+[type_definitions.Vec2.Struct]
+name = "Vec2"
+
+[[type_definitions.Vec2.Struct.fields]]
+name = "x"
+field_type = "F32"
+
+[[type_definitions.Vec2.Struct.fields]]
+name = "y"
+field_type = "F32"
+
+[type_definitions.RenderPassSubmission.Struct]
+name = "RenderPassSubmission"
+
+[[type_definitions.RenderPassSubmission.Struct.fields]]
+name = "layer"
+field_type = "String"
+
+[[type_definitions.RenderPassSubmission.Struct.fields]]
+name = "debug_label"
+
+[type_definitions.RenderPassSubmission.Struct.fields.field_type]
+Option = "String"
+
+[type_definitions.FrameTick.Struct]
+name = "FrameTick"
+
+[[type_definitions.FrameTick.Struct.fields]]
+name = "id"
+field_type = "U32"
+
+[[type_definitions.FrameTick.Struct.fields]]
+name = "frame"
+field_type = "U64"
 
 [type_definitions.MeshVertex.Struct]
 name = "MeshVertex"
@@ -1007,6 +1038,34 @@ name = "uv"
 [type_definitions.MeshVertex.Struct.fields.field_type]
 Named = "Vec2"
 
+[type_definitions.ComputeSubmission.Struct]
+name = "ComputeSubmission"
+
+[[type_definitions.ComputeSubmission.Struct.fields]]
+name = "debug_label"
+
+[type_definitions.ComputeSubmission.Struct.fields.field_type]
+Option = "String"
+
+[type_definitions.Color.Struct]
+name = "Color"
+
+[[type_definitions.Color.Struct.fields]]
+name = "r"
+field_type = "F32"
+
+[[type_definitions.Color.Struct.fields]]
+name = "g"
+field_type = "F32"
+
+[[type_definitions.Color.Struct.fields]]
+name = "b"
+field_type = "F32"
+
+[[type_definitions.Color.Struct.fields]]
+name = "a"
+field_type = "F32"
+
 [type_definitions.Vec3.Struct]
 name = "Vec3"
 
@@ -1021,17 +1080,6 @@ field_type = "F32"
 [[type_definitions.Vec3.Struct.fields]]
 name = "z"
 field_type = "F32"
-
-[type_definitions.FrameTick.Struct]
-name = "FrameTick"
-
-[[type_definitions.FrameTick.Struct.fields]]
-name = "id"
-field_type = "U32"
-
-[[type_definitions.FrameTick.Struct.fields]]
-name = "frame"
-field_type = "U64"
 
 [type_definitions.MeshDescriptor.Struct]
 name = "MeshDescriptor"
@@ -1071,92 +1119,40 @@ name = "fragment_entry"
 [type_definitions.PipelineDescriptorInput.Struct.fields.field_type]
 Option = "String"
 
-[type_definitions.Vec2.Struct]
-name = "Vec2"
+[type_definitions.BindGroupDescriptorInput.Struct]
+name = "BindGroupDescriptorInput"
 
-[[type_definitions.Vec2.Struct.fields]]
-name = "x"
-field_type = "F32"
+[[type_definitions.BindGroupDescriptorInput.Struct.fields]]
+name = "label"
 
-[[type_definitions.Vec2.Struct.fields]]
-name = "y"
-field_type = "F32"
-
-[type_definitions.ComputeSubmission.Struct]
-name = "ComputeSubmission"
-
-[[type_definitions.ComputeSubmission.Struct.fields]]
-name = "debug_label"
-
-[type_definitions.ComputeSubmission.Struct.fields.field_type]
+[type_definitions.BindGroupDescriptorInput.Struct.fields.field_type]
 Option = "String"
 
-[type_definitions.RenderPassSubmission.Struct]
-name = "RenderPassSubmission"
+[type_definitions.TextureDescriptorInput.Struct]
+name = "TextureDescriptorInput"
 
-[[type_definitions.RenderPassSubmission.Struct.fields]]
-name = "layer"
-field_type = "String"
-
-[[type_definitions.RenderPassSubmission.Struct.fields]]
-name = "debug_label"
-
-[type_definitions.RenderPassSubmission.Struct.fields.field_type]
-Option = "String"
-
-[type_definitions.SurfaceInfo.Struct]
-name = "SurfaceInfo"
-
-[[type_definitions.SurfaceInfo.Struct.fields]]
-name = "id"
-field_type = "U32"
-
-[[type_definitions.SurfaceInfo.Struct.fields]]
+[[type_definitions.TextureDescriptorInput.Struct.fields]]
 name = "width"
 field_type = "U32"
 
-[[type_definitions.SurfaceInfo.Struct.fields]]
+[[type_definitions.TextureDescriptorInput.Struct.fields]]
 name = "height"
 field_type = "U32"
 
-[type_definitions.Color.Struct]
-name = "Color"
+[[type_definitions.TextureDescriptorInput.Struct.fields]]
+name = "format"
+field_type = "String"
 
-[[type_definitions.Color.Struct.fields]]
-name = "r"
-field_type = "F32"
+[[type_definitions.TextureDescriptorInput.Struct.fields]]
+name = "mip_levels"
+field_type = "U32"
 
-[[type_definitions.Color.Struct.fields]]
-name = "g"
-field_type = "F32"
+[[type_definitions.TextureDescriptorInput.Struct.fields]]
+name = "sample_count"
+field_type = "U32"
 
-[[type_definitions.Color.Struct.fields]]
-name = "b"
-field_type = "F32"
+[[type_definitions.TextureDescriptorInput.Struct.fields]]
+name = "usage"
 
-[[type_definitions.Color.Struct.fields]]
-name = "a"
-field_type = "F32"
-
-[type_definitions.TextureUsageFlags.Struct]
-name = "TextureUsageFlags"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "copy_src"
-field_type = "Bool"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "copy_dst"
-field_type = "Bool"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "texture_binding"
-field_type = "Bool"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "storage_binding"
-field_type = "Bool"
-
-[[type_definitions.TextureUsageFlags.Struct.fields]]
-name = "render_attachment"
-field_type = "Bool"
+[type_definitions.TextureDescriptorInput.Struct.fields.field_type]
+Named = "TextureUsageFlags"

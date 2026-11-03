@@ -44,6 +44,13 @@ pub enum IntersticeValue {
     /// difference between ~1 ms and ~250 ms for a 4 MB texture upload.
     /// Appended last so existing encoded values keep their variant indices.
     Bytes(#[serde(with = "raw_bytes")] Vec<u8>),
+
+    /// Handle to an immutable byte buffer held by the host for the duration of
+    /// the call that created (or received) it. Moving bulk data between modules
+    /// this way costs one copy into the host instead of an encode/decode per
+    /// hop; the GPU authority can consume it without copying it into its own
+    /// memory. Validates against `IntersticeType::Blob`.
+    Blob(u64),
 }
 
 /// (De)serialize a `Vec<u8>` as one byte string instead of a sequence of
@@ -110,6 +117,7 @@ impl IntersticeValue {
             IntersticeValue::Bool(value) => write!(f, "{value}"),
             IntersticeValue::String(value) => write!(f, "\"{value}\""),
             IntersticeValue::Bytes(bytes) => write!(f, "<{} bytes>", bytes.len()),
+            IntersticeValue::Blob(id) => write!(f, "<blob #{id}>"),
             IntersticeValue::Vec(values) => {
                 write!(f, "[\n")?;
                 for value in values {

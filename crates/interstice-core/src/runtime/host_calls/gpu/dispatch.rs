@@ -13,9 +13,26 @@ impl Runtime {
         memory: &wasmtime::Memory,
         caller: &mut Caller<'_, StoreState>,
     ) -> Result<Option<i64>, IntersticeError> {
+        let blob_id = match &call {
+            interstice_abi::GpuCall::WriteTextureBlob(w) => Some(w.blob),
+            interstice_abi::GpuCall::WriteBufferBlob(w) => Some(w.blob),
+            _ => None,
+        };
+        let blob = match blob_id {
+            Some(id) => match crate::runtime::blob::resolve_blob(id) {
+                Some(b) => Some(b),
+                None => {
+                    let response = GpuResponse::Err(format!("unknown blob #{id}"));
+                    return Ok(Some(self.send_data_to_module(response, memory, caller)));
+                }
+            },
+            None => None,
+        };
+
         let (tx, rx) = std::sync::mpsc::channel();
         let _ = self.gpu_call_sender.send(GpuCallRequest {
             call,
+            blob,
             respond_to: tx,
         });
 

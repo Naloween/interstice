@@ -22,6 +22,9 @@ unsafe extern "C" {
     pub fn interstice_log(msg_ptr: i32, msg_len: i32);
     pub fn interstice_time() -> i64;
     pub fn interstice_random() -> i64;
+    pub fn interstice_blob_create(ptr: i32, len: i32) -> i64;
+    pub fn interstice_blob_len(id: i64) -> i64;
+    pub fn interstice_blob_read(id: i64, offset: i64, ptr: i32, len: i32) -> i64;
     pub fn interstice_insert_row(
         table_ptr: i32,
         table_len: i32,
@@ -62,6 +65,21 @@ pub unsafe extern "C" fn interstice_time() -> i64 {
 #[cfg(not(target_arch = "wasm32"))]
 pub unsafe extern "C" fn interstice_random() -> i64 {
     0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe extern "C" fn interstice_blob_create(_ptr: i32, _len: i32) -> i64 {
+    -1
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe extern "C" fn interstice_blob_len(_id: i64) -> i64 {
+    -1
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe extern "C" fn interstice_blob_read(_id: i64, _offset: i64, _ptr: i32, _len: i32) -> i64 {
+    -1
 }
 
 #[cfg(not(target_arch = "wasm32"))]

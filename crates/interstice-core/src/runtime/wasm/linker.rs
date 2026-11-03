@@ -97,6 +97,57 @@ pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> 
         },
     )?;
 
+    // ── Direct: blobs ─────────────────────────────────────────────────────────
+    // Copy `len` bytes of guest memory into a new blob owned by the current
+    // call frame. Returns the blob id, or -1.
+    linker.func_wrap(
+        "interstice",
+        "interstice_blob_create",
+        |mut caller: Caller<'_, StoreState>, ptr: i32, len: i32| -> i64 {
+            let Some(wasmtime::Extern::Memory(memory)) = caller.get_export("memory") else {
+                return -1;
+            };
+            let (start, len) = ((ptr as u32) as usize, (len as u32) as usize);
+            let Some(bytes) = memory.data(&caller).get(start..start + len) else {
+                return -1;
+            };
+            match crate::runtime::blob::create_blob(bytes.into()) {
+                Some(id) => id as i64,
+                None => -1,
+            }
+        },
+    )?;
+
+    // Length of a blob visible to the current call, or -1.
+    linker.func_wrap(
+        "interstice",
+        "interstice_blob_len",
+        |_caller: Caller<'_, StoreState>, id: i64| -> i64 {
+            crate::runtime::blob::resolve_blob(id as u64).map_or(-1, |b| b.len() as i64)
+        },
+    )?;
+
+    // Copy up to `len` bytes of the blob, from `offset`, into guest memory.
+    // Returns the number of bytes copied, or -1.
+    linker.func_wrap(
+        "interstice",
+        "interstice_blob_read",
+        |mut caller: Caller<'_, StoreState>, id: i64, offset: i64, ptr: i32, len: i32| -> i64 {
+            let Some(wasmtime::Extern::Memory(memory)) = caller.get_export("memory") else {
+                return -1;
+            };
+            let Some(blob) = crate::runtime::blob::resolve_blob(id as u64) else {
+                return -1;
+            };
+            let offset = (offset.max(0) as usize).min(blob.len());
+            let n = ((len as u32) as usize).min(blob.len() - offset);
+            match memory.write(&mut caller, (ptr as u32) as usize, &blob[offset..offset + n]) {
+                Ok(()) => n as i64,
+                Err(_) => -1,
+            }
+        },
+    )?;
+
     // ── Direct: insert_row ────────────────────────────────────────────────────
     linker.func_wrap(
         "interstice",

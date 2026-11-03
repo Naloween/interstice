@@ -162,3 +162,20 @@ pub fn generate_bindings() {
 
     println!("cargo:rerun-if-changed=src/bindings");
 }
+
+/// Rust spelling of `ty` for generated bindings. Same as its `Display` except
+/// for SDK-provided types, which are path-qualified so the bindings compile
+/// without extra imports.
+pub(crate) fn rust_type_string(ty: &interstice_abi::IntersticeType) -> String {
+    use interstice_abi::IntersticeType as T;
+    match ty {
+        T::Blob => "interstice_sdk::Blob".to_string(),
+        T::Vec(inner) => format!("Vec<{}>", rust_type_string(inner)),
+        T::Option(inner) => format!("Option<{}>", rust_type_string(inner)),
+        T::Tuple(items) if !items.is_empty() => {
+            let items: Vec<String> = items.iter().map(rust_type_string).collect();
+            format!("({})", items.join(", "))
+        }
+        other => other.to_string(),
+    }
+}

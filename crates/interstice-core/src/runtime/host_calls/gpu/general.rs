@@ -141,6 +141,60 @@ impl GpuState {
         );
     }
 
+    pub fn write_texture_blob(
+        &mut self,
+        w: interstice_abi::WriteTextureBlob,
+        blob: &[u8],
+    ) -> Result<(), crate::IntersticeError> {
+        let texture = self.textures.get(&w.texture).ok_or_else(|| {
+            crate::IntersticeError::Internal(format!("unknown texture {}", w.texture))
+        })?;
+        if w.width == 0 || w.height == 0 || w.depth == 0 {
+            return Ok(());
+        }
+        // Cheap bound check (start of the last row); wgpu validates the rest.
+        let last_row = w.rows_per_image as u64 * (w.depth as u64 - 1) + (w.height as u64 - 1);
+        let last_row_start = w.blob_offset + w.bytes_per_row as u64 * last_row;
+        if last_row_start >= blob.len() as u64 {
+            return Err(crate::IntersticeError::Internal(format!(
+                "texture upload reads past the end of the blob ({} bytes)",
+                blob.len()
+            )));
+        }
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: w.mip_level,
+                origin: wgpu::Origin3d { x: w.origin[0], y: w.origin[1], z: w.origin[2] },
+                aspect: wgpu::TextureAspect::All,
+            },
+            blob,
+            wgpu::TexelCopyBufferLayout {
+                offset: w.blob_offset,
+                bytes_per_row: Some(w.bytes_per_row),
+                rows_per_image: Some(w.rows_per_image),
+            },
+            wgpu::Extent3d {
+                width: w.width,
+                height: w.height,
+                depth_or_array_layers: w.depth,
+            },
+        );
+        Ok(())
+    }
+
+    pub fn write_buffer_blob(
+        &mut self,
+        w: interstice_abi::WriteBufferBlob,
+        blob: &[u8],
+    ) -> Result<(), crate::IntersticeError> {
+        let buffer = self.buffers.get(&w.buffer).ok_or_else(|| {
+            crate::IntersticeError::Internal(format!("unknown buffer {}", w.buffer))
+        })?;
+        self.queue.write_buffer(buffer, w.offset, blob);
+        Ok(())
+    }
+
     pub fn set_index_buffer(&mut self, cmd: SetIndexBuffer) {
         let enc = self.encoders.get_mut(&cmd.pass).unwrap();
 

@@ -104,6 +104,22 @@ pub fn write_texture(desc: WriteTexture) -> Result<(), String> {
     expect_gpu_none(unpack_gpu_response(pack)?)
 }
 
+/// Upload a texture region straight from a [`Blob`](crate::Blob).
+pub fn write_texture_blob(desc: WriteTextureBlob) -> Result<(), String> {
+    let pack = host_call(HostCall::Gpu(GpuCall::WriteTextureBlob(desc)));
+    expect_gpu_none(unpack_gpu_response(pack)?)
+}
+
+/// Write a [`Blob`](crate::Blob)'s bytes into a buffer at `offset`.
+pub fn write_buffer_blob(buffer: GpuId, offset: u64, blob: crate::Blob) -> Result<(), String> {
+    let pack = host_call(HostCall::Gpu(GpuCall::WriteBufferBlob(WriteBufferBlob {
+        buffer,
+        offset,
+        blob: blob.id(),
+    })));
+    expect_gpu_none(unpack_gpu_response(pack)?)
+}
+
 pub fn create_texture_view(desc: CreateTextureView) -> Result<GpuId, String> {
     let pack = host_call(HostCall::Gpu(GpuCall::CreateTextureView(desc)));
     expect_gpu_i64(unpack_gpu_response(pack)?)
@@ -371,6 +387,14 @@ impl Gpu {
 
     pub fn write_texture(&self, desc: WriteTexture) -> Result<(), String> {
         write_texture(desc)
+    }
+
+    pub fn write_texture_blob(&self, desc: WriteTextureBlob) -> Result<(), String> {
+        write_texture_blob(desc)
+    }
+
+    pub fn write_buffer_blob(&self, buffer: GpuId, offset: u64, blob: crate::Blob) -> Result<(), String> {
+        write_buffer_blob(buffer, offset, blob)
     }
 
     pub fn destroy_buffer(&self, id: GpuId) -> Result<(), String> {

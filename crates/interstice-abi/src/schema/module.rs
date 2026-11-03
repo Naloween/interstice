@@ -39,6 +39,51 @@ pub struct ModuleSchema {
 }
 
 impl ModuleSchema {
+    /// Whether `ty` is or contains a `Blob` (through user-defined types too).
+    pub fn type_contains_blob(&self, ty: &crate::IntersticeType) -> bool {
+        fn walk(
+            schema: &ModuleSchema,
+            ty: &crate::IntersticeType,
+            seen: &mut Vec<String>,
+        ) -> bool {
+            use crate::IntersticeType as T;
+            match ty {
+                T::Blob => true,
+                T::Vec(inner) | T::Option(inner) => walk(schema, inner, seen),
+                T::Tuple(items) => items.iter().any(|t| walk(schema, t, seen)),
+                T::Named(name) => {
+                    if seen.contains(name) {
+                        return false;
+                    }
+                    seen.push(name.clone());
+                    let fields = match schema.type_definitions.get(name) {
+                        Some(crate::IntersticeTypeDef::Struct { fields, .. }) => fields,
+                        Some(crate::IntersticeTypeDef::Enum { variants, .. }) => variants,
+                        None => return false,
+                    };
+                    fields.iter().any(|f| walk(schema, &f.field_type, seen))
+                }
+                _ => false,
+            }
+        }
+        walk(self, ty, &mut Vec::new())
+    }
+
+    /// Blobs live only for the duration of a call; tables can't hold them.
+    pub fn check_no_blob_in_tables(&self) -> Result<(), String> {
+        for table in &self.tables {
+            for field in table.fields.iter().chain(std::iter::once(&table.primary_key)) {
+                if self.type_contains_blob(&field.field_type) {
+                    return Err(format!(
+                        "table `{}` field `{}`: Blob is call-scoped and cannot be stored in a table",
+                        table.name, field.name
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn empty() -> Self {
         Self {
             abi_version: 0,
@@ -247,5 +292,74 @@ impl ModuleSchema {
 
     pub fn to_toml_string(&self) -> Result<String, toml::ser::Error> {
         toml::to_string(&self)
+    }
+}
+
+#[cfg(test)]
+mod blob_tests {
+    use super::*;
+    use crate::{FieldDef, IntersticeType as T, IntersticeTypeDef, PersistenceKind, TableSchema, TableVisibility};
+
+    fn field(name: &str, ty: T) -> FieldDef {
+        FieldDef { name: name.into(), field_type: ty }
+    }
+
+    fn schema_with_field(ty: T) -> ModuleSchema {
+        let mut schema = ModuleSchema::empty();
+        schema.tables.push(TableSchema {
+            name: "t".into(),
+            type_name: "T".into(),
+            visibility: TableVisibility::Private,
+            fields: vec![field("data", ty)],
+            primary_key: field("id", T::U64),
+            primary_key_auto_inc: false,
+            indexes: Vec::new(),
+            persistence: PersistenceKind::Ephemeral,
+            retention: None,
+        });
+        schema
+    }
+
+    #[test]
+    fn tables_cannot_hold_blobs() {
+        assert!(schema_with_field(T::Vec(Box::new(T::U8))).check_no_blob_in_tables().is_ok());
+        assert!(schema_with_field(T::Blob).check_no_blob_in_tables().is_err());
+        assert!(schema_with_field(T::Option(Box::new(T::Blob))).check_no_blob_in_tables().is_err());
+        assert!(schema_with_field(T::Tuple(vec![T::U32, T::Blob])).check_no_blob_in_tables().is_err());
+    }
+
+    #[test]
+    fn blobs_inside_named_types_are_found() {
+        let mut schema = schema_with_field(T::Named("Wrapper".into()));
+        schema.type_definitions.insert(
+            "Wrapper".into(),
+            IntersticeTypeDef::Struct {
+                name: "Wrapper".into(),
+                fields: vec![field("inner", T::Named("Wrapper".into())), field("b", T::Blob)],
+            },
+        );
+        assert!(schema.check_no_blob_in_tables().is_err());
+        schema.type_definitions.insert(
+            "Wrapper".into(),
+            IntersticeTypeDef::Struct {
+                name: "Wrapper".into(),
+                fields: vec![field("inner", T::Named("Wrapper".into()))],
+            },
+        );
+        assert!(schema.check_no_blob_in_tables().is_ok(), "recursive types terminate");
+    }
+
+    #[test]
+    fn blob_type_round_trips_and_validates() {
+        use crate::{IntersticeValue as V, validate_value};
+        use std::str::FromStr;
+        assert!(matches!(T::from_str("Blob").unwrap(), T::Blob));
+        assert_eq!(T::from_str("Option<Blob>").unwrap().to_string(), "Option<Blob>");
+        let defs = HashMap::new();
+        assert!(validate_value(&V::Blob(3), &T::Blob, &defs));
+        assert!(validate_value(&V::Bytes(vec![1, 2]), &T::Blob, &defs), "inline bytes from a remote caller");
+        assert!(!validate_value(&V::Blob(3), &T::Vec(Box::new(T::U8)), &defs));
+        let encoded = crate::encode(&V::Blob(42)).unwrap();
+        assert_eq!(crate::decode::<V>(&encoded).unwrap(), V::Blob(42));
     }
 }

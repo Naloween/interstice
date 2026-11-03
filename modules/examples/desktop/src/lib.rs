@@ -748,7 +748,7 @@ fn register_app_with_icon<Caps>(ctx: &ReducerContext<Caps>, name: &str, bytes: &
                 render_attachment: false,
             },
         },
-        icon,
+        Blob::new(&icon),
     );
 }
 

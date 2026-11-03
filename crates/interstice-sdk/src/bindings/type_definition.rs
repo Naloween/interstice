@@ -10,7 +10,7 @@ pub fn get_type_definition_code(type_def: &IntersticeTypeDef) -> proc_macro2::To
             let name_ident = Ident::new(name, span);
             let field_defs = fields.iter().map(|field| {
                 let field_ident = Ident::new(&field.name, span);
-                let field_type: Type = syn::parse_str(&field.field_type.to_string())
+                let field_type: Type = syn::parse_str(&super::rust_type_string(&field.field_type))
                     .expect("Failed to parse struct field type");
                 quote! { pub #field_ident: #field_type }
             });
@@ -30,13 +30,13 @@ pub fn get_type_definition_code(type_def: &IntersticeTypeDef) -> proc_macro2::To
                     interstice_abi::IntersticeType::Void => quote! { #variant_ident },
                     interstice_abi::IntersticeType::Tuple(interstice_types) => {
                         let tuple_types = interstice_types.iter().map(|t| {
-                            syn::parse_str::<Type>(&t.to_string())
+                            syn::parse_str::<Type>(&super::rust_type_string(t))
                                 .expect("Failed to parse tuple variant type")
                         });
                         quote! { #variant_ident(#(#tuple_types),*) }
                     }
                     field_type => {
-                        let inner_type: Type = syn::parse_str(&field_type.to_string())
+                        let inner_type: Type = syn::parse_str(&super::rust_type_string(field_type))
                             .expect("Failed to parse enum variant type");
                         quote! { #variant_ident(#inner_type) }
                     }

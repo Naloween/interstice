@@ -46,6 +46,8 @@ impl Runtime {
                         .get_node_id_from_adress(&node_dependency.address)
                         .map_err(|_| IntersticeError::UnknownPeer)?
                 };
+                let mut input = call_query_request.input;
+                crate::runtime::blob::inline_blobs(&mut input).map_err(IntersticeError::Internal)?;
                 let request_id = uuid::Uuid::new_v4().to_string();
 
                 // Use a sync channel so the WASM thread can do a blocking recv.
@@ -60,7 +62,7 @@ impl Runtime {
                         request_id: request_id.clone(),
                         module_name: module_name.clone(),
                         query_name: call_query_request.query_name.clone(),
-                        input: call_query_request.input.clone(),
+                        input,
                     },
                 );
 

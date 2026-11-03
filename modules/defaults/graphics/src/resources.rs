@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use interstice_sdk::*;
 use interstice_sdk::{
-    BufferUsage, ColorTargetState, ColorWrites, CopyBufferToTexture, CreatePipelineLayout,
+    BufferUsage, ColorTargetState, ColorWrites, CreatePipelineLayout,
     CreateRenderPipeline, CreateTexture, FragmentState, FrontFace, MultisampleState,
     PrimitiveState, PrimitiveTopology, TextureDimension, TextureFormat, TextureUsage,
     VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode,
@@ -25,7 +25,7 @@ pub fn create_texture<Caps>(
     ctx: ReducerContext<Caps>,
     local_id: String,
     desc: TextureDescriptorInput,
-    bytes: Vec<u8>,
+    pixels: Blob,
 ) -> Result<(), String>
 where
     Caps: CanRead<TextureBinding> + CanInsert<TextureBinding>,
@@ -50,7 +50,7 @@ where
         return Ok(());
     }
 
-    match allocate_texture(&ctx, &desc, &bytes) {
+    match allocate_texture(&ctx, &desc, pixels) {
         Ok(texture_id) => {
             let row = TextureBinding {
                 key,
@@ -216,7 +216,7 @@ pub fn update_texture<Caps>(
     y: u32,
     width: u32,
     height: u32,
-    bytes: Vec<u8>,
+    pixels: Blob,
 ) -> Result<(), String>
 where
     Caps: CanRead<TextureBinding>,
@@ -238,71 +238,45 @@ where
         }
     };
     let bpp = bytes_per_pixel(format);
-    if bytes.len() != (width * height * bpp) as usize {
+    if pixels.len() != (width * height * bpp) as usize {
         ctx.log("update_texture: data size mismatch");
         return Ok(());
     }
-    if let Err(e) = upload_region(&ctx, binding.gpu_id, bpp, x, y, width, height, &bytes) {
+    if let Err(e) = upload_region(&ctx, binding.gpu_id, bpp, [x, y], [width, height], pixels) {
         ctx.log(&format!("update_texture failed: {e}"));
     }
     Ok(())
 }
 
-/// Copy tightly-packed pixels into `texture` at `(x, y)` via a staging buffer
-/// (rows padded to wgpu's 256-byte `bytes_per_row` alignment).
-#[allow(clippy::too_many_arguments)]
+/// Copy tightly-packed pixels from a blob into `texture` at `origin`. The
+/// host hands the blob to the GPU queue directly: no staging buffer, no row
+/// padding, no copy through this module's memory.
 fn upload_region<Caps>(
     ctx: &ReducerContext<Caps>,
     texture: u32,
     bpp: u32,
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-    bytes: &[u8],
+    origin: [u32; 2],
+    size: [u32; 2],
+    pixels: Blob,
 ) -> Result<(), String> {
-    let gpu = ctx.gpu();
-    const ALIGN: u32 = 256;
-    let unpadded_row = width * bpp;
-    let padded_row = unpadded_row.div_ceil(ALIGN) * ALIGN;
-    let staged: Vec<u8> = if padded_row == unpadded_row {
-        bytes.to_vec()
-    } else {
-        let urow = unpadded_row as usize;
-        let prow = padded_row as usize;
-        let mut buf = vec![0u8; prow * height as usize];
-        for r in 0..height as usize {
-            buf[r * prow..r * prow + urow].copy_from_slice(&bytes[r * urow..r * urow + urow]);
-        }
-        buf
-    };
-    let staging = gpu.create_buffer(
-        staged.len() as u64,
-        BufferUsage::COPY_SRC | BufferUsage::COPY_DST,
-        false,
-    )?;
-    gpu.write_buffer(staging, 0, staged)?;
-    let encoder = gpu.create_command_encoder()?;
-    gpu.copy_buffer_to_texture(CopyBufferToTexture {
-        encoder,
-        src_buffer: staging,
-        src_offset: 0,
-        bytes_per_row: padded_row,
-        rows_per_image: height,
-        dst_texture: texture,
+    ctx.gpu().write_texture_blob(WriteTextureBlob {
+        texture,
+        blob: pixels.id(),
+        blob_offset: 0,
+        bytes_per_row: size[0] * bpp,
+        rows_per_image: size[1],
         mip_level: 0,
-        origin: [x, y, 0],
-        extent: [width, height, 1],
-    })?;
-    gpu.submit(encoder)?;
-    let _ = gpu.destroy_buffer(staging);
-    Ok(())
+        origin: [origin[0], origin[1], 0],
+        width: size[0],
+        height: size[1],
+        depth: 1,
+    })
 }
 
 fn allocate_texture<Caps>(
     ctx: &ReducerContext<Caps>,
     desc: &TextureDescriptorInput,
-    bytes: &[u8],
+    pixels: Blob,
 ) -> Result<u32, String> {
     let gpu = ctx.gpu();
 
@@ -320,60 +294,17 @@ fn allocate_texture<Caps>(
         usage,
     })?;
 
-    if !bytes.is_empty() {
+    if !pixels.is_empty() {
         let bpp = bytes_per_pixel(format);
         let expected_len = (desc.width as usize) * (desc.height as usize) * bpp as usize;
-        if bytes.len() != expected_len {
+        if pixels.len() != expected_len {
             return Err(format!(
                 "Texture data size mismatch (expected {} bytes, got {})",
                 expected_len,
-                bytes.len()
+                pixels.len()
             ));
         }
-
-        // wgpu requires the buffer's `bytes_per_row` to be a multiple of
-        // COPY_BYTES_PER_ROW_ALIGNMENT (256). The caller's pixels are tightly
-        // packed, so pad each row up to that alignment in the staging buffer when
-        // needed (e.g. a 20px-wide RGBA image has an 80-byte row).
-        const ALIGN: u32 = 256;
-        let unpadded_row = desc.width * bpp;
-        let padded_row = unpadded_row.div_ceil(ALIGN) * ALIGN;
-
-        let staged: Vec<u8> = if padded_row == unpadded_row {
-            bytes.to_vec()
-        } else {
-            let urow = unpadded_row as usize;
-            let prow = padded_row as usize;
-            let mut buf = vec![0u8; prow * desc.height as usize];
-            for y in 0..desc.height as usize {
-                let src = &bytes[y * urow..y * urow + urow];
-                buf[y * prow..y * prow + urow].copy_from_slice(src);
-            }
-            buf
-        };
-
-        // Queue writes (`write_buffer`) require COPY_DST on the destination buffer,
-        // and the texture upload uses it as the copy source — so it needs both.
-        let staging = gpu.create_buffer(
-            staged.len() as u64,
-            BufferUsage::COPY_SRC | BufferUsage::COPY_DST,
-            false,
-        )?;
-        gpu.write_buffer(staging, 0, staged)?;
-        let encoder = gpu.create_command_encoder()?;
-        gpu.copy_buffer_to_texture(CopyBufferToTexture {
-            encoder,
-            src_buffer: staging,
-            src_offset: 0,
-            bytes_per_row: padded_row,
-            rows_per_image: desc.height,
-            dst_texture: texture,
-            mip_level: 0,
-            origin: [0, 0, 0],
-            extent: [desc.width, desc.height, 1],
-        })?;
-        gpu.submit(encoder)?;
-        let _ = gpu.destroy_buffer(staging);
+        upload_region(ctx, texture, bpp, [0, 0], [desc.width, desc.height], pixels)?;
     }
 
     Ok(texture)

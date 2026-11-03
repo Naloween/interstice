@@ -25,6 +25,9 @@ pub enum GpuCallResult {
 
 pub struct GpuCallRequest {
     pub call: interstice_abi::GpuCall,
+    /// The blob a `Write*Blob` call refers to, resolved on the calling thread
+    /// (blobs live in that thread's call stack).
+    pub blob: Option<crate::runtime::blob::BlobData>,
     pub respond_to: std::sync::mpsc::Sender<Result<GpuCallResult, IntersticeError>>,
 }
 

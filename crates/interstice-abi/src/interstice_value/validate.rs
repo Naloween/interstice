@@ -48,7 +48,14 @@ pub fn validate_value_detailed(
         }
         IntersticeValue::Bytes(_) => match ty {
             IntersticeType::Vec(inner) if matches!(**inner, IntersticeType::U8) => Ok(()),
+            // Inline bytes for a blob parameter (e.g. arriving from another
+            // node); the runtime registers them as a blob before the call.
+            IntersticeType::Blob => Ok(()),
             _ => Err(format!("expected Vec<u8>, got {:?}", ty)),
+        },
+        IntersticeValue::Blob(_) => match ty {
+            IntersticeType::Blob => Ok(()),
+            _ => Err(format!("expected Blob, got {:?}", ty)),
         },
         IntersticeValue::Vec(v) => {
             if let IntersticeType::Vec(inner) = ty {

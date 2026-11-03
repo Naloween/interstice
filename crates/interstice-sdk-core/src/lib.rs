@@ -1,3 +1,4 @@
+pub mod blob;
 pub mod cache;
 pub mod caps;
 pub mod context;
@@ -7,6 +8,7 @@ pub mod reads;
 pub mod registry;
 pub mod table_row;
 
+pub use blob::Blob;
 pub use cache::InstanceCache;
 pub use caps::*;
 pub use context::*;

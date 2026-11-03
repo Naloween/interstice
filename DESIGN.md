@@ -390,6 +390,26 @@ even when it targets a different reducer.
 - Co-located modules share a `caller_node_id`, so `caller_module_name` is the
   routing key.
 
+**Bulk data (blobs):** a reducer or query parameter typed `Blob` takes a handle
+to an immutable byte buffer held by the host (`runtime/blob.rs`), instead of
+the bytes themselves.
+- `Blob::new(&bytes)` copies once into the host; the blob belongs to the
+  current call frame and is freed when that frame pops. Nested calls run on
+  the caller's thread, so a callee resolves the id by walking the call stack:
+  callers' blobs are visible, nothing outlives the outermost call.
+- Blobs returned by a query move to the caller's frame (inlined as bytes when
+  the query is the outermost call, e.g. a remote request).
+- The GPU authority consumes blobs directly (`GpuCall::WriteTextureBlob`,
+  `WriteBufferBlob`): the host passes the buffer to the wgpu queue, with no
+  copy through the callee's memory. `graphics.create_texture` /
+  `update_texture` take `Blob`. A 4.2 MB browser frame upload: 10–22 ms
+  (median ~15) with `Vec<u8>` (guest → host → callee guest → host GPU call),
+  1–3 ms (median ~2) as a blob.
+- Across nodes a blob travels inline as `Bytes`; the receiving guest's `Blob`
+  conversion re-registers it, so `Blob` parameters work for remote callers.
+- Blobs are call-scoped: a table whose fields contain `Blob` is rejected at
+  load, and a `Blob` kept in an instance cache is dead on the next call.
+
 ### 7.2 Dependencies and bindings
 
 - A module that depends on another module or node has that dependency's
@@ -499,21 +519,23 @@ it is not a default module.
 
 ## 10. ABI, SDK and CLI
 
-**ABI** (`crates/interstice-abi`, `ABI_VERSION = 8`):
+**ABI** (`crates/interstice-abi`, `ABI_VERSION = 9`):
 - Everything is postcard-encoded.
 - Byte vectors travel as `IntersticeValue::Bytes(Vec<u8>)` (v8), a single
   length + raw bytes, not one `U8` value per byte. It validates as
   `Vec(U8)`, and `Vec<u8>` converts to and from both forms, so old stored
   values still load. A 4 MB texture upload took ~250 ms before and ~12 ms after.
+- Bulk data between modules travels as a **blob** (v9): `IntersticeValue::Blob(id)`
+  / `IntersticeType::Blob`, a handle to an immutable host-side buffer (§7.1).
 - Pointer and length are packed into an `i64` (ptr high, len low).
 
 | Item | Detail |
 |---|---|
 | Guest exports | `interstice_describe() -> i64`, `alloc`, `dealloc`, `__interstice_reducer_wrapper_<name>(ptr, len)`, `__interstice_query_wrapper_<name>(ptr, len) -> i64` |
 | Host import `interstice_host_call` | One generic import carrying a `HostCall` enum: CallReducer, Schedule, CallQuery, TableScan, TableGetByPrimaryKey, TableIndexScan, Gpu, Audio, File, Module, Network, CurrentNodeId |
-| Host imports, fast path | `interstice_log`, `interstice_time`, `interstice_random`, `interstice_insert_row`, `interstice_update_row`, `interstice_delete_row`, `interstice_clear_table`, `interstice_get_by_pk` |
+| Host imports, fast path | `interstice_log`, `interstice_time`, `interstice_random`, `interstice_insert_row`, `interstice_update_row`, `interstice_delete_row`, `interstice_clear_table`, `interstice_get_by_pk`, `interstice_blob_create`, `interstice_blob_len`, `interstice_blob_read` |
 | Arguments in | `(RawReducerContext or RawQueryContext, IntersticeValue::Vec(args))` |
-| Types | `IntersticeType`: Void, U8, U32, U64, I32, I64, F32, F64, Bool, String, Vec, Option, Tuple, Named. Structs and enums appear as `Named` with type definitions in the schema. |
+| Types | `IntersticeType`: Void, U8, U32, U64, I32, I64, F32, F64, Bool, String, Vec, Option, Tuple, Named, Blob. Structs and enums appear as `Named` with type definitions in the schema. |
 
 **SDK** (`interstice-sdk`, `-sdk-core`, `-sdk-macros`):
 - Attribute macros: `#[table]`, `#[reducer]`, `#[query]`, `#[interstice_type]`, `#[init]`.
@@ -807,10 +829,9 @@ but explicitly out of scope for now.
       in `where` clauses, and `caps!` named sets (§5). The browser's
       engine reducers share `BrowserCaps`.
 - [ ] Benchmarks for the overlay / re-validation path and pool affinity.
-- [ ] Large payloads between modules are still copied ~4 times (guest →
-      host → callee guest → host GPU call): ~12 ms for a 4 MB texture.
-      Candidates: a shared-buffer/handle host call for bulk data, or letting
-      a module upload straight to a resource another module owns.
+- [x] Bulk data between modules: call-scoped `Blob` handles (§7.1). The
+      GPU authority uploads straight from the host buffer; a 4 MB texture
+      went from ~15 ms to ~2 ms.
 
 ### 13.5 Examples
 - [x] **Browser**: dead files of the old engine removed; JavaScript (Boa)

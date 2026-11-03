@@ -226,7 +226,7 @@ impl App {
         loop {
             // Drain all pending GPU calls without blocking.
             while let Ok(req) = self.gpu_call_receiver.try_recv() {
-                let result = self.execute_gpu_call(req.call);
+                let result = self.execute_gpu_call(req.call, req.blob);
                 let _ = req.respond_to.send(result);
             }
             // Check if the render reducer has finished.
@@ -236,7 +236,7 @@ impl App {
             }
             // Park until the WASM renderer sends the next GPU call (or timeout to re-check done).
             if let Ok(req) = self.gpu_call_receiver.recv_timeout(GPU_WAIT) {
-                let result = self.execute_gpu_call(req.call);
+                let result = self.execute_gpu_call(req.call, req.blob);
                 let _ = req.respond_to.send(result);
             }
         }
@@ -244,7 +244,7 @@ impl App {
 
     fn drain_gpu_calls(&mut self) {
         while let Ok(req) = self.gpu_call_receiver.try_recv() {
-            let result = self.execute_gpu_call(req.call);
+            let result = self.execute_gpu_call(req.call, req.blob);
             let _ = req.respond_to.send(result);
         }
     }
@@ -252,6 +252,7 @@ impl App {
     fn execute_gpu_call(
         &mut self,
         call: interstice_abi::GpuCall,
+        blob: Option<crate::runtime::blob::BlobData>,
     ) -> Result<GpuCallResult, crate::IntersticeError> {
         let mut gpu = self.gpu.lock();
         let gpu = gpu
@@ -273,6 +274,16 @@ impl App {
             }
             interstice_abi::GpuCall::WriteTexture(w) => {
                 gpu.write_texture(w);
+                Ok(GpuCallResult::None)
+            }
+            interstice_abi::GpuCall::WriteTextureBlob(w) => {
+                let blob = blob.as_deref().unwrap_or_default();
+                gpu.write_texture_blob(w, blob)?;
+                Ok(GpuCallResult::None)
+            }
+            interstice_abi::GpuCall::WriteBufferBlob(w) => {
+                let blob = blob.as_deref().unwrap_or_default();
+                gpu.write_buffer_blob(w, blob)?;
                 Ok(GpuCallResult::None)
             }
             interstice_abi::GpuCall::CreateTexture(desc) => {

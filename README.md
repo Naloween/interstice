@@ -199,6 +199,22 @@ pub struct MyCustomStruct {
 
 Note that defining a struct as a table also makes it an interstice type and may be used as such.
 
+#### Bulk data: `Blob`
+
+To hand a large buffer (pixels, audio, file contents) to another module, take a `Blob` parameter instead of `Vec<u8>`. The caller copies the bytes once into the host; callees read them (`len`, `read_into`, `to_vec`) or pass the handle on, and the GPU authority uploads straight from it:
+
+```rust
+// caller
+let pixels: Vec<u8> = render();
+ctx.graphics().reducers.update_texture("page".into(), 0, 0, w, h, Blob::new(&pixels))?;
+
+// callee
+#[reducer]
+fn update_texture(ctx: ReducerContext, id: String, x: u32, y: u32, w: u32, h: u32, pixels: Blob) { … }
+```
+
+A blob lives as long as the call that created it, so it cannot be stored in a table or kept in an instance cache. Calls to another node send it inline, and it arrives as a fresh blob.
+
 ### Reducer
 
 After defining your data (tables and types), you will likely define reducers and queries. Reducers do not return anything and may update the tables of the current module. Reducers can call other queries and reducers from other modules.

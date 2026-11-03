@@ -21,6 +21,10 @@ pub enum IntersticeType {
     Option(Box<IntersticeType>),
     Tuple(Vec<IntersticeType>),
     Named(String), // reference to user-defined struct/enum
+    /// Handle to an immutable host-side byte buffer (see `IntersticeValue::Blob`).
+    /// Only valid as a reducer / query argument, never in a table row.
+    /// Appended last so existing encoded types keep their variant indices.
+    Blob,
 }
 
 impl Display for IntersticeType {
@@ -52,6 +56,7 @@ impl Display for IntersticeType {
             }
 
             IntersticeType::Named(s) => write!(f, "{s}"),
+            IntersticeType::Blob => write!(f, "Blob"),
         }
     }
 }
@@ -192,6 +197,7 @@ impl<'a> Parser<'a> {
             "f64" => Some(IntersticeType::F64),
             "bool" => Some(IntersticeType::Bool),
             "String" => Some(IntersticeType::String),
+            "Blob" => Some(IntersticeType::Blob),
             "Vec" | "Option" => None,
             _ => None,
         };

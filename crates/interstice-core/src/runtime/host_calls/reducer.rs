@@ -56,12 +56,14 @@ impl Runtime {
                 let node_id = network
                     .get_node_id_from_adress(&node_dependency.address)
                     .map_err(|_| IntersticeError::UnknownPeer)?;
+                let mut input = call_reducer_request.input;
+                crate::runtime::blob::inline_blobs(&mut input).map_err(IntersticeError::Internal)?;
                 network.send_packet(
                     node_id,
                     NetworkPacket::ReducerCall {
                         module_name: module_name.clone(),
                         reducer_name: call_reducer_request.reducer_name.clone(),
-                        input: call_reducer_request.input.clone(),
+                        input,
                     },
                 );
                 Ok(())

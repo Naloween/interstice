@@ -84,8 +84,22 @@ impl Runtime {
                 caller_module_name.to_string(),
                 module.state_epoch(),
             );
-        let result = module.call_query(query_name, (query_context, args));
-        CALL_STACK.with(|s| { s.borrow_mut().pop(); });
+        let mut result = module.call_query(query_name, (query_context, args));
+        // Blobs in the result must outlive this frame: hand them to the caller's
+        // frame, or inline them when there is no caller (host or remote request).
+        let outermost = CALL_STACK.with(|s| s.borrow().len() == 1);
+        if outermost {
+            if let Ok(value) = &mut result {
+                crate::runtime::blob::inline_blobs(value).map_err(IntersticeError::Internal)?;
+            }
+        }
+        CALL_STACK.with(|s| {
+            let mut stack = s.borrow_mut();
+            let frame = stack.pop().unwrap();
+            if let Some(parent) = stack.last_mut() {
+                parent.blobs.extend(frame.blobs);
+            }
+        });
         result
     }
 }

@@ -114,6 +114,10 @@ pub enum GpuCall {
     Present,
     BeginFrame,
     RequestRedraw,
+
+    // Blob uploads (appended to keep earlier variant indices stable).
+    WriteTextureBlob(WriteTextureBlob),
+    WriteBufferBlob(WriteBufferBlob),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -160,6 +164,33 @@ pub struct WriteTexture {
     pub width: u32,
     pub height: u32,
     pub depth: u32,
+}
+
+/// Upload a region of a texture straight from a blob (see `IntersticeValue::Blob`):
+/// the host hands the blob's bytes to the GPU queue without a copy through
+/// either module's memory. `bytes_per_row` needs no alignment.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct WriteTextureBlob {
+    pub texture: GpuId,
+    pub blob: u64,
+    /// Byte offset of the first texel in the blob.
+    pub blob_offset: u64,
+    pub bytes_per_row: u32,
+    pub rows_per_image: u32,
+    pub mip_level: u32,
+    /// Texel origin of the region in the texture.
+    pub origin: [u32; 3],
+    pub width: u32,
+    pub height: u32,
+    pub depth: u32,
+}
+
+/// Write a blob's bytes into a buffer at `offset`.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct WriteBufferBlob {
+    pub buffer: GpuId,
+    pub offset: u64,
+    pub blob: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -101,6 +101,7 @@ impl TryFrom<&IntersticeValue> for IndexKey {
             }
             IntersticeValue::Vec(_)
             | IntersticeValue::Bytes(_)
+            | IntersticeValue::Blob(_)
             | IntersticeValue::Struct { .. }
             | IntersticeValue::Enum { .. } => Err(
                 "Only primitive, Option, and Tuple values are supported as index keys".to_string(),

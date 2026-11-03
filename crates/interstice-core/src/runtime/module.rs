@@ -324,6 +324,11 @@ impl Runtime {
             }
         }
 
+        module
+            .schema
+            .check_no_blob_in_tables()
+            .map_err(IntersticeError::Internal)?;
+
         // Check name
         if runtime
             .modules

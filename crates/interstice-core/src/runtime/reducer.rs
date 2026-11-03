@@ -52,6 +52,8 @@ pub struct CallFrame {
     pub auto_inc_snapshots: HashMap<String, TableAutoIncSnapshot>,
     pub rng_state: u64,
     pub table_access: ReducerTableAccess,
+    /// Blobs created in (or adopted by) this call; freed when the frame pops.
+    pub blobs: HashMap<u64, crate::runtime::blob::BlobData>,
 }
 
 impl CallFrame {
@@ -73,6 +75,7 @@ impl CallFrame {
             auto_inc_snapshots: HashMap::new(),
             rng_state,
             table_access,
+            blobs: HashMap::new(),
         }
     }
 }

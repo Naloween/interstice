@@ -1,4 +1,5 @@
 mod authority;
+pub mod blob;
 mod deterministic_random;
 pub mod event;
 pub mod host_calls;
