@@ -1,5 +1,5 @@
 use crate::runtime::Runtime;
-use crate::runtime::reducer::CALL_STACK;
+use crate::runtime::reducer::{CallFrameKind, OutboxEntry, CALL_STACK};
 use interstice_abi::{ScheduleRequest, ScheduleResponse};
 
 impl Runtime {
@@ -43,10 +43,17 @@ impl Runtime {
             Some(true) => {}
         }
 
-        let reducer_name = request.reducer_name;
-        let wake_at = std::time::Instant::now() + std::time::Duration::from_millis(request.delay_ms);
-        let _ = self.timer_tx.send((wake_at, module_name, reducer_name));
-
-        ScheduleResponse::Ok
+        // Released when the transaction commits (DESIGN §4.4).
+        CALL_STACK.with(|s| match s.borrow_mut().first_mut() {
+            Some(root) if root.kind == CallFrameKind::Reducer => {
+                root.outbox.push(OutboxEntry::Schedule {
+                    module_name,
+                    reducer_name: request.reducer_name,
+                    delay_ms: request.delay_ms,
+                });
+                ScheduleResponse::Ok
+            }
+            _ => ScheduleResponse::Err("Only reducers may schedule".into()),
+        })
     }
 }

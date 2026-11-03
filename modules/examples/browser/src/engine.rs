@@ -655,9 +655,11 @@ impl<'a> Browser<'a> {
                 let mut realm = Js::new(doc_id, t0, self.db.web_storage(&origin_of(&url)));
                 realm.host().live = first;
                 c.doc.resolve(now);
-                let t = crate::now_ms();
+                // Time is per transaction (DESIGN §6.5): the node log's
+                // timestamps show how long the boot took.
+                crate::log(&format!("js: booting doc {doc_id}"));
                 realm.boot(&mut c.doc);
-                crate::log(&format!("js: boot doc {doc_id} in {:.0} ms", crate::now_ms() - t));
+                crate::log(&format!("js: booted doc {doc_id}"));
                 realm.host().live = false;
                 if !first {
                     realm.host().storage_writes.clear();

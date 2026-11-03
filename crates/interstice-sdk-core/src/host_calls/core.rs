@@ -86,6 +86,8 @@ pub fn call_reducer(
     }
 }
 
+/// Run the zero-argument reducer `reducer_name` of this module `delay_ms`
+/// after the current transaction commits. Nothing is scheduled if it fails.
 pub fn schedule(reducer_name: String, delay_ms: u64) -> Result<(), String> {
     let call = HostCall::Schedule(ScheduleRequest {
         reducer_name,
@@ -121,11 +123,16 @@ pub fn call_query(
     }
 }
 
+/// The next value of the transaction's random stream: reproducible from the
+/// transaction's seed, shared with the queries it calls.
 pub fn deterministic_random_u64() -> Result<u64, String> {
     let v = unsafe { crate::host_calls::interstice_random() };
     Ok(v as u64)
 }
 
+/// The transaction's timestamp (unix ms): the same value for every call in
+/// one transaction, and never lower than an earlier transaction's on this
+/// node. Time does not advance while a reducer runs.
 pub fn time_now_ms() -> Result<u64, String> {
     let v = unsafe { crate::host_calls::interstice_time() };
     Ok(v as u64)

@@ -88,7 +88,7 @@ fn log(msg: &str) {
     interstice_sdk::host_calls::log(msg);
 }
 
-/// Wall-clock milliseconds.
+/// The transaction's timestamp in ms (constant within one reducer run).
 pub fn now_ms() -> f64 {
     interstice_sdk::host_calls::time_now_ms().unwrap_or(0) as f64
 }

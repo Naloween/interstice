@@ -236,10 +236,13 @@ update passes the old row and the new row.
 `ctx.schedule("reducer_name", delay_ms)` runs a **zero-argument** reducer of the
 same module after a delay.
 
-**Status:**
-- Schedules are registered immediately, not at commit, so a reducer that
-  schedules and then traps still fires the schedule.
-- Schedules are not persisted.
+Schedules go into the transaction's outbox (§6.6) and are released when it
+commits; the delay counts from the commit. A reducer that schedules and then
+fails schedules nothing, so a self-rescheduling loop stops at its first
+failed run. Only reducers may schedule; a query that tries gets
+an error.
+
+**Status:** schedules are not persisted.
 
 ### 4.5 Frames
 
@@ -369,12 +372,59 @@ The rows marked *closed* are closed by the isolation and ordering design (§6.6)
 
 ### 6.5 Determinism
 
-`ctx.deterministic_random_u64()` uses SplitMix64, seeded by
-`(caller_node_id, module, function, kind, call_sequence)`.
+**Transaction inputs.** A reducer transaction gets a `Tx` when it starts
+executing on its worker (`call_reducer`):
 
-**Status:** `call_sequence` is a global counter taken at execution time, so with
-parallel workers the seeds are not reproducible across runs. Time is wall-clock
-time. Interstice is not currently a deterministic-replay system.
+| Field | Value |
+|---|---|
+| `id` | node-wide counter |
+| `timestamp_ms` | wall-clock ms, clamped so it never decreases on this node |
+| `seed` | hash of (node id, module, reducer, `id`) |
+
+Every call in the transaction sees the same `Tx`:
+- `ctx.time_now_ms()` returns `timestamp_ms` for the whole transaction,
+  including the queries it calls. Time does not advance inside a reducer.
+- `ctx.deterministic_random_u64()` draws from one SplitMix64 stream seeded
+  with `seed`. The stream lives on the root frame, so a query's draws advance
+  the reducer's stream in call order.
+- An outermost query (from the host, a remote node, or the app) is its own
+  read-only transaction with its own `Tx`.
+
+**The claim.** A reducer transaction is a deterministic function of:
+- the module's code;
+- the state of the tables it reads (rows *and* their order: scans return rows
+  in storage order, which is a function of the op history);
+- its arguments, caller identity and `state_epoch`;
+- its `Tx`;
+- its *external results*: the responses of authority host calls (GPU, audio,
+  file, network, module manager) and remote queries, in call order.
+
+Its outputs are its table writes and its outbox: local calls, remote packets
+and schedules (§4.4), all released at commit.
+
+Why reads are reproducible:
+- No conflicting commit can land while it runs (§6.6), and queries pin
+  their snapshot.
+- Conflicting transactions start in commit order, because the scheduler
+  admits a job only after every conflicting earlier job has committed. So
+  along any one table's history `Tx` ids and timestamps are increasing and
+  non-decreasing respectively, and commit order is a valid serial order.
+
+Not covered by the claim:
+- Instance memory. The engine cannot enforce that module memory is only a
+  cache of table state (§11.1); a module that keeps authoritative state in
+  memory is outside the claim.
+- Guest-side nondeterminism, such as iterating a guest `HashMap` with a
+  random hasher.
+
+**Consequences for modules:**
+- Measuring elapsed time *inside* one reducer gives 0. Measure across
+  transactions (store a start timestamp) or read the log timestamps instead.
+- A reducer that busy-waits on the clock never finishes. Use
+  `ctx.schedule`.
+
+**Status:** `Tx` is not yet recorded anywhere, so a run can't be replayed
+yet (§11.4).
 
 ### 6.6 Isolation and ordering
 
@@ -819,14 +869,34 @@ Nested transactions were rejected:
 - Cross-module atomicity of *writes* is rarely needed. When it is, the callee
   can do the dependent work in its own transaction, triggered by the call.
 
-### 11.4 Determinism and replay
+### 11.4 Replay and time travel
 
-The engine could make execution reproducible by:
-- deriving random seeds from a per-transaction id assigned at admission;
-- providing time as a per-transaction timestamp.
+The building block is in place: transactions are deterministic given their
+inputs (§6.5). What remains is in two steps.
 
-That would allow replay, auditing, and logged-table reconstruction by
-re-running reducers.
+**Record and replay.** A recorded module keeps a transaction log. Each entry
+holds:
+- the commit sequence;
+- the `Tx`;
+- the reducer, its arguments and caller;
+- its external results, in call order;
+- foreign writes it observed (replica changes) as their own entries.
+
+Replaying re-executes the entries in commit order from a snapshot. During
+replay, authority and remote calls return the recorded results and perform
+nothing, and the outbox is compared rather than released. This enables
+auditing, debugging (re-run with fixed code) and state rebuilds.
+
+Open points:
+- Recording is opt-in per module, because arguments can be megabytes (blobs).
+- A baseline snapshot must keep row order. Stateful tables restore in
+  directory order today.
+
+**Time travel** (README roadmap): modules opt selected tables into a
+*timeline*, keeping their commit-tagged history. A host call rewinds those
+tables to an earlier commit or timestamp. The next commit then starts a new
+*branch* and the old future stays reachable. Different travel kinds decide
+what is kept (state only, or inputs for re-simulation through replay).
 
 ### 11.5 Schema evolution
 
@@ -941,8 +1011,11 @@ but explicitly out of scope for now.
       stays app-compacted on purpose: it is a replay log, and dropping its
       oldest rows would change the replayed document, so compaction folds
       it into a snapshot event instead.
-- [ ] **Determinism** (§11.4): per-transaction seeds and timestamps, enabling
-      replay and auditing.
+- [x] **Determinism** (§6.5): a per-transaction `Tx` (id, timestamp, seed)
+      shared by every call in the transaction; schedules go through the
+      outbox.
+- [ ] **Record and replay** (§11.4): an opt-in transaction log with external
+      results; replay from a snapshot.
 - [ ] **Time travel**: timelines/branches of selected tables (README
       roadmap), building on determinism.
 - [ ] **Iterator-based scans** and cheaper index access (no full `Vec`

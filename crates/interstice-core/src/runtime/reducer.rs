@@ -1,3 +1,4 @@
+use crate::runtime::deterministic_random::Tx;
 use crate::{
     error::IntersticeError,
     runtime::transaction::Transaction,
@@ -93,6 +94,12 @@ pub enum OutboxEntry {
         node_id: crate::node::NodeId,
         packet: NetworkPacket,
     },
+    /// A zero-argument reducer of `module_name`, `delay_ms` after commit.
+    Schedule {
+        module_name: String,
+        reducer_name: String,
+        delay_ms: u64,
+    },
 }
 
 /// A change to a remote table that local modules replicate.
@@ -153,7 +160,8 @@ pub struct CallFrame {
     /// Read-your-writes view of `transactions`, per table of `module`.
     pub overlays: HashMap<String, TableOverlay>,
     pub auto_inc_snapshots: HashMap<String, TableAutoIncSnapshot>,
-    pub rng_state: u64,
+    /// The transaction inputs. Host calls read the root frame's (§6.5).
+    pub tx: Tx,
     pub table_access: ReducerTableAccess,
     /// Blobs of this call (shared with the caller for query frames).
     pub scope: Arc<BlobScope>,
@@ -170,7 +178,7 @@ impl CallFrame {
         reducer: String,
         module_arc: Arc<Module>,
         kind: CallFrameKind,
-        rng_state: u64,
+        tx: Tx,
         table_access: ReducerTableAccess,
         scope: Arc<BlobScope>,
     ) -> Self {
@@ -182,7 +190,7 @@ impl CallFrame {
             transactions: Vec::new(),
             overlays: HashMap::new(),
             auto_inc_snapshots: HashMap::new(),
-            rng_state,
+            tx,
             table_access,
             scope,
             outbox: Vec::new(),
@@ -298,16 +306,7 @@ impl Runtime {
             "reducers only run at top level"
         );
         let table_access = ReducerTableAccess::from_schema(reducer_schema);
-        let call_sequence = self
-            .call_sequence
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let rng_seed = crate::runtime::deterministic_random::seed_from_call(
-            &caller_node_id,
-            module_name,
-            reducer_name,
-            CallFrameKind::Reducer,
-            call_sequence,
-        );
+        let tx = self.begin_tx(module_name, reducer_name, CallFrameKind::Reducer);
         let scope = BlobScope::new(parent_scope);
 
         CALL_STACK.with(|s| {
@@ -316,7 +315,7 @@ impl Runtime {
                 reducer_name.into(),
                 module.clone(),
                 CallFrameKind::Reducer,
-                rng_seed,
+                tx,
                 table_access,
                 scope,
             ));
@@ -336,10 +335,14 @@ impl Runtime {
         // ── Commit, then release the outbox in commit order ──────────────────
         let mut locals = Vec::new();
         let mut remotes = Vec::new();
+        let mut schedules = Vec::new();
         for entry in frame.outbox {
             match entry {
                 OutboxEntry::Local(call) => locals.push(call),
                 OutboxEntry::Remote { node_id, packet } => remotes.push((node_id, packet)),
+                OutboxEntry::Schedule { module_name, reducer_name, delay_ms } => {
+                    schedules.push((module_name, reducer_name, delay_ms))
+                }
             }
         }
         let calls = (!locals.is_empty()).then(|| {
@@ -359,7 +362,20 @@ impl Runtime {
         for (node_id, packet) in remotes {
             self.network_handle.send_packet(node_id, packet);
         }
+        for (module_name, reducer_name, delay_ms) in schedules {
+            let wake_at = std::time::Instant::now() + std::time::Duration::from_millis(delay_ms);
+            let _ = self.timer_tx.send((wake_at, module_name, reducer_name));
+        }
         Ok(())
+    }
+
+    /// Fix the inputs of a new transaction (DESIGN §6.5).
+    pub(crate) fn begin_tx(&self, module_name: &str, entry_name: &str, kind: CallFrameKind) -> Tx {
+        use crate::runtime::deterministic_random::{monotonic_ms, seed_from_call, wall_clock_ms};
+        let id = self.tx_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let timestamp_ms = monotonic_ms(&self.last_tx_ms, wall_clock_ms());
+        let rng_state = seed_from_call(&self.network_handle.node_id, module_name, entry_name, kind, id);
+        Tx { id, timestamp_ms, rng_state }
     }
 
     /// Push `event` into the event channel with a fork of the active

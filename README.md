@@ -390,7 +390,9 @@ fn my_callback(ctx: ReducerContext) {
 }
 ```
 
-The `ctx.schedule(reducer_name, delay_ms)` host call adds an entry to the runtime's schedule queue. When the delay elapses, the runtime invokes the named reducer with no arguments.
+The `ctx.schedule(reducer_name, delay_ms)` host call queues the schedule in the current transaction. When the transaction commits, the schedule is released, and after the delay the runtime invokes the named reducer with no arguments. If the transaction fails, nothing is scheduled.
+
+Time and randomness are per transaction: `ctx.time_now_ms()` returns the same timestamp for the whole reducer run, including the queries it calls. That timestamp never decreases across transactions on a node. `ctx.deterministic_random_u64()` draws from a stream seeded by the transaction. A reducer is therefore reproducible from its inputs (DESIGN.md §6.5).
 
 Rules:
 

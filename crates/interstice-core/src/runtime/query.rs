@@ -56,16 +56,11 @@ impl Runtime {
         }
 
         // Push frame onto current thread's stack (no lock needed — TLS).
-        let call_sequence = self
-            .call_sequence
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let rng_seed = crate::runtime::deterministic_random::seed_from_call(
-            &caller_node_id,
-            module_name,
-            query_name,
-            CallFrameKind::Query,
-            call_sequence,
-        );
+        // A nested query belongs to the caller's transaction; an outermost
+        // query is a read-only transaction of its own (DESIGN §6.5).
+        let tx = CALL_STACK
+            .with(|s| s.borrow().first().map(|f| f.tx))
+            .unwrap_or_else(|| self.begin_tx(module_name, query_name, CallFrameKind::Query));
 
         // Share the caller's scope: blobs this query returns stay alive for
         // it. An outermost query gets a fresh scope.
@@ -77,7 +72,7 @@ impl Runtime {
                 query_name.into(),
                 module.clone(),
                 CallFrameKind::Query,
-                rng_seed,
+                tx,
                 table_access,
                 scope,
             ));

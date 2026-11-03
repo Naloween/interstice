@@ -9,9 +9,10 @@ impl Runtime {
         _request: DeterministicRandomRequest,
     ) -> DeterministicRandomResponse {
         CALL_STACK.with(|s| {
-            match s.borrow_mut().last_mut() {
+            // One stream per transaction, on the root frame (DESIGN §6.5).
+            match s.borrow_mut().first_mut() {
                 Some(frame) => {
-                    let value = next_u64(&mut frame.rng_state);
+                    let value = next_u64(&mut frame.tx.rng_state);
                     DeterministicRandomResponse::Ok(value)
                 }
                 None => DeterministicRandomResponse::Err(
