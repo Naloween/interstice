@@ -88,6 +88,13 @@ pub struct Tab {
   - `public`: other modules and other nodes may read the table, subscribe to it and replicate it.
   - `private` (the default): only the owning module may use it.
 - **Persistence.** `logged` (the default), `stateful` or `ephemeral`. See §3.2.
+- **Event tables.** `event = N` (bare `event`: 256) makes an ephemeral table
+  that keeps only its `N` newest rows (`TableSchema.retention`). Subscribers
+  get every row in the insert event; after each commit `Table::enforce_retention`
+  evicts the oldest rows past `N`, in insertion order, without delete events.
+  Eviction runs after the whole batch, so a reducer that inserts then updates
+  an event row never sees it vanish mid-commit. `network`'s result tables are
+  event tables.
 
 ### 3.2 Persistence modes
 
@@ -447,8 +454,6 @@ it is not a default module.
 **Status:**
 - **Authority leak on failed load.** Authorities are registered before the
   other load checks run and are not released if a later check fails.
-- **Network result tables use the default `logged` persistence**, so inbound
-  traffic is persisted. They should be `ephemeral`.
 - **`module_manager` drops requests.** Its `module_load` and `module_remove`
   hooks are no-ops, so remote load and remove requests are silently dropped
   while it is loaded.
@@ -761,10 +766,11 @@ but explicitly out of scope for now.
 - [ ] **Consistent snapshot per call** (§6.3): reads in one call can observe
       commits of non-conflicting jobs between them.
 - [ ] **Event order = commit order** under parallelism (§6.3).
-- [ ] **First-class event tables**: notification tables with a declared
-      retention window, instead of each module trimming by hand (`network`'s
-      `emit!`), and a retention policy for logs such as the browser's
-      `DocEvent` (compaction into a snapshot row).
+- [x] **First-class event tables**: `#[table(event = N)]` (§3.1), replacing
+      `network`'s hand-written `emit!` trimming. The browser's `DocEvent`
+      stays app-compacted on purpose: it is a replay log, and dropping its
+      oldest rows would change the replayed document, so compaction folds
+      it into a snapshot event instead.
 - [ ] **Determinism** (§11.4): per-transaction seeds and timestamps, enabling
       replay and auditing.
 - [ ] **Time travel**: timelines/branches of selected tables (README

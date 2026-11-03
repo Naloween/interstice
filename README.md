@@ -150,6 +150,9 @@ struct AssetStore { /* ... */ }
 
 #[table(ephemeral)]
 struct DerivedCache { /* ... */ }
+
+#[table(public, event = 256)]   // bare `event` keeps 256
+struct Notification { /* ... */ }
 ```
 
 | Mode                 | Disk space                                  | Restart behavior                   | Best for                                                                             |
@@ -161,6 +164,7 @@ struct DerivedCache { /* ... */ }
 - **Logged** — every mutation is appended to a write-ahead log (fsynced every ~10 ms in a background thread). Periodic snapshots compact the log. On restart the runtime replays the log from the last snapshot to reconstruct state exactly.
 - **Stateful** — each row lives in its own file (`<pk>.row`) inside a dedicated directory. Insert and update atomically replace the row file; delete removes it; clear removes all files. Disk usage equals exactly the sum of current row sizes — no history accumulates. On restart the runtime reads every row file to reconstruct the table.
 - **Ephemeral** — never written to disk. The table starts empty when the node starts. Ideal for caches or derived state you can recompute.
+- **Event** (`event = N`) — an ephemeral notification table that keeps only its `N` most recently inserted rows. Subscribers get each row in the insert event; after every commit the engine evicts the oldest rows beyond `N` (evictions don't fire delete events). Use it for results, messages and logs that nobody needs to keep forever.
 
 Only one persistence keyword may be used per table. If you omit the keyword you get the default logged behavior.
 

@@ -13,6 +13,11 @@ pub struct TableSchema {
     pub primary_key_auto_inc: bool,
     pub indexes: Vec<IndexSchema>,
     pub persistence: PersistenceKind,
+    /// Event tables (`#[table(event = N)]`): keep only the `N` most recently
+    /// inserted rows; older ones are evicted by the engine after each commit,
+    /// without delete events. Always ephemeral.
+    #[serde(default)]
+    pub retention: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]

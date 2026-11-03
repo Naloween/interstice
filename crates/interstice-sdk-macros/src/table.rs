@@ -4,6 +4,9 @@ use syn::Meta;
 
 use crate::index_key::validate_index_key_type;
 
+/// Rows kept by a bare `#[table(event)]`.
+const DEFAULT_EVENT_RETENTION: u64 = 256;
+
 pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemStruct);
     let struct_ident = &input.ident;
@@ -45,31 +48,68 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let mut visibility = quote! { interstice_sdk::TableVisibility::Private };
     let mut persistence = quote! { interstice_sdk::PersistenceKind::Logged };
+    let mut explicit_persistence = false;
+    let mut retention: Option<u64> = None;
 
     for arg in args.iter() {
-        if let Meta::Path(nv) = arg {
-            if nv.is_ident("public") {
+        match arg {
+            Meta::Path(nv) if nv.is_ident("public") => {
                 visibility = quote! { interstice_sdk::TableVisibility::Public };
-                continue;
-            } else if nv.is_ident("private") {
-                visibility = quote! { interstice_sdk::TableVisibility::Private };
-                continue;
-            } else if nv.is_ident("ephemeral") {
-                persistence = quote! { interstice_sdk::PersistenceKind::Ephemeral };
-                continue;
-            } else if nv.is_ident("stateful") {
-                persistence = quote! { interstice_sdk::PersistenceKind::Stateful };
-                continue;
-            } else if nv.is_ident("logged") {
-                persistence = quote! { interstice_sdk::PersistenceKind::Logged };
-                continue;
-            } else {
-                return quote! { compile_error!("Invalid table attribute. Expected 'public', 'private', 'ephemeral', or 'stateful'") } .into();
             }
-        } else {
-            return quote! { compile_error!("Invalid table attribute syntax") }.into();
+            Meta::Path(nv) if nv.is_ident("private") => {
+                visibility = quote! { interstice_sdk::TableVisibility::Private };
+            }
+            Meta::Path(nv) if nv.is_ident("ephemeral") => {
+                persistence = quote! { interstice_sdk::PersistenceKind::Ephemeral };
+                explicit_persistence = true;
+            }
+            Meta::Path(nv) if nv.is_ident("stateful") => {
+                persistence = quote! { interstice_sdk::PersistenceKind::Stateful };
+                explicit_persistence = true;
+            }
+            Meta::Path(nv) if nv.is_ident("logged") => {
+                persistence = quote! { interstice_sdk::PersistenceKind::Logged };
+                explicit_persistence = true;
+            }
+            // `event`: an ephemeral notification table keeping its newest rows.
+            Meta::Path(nv) if nv.is_ident("event") => {
+                retention = Some(DEFAULT_EVENT_RETENTION);
+            }
+            Meta::NameValue(nv) if nv.path.is_ident("event") => {
+                let n = match &nv.value {
+                    syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(i), .. }) => i.base10_parse::<u64>(),
+                    other => Err(syn::Error::new_spanned(other, "expected an integer: `event = 256`")),
+                };
+                match n {
+                    Ok(n) if n > 0 => retention = Some(n),
+                    Ok(_) => {
+                        return syn::Error::new_spanned(&nv.value, "event tables must keep at least one row")
+                            .into_compile_error()
+                            .into();
+                    }
+                    Err(e) => return e.into_compile_error().into(),
+                }
+            }
+            other => {
+                return syn::Error::new_spanned(
+                    other,
+                    "invalid table attribute: expected `public`, `private`, `ephemeral`, `stateful`, `logged`, `event` or `event = N`",
+                )
+                .into_compile_error()
+                .into();
+            }
         }
     }
+    if retention.is_some() {
+        if explicit_persistence {
+            return quote! { compile_error!("`event` tables are always ephemeral; drop the persistence attribute"); }.into();
+        }
+        persistence = quote! { interstice_sdk::PersistenceKind::Ephemeral };
+    }
+    let retention = match retention {
+        Some(n) => quote! { Some(#n) },
+        None => quote! { None },
+    };
 
     // Generate the entries and primary key
     let fields = match &input.fields {
@@ -574,6 +614,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 primary_key_auto_inc: #pk_auto_inc,
                 indexes: vec![#(#index_schemas),*],
                 persistence: #persistence,
+                retention: #retention,
             }
         }
         #[interstice_sdk::init]

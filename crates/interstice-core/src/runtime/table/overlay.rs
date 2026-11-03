@@ -327,7 +327,55 @@ mod tests {
                 IndexSchema { field_name: "rank".into(), index_type: IndexType::BTree, unique: false, auto_inc: false },
             ],
             persistence: PersistenceKind::Ephemeral,
+            retention: None,
         })
+    }
+
+    fn event_table(keep: u64) -> Table {
+        let mut t = table();
+        t.schema.retention = Some(keep);
+        Table::new(t.schema)
+    }
+
+    fn sorted(mut v: Vec<u64>) -> Vec<u64> {
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn event_table_keeps_newest_rows() {
+        let mut t = event_table(3);
+        for i in 1..=5 {
+            t.insert(row(i, &format!("r{i}"), i)).unwrap();
+        }
+        // Eviction only happens when the commit is done.
+        assert_eq!(t.scan().len(), 5);
+        assert_eq!(t.enforce_retention(), 2);
+        assert_eq!(sorted(ids(t.scan())), vec![3, 4, 5]);
+        // Evicted rows are gone from the indexes too.
+        assert!(t.get_by_primary_key(&pk(1)).is_none());
+        assert!(t.get_by_index("name", &IndexQuery::Eq(IndexKey::String("r2".into()))).unwrap().is_empty());
+        // The unique index slot of an evicted row is free again.
+        t.insert(row(6, "r1", 6)).unwrap();
+        t.enforce_retention();
+        assert_eq!(sorted(ids(t.scan())), vec![4, 5, 6]);
+    }
+
+    #[test]
+    fn event_table_eviction_skips_deleted_rows() {
+        let mut t = event_table(2);
+        t.insert(row(1, "a", 1)).unwrap();
+        t.insert(row(2, "b", 2)).unwrap();
+        t.delete(&pk(1)).unwrap();
+        // Re-inserting a deleted key makes it the newest, not the oldest.
+        t.insert(row(1, "a", 1)).unwrap();
+        t.insert(row(3, "c", 3)).unwrap();
+        t.enforce_retention();
+        assert_eq!(sorted(ids(t.scan())), vec![1, 3]);
+        t.clear();
+        t.insert(row(4, "d", 4)).unwrap();
+        assert_eq!(t.enforce_retention(), 0);
+        assert_eq!(ids(t.scan()), vec![4]);
     }
 
     fn row(id: u64, name: &str, rank: u64) -> Row {

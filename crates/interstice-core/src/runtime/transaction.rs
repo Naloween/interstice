@@ -280,6 +280,11 @@ impl Runtime {
                     }
                 }
             }
+
+            // Event tables: evict beyond their retention bound.
+            for table in tables.values_mut() {
+                table.enforce_retention();
+            }
         } // tables lock released here
 
         // Execute any deferred logged snapshots outside the tables lock.
@@ -354,6 +359,7 @@ impl Runtime {
                 } else {
                     table.insert(new_row.clone())?;
                 }
+                table.enforce_retention();
 
                 if has_subscriptions {
                     events.push(EventInstance::TableInsertEvent {

@@ -9,6 +9,7 @@ pub(crate) use auto_inc::{AutoIncCounter, TableAutoIncSnapshot};
 use crate::IntersticeError;
 use index::*;
 use interstice_abi::{IndexKey, IndexQuery, Row, TableSchema};
+use std::collections::VecDeque;
 use wgpu::naga::FastHashMap;
 
 pub struct Table {
@@ -20,6 +21,9 @@ pub struct Table {
     primary_key_auto_inc_counter: Option<AutoIncCounter>,
     /// Bumped by every mutation; lets a commit detect concurrent writers.
     version: u64,
+    /// Event tables: the retention bound and live primary keys, oldest first.
+    retention: Option<usize>,
+    insertion_order: VecDeque<IndexKey>,
 }
 
 impl Table {
@@ -51,8 +55,11 @@ impl Table {
             None
         };
 
+        let retention = schema.retention.map(|n| n as usize);
         Self {
             schema,
+            retention,
+            insertion_order: VecDeque::new(),
             rows: Vec::new(),
             primary_key_index: FastHashMap::default(),
             indexes,
@@ -88,6 +95,9 @@ impl Table {
             table_index.insert(index, key, &self.schema.name)?;
         }
 
+        if self.retention.is_some() {
+            self.insertion_order.push_back(primary_key_value.clone());
+        }
         self.primary_key_index.insert(primary_key_value, index);
         self.rows.push(row);
         Ok(())
@@ -108,6 +118,9 @@ impl Table {
             table_index.insert(index, key, &self.schema.name)?;
         }
 
+        if self.retention.is_some() {
+            self.insertion_order.push_back(primary_key_value.clone());
+        }
         self.primary_key_index.insert(primary_key_value, index);
         self.rows.push(row);
         Ok(())
@@ -135,6 +148,11 @@ impl Table {
         if let Some(&index) = self.primary_key_index.get(primary_key_value) {
             let deleted_row = self.rows.swap_remove(index);
             self.primary_key_index.remove(primary_key_value);
+            if self.retention.is_some() {
+                if let Some(pos) = self.insertion_order.iter().position(|k| k == primary_key_value) {
+                    self.insertion_order.remove(pos);
+                }
+            }
 
             for table_index in &mut self.indexes {
                 let deleted_key = table_index.key_from_row(&deleted_row)?;
@@ -171,6 +189,7 @@ impl Table {
         // a fresh Arc::new(0), those old snapshots would issue IDs that collide
         // with new inserts once the new counter reaches the same values.
         self.rows.clear();
+        self.insertion_order.clear();
         self.primary_key_index.clear();
         for index in &mut self.indexes {
             match &mut index.index {
@@ -178,6 +197,24 @@ impl Table {
                 crate::runtime::table::auto_inc::IndexImpl::BTree(m) => m.clear(),
             }
         }
+    }
+
+    /// Event tables: evict the oldest rows beyond the retention bound. Run
+    /// after a whole commit is applied, so a batch that inserts then updates
+    /// an event row never sees it vanish mid-commit. Evictions are not
+    /// events. Returns how many rows were evicted.
+    pub fn enforce_retention(&mut self) -> usize {
+        let Some(keep) = self.retention else { return 0 };
+        let mut evicted = 0;
+        while self.insertion_order.len() > keep {
+            let oldest = self.insertion_order.front().cloned().unwrap();
+            // `delete` drops `oldest` from `insertion_order`.
+            if self.delete(&oldest).is_err() {
+                self.insertion_order.pop_front();
+            }
+            evicted += 1;
+        }
+        evicted
     }
 
     pub fn get_by_primary_key(&self, primary_key_value: &IndexKey) -> Option<&Row> {
