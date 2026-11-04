@@ -1,0 +1,15 @@
+[package]
+name = "notes"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+interstice-sdk = "0.5.0"
+interstice-ui = "0.5.0"
+
+[build-dependencies]
+interstice-sdk = "0.5.0"

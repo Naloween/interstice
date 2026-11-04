@@ -228,7 +228,18 @@ where
     }
 
     // Primary button
-    ui::create_element(&ctx, button_element(BUTTON_BG));
+    ui::create_element(&ctx, button_element(BUTTON_BG, 0));
+}
+
+/// Click counter and the left button's state last frame (for click edges).
+/// In a table, not in memory, so a recording of this app replays exactly.
+#[table(ephemeral)]
+pub struct ButtonState {
+    #[primary_key]
+    id: u32,
+    clicks: u32,
+    was_down: bool,
+    hovered: bool,
 }
 
 #[reducer(on = "graphics.frametick.update")]
@@ -237,27 +248,37 @@ where
     Caps: CanRead<ui::UiElement>
         + CanUpdate<ui::UiElement>
         + CanRead<ui::InputFocus>
-        + CanRead<MouseState>,
+        + CanAll<ui::UiPointer>
+        + CanAll<ButtonState>,
 {
-    let (mx, my) = ctx
-        .input()
-        .tables
-        .mousestate()
-        .get(0)?
-        .map(|m| m.position)
-        .unwrap_or((0.0, 0.0));
+    // The pointer as routed to us: surface-local inside a desktop window.
+    let view = ctx.input().queries.input_view()?;
+    let hovered = view.pointer_inside && ui::element_at(&ctx, view.position).as_deref() == Some(BUTTON_ID);
 
-    // Resolve button bounds from UI tables — not trivially available without a
-    // query, so we use a fixed estimate based on card position for hover check.
-    let hovered = is_over_button(mx, my);
-    let bg = if hovered { BUTTON_HOVER_BG } else { BUTTON_BG };
-    ui::update_element(&ctx, button_element(bg));
+    let t = ctx.current.tables.buttonstate();
+    let prev = t.get(0)?;
+    let mut state = prev.clone().unwrap_or(ButtonState { id: 0, clicks: 0, was_down: false, hovered: false });
+    if view.left && !state.was_down && hovered {
+        state.clicks += 1;
+    }
+    state.was_down = view.left;
+    let redraw = prev.is_none() || state.hovered != hovered || prev.as_ref().map(|p| p.clicks) != Some(state.clicks);
+    state.hovered = hovered;
+    if redraw {
+        let bg = if hovered { BUTTON_HOVER_BG } else { BUTTON_BG };
+        ui::update_element(&ctx, button_element(bg, state.clicks));
+    }
+    match prev {
+        None => t.insert(state).map(|_| ())?,
+        Some(p) if p.was_down != state.was_down || redraw => t.update(state)?,
+        Some(_) => {}
+    }
 
     // Lay out + draw our UI tree into our own layer/surface.
     ui::render(&ctx)
 }
 
-fn button_element(bg: (f32, f32, f32, f32)) -> UiElement {
+fn button_element(bg: (f32, f32, f32, f32), clicks: u32) -> UiElement {
     UiElement {
         id: BUTTON_ID.into(),
         parent: Some("card".into()),
@@ -272,7 +293,7 @@ fn button_element(bg: (f32, f32, f32, f32)) -> UiElement {
         corner_radius: 8.0,
         border_width: 0.0,
         border_color: (0.0, 0.0, 0.0, 0.0),
-        text: Some("Click me".into()),
+        text: Some(if clicks == 0 { "Click me".into() } else { format!("Clicked {clicks}×") }),
         text_size: 14.0,
         text_color: (1.0, 1.0, 1.0, 1.0),
         text_wrap: TextWrap::Words,
@@ -286,11 +307,4 @@ fn button_element(bg: (f32, f32, f32, f32)) -> UiElement {
         visible: true,
         ..Default::default()
     }
-}
-
-// Placeholder: approximate button region.
-// TODO: replace with a bounds query once the UI engine exposes one.
-fn is_over_button(mx: f32, my: f32) -> bool {
-    let _ = (mx, my);
-    false
 }

@@ -2,6 +2,9 @@ use interstice_sdk::{key_code::KeyCode, *};
 
 interstice_module!(visibility: Private, authorities: [Input]);
 
+mod routing;
+pub use routing::*;
+
 /// State of each physical key (`code` = `KeyCode` discriminant), plus what the
 /// keyboard layout made of its latest transition:
 /// - `key`: W3C `KeyboardEvent.key` value (`"a"`, `"é"`, `"Enter"`, `"Shift"`),
@@ -153,7 +156,10 @@ where
         + CanUpdate<KeyState>
         + CanRead<TextInputBuffer>
         + CanUpdate<TextInputBuffer>
-        + CanRead<KeyboardLayout>,
+        + CanRead<KeyboardLayout>
+        + CanRead<InputRouter>
+        + CanRead<InputRoute>
+        + CanAll<PointerGrab>,
 {
     match event {
         InputEvent::Added { .. } => {}
@@ -197,6 +203,7 @@ where
             button_id, state, ..
         } => {
             let pressed = matches!(state, ElementState::Pressed);
+            routing::update_grab(&ctx, button_id, pressed)?;
             let row = MouseButton { button_id, pressed };
             if ctx.current.tables.mousebutton().get(button_id)?.is_some() {
                 let _ = ctx.current.tables.mousebutton().update(row);

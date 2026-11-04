@@ -246,6 +246,25 @@ impl Runtime {
         runtime: Arc<Self>,
         module: Module,
     ) -> Result<ModuleSchema, IntersticeError> {
+        // A load that fails part-way (bad dependency, unreachable node, ...)
+        // must not keep the authorities it claimed, or the next attempt would
+        // be refused with "authority already taken".
+        let mut claimed = Vec::new();
+        let result = Self::load_module_inner(runtime.clone(), module, &mut claimed).await;
+        if result.is_err() {
+            let mut authorities = runtime.authority_modules.lock();
+            for authority in claimed {
+                authorities.remove(&authority);
+            }
+        }
+        result
+    }
+
+    async fn load_module_inner(
+        runtime: Arc<Self>,
+        module: Module,
+        claimed: &mut Vec<Authority>,
+    ) -> Result<ModuleSchema, IntersticeError> {
         let module_schema = module.schema.clone();
 
         // Decide first-load vs reload from persistent state, independently of how
@@ -336,6 +355,7 @@ impl Runtime {
                     .lock()
                     
                     .insert(authority.clone(), entry);
+                claimed.push(authority.clone());
             }
         }
 
@@ -385,7 +405,13 @@ impl Runtime {
             let network = &mut runtime.network_handle.clone();
             network
                 .connect_to_peer(node_dependency.address.clone())
-                .await;
+                .await
+                .map_err(|e| {
+                    IntersticeError::Internal(format!(
+                        "'{}' depends on node '{}', which is unreachable: {e}",
+                        module_schema.name, node_dependency.name
+                    ))
+                })?;
 
             if let Ok(node_id) = network.get_node_id_from_adress(&node_dependency.address) {
                 runtime

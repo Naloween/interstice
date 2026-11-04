@@ -317,13 +317,21 @@ impl Runtime {
                                     &job.caller_module_name,
                                     None,
                                 ) {
+                                    // The target module is not loaded: a call to a
+                                    // wrong name, or a job queued (e.g. an event)
+                                    // for a module unloaded before it ran. Either
+                                    // way the job is dropped; it is not a failure
+                                    // of the module.
+                                    let (what, level) = match err {
+                                        IntersticeError::ModuleNotFound(..) => {
+                                            ("Reducer job dropped (module not loaded)", LogLevel::Warning)
+                                        }
+                                        _ => ("Reducer execution failed", LogLevel::Error),
+                                    };
                                     rt.logger.log(
-                                        &format!(
-                                            "Reducer execution failed for '{}.{}': {}",
-                                            job.module_name, job.reducer_name, err
-                                        ),
+                                        &format!("{what} for '{}.{}': {}", job.module_name, job.reducer_name, err),
                                         LogSource::Runtime,
-                                        LogLevel::Error,
+                                        level,
                                     );
                                 }
                             }

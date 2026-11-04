@@ -18,7 +18,7 @@ Repository layout
 - The WASM ABI and types: [crates/interstice-abi](crates/interstice-abi)
 - The Rust SDK and macros: [crates/interstice-sdk\*](crates/interstice-sdk)
 - The CLI: [crates/interstice-cli](crates/interstice-cli)
-- Example modules: [modules/hello](modules/hello), [modules/caller](modules/caller), [modules/graphics](modules/graphics), [modules/audio](modules/audio), [modules/examples/benchmark-workload](modules/examples/benchmark-workload)
+- Example modules: [modules/examples/desktop](modules/examples/desktop) (the showcase), [modules/examples/notes](modules/examples/notes), [modules/hello](modules/hello), [modules/caller](modules/caller), [modules/graphics](modules/graphics), [modules/audio](modules/audio), [modules/examples/benchmark-workload](modules/examples/benchmark-workload)
 
 ---
 
@@ -62,6 +62,14 @@ If `interstice` is not found, ensure the destination folder is on your PATH.
 ---
 
 # Quickstart
+
+The full showcase is the desktop: a window manager written as an ordinary
+module, which launches the other examples as apps (see below):
+
+```bash
+interstice example agar-server   # optional, in another terminal: lets the agar app connect
+interstice example desktop
+```
 
 Start the hello example:
 
@@ -434,6 +442,13 @@ You can omit the target argument if the .cargo/config.toml is already well confi
   - Requests `Input` and `Gpu` authorities and renders a triangle; implements `init`, `render`, and `input` hooks.
 - `modules/audio`
   - Requests `Audio` authority and plays a tone while logging input buffers.
+- `modules/examples/desktop` — **the showcase** (DESIGN.md §12.2)
+  - A desktop OS made of modules. It holds no authority: it is the compositor of `graphics` (each app renders into its own surface, composited into a window), the input router of `input` (pointer and keyboard focus per window, surface-local coordinates), and a client of `module_manager` (apps are registered wasm blobs, loaded and unloaded at runtime).
+  - Click **Apps** for the launcher. Windows: `ui-example`, `notes`, `browser-example`, `agar-client` (needs `interstice example agar-server`). Services (toggled, no window): `hello-example`, `http-get-example`, `audio-example`. Opening `notes` loads `hello-example` first, and a service can't be stopped while an app needs it.
+  - A window's ● button records its app; a second click replays the recording on a detached copy and shows whether it reproduced the live state. A failed load (e.g. agar without its server) closes its window with the reason.
+  - Scriptable: `interstice call_reducer desktop-example desktop-example open notes`.
+- `modules/examples/notes`
+  - A UI over `hello`'s time-travelling `Notes` table: add and erase notes, undo, redo, and click any commit to rewind to it (the future is kept as a branch). Runs standalone with `interstice example notes` or as a desktop app.
 - `modules/examples/benchmark-workload`
   - Benchmark-oriented reducers/queries for noop, insert/update/delete/mix workloads across ephemeral/stateful/logged tables, event fanout, and scheduler pressure.
 
@@ -488,8 +503,8 @@ There is no manual way to load a module onto an already running node. See the CL
 
 ## Example command
 
-- `interstice example <hello|caller|graphics|audio|agar-server|agar-client|ui|desktop|benchmark-workload|http-get|browser>`
-- Built-in ports are fixed by example name: `hello=8080`, `caller=8081`, `graphics=8082`, `audio=8083`, `agar-server=8086`, `agar-client=8084`, `ui=8088`, `desktop=8089`, `benchmark-workload=8087`, `http-get=8090`, `browser=8091`.
+- `interstice example <hello|caller|graphics|audio|agar-server|agar-client|ui|desktop|notes|benchmark-workload|http-get|browser>`
+- Built-in ports are fixed by example name: `hello=8080`, `caller=8081`, `graphics=8082`, `audio=8083`, `agar-server=8086`, `agar-client=8084`, `ui=8088`, `desktop=8089`, `benchmark-workload=8087`, `http-get=8090`, `browser=8091`, `notes=8092`.
 - `http-get` demonstrates the **shared network broker**: instead of holding the `Network` authority itself, it asks the default `network` module to `http_get("example.com", "/")`. The broker resolves DNS, opens the TCP socket, sends the request and assembles the response, then returns it as a row in its public `HttpResponse` table (see [modules/examples/http-get](modules/examples/http-get) and [modules/defaults/network](modules/defaults/network)).
 - `browser` is the flagship app tying the whole model together: it fetches pages over the shared `network` broker, parses static HTML with `tl`, translates the DOM into a `UiElement` tree (via the reusable [`interstice-ui`](crates/interstice-ui) engine) and renders through the graphics ABI. Click links to navigate, type a URL and press Enter to go there, scroll with the wheel; `<img>` tags are really fetched and decoded (PNG/JPEG) into textures. Scope is static HTML only — no JavaScript or CSS engine; styling is a small built-in user-agent stylesheet plus inline `style="color:…"` (see [modules/examples/browser](modules/examples/browser)). Starts pointed at `http://info.cern.ch/`.
 - Running the same example command multiple times recreates the example node (removes existing data and registry entry, then creates the node afresh with the example modules).
@@ -637,8 +652,8 @@ The detailed, design-level TODO list (engine semantics, storage, security, SDK, 
 ## Modules
 
 - Make buttons and click events works on ui
-- Desktop module
-- ModuleManager
+- Desktop module — done: window manager, launcher, services, record/replay and time travel from the UI (DESIGN.md §12.2)
+- ModuleManager — app registry, async loads with load reports, record/replay; open: routed remote load/remove requests
 - Pages (documents etc.. Replace file system)
 - Better Graphics
 - Better Inputs (Keyboards)

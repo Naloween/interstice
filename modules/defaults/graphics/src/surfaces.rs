@@ -64,7 +64,8 @@ pub fn claim_compositor<Caps>(ctx: ReducerContext<Caps>) -> Result<(), String>
 where
     Caps: CanRead<Compositor> + CanInsert<Compositor>,
 {
-    let caller = ctx.caller_node_id.clone();
+    // Keyed on the module name: co-located modules share a node id (§7.1).
+    let caller = ctx.caller_module_name.clone();
     match ctx.current.tables.compositor().get(COMPOSITOR_KEY)? {
         Some(row) if row.module_name == caller => {
             ctx.log(&format!("Compositor already claimed by '{}'", caller));
@@ -105,7 +106,7 @@ where
         + CanRead<SurfaceTarget>
         + CanInsert<SurfaceTarget>,
 {
-    if !is_compositor(&ctx, &ctx.caller_node_id)? {
+    if !is_compositor(&ctx, &ctx.caller_module_name)? {
         ctx.log("create_surface refused: caller is not the compositor");
         return Ok(());
     }
@@ -159,7 +160,7 @@ where
         + CanRead<SurfaceTarget>
         + CanUpdate<SurfaceTarget>,
 {
-    if !is_compositor(&ctx, &ctx.caller_node_id)? {
+    if !is_compositor(&ctx, &ctx.caller_module_name)? {
         ctx.log("resize_surface refused: caller is not the compositor");
         return Ok(());
     }
@@ -201,7 +202,7 @@ where
         + CanUpdate<SurfaceAssignment>
         + CanDelete<SurfaceAssignment>,
 {
-    if !is_compositor(&ctx, &ctx.caller_node_id)? {
+    if !is_compositor(&ctx, &ctx.caller_module_name)? {
         ctx.log("destroy_surface refused: caller is not the compositor");
         return Ok(());
     }
@@ -245,7 +246,7 @@ where
         + CanRead<SurfaceTarget>
         + CanAll<SurfaceAssignment>,
 {
-    if !is_compositor(&ctx, &ctx.caller_node_id)? {
+    if !is_compositor(&ctx, &ctx.caller_module_name)? {
         ctx.log("assign_module_surface refused: caller is not the compositor");
         return Ok(());
     }

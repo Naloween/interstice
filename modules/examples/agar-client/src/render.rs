@@ -59,12 +59,11 @@ where
     Caps: CanRead<ClientState>
         + CanUpdate<ClientState>
         + CanRead<KeyState>
-        + CanRead<MouseState>
         + CanRead<Player>
         + CanRead<Food>
         + CanRead<DeadPlayer>
-        + CanRead<SurfaceInfo>
         + CanAll<UiElement>
+        + CanAll<ui::UiPointer>
         + CanRead<ui::InputFocus>
         + CanInsert<ui::InputFocus>
         + CanUpdate<ui::InputFocus>,
@@ -73,7 +72,8 @@ where
         return Ok(());
     };
     let g = ctx.graphics();
-    let surface = g.tables.surfaceinfo().get(0)?;
+    // Our own surface: the swapchain standalone, a window inside a desktop.
+    let surface = g.queries.surface_info().ok();
     let (sw, sh) = match surface {
         Some(s) if s.width > 0 && s.height > 0 => (s.width as f32, s.height as f32),
         _ => return Ok(()),

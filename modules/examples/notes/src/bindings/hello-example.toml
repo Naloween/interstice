@@ -1,0 +1,296 @@
+abi_version = 11
+name = "hello-example"
+visibility = "Public"
+subscriptions = []
+authorities = []
+module_dependencies = []
+node_dependencies = []
+replicated_tables = []
+
+[version]
+major = 0
+minor = 0
+patch = 1
+
+[[reducers]]
+name = "note"
+deletes = []
+
+[[reducers.arguments]]
+name = "id"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "text"
+field_type = "String"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "notes"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "notes"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "notes"
+
+[[reducers]]
+name = "redo"
+arguments = []
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "notes"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "notes"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "notes"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "notes"
+
+[[reducers]]
+name = "undo"
+arguments = []
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "notes"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "notes"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "notes"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "notes"
+
+[[reducers]]
+name = "erase"
+reads = []
+inserts = []
+updates = []
+
+[[reducers.arguments]]
+name = "id"
+field_type = "String"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "notes"
+
+[[reducers]]
+name = "hello"
+reads = []
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "name"
+field_type = "String"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "greetings"
+
+[[reducers]]
+name = "rewind"
+
+[[reducers.arguments]]
+name = "commit"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "truncate"
+field_type = "String"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "notes"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "notes"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "notes"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "notes"
+
+[[reducers]]
+name = "scheduled"
+arguments = []
+reads = []
+inserts = []
+updates = []
+deletes = []
+
+[[reducers]]
+name = "show_notes"
+arguments = []
+inserts = []
+updates = []
+deletes = []
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "notes"
+
+[[queries]]
+name = "note_history"
+arguments = []
+
+[queries.return_type]
+Named = "NoteHistory"
+
+[[queries.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "notes"
+
+[[queries]]
+name = "get_greetings"
+arguments = []
+
+[queries.return_type.Vec]
+Named = "Greetings"
+
+[[queries.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "greetings"
+
+[[tables]]
+name = "notes"
+type_name = "Notes"
+visibility = "Public"
+primary_key_auto_inc = false
+indexes = []
+persistence = "Logged"
+timeline = 64
+
+[[tables.fields]]
+name = "text"
+field_type = "String"
+
+[tables.primary_key]
+name = "id"
+field_type = "U64"
+
+[[tables]]
+name = "greetings"
+type_name = "Greetings"
+visibility = "Public"
+primary_key_auto_inc = true
+persistence = "Logged"
+
+[[tables.fields]]
+name = "greeting"
+field_type = "String"
+
+[[tables.fields]]
+name = "custom"
+
+[tables.fields.field_type]
+Named = "TestCustomType"
+
+[tables.primary_key]
+name = "id"
+field_type = "U64"
+
+[[tables.indexes]]
+field_name = "greeting"
+index_type = "BTree"
+unique = true
+auto_inc = false
+
+[type_definitions.Notes.Struct]
+name = "Notes"
+
+[[type_definitions.Notes.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.Notes.Struct.fields]]
+name = "text"
+field_type = "String"
+
+[type_definitions.TestCustomType.Struct]
+name = "TestCustomType"
+
+[[type_definitions.TestCustomType.Struct.fields]]
+name = "val"
+field_type = "U32"
+
+[type_definitions.NoteCommit.Struct]
+name = "NoteCommit"
+
+[[type_definitions.NoteCommit.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.NoteCommit.Struct.fields]]
+name = "parent"
+field_type = "U64"
+
+[type_definitions.Greetings.Struct]
+name = "Greetings"
+
+[[type_definitions.Greetings.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.Greetings.Struct.fields]]
+name = "greeting"
+field_type = "String"
+
+[[type_definitions.Greetings.Struct.fields]]
+name = "custom"
+
+[type_definitions.Greetings.Struct.fields.field_type]
+Named = "TestCustomType"
+
+[type_definitions.NoteHistory.Struct]
+name = "NoteHistory"
+
+[[type_definitions.NoteHistory.Struct.fields]]
+name = "head"
+field_type = "U64"
+
+[[type_definitions.NoteHistory.Struct.fields]]
+name = "commits"
+
+[type_definitions.NoteHistory.Struct.fields.field_type.Vec]
+Named = "NoteCommit"

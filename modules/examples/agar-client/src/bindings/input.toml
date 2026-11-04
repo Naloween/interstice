@@ -1,7 +1,6 @@
-abi_version = 8
+abi_version = 11
 name = "input"
 visibility = "Private"
-queries = []
 subscriptions = []
 authorities = ["Input"]
 module_dependencies = []
@@ -12,6 +11,132 @@ replicated_tables = []
 major = 0
 minor = 1
 patch = 0
+
+[[reducers]]
+name = "set_input_route"
+deletes = []
+
+[[reducers.arguments]]
+name = "module_name"
+field_type = "String"
+
+[[reducers.arguments]]
+name = "x"
+field_type = "F32"
+
+[[reducers.arguments]]
+name = "y"
+field_type = "F32"
+
+[[reducers.arguments]]
+name = "w"
+field_type = "F32"
+
+[[reducers.arguments]]
+name = "h"
+field_type = "F32"
+
+[[reducers.arguments]]
+name = "z"
+field_type = "I32"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "inputrouter"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "inputroute"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "inputroute"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "inputroute"
+
+[[reducers]]
+name = "claim_input_router"
+arguments = []
+updates = []
+deletes = []
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "inputrouter"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "inputrouter"
+
+[[reducers]]
+name = "remove_input_route"
+inserts = []
+updates = []
+
+[[reducers.arguments]]
+name = "module_name"
+field_type = "String"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "inputrouter"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "inputroute"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "inputroute"
+
+[[reducers]]
+name = "set_keyboard_focus"
+inserts = []
+deletes = []
+
+[[reducers.arguments]]
+name = "module_name"
+field_type = "String"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "inputrouter"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "inputrouter"
+
+[[reducers]]
+name = "set_pointer_capture"
+inserts = []
+deletes = []
+
+[[reducers.arguments]]
+name = "capture"
+field_type = "Bool"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "inputrouter"
+
+[[reducers.updates]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "inputrouter"
 
 [[reducers]]
 name = "set_keyboard_layout"
@@ -35,6 +160,38 @@ table_name = "keyboardlayout"
 node_selection = "Current"
 module_selection = "Current"
 table_name = "keyboardlayout"
+
+[[queries]]
+name = "input_view"
+arguments = []
+
+[queries.return_type]
+Named = "InputView"
+
+[[queries.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "inputrouter"
+
+[[queries.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "inputroute"
+
+[[queries.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "pointergrab"
+
+[[queries.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "mousestate"
+
+[[queries.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "mousebutton"
 
 [[tables]]
 name = "keystate"
@@ -132,6 +289,28 @@ field_type = "String"
 name = "id"
 field_type = "U32"
 
+[type_definitions.MouseButton.Struct]
+name = "MouseButton"
+
+[[type_definitions.MouseButton.Struct.fields]]
+name = "button_id"
+field_type = "U32"
+
+[[type_definitions.MouseButton.Struct.fields]]
+name = "pressed"
+field_type = "Bool"
+
+[type_definitions.KeyboardLayout.Struct]
+name = "KeyboardLayout"
+
+[[type_definitions.KeyboardLayout.Struct.fields]]
+name = "id"
+field_type = "U32"
+
+[[type_definitions.KeyboardLayout.Struct.fields]]
+name = "name"
+field_type = "String"
+
 [type_definitions.KeyState.Struct]
 name = "KeyState"
 
@@ -151,27 +330,40 @@ field_type = "String"
 name = "text"
 field_type = "String"
 
-[type_definitions.MouseButton.Struct]
-name = "MouseButton"
+[type_definitions.InputView.Struct]
+name = "InputView"
 
-[[type_definitions.MouseButton.Struct.fields]]
-name = "button_id"
-field_type = "U32"
+[[type_definitions.InputView.Struct.fields]]
+name = "position"
 
-[[type_definitions.MouseButton.Struct.fields]]
-name = "pressed"
+[type_definitions.InputView.Struct.fields.field_type]
+Tuple = ["F32", "F32"]
+
+[[type_definitions.InputView.Struct.fields]]
+name = "wheel_delta"
+
+[type_definitions.InputView.Struct.fields.field_type]
+Tuple = ["F32", "F32"]
+
+[[type_definitions.InputView.Struct.fields]]
+name = "left"
 field_type = "Bool"
 
-[type_definitions.TextInputBuffer.Struct]
-name = "TextInputBuffer"
+[[type_definitions.InputView.Struct.fields]]
+name = "right"
+field_type = "Bool"
 
-[[type_definitions.TextInputBuffer.Struct.fields]]
-name = "id"
-field_type = "U32"
+[[type_definitions.InputView.Struct.fields]]
+name = "middle"
+field_type = "Bool"
 
-[[type_definitions.TextInputBuffer.Struct.fields]]
-name = "character"
-field_type = "String"
+[[type_definitions.InputView.Struct.fields]]
+name = "pointer_inside"
+field_type = "Bool"
+
+[[type_definitions.InputView.Struct.fields]]
+name = "keyboard_focus"
+field_type = "Bool"
 
 [type_definitions.MouseState.Struct]
 name = "MouseState"
@@ -192,13 +384,13 @@ name = "wheel_delta"
 [type_definitions.MouseState.Struct.fields.field_type]
 Tuple = ["F32", "F32"]
 
-[type_definitions.KeyboardLayout.Struct]
-name = "KeyboardLayout"
+[type_definitions.TextInputBuffer.Struct]
+name = "TextInputBuffer"
 
-[[type_definitions.KeyboardLayout.Struct.fields]]
+[[type_definitions.TextInputBuffer.Struct.fields]]
 name = "id"
 field_type = "U32"
 
-[[type_definitions.KeyboardLayout.Struct.fields]]
-name = "name"
+[[type_definitions.TextInputBuffer.Struct.fields]]
+name = "character"
 field_type = "String"

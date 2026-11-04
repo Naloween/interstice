@@ -3,7 +3,7 @@ use interstice_sdk::{key_code::KeyCode, *};
 
 pub fn handle_ingame_input<Caps>(ctx: &ReducerContext<Caps>, sw: f32, sh: f32) -> Result<(), String>
 where
-    Caps: CanRead<KeyState> + CanRead<MouseState>,
+    Caps: CanRead<KeyState>,
 {
     let (dx, dy) = steering_dir(ctx, sw, sh)?;
     let server = ctx.agar_server_example().agar_server();
@@ -13,16 +13,17 @@ where
 
 fn steering_dir<Caps>(ctx: &ReducerContext<Caps>, sw: f32, sh: f32) -> Result<(f32, f32), String>
 where
-    Caps: CanRead<KeyState> + CanRead<MouseState>,
+    Caps: CanRead<KeyState>,
 {
-    // Mouse direction: from accumulated position relative to screen center.
-    let mouse = ctx.input().tables.mousestate().get(0)?;
-    let (mx, my) = mouse.map(|m| m.position).unwrap_or((0.0, 0.0));
+    // Mouse direction: from the pointer (surface-local inside a desktop
+    // window, DESIGN §12.2) relative to the centre of our surface.
+    let view = ctx.input().queries.input_view()?;
+    let (mx, my) = view.position;
     let mut dx = mx - sw * 0.5;
     let mut dy = my - sh * 0.5;
 
-    // Keyboard overlay (additive).
-    let keys = ctx.input().tables.keystate().scan()?;
+    // Keyboard overlay (additive), only while we have the keyboard.
+    let keys = if view.keyboard_focus { ctx.input().tables.keystate().scan()? } else { Vec::new() };
     let pressed = |code: u32| keys.iter().any(|k| k.code == code && k.pressed);
     if pressed(KeyCode::KeyA as u32) || pressed(KeyCode::ArrowLeft as u32) {
         dx -= sw * 0.5;

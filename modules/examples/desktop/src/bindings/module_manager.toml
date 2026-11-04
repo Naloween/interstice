@@ -1,7 +1,6 @@
-abi_version = 6
+abi_version = 11
 name = "module_manager"
 visibility = "Public"
-tables = []
 subscriptions = []
 authorities = ["Module"]
 module_dependencies = []
@@ -15,17 +14,14 @@ patch = 0
 
 [[reducers]]
 name = "load"
-deletes = []
 
 [[reducers.arguments]]
 name = "name"
 field_type = "String"
 
 [[reducers.arguments]]
-name = "wasm_binary"
-
-[reducers.arguments.field_type]
-Vec = "U8"
+name = "wasm"
+field_type = "Blob"
 
 [[reducers.arguments]]
 name = "icon"
@@ -38,7 +34,22 @@ node_selection = "Current"
 module_selection = "Current"
 table_name = "app"
 
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "appbinary"
+
 [[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "app"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "appbinary"
+
+[[reducers.updates]]
 node_selection = "Current"
 module_selection = "Current"
 table_name = "app"
@@ -46,7 +57,32 @@ table_name = "app"
 [[reducers.updates]]
 node_selection = "Current"
 module_selection = "Current"
+table_name = "appbinary"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
 table_name = "app"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "appbinary"
+
+[[reducers]]
+name = "replay"
+reads = []
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "module"
+field_type = "String"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "replayreport"
 
 [[reducers]]
 name = "load_app"
@@ -61,6 +97,11 @@ field_type = "String"
 node_selection = "Current"
 module_selection = "Current"
 table_name = "app"
+
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "appbinary"
 
 [[reducers.updates]]
 node_selection = "Current"
@@ -81,10 +122,20 @@ node_selection = "Current"
 module_selection = "Current"
 table_name = "app"
 
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "appbinary"
+
 [[reducers.deletes]]
 node_selection = "Current"
 module_selection = "Current"
 table_name = "app"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "appbinary"
 
 [[reducers]]
 name = "unload_app"
@@ -106,18 +157,37 @@ module_selection = "Current"
 table_name = "app"
 
 [[reducers]]
-name = "register_app"
+name = "record_stop"
+reads = []
+inserts = []
+updates = []
 deletes = []
+
+[[reducers.arguments]]
+name = "module"
+field_type = "String"
+
+[[reducers]]
+name = "record_start"
+reads = []
+inserts = []
+updates = []
+deletes = []
+
+[[reducers.arguments]]
+name = "module"
+field_type = "String"
+
+[[reducers]]
+name = "register_app"
 
 [[reducers.arguments]]
 name = "name"
 field_type = "String"
 
 [[reducers.arguments]]
-name = "wasm_binary"
-
-[reducers.arguments.field_type]
-Vec = "U8"
+name = "wasm"
+field_type = "Blob"
 
 [[reducers.arguments]]
 name = "icon"
@@ -130,7 +200,22 @@ node_selection = "Current"
 module_selection = "Current"
 table_name = "app"
 
+[[reducers.reads]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "appbinary"
+
 [[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "app"
+
+[[reducers.inserts]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "appbinary"
+
+[[reducers.updates]]
 node_selection = "Current"
 module_selection = "Current"
 table_name = "app"
@@ -138,7 +223,17 @@ table_name = "app"
 [[reducers.updates]]
 node_selection = "Current"
 module_selection = "Current"
+table_name = "appbinary"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
 table_name = "app"
+
+[[reducers.deletes]]
+node_selection = "Current"
+module_selection = "Current"
+table_name = "appbinary"
 
 [[queries]]
 name = "list_apps"
@@ -151,6 +246,56 @@ Named = "AppInfo"
 node_selection = "Current"
 module_selection = "Current"
 table_name = "app"
+
+[[tables]]
+name = "loadreport"
+type_name = "LoadReport"
+visibility = "Public"
+primary_key_auto_inc = true
+indexes = []
+persistence = "Ephemeral"
+retention = 32
+
+[[tables.fields]]
+name = "module"
+field_type = "String"
+
+[[tables.fields]]
+name = "ok"
+field_type = "Bool"
+
+[[tables.fields]]
+name = "message"
+field_type = "String"
+
+[tables.primary_key]
+name = "seq"
+field_type = "U64"
+
+[[tables]]
+name = "replayreport"
+type_name = "ReplayReport"
+visibility = "Public"
+primary_key_auto_inc = true
+indexes = []
+persistence = "Ephemeral"
+retention = 32
+
+[[tables.fields]]
+name = "module"
+field_type = "String"
+
+[[tables.fields]]
+name = "ok"
+field_type = "Bool"
+
+[[tables.fields]]
+name = "message"
+field_type = "String"
+
+[tables.primary_key]
+name = "seq"
+field_type = "U64"
 
 [type_definitions.AppInfo.Struct]
 name = "AppInfo"
@@ -172,3 +317,41 @@ Vec = "U8"
 [[type_definitions.AppInfo.Struct.fields]]
 name = "loaded"
 field_type = "Bool"
+
+[type_definitions.ReplayReport.Struct]
+name = "ReplayReport"
+
+[[type_definitions.ReplayReport.Struct.fields]]
+name = "seq"
+field_type = "U64"
+
+[[type_definitions.ReplayReport.Struct.fields]]
+name = "module"
+field_type = "String"
+
+[[type_definitions.ReplayReport.Struct.fields]]
+name = "ok"
+field_type = "Bool"
+
+[[type_definitions.ReplayReport.Struct.fields]]
+name = "message"
+field_type = "String"
+
+[type_definitions.LoadReport.Struct]
+name = "LoadReport"
+
+[[type_definitions.LoadReport.Struct.fields]]
+name = "seq"
+field_type = "U64"
+
+[[type_definitions.LoadReport.Struct.fields]]
+name = "module"
+field_type = "String"
+
+[[type_definitions.LoadReport.Struct.fields]]
+name = "ok"
+field_type = "Bool"
+
+[[type_definitions.LoadReport.Struct.fields]]
+name = "message"
+field_type = "String"

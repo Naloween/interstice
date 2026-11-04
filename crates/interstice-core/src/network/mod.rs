@@ -64,14 +64,17 @@ pub struct NetworkHandle {
 }
 
 impl NetworkHandle {
-    pub async fn connect_to_peer(&mut self, node_address: String) {
+    /// Connect and handshake with the node at `node_address`. An unreachable
+    /// node is an error (a module that depends on it can't load); a failed
+    /// handshake is logged.
+    pub async fn connect_to_peer(&mut self, node_address: String) -> Result<(), IntersticeError> {
         if self.address == node_address {
             self.logger.log(
                 "Cannot connect to self, skipping",
                 LogSource::Network,
                 LogLevel::Warning,
             );
-            return;
+            return Ok(());
         }
         let mut cloned_peers = self.peers.clone();
         let packet_sender = self.packet_sender.clone();
@@ -79,8 +82,7 @@ impl NetworkHandle {
         let my_node_id = self.node_id.clone();
         let mut stream = TcpStream::connect(&node_address)
             .await
-            .map_err(|_| IntersticeError::Internal("Failed to connect to node".into()))
-            .unwrap();
+            .map_err(|e| IntersticeError::Internal(format!("Failed to connect to node at {node_address}: {e}")))?;
 
         let local_token = { self.peer_tokens.lock().local_token() };
 
@@ -93,8 +95,7 @@ impl NetworkHandle {
                 token: local_token,
             },
         )
-        .await
-        .unwrap();
+        .await?;
 
         if let Err(e) = handshake_incoming(
             my_node_id,
@@ -116,6 +117,7 @@ impl NetworkHandle {
                 LogLevel::Error,
             );
         }
+        Ok(())
     }
 
     pub fn send_packet(&self, node_id: NodeId, packet: NetworkPacket) {

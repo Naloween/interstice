@@ -152,6 +152,10 @@ where
         + CanInsert<ui::InputFocus>
         + CanUpdate<ui::InputFocus>,
 {
+    // Keys are ours only while we have keyboard focus (DESIGN §12.2).
+    if !ctx.input().queries.input_view()?.keyboard_focus {
+        return Ok(());
+    }
     let key_states = ctx.input().tables.keystate().scan()?;
     let enter = key_states.iter().any(|k| {
         k.pressed && (k.code == KeyCode::Enter as u32 || k.code == KeyCode::NumpadEnter as u32)

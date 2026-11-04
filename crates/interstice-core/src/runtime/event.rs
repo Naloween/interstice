@@ -253,6 +253,9 @@ impl EventInstance {
                     true
                 }
                 (ModuleEvent::RemoveRequest { .. }, SubscriptionEventSchema::ModuleRemove) => true,
+                (ModuleEvent::LoadResult { .. }, SubscriptionEventSchema::ModuleLoadResult) => {
+                    true
+                }
                 _ => false,
             },
             EventInstance::NodeConnect { .. } => {
@@ -385,8 +388,16 @@ impl Runtime {
                     }
                 }
             }
-        } else if let EventInstance::Module(_) = event {
+        } else if let EventInstance::Module(module_event) = event {
+            // A load result goes to the module that asked for the load only.
+            let only = match module_event {
+                ModuleEvent::LoadResult { requester, .. } => Some(requester.as_str()),
+                _ => None,
+            };
             for module in self.modules.lock().values() {
+                if only.is_some_and(|name| name != module.schema.name) {
+                    continue;
+                }
                 for sub in &module.schema.subscriptions {
                     if event.has_schema(&sub.event) {
                         out.push(SubscriptionTarget::Local {

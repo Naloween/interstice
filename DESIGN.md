@@ -224,6 +224,7 @@ fn list_apps<Caps>(ctx: QueryContext<Caps>) -> Vec<App> where Caps: CanRead<App>
 | `input`, `render`, `audio_output`, `audio_input`, `network` | An authority event; delivered only to the module holding that authority |
 | `file:<path>` / `file_recursive:<path>` | A file watch fires (File authority) |
 | `module_load` / `module_remove` | A load or remove request (Module authority) |
+| `module_load_result` | A local `load` this module requested has finished; receives `ModuleEvent::LoadResult{module_name, ok, message}`. `module_name` is empty when the bytes could not be compiled |
 | `sync` (replica) | A replica's initial full sync has completed |
 
 The reducer's parameters follow from the event. Insert and delete pass the row;
@@ -878,8 +879,6 @@ Each authority is held by at most one module per node, claimed at load time.
 it is not a default module.
 
 **Status:**
-- **Authority leak on failed load.** Authorities are registered before the
-  other load checks run and are not released if a later check fails.
 - **`module_manager` drops requests.** Its `module_load` and `module_remove`
   hooks are no-ops, so remote load and remove requests are silently dropped
   while it is loaded.
@@ -914,6 +913,19 @@ it is not a default module.
    8. Restore tables (on reload)
    9. Set up file watches
    10. Emit `init` (first load only), then emit `load`
+
+   If any step fails, the authorities claimed in step 2 are released, so a
+   retry is not refused with "authority already taken". An unreachable node
+   dependency (step 5) is such a failure: the load returns an error naming
+   the node instead of panicking the worker.
+
+   A `load` host call (Module authority) compiles and loads in the background
+   and returns at once; the browser's 36 MB wasm takes about a minute to
+   compile in a debug build. When it finishes, the runtime sends
+   `ModuleEvent::LoadResult` to the requesting module's `module_load_result`
+   subscription, and to no other module. Like every event, it enters the
+   requester as an input, so its recording and replay see it (§6.7). Remote
+   loads (`NodeSelection::Other`) get no result event yet.
 3. **Unload.** Tear down subscriptions and replicas, release authorities and set
    `loaded = false`. The data is kept.
 4. **Remove.** Unload, then delete the module directory.
@@ -1101,7 +1113,9 @@ additive changes.
 
 ---
 
-## 12. Example: designing a module the Interstice way (browser)
+## 12. Examples: designing modules the Interstice way
+
+### 12.1 The browser
 
 `modules/examples/browser` is built exactly this way (`src/model.rs`):
 
@@ -1174,6 +1188,146 @@ arrival order; there is no back/forward cache (history traversal reloads);
 DOM nodes detached by scripts are only freed with their document (no GC
 bridge); the network module cannot reach IP literals or non-standard
 ports.
+
+### 12.2 The desktop: an OS made of modules
+
+`modules/examples/desktop` is the showcase that ties the other examples
+together. Nothing in it is special-cased by the engine: the desktop is an
+ordinary module that holds no authority. It gets its powers by being the
+**compositor** of `graphics`, the **input router** of `input`, and a client
+of `module_manager`.
+
+| Piece | Owner | What it shows |
+|---|---|---|
+| Surfaces, `draw_surface` | `graphics` (compositor claim) | each app renders into its own offscreen surface; the desktop composites them into windows |
+| Input routing | `input` (router claim) | pointer and keyboard focus per app, in surface-local coordinates |
+| App registry | `module_manager` | apps are registered wasm blobs, loaded and unloaded at runtime |
+| Record / replay | `module_manager` → Module authority | a window's ● button records its app; a second click replays it on a detached copy and reports the outcome |
+| Time travel | `hello` + `notes` | undo, redo and branches of a `#[table(timeline)]` table, driven from a UI |
+
+**Apps.** The desktop bakes the example wasms (`include_bytes!`, since bytes
+can't travel through a CLI string argument) and registers each one with an icon.
+An app is a *window* or a *service*:
+- Windows: `ui-example` (the UI library), `notes` (time travel),
+  `browser-example` (Blitz + JS + the network broker), `agar-client`
+  (cross-node replication; needs `example agar-server` running).
+- Services have no window; their tile toggles load and unload. They are
+  `hello-example` (the backend of `notes`), `http-get-example` (the network
+  broker) and `audio-example` (the Audio authority: a 440 Hz tone).
+- An app can declare requirements: opening `notes` first loads
+  `hello-example`. A service cannot be stopped while a loaded app requires it.
+- Left out: `graphics-example` drives the GPU directly. On a composited node
+  the Gpu authority belongs to `graphics`, and one authority has one holder
+  per node. `caller-example` needs a second node, as agar does, and adds
+  nothing agar doesn't already show. `benchmark-workload` is not an app.
+
+**Compositor identity.** `claim_compositor` and the surface reducers key on
+`caller_module_name`. They used to key on `caller_node_id`, which every
+co-located module shares, so any module could manage surfaces.
+
+**Input routing (the `input` module).** Apps used to read the global
+`MouseState`, `MouseButton`, `KeyState` and `TextInputBuffer` tables. Inside a
+window that meant screen coordinates, so clicks landed at the wrong offset, and
+every app received every keystroke. Routing follows Wayland: the compositor
+says where each app is, and input tells each app what concerns it.
+- Tables (private to `input`):
+  - `InputRouter{id: 0, module_name, capture, keyboard}`: the router claim, a
+    pointer capture flag, and the keyboard-focus module (`""` for none).
+  - `InputRoute{module_name, x, y, w, h, z}`: an app's content rect in screen
+    pixels, plus its stacking order.
+  - `PointerGrab{id: 0, active, module}`: the implicit grab.
+- Reducers. `claim_input_router()` lets the first caller win; the others are
+  router-only:
+  - `set_input_route(module, x, y, w, h, z)` and `remove_input_route(module)`;
+  - `set_keyboard_focus(module)`;
+  - `set_pointer_capture(bool)`: the router owns the pointer, e.g. while the
+    launcher is open.
+- **Pointer owner:** the grabbed module while a grab is active. Otherwise no
+  app while captured; otherwise the highest-`z` route that contains the
+  pointer, else no app.
+- **Grab:** when a button goes down with none down before, `on_input` stores
+  the pointer owner. When the last button goes up, the grab is released. A drag
+  that starts in a window keeps going to that window even when the pointer
+  leaves it. A drag that starts on desktop chrome never reaches an app.
+- Query `input_view() -> InputView{position, wheel_delta, left, right,
+  middle, pointer_inside, keyboard_focus}`, resolved from `caller_module_name`:
+  - No router (every standalone example): global position, raw buttons, and
+    both flags true. This is exactly the old behaviour.
+  - The router itself: global position and raw buttons. `pointer_inside`
+    means no app owns the pointer; `keyboard_focus` means no app has the
+    keyboard.
+  - A routed app: its position relative to its route's origin;
+    `pointer_inside = (owner == caller)`; buttons are reported only while
+    inside; `keyboard_focus = (keyboard == caller)`.
+  - Any other module, while a router exists: global position, no buttons and
+    no focus. A module without a window gets no input, as in Wayland.
+  - `wheel_delta` stays the cumulative total. Consumers diff it every frame,
+    but act on the difference only while `pointer_inside`.
+- Apps read the view and ignore the raw tables. Key and button *events* are
+  still emitted to every subscriber, so event reducers check `input_view()`
+  before queueing. Routing is **cooperative** for now: the raw tables stay
+  public, much as `network` results are filtered by an `owner` column, until
+  row-level visibility exists (§13.3).
+- No regression in theory: without a router every app sees exactly what the
+  tables held. `input_view` is a query on tables that apps read before anyway,
+  so it runs under the same pinned snapshot (§6.6).
+
+**App registry (`module_manager`).** `App` rows used to hold the wasm bytes,
+so `list_apps`, which the launcher calls every frame, copied every binary (the
+browser alone is 36 MB).
+- The bytes now live in `AppBinary{id, bin}` beside
+  `App{id, name, icon, hash, loaded}`.
+- `register_app(name, wasm: Blob, icon)` takes a call-scoped Blob, and skips
+  rewriting the binary when its `hash` is unchanged.
+- Lookups by name use the unique index.
+- `load_app` sets `loaded` when it sends the request; the load itself is
+  asynchronous (§9). `module_manager` subscribes to `module_load_result`. On
+  a failure it clears `loaded` for that app, and on every result it inserts
+  a row into the public event table `LoadReport{seq, module, ok, message}`
+  (`event = 32`). A compile failure has no module name, so it is only
+  reported, and attributed to no app.
+- The desktop subscribes to `LoadReport` inserts. On a failure it closes the
+  app's window, as the close box would, and shows the message as a toast.
+  Example: `agar-client` opened while `example agar-server` isn't running
+  fails at "connect to node dependencies" with a clear error.
+- A reducer job queued for a module that has been unloaded meanwhile (for
+  example, frames already scheduled when a window closes) is dropped with a
+  warning, not logged as an error.
+
+**Replay reports.**
+- The Module call `Replay` now returns the report text
+  (`ModuleCallResponse::Report`, ABI 11), and the SDK's `replay` returns
+  `Result<String, String>`.
+- `module_manager.replay` no longer fails on a divergence. It inserts a row
+  into the public event table `ReplayReport{seq, module, ok, message}`
+  (`event = 32`) and returns `Ok`.
+- The desktop subscribes to the insert and shows the report as a toast in the
+  top bar.
+- Recording an app needs every input of the app to come through its boundary
+  (§6.7). So `ui_subsystem!` keeps its last-seen wheel total in a table
+  (`UiPointer`), not in a `static`. The static was instance memory, which a
+  replay starts without, so the first replayed frame used to scroll and
+  diverge.
+
+**Notes (time travel from a UI).** `modules/examples/notes` is a front-end
+with no table of its own beyond its UI. It binds to `hello-example` (a local
+module dependency):
+- It reads `Notes` through the binding and history through a new hello query
+  `note_history() -> NoteHistory{head, commits: [NoteCommit{id, parent}]}`.
+- It calls `note`, `erase`, `undo`, `redo` and `rewind(id, "branch")`.
+- Hello keeps the timeline. Undo and redo are travels of hello's table, and a
+  click on a commit chip travels to that commit, keeping the future as a
+  branch.
+- The UI is rebuilt only when a signature of the notes and history changes.
+  The signature is stored in a `NotesView` row.
+
+**Window manager state** is in desktop tables: `Window` (rect, focus order,
+surface, recording flag), `DesktopState` (launcher, focus, pointer capture,
+`pending_open`), `Interaction` (move/resize), `PrevMouse` (click edges) and
+`Toast`. The reducer `open(app)` sets `pending_open`, and the next frame opens
+the app exactly as a launcher click would; it is the scriptable entry point
+(`interstice call_reducer desktop-example desktop-example open notes`). The writeback updates only the rows
+that changed, and on a change it updates the window's input route.
 
 ---
 
@@ -1259,7 +1413,9 @@ but explicitly out of scope for now.
       URLs in the network module; missing web APIs that modern apps need
       (Speedtest by Ookla: `WebSocket` to `ws://…:8080`, `Worker`,
       `performance`, `crypto`, ES-module scripts).
-- [ ] **Desktop**: finish the surface-compositor plan (window manager as a
-      module, apps as modules).
+- [x] **Desktop**: the window manager is a module (§12.2): compositor,
+      input router, app launcher over `module_manager`, services with
+      requirements, record/replay from a window, time travel in `notes`,
+      load-failure reports.
 - [ ] Polish agar, ui, audio and graphics examples into short, readable
       showcases of one feature each.

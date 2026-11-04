@@ -20,7 +20,7 @@ pub use types::*;
 
 /// Emit a module-local UI subsystem into a `pub mod ui`.
 ///
-/// Generates: `UiElement` (public) + `InputFocus` (ephemeral) tables, element
+/// Generates: `UiElement` (public) + `InputFocus` and `UiPointer` (ephemeral) tables, element
 /// helpers (`install`, `create_element`, `update_element`, `delete_element`,
 /// `clear_elements`, `set_focus`, `clear_focus`), a `render` helper that draws
 /// into the module's own `"ui"` layer (sized from the module's OWN surface via
@@ -159,6 +159,17 @@ macro_rules! ui_subsystem {
                 #[primary_key]
                 pub id: u32,
                 pub focused_element: Option<String>,
+            }
+
+            /// Last cumulative wheel total seen by `render` (input reports a
+            /// running total; we act on the per-frame increment). A table, not a
+            /// `static`: instance memory is not part of a recording, so a replay
+            /// would start from zero and scroll on its first frame (§12.2).
+            #[table(ephemeral)]
+            pub struct UiPointer {
+                #[primary_key]
+                pub id: u32,
+                pub wheel: (f32, f32),
             }
 
             /// The single swapchain/surface-facing layer this module draws into.
@@ -513,7 +524,9 @@ macro_rules! ui_subsystem {
                 Caps: CanRead<UiElement>
                     + CanUpdate<UiElement>
                     + CanRead<InputFocus>
-                    + CanRead<MouseState>,
+                    + CanRead<UiPointer>
+                    + CanInsert<UiPointer>
+                    + CanUpdate<UiPointer>,
             {
                 // No surface yet (graphics not ready): nothing to draw.
                 let Ok(info) = ctx.graphics().queries.surface_info() else {
@@ -524,23 +537,28 @@ macro_rules! ui_subsystem {
                     return Ok(());
                 }
 
+                // Pointer as routed to this module (surface-local inside a
+                // desktop window, global otherwise; DESIGN §12.2).
+                let view = ctx.input().queries.input_view()?;
+
                 // Scroll: nudge the innermost scrollable under the cursor.
                 //
-                // `wheel_delta` from the input authority is a running *cumulative*
-                // total (it's never reset at the source), so we keep the last value
-                // we saw and act only on the per-frame increment — otherwise every
-                // frame would re-apply the whole history and the page would fly off.
-                // The wasm instance persists between frame calls, so a module-local
-                // static is the right place for this tiny bit of bookkeeping (no
-                // table / capability needed).
-                if let Some(mouse) = ctx.input().tables.mousestate().get(0)? {
-                    static mut PREV_WHEEL: (f32, f32) = (0.0, 0.0);
-                    let (cum_x, cum_y) = mouse.wheel_delta;
-                    let (prev_x, prev_y) = unsafe { PREV_WHEEL };
-                    unsafe { PREV_WHEEL = (cum_x, cum_y) };
+                // `wheel_delta` is a running *cumulative* total, so act only on
+                // the increment since the last frame, and only while the pointer
+                // is over this module.
+                {
+                    let (cum_x, cum_y) = view.wheel_delta;
+                    let prev = ctx.current.tables.uipointer().get(0)?;
+                    let (prev_x, prev_y) = prev.as_ref().map(|p| p.wheel).unwrap_or((cum_x, cum_y));
+                    let row = UiPointer { id: 0, wheel: (cum_x, cum_y) };
+                    match prev {
+                        None => ctx.current.tables.uipointer().insert(row).map(|_| ())?,
+                        Some(p) if p.wheel != row.wheel => ctx.current.tables.uipointer().update(row)?,
+                        Some(_) => {}
+                    }
                     let (wx, wy) = (cum_x - prev_x, cum_y - prev_y);
-                    if wx != 0.0 || wy != 0.0 {
-                        let cursor = mouse.position;
+                    if (wx != 0.0 || wy != 0.0) && view.pointer_inside {
+                        let cursor = view.position;
                         let all: Vec<interstice_ui::UiElement> = ctx
                             .current
                             .tables
@@ -604,8 +622,8 @@ macro_rules! ui_subsystem {
                 // desktop window), the compositor owns the global cursor — drawing
                 // our own would trap it inside the window.
                 if info.id == 0 {
-                    if let Some(mouse) = ctx.input().tables.mousestate().get(0)? {
-                        let (mx, my) = mouse.position;
+                    {
+                        let (mx, my) = view.position;
                         // Draw into the dedicated cursor layer so it stays above
                         // page images (which the renderer composites after the
                         // UI layer's immediate primitives — see UI_CURSOR_LAYER).
@@ -630,6 +648,10 @@ macro_rules! ui_subsystem {
             where
                 Caps: CanRead<InputFocus> + CanRead<UiElement> + CanUpdate<UiElement>,
             {
+                // Typed text is for the module with keyboard focus only.
+                if !ctx.input().queries.input_view()?.keyboard_focus {
+                    return Ok(());
+                }
                 let focused_id = ctx
                     .current
                     .tables

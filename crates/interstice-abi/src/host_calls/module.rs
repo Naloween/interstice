@@ -29,6 +29,8 @@ pub enum ModuleCall {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ModuleCallResponse {
     Ok,
+    /// Success with a report (`Replay`).
+    Report(String),
     Err(String),
 }
 
@@ -42,5 +44,13 @@ pub enum ModuleEvent {
     RemoveRequest {
         node_id: String,
         module_name: String,
+    },
+    /// Outcome of a local `Load` (DESIGN §9), sent only to `requester`.
+    /// `module_name` is empty when the bytes could not be compiled.
+    LoadResult {
+        requester: String,
+        module_name: String,
+        ok: bool,
+        message: String,
     },
 }

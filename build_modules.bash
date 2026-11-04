@@ -42,9 +42,10 @@ set -e
 
 # Build all example modules in release mode and copy to CLI module_examples folder
 
-# desktop-example bakes in hello_example.wasm via include_bytes!, so hello-example
-# must appear before it so the wasm exists in module_examples when desktop builds.
-MODULES=("audio-example" "caller-example" "graphics-example" "hello-example" "agar-server" "agar-client" "benchmark-workload" "http-get-example" "browser-example" "ui-example" "desktop-example")
+# desktop-example bakes in the app wasms via include_bytes!, so the apps it
+# bundles must be built AND copied before it: the loop below copies each wasm
+# right after building it.
+MODULES=("audio-example" "caller-example" "graphics-example" "hello-example" "agar-server" "agar-client" "benchmark-workload" "http-get-example" "browser-example" "ui-example" "notes" "desktop-example")
 # Respect CARGO_TARGET_DIR so WASM is copied from the same tree `cargo build` wrote to.
 : "${CARGO_TARGET_DIR:=target}"
 TARGET_DIR="${CARGO_TARGET_DIR}/wasm32-unknown-unknown/release"
@@ -52,9 +53,12 @@ DEST_DIR="crates/interstice-cli/module_examples"
 
 echo "Building example modules..."
 
+mkdir -p "$DEST_DIR"
 for module in "${MODULES[@]}"; do
     echo "Building $module..."
     cargo build -p "$module" --target wasm32-unknown-unknown --release
+    # Copy now: desktop-example, built last, bakes the others in.
+    cp "$TARGET_DIR/${module//-/_}.wasm" "$DEST_DIR/"
 done
 
 echo ""

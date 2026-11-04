@@ -3421,6 +3421,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "notes"
+version = "0.1.0"
+dependencies = [
+ "interstice-sdk",
+ "interstice-ui",
+]
+
+[[package]]
 name = "notify"
 version = "6.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

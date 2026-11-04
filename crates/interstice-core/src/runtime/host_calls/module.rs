@@ -21,33 +21,47 @@ impl Runtime {
             } => match node_selection {
                 NodeSelection::Current => {
                     // Spawn on the tokio runtime (not spawn_local — we're on a std::thread).
+                    // The outcome goes back to the requester as a
+                    // `module_load_result` event (DESIGN §9).
+                    let requester = caller_module_schema.name.clone();
                     self.tokio_handle.spawn(async move {
-                        match Module::from_bytes(runtime.clone(), &wasm_binary).await {
-                            Ok(module) => {
-                                if let Err(err) =
-                                    Runtime::load_module(runtime.clone(), module).await
-                                {
-                                    runtime.logger.log(
-                                        &format!(
-                                            "Local load failed while loading module: {}",
-                                            err
-                                        ),
-                                        crate::logger::LogSource::Runtime,
-                                        crate::logger::LogLevel::Error,
-                                    );
+                        let (module_name, result) =
+                            match Module::from_bytes(runtime.clone(), &wasm_binary).await {
+                                Ok(module) => {
+                                    let name = module.schema.name.clone();
+                                    let result = Runtime::load_module(runtime.clone(), module)
+                                        .await
+                                        .map(|_| ())
+                                        .map_err(|err| format!("Load of '{name}' failed: {err}"));
+                                    (name, result)
                                 }
-                            }
-                            Err(err) => {
-                                runtime.logger.log(
-                                    &format!(
-                                        "Local load failed while instantiating module bytes: {}",
-                                        err
-                                    ),
-                                    crate::logger::LogSource::Runtime,
-                                    crate::logger::LogLevel::Error,
-                                );
-                            }
+                                Err(err) => (
+                                    String::new(),
+                                    Err(format!("Load failed while compiling module bytes: {err}")),
+                                ),
+                            };
+                        if let Err(message) = &result {
+                            runtime.logger.log(
+                                message,
+                                crate::logger::LogSource::Runtime,
+                                crate::logger::LogLevel::Error,
+                            );
                         }
+                        let (ok, message) = match result {
+                            Ok(()) => (true, format!("'{module_name}' loaded")),
+                            Err(message) => (false, message),
+                        };
+                        let _ = runtime.event_sender.send((
+                            crate::runtime::event::EventInstance::Module(
+                                interstice_abi::ModuleEvent::LoadResult {
+                                    requester,
+                                    module_name,
+                                    ok,
+                                    message,
+                                },
+                            ),
+                            None,
+                        ));
                     });
                     ModuleCallResponse::Ok
                 }
@@ -206,7 +220,7 @@ impl Runtime {
             ModuleCall::Replay { module_name } => match runtime.replay_module(&module_name) {
                 Ok(report) => {
                     self.log_record_event(&format!("replay: {report}"), false);
-                    ModuleCallResponse::Ok
+                    ModuleCallResponse::Report(report)
                 }
                 Err(divergence) => {
                     let message = format!("replay of '{module_name}' diverged: {divergence}");

@@ -102,12 +102,11 @@ fn set_clock() -> f64 {
 // ── Table access ─────────────────────────────────────────────────────────────
 
 caps! {
-    /// Full access to every browser table (plus the pointer position), for the
+    /// Full access to every browser table, for the
     /// reducers that drive the engine. The small input reducers declare just
     /// what they touch, so the scheduler can run them alongside a frame.
     pub struct BrowserCaps {
         all: [Session, Tab, Ui, Document, DocEvent, PendingInput, Request, Resource, ResourceMeta, ScriptedInput, WebStorage],
-        read: [MouseState],
     }
 }
 
@@ -346,11 +345,26 @@ fn queue_key<Caps: CanInsert<PendingInput>>(
     let _ = ctx.current.tables.pendinginput().insert(PendingInput { seq: 0, kind, code, pressed, repeat, key, text });
 }
 
+// Input events reach every subscriber; with a desktop routing input
+// (DESIGN §12.2), presses are ours only while we have the keyboard / the
+// pointer. Releases always pass, so focus moving mid-press leaves no key stuck.
+
+fn has_keyboard<Caps>(ctx: &ReducerContext<Caps>) -> bool {
+    ctx.input().queries.input_view().map(|v| v.keyboard_focus).unwrap_or(true)
+}
+
+fn has_pointer<Caps>(ctx: &ReducerContext<Caps>) -> bool {
+    ctx.input().queries.input_view().map(|v| v.pointer_inside).unwrap_or(true)
+}
+
 #[reducer(on = "input.keystate.insert")]
 pub fn on_key_insert<Caps>(ctx: ReducerContext<Caps>, row: KeyState)
 where
     Caps: CanInsert<PendingInput>,
 {
+    if row.pressed && !has_keyboard(&ctx) {
+        return;
+    }
     queue_key(&ctx, IN_KEY, row.code, row.pressed, false, row.key, row.text);
 }
 
@@ -359,6 +373,9 @@ pub fn on_key_update<Caps>(ctx: ReducerContext<Caps>, prev: KeyState, new: KeySt
 where
     Caps: CanInsert<PendingInput>,
 {
+    if new.pressed && !has_keyboard(&ctx) {
+        return;
+    }
     // winit key repeat arrives as pressed → pressed.
     let repeat = prev.pressed && new.pressed;
     queue_key(&ctx, IN_KEY, new.code, new.pressed, repeat, new.key, new.text);
@@ -369,6 +386,9 @@ pub fn on_button_insert<Caps>(ctx: ReducerContext<Caps>, row: MouseButton)
 where
     Caps: CanInsert<PendingInput>,
 {
+    if row.pressed && !has_pointer(&ctx) {
+        return;
+    }
     queue(&ctx, IN_BUTTON, row.button_id as u32, row.pressed, false);
 }
 
@@ -377,9 +397,10 @@ pub fn on_button_update<Caps>(ctx: ReducerContext<Caps>, prev: MouseButton, new:
 where
     Caps: CanInsert<PendingInput>,
 {
-    if prev.pressed != new.pressed {
-        queue(&ctx, IN_BUTTON, new.button_id as u32, new.pressed, false);
+    if prev.pressed == new.pressed || (new.pressed && !has_pointer(&ctx)) {
+        return;
     }
+    queue(&ctx, IN_BUTTON, new.button_id as u32, new.pressed, false);
 }
 
 // ── Frame ────────────────────────────────────────────────────────────────────
@@ -393,7 +414,8 @@ pub fn on_frame(ctx: ReducerContext<BrowserCaps>, _prev: FrameTick, tick: FrameT
     if w < 64 || h < engine::content_height(0) + 64 {
         return Ok(());
     }
-    let mouse = ctx.input().tables.mousestate().get(0)?;
+    // The pointer as routed to us (surface-local inside a desktop window).
+    let view = ctx.input().queries.input_view()?;
     let t = &ctx.current.tables;
     let mut inputs = t.pendinginput().scan()?;
     inputs.sort_by_key(|e| e.seq);
@@ -417,9 +439,10 @@ pub fn on_frame(ctx: ReducerContext<BrowserCaps>, _prev: FrameTick, tick: FrameT
         b.ensure_active_doc(now);
         b.sync_chrome();
 
-        // Mouse: integrate deltas of the raw position into our own clamped cursor.
-        if let Some(m) = &mouse {
-            let raw = m.position;
+        if info.id == 0 {
+            // Standalone: integrate deltas of the raw position into our own
+            // clamped cursor.
+            let raw = view.position;
             let (mut x, mut y) = b.ui.mouse;
             match b.ui.last_raw {
                 Some(prev) => {
@@ -430,17 +453,23 @@ pub fn on_frame(ctx: ReducerContext<BrowserCaps>, _prev: FrameTick, tick: FrameT
             }
             b.ui.last_raw = Some(raw);
             b.mouse_move(x.clamp(0.0, w as f32 - 1.0), y.clamp(0.0, h as f32 - 1.0));
-
-            let wheel = m.wheel_delta;
-            if let Some(prev) = b.ui.last_wheel {
-                let (dx, dy) = (wheel.0 - prev.0, wheel.1 - prev.1);
-                if dx != 0.0 || dy != 0.0 {
-                    // Positive wheel delta = scroll up (content moves down).
-                    b.wheel(-dx, -dy);
-                }
-            }
-            b.ui.last_wheel = Some(wheel);
+        } else if view.pointer_inside {
+            // In a window: the desktop's cursor is the cursor, already local.
+            let (x, y) = view.position;
+            b.mouse_move(x.clamp(0.0, w as f32 - 1.0), y.clamp(0.0, h as f32 - 1.0));
         }
+
+        // The wheel total is cumulative: act on the increment, only while
+        // the pointer is over us.
+        let wheel = view.wheel_delta;
+        if let Some(prev) = b.ui.last_wheel {
+            let (dx, dy) = (wheel.0 - prev.0, wheel.1 - prev.1);
+            if (dx != 0.0 || dy != 0.0) && view.pointer_inside {
+                // Positive wheel delta = scroll up (content moves down).
+                b.wheel(-dx, -dy);
+            }
+        }
+        b.ui.last_wheel = Some(wheel);
 
         // Scripted input for headless testing.
         for c in &script {

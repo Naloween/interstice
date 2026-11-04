@@ -155,3 +155,33 @@ where
     ctx.log(&format!("notes one back: [{}]", text(notes.rows_at(TimelinePoint::Back(1))?)));
     Ok(())
 }
+
+/// One commit of the `Notes` timeline (`parent` is 0 for children of the base).
+#[interstice_type]
+#[derive(Debug)]
+pub struct NoteCommit {
+    pub id: u64,
+    pub parent: u64,
+}
+
+/// The `Notes` commit tree, for front-ends such as the `notes` app (§12.2).
+#[interstice_type]
+#[derive(Debug)]
+pub struct NoteHistory {
+    /// The commit the table is at (`0` = the base).
+    pub head: u64,
+    /// Every commit, by increasing id.
+    pub commits: Vec<NoteCommit>,
+}
+
+#[query]
+fn note_history<Caps>(ctx: QueryContext<Caps>) -> Result<NoteHistory, String>
+where
+    Caps: CanRead<Notes>,
+{
+    let info = ctx.current.tables.notes().timeline()?;
+    Ok(NoteHistory {
+        head: info.head,
+        commits: info.nodes.into_iter().map(|n| NoteCommit { id: n.id, parent: n.parent }).collect(),
+    })
+}
