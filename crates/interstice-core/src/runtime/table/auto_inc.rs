@@ -118,6 +118,14 @@ impl AutoIncCounter {
         Ok(())
     }
 
+    /// A copy with its own counter, starting where this one is.
+    pub fn detached(&self) -> Self {
+        Self {
+            raw: Arc::new(AtomicU64::new(self.raw.load(Ordering::Relaxed))),
+            kind: self.kind,
+        }
+    }
+
     pub fn _reset(&self) {
         self.raw.store(0, Ordering::Relaxed);
     }
@@ -133,6 +141,7 @@ pub(crate) struct TableAutoIncSnapshot {
     pub indexes: Vec<Option<AutoIncCounter>>,
 }
 
+#[derive(Clone)]
 pub enum IndexImpl {
     Hash(FastHashMap<IndexKey, Vec<usize>>),
     BTree(BTreeMap<IndexKey, Vec<usize>>),
@@ -192,6 +201,46 @@ impl Table {
             }
         }
 
+        Ok(())
+    }
+
+    /// The auto-inc values of `row`: the primary key if auto-inc, then each
+    /// auto-inc index field, in index order (§6.7 logs them).
+    pub(crate) fn auto_inc_values(&self, row: &Row) -> Vec<IntersticeValue> {
+        let mut values = Vec::new();
+        if self.primary_key_auto_inc {
+            values.push(row.primary_key.clone());
+        }
+        for table_index in self.indexes.iter().filter(|i| i.auto_inc) {
+            if let Some(value) = row.entries.get(table_index.field_index) {
+                values.push(value.clone());
+            }
+        }
+        values
+    }
+
+    /// Put logged auto-inc `values` (see [`Self::auto_inc_values`]) into `row`.
+    pub(crate) fn set_auto_inc_values(
+        &self,
+        row: &mut Row,
+        values: Vec<IntersticeValue>,
+    ) -> Result<(), IntersticeError> {
+        let mut values = values.into_iter();
+        let mut next = || {
+            values
+                .next()
+                .ok_or_else(|| IntersticeError::Internal("missing logged auto_inc value".into()))
+        };
+        if self.primary_key_auto_inc {
+            row.primary_key = next()?;
+        }
+        for table_index in self.indexes.iter().filter(|i| i.auto_inc) {
+            let value = next()?;
+            match row.entries.get_mut(table_index.field_index) {
+                Some(entry) => *entry = value,
+                None => return Err(IntersticeError::Internal("Index field out of bounds".into())),
+            }
+        }
         Ok(())
     }
 

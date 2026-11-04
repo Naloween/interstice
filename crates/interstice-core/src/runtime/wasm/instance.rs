@@ -142,14 +142,12 @@ impl WasmInstance {
         Ok(schema)
     }
 
+    /// Run reducer wrapper `func_name` on encoded `(ReducerContext, args)`.
     pub fn call_reducer(
         &mut self,
         func_name: &str,
-        args: impl Serialize,
+        args_bytes: &[u8],
     ) -> Result<(), IntersticeError> {
-        let args_bytes = encode(&args).map_err(|err| {
-            IntersticeError::Internal(format!("failed to serialize reducer arguments: {}", err))
-        })?;
 
         // Grow scratch buffer only if args don't fit.
         if args_bytes.len() > self.scratch_capacity {
@@ -161,7 +159,7 @@ impl WasmInstance {
             .write(
                 &mut self.store,
                 (self.scratch_ptr as u32) as usize,
-                &args_bytes,
+                args_bytes,
             )
             .map_err(|_| IntersticeError::MemoryWrite)?;
 

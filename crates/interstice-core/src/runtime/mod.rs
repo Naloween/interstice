@@ -5,6 +5,7 @@ pub mod event;
 pub mod host_calls;
 pub mod module;
 mod query;
+pub mod record;
 pub mod reducer;
 mod scheduler;
 pub mod table;

@@ -1,10 +1,10 @@
 use crate::node::NodeId;
 use crate::runtime::reducer::CallFrameKind;
 
-const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+pub(crate) const FNV_OFFSET: u64 = 0xcbf29ce484222325;
 const FNV_PRIME: u64 = 0x100000001b3;
 
-fn fnv1a(mut hash: u64, bytes: &[u8]) -> u64 {
+pub(crate) fn fnv1a(mut hash: u64, bytes: &[u8]) -> u64 {
     for byte in bytes {
         hash ^= *byte as u64;
         hash = hash.wrapping_mul(FNV_PRIME);
@@ -47,6 +47,36 @@ pub struct Tx {
     pub timestamp_ms: u64,
     /// SplitMix64 state, seeded from the transaction identity.
     pub rng_state: u64,
+    /// Blobs created so far by the root frame, and by nested frames.
+    pub blobs: u32,
+    pub nested_blobs: u32,
+}
+
+/// Blob ids made by nested frames (queries the transaction called) have
+/// this bit set, so the root frame's ids don't depend on them (§6.7).
+const NESTED_BLOB_BIT: u64 = 1 << 23;
+
+impl Tx {
+    pub fn new(id: u64, timestamp_ms: u64, rng_state: u64) -> Self {
+        Self { id, timestamp_ms, rng_state, blobs: 0, nested_blobs: 0 }
+    }
+
+    /// The next blob id of this transaction: `(id << 24) | n` (DESIGN §6.7).
+    pub fn next_blob_id(&mut self, nested: bool) -> u64 {
+        let n = if nested {
+            self.nested_blobs += 1;
+            NESTED_BLOB_BIT | self.nested_blobs as u64
+        } else {
+            self.blobs += 1;
+            self.blobs as u64
+        };
+        (self.id << 24) | n
+    }
+
+    /// Whether the root frame of this transaction created blob `id`.
+    pub fn root_created_blob(&self, id: u64) -> bool {
+        id >> 24 == self.id && id & NESTED_BLOB_BIT == 0
+    }
 }
 
 /// Wall-clock ms, clamped so it never goes below `last` (which it raises).

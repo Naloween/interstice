@@ -423,8 +423,8 @@ Not covered by the claim:
 - A reducer that busy-waits on the clock never finishes. Use
   `ctx.schedule`.
 
-**Status:** `Tx` is not yet recorded anywhere, so a run can't be replayed
-yet (§11.4).
+`Tx`s and every other input of a module can be recorded and replayed
+(§6.7).
 
 ### 6.6 Isolation and ordering
 
@@ -555,6 +555,100 @@ channel *inside* the module's table write lock.
 - **Cost.** Per call it is the same: one callee transaction. Per level of call
   depth it adds one scheduler hop. For one commit, all its calls share a
   single job.
+
+
+### 6.7 Record and replay
+
+A module can be *recorded*: the engine keeps enough to re-execute its
+transactions and check that they produce the same writes. This serves
+auditing (is the state what the code produces?), debugging (re-run with
+logging or fixed code) and time travel (§11.4).
+
+**The boundary rule.** The log holds everything that *enters* the module, so
+the module can be replayed alone, with no other module running.
+
+| Reproduced by replay (not logged) | Logged |
+|---|---|
+| Reads and writes of its own tables | The reducer input: encoded context and arguments |
+| `time_now_ms` and random draws (from the `Tx`) | The `Tx` |
+| Blobs it creates; `log` | The response of every other host call its root frame makes (reducer and query calls, schedules, foreign-table reads, authority calls, current node id), with a digest of the request |
+| | Blobs it read from its caller's scope |
+| | Writes that reach its tables without one of its reducers (replica changes) |
+
+Notes on the boundary:
+- A query call is logged even when the target is the module itself: during
+  replay nothing but the recorded module exists.
+- Host calls made inside a nested query frame are part of that query, whose
+  result is logged at the boundary.
+
+**Recording** (`Module::recorder`, off by default):
+- When recording starts, the module's tables are cloned as the *baseline*,
+  under the table write lock. The clone keeps rows in order, indexes and
+  auto_inc counters.
+- Each commit into the module's tables appends a record under the same write
+  lock, so log order is commit order. A record holds the origin and the
+  committed writes. The origin is a reducer (name, input, `Tx`, logged
+  responses, inherited blobs) or an external write (a replica change).
+- Only commits are recorded; failed or rejected transactions changed nothing.
+- The log is a window of at most N records (default 10 000). Evicting the
+  oldest applies its writes to the baseline, so baseline + log always
+  rebuilds the live state.
+
+**Replay** runs on its own thread, against a *copy* of the module built from
+its wasm (`Module::from_bytes`). The copy is never registered, so it has no
+subscriptions, persistence or events. The log and the live tables are
+captured together, under the read lock. Then each record is replayed in
+order:
+- External write: apply its writes.
+- Reducer: run it with the recorded input and `Tx`. The frame is in replay
+  mode: each logged host call checks its kind and request digest, then
+  returns the recorded response and performs nothing (no draw, no call, no
+  packet, no schedule). Its parent blob scope holds the recorded inherited
+  blobs. The writes it produces are compared with the recorded ones
+  (encoded bytes), then applied.
+- A transaction that started before recording began (or under an earlier
+  recording) has no reducer record at commit. Its commit is logged as an
+  external write, which is still exact for state.
+- At the end, the copy's tables are compared with the captured live tables:
+  rows and their order.
+
+The report gives the number of commits replayed and the first divergence:
+the record, the reducer, and why (request mismatch, a missing or extra host
+call, different writes, or a final state mismatch).
+
+**Blob ids are per transaction:** `(tx.id << 24) | n`, where `n` counts the
+transaction's blobs. They are unique because `Tx` ids are, and identical on
+replay, so a request carrying a blob id has the same digest.
+
+**Control** goes through the Module authority:
+- `ModuleCall::Record { module_name, enabled }` and
+  `ModuleCall::Replay { module_name }`. Replay answers `Ok`, or `Err` with
+  the divergence. Both are logged to the node log.
+- The `module_manager` module wraps them as `record_start(module)`,
+  `record_stop(module)` and `replay(module)` reducers. From the CLI:
+  `call_reducer <node> module_manager record_start <module>`, then
+  `call_reducer <node> module_manager replay <module>`.
+- Verified on `agar-server` (ticks with random draws and clock, plus
+  joins): 316 commits replayed with state matching, and again after the
+  window wrapped (baseline eviction).
+
+**Why this causes no regressions:**
+- Recording off costs one flag check per commit and one thread-local check
+  per dispatched host call.
+- Blob ids only need uniqueness along a scope chain, and guests treat them
+  as opaque.
+- Encoding reducer input in the runtime instead of the instance produces the
+  same bytes.
+- A read of `Other(own_module)` now resolves to the frame's module instead of
+  the registry: the same module in live mode, the copy in replay.
+
+**Status / limits:**
+- The log is in memory only. It is lost on reload or restart, because the
+  recorder lives on the `Module`.
+- Instance memory that isn't a cache of table state shows up as a divergence.
+  That is the audit working, not a bug.
+- A commit that fails halfway leaves its earlier ops applied (a
+  pre-existing hazard). Replay reports it as a final-state mismatch.
 
 ---
 
@@ -872,25 +966,8 @@ Nested transactions were rejected:
 ### 11.4 Replay and time travel
 
 The building block is in place: transactions are deterministic given their
-inputs (§6.5). What remains is in two steps.
-
-**Record and replay.** A recorded module keeps a transaction log. Each entry
-holds:
-- the commit sequence;
-- the `Tx`;
-- the reducer, its arguments and caller;
-- its external results, in call order;
-- foreign writes it observed (replica changes) as their own entries.
-
-Replaying re-executes the entries in commit order from a snapshot. During
-replay, authority and remote calls return the recorded results and perform
-nothing, and the outbox is compared rather than released. This enables
-auditing, debugging (re-run with fixed code) and state rebuilds.
-
-Open points:
-- Recording is opt-in per module, because arguments can be megabytes (blobs).
-- A baseline snapshot must keep row order. Stateful tables restore in
-  directory order today.
+inputs (§6.5), and record and replay is done (§6.7). What remains is time
+travel.
 
 **Time travel** (README roadmap): modules opt selected tables into a
 *timeline*, keeping their commit-tagged history. A host call rewinds those
@@ -1014,8 +1091,8 @@ but explicitly out of scope for now.
 - [x] **Determinism** (§6.5): a per-transaction `Tx` (id, timestamp, seed)
       shared by every call in the transaction; schedules go through the
       outbox.
-- [ ] **Record and replay** (§11.4): an opt-in transaction log with external
-      results; replay from a snapshot.
+- [x] **Record and replay** (§6.7): an opt-in log of everything that enters a
+      module; replay on a detached copy that checks writes and final state.
 - [ ] **Time travel**: timelines/branches of selected tables (README
       roadmap), building on determinism.
 - [ ] **Iterator-based scans** and cheaper index access (no full `Vec`

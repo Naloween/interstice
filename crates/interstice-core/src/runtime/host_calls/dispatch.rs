@@ -1,3 +1,4 @@
+use crate::runtime::record;
 use crate::runtime::wasm::StoreState;
 use crate::{error::IntersticeError, runtime::Runtime};
 use interstice_abi::{
@@ -17,18 +18,54 @@ impl Runtime {
         ptr: i32,
         len: i32,
     ) -> Result<Option<i64>, IntersticeError> {
-        let host_call: HostCall = {
+        let (host_call, boundary, request_digest) = {
             let data = memory.data(&mut *caller);
             let start = ptr.max(0) as usize;
             let end = start.saturating_add(len.max(0) as usize);
             if end > data.len() {
                 return Err(IntersticeError::MemoryRead);
             }
-            decode(&data[start..end]).map_err(|err| {
+            let request = &data[start..end];
+            let host_call: HostCall = decode(request).map_err(|err| {
                 IntersticeError::Internal(format!("Failed to decode host call: {err}"))
-            })?
+            })?;
+            let boundary = record::boundary_for(&host_call);
+            let digest = boundary.as_ref().map_or(0, |_| record::request_digest(request));
+            (host_call, boundary, digest)
         };
 
+        // Record and replay (DESIGN §6.7): a call leaving a recorded root
+        // frame's module is logged; on replay its logged response is returned
+        // and nothing is performed.
+        match boundary {
+            None => self.perform_host_call(host_call, memory, caller, caller_module_schema),
+            Some(record::Boundary::Record) => {
+                let kind = record::host_call_kind(&host_call);
+                record::record_call(kind, request_digest, || {
+                    self.perform_host_call(host_call, memory, caller, caller_module_schema)
+                })
+            }
+            Some(record::Boundary::Replay) => {
+                let kind = record::host_call_kind(&host_call);
+                match record::replay_call(kind, request_digest) {
+                    Ok(Some(response)) => {
+                        let (ptr, len) = self.send_bytes_to_module(memory, caller, &response);
+                        Ok(Some(pack_ptr_len(ptr, len)))
+                    }
+                    Ok(None) => Ok(None),
+                    Err(why) => Err(IntersticeError::Internal(format!("replay diverged: {why}"))),
+                }
+            }
+        }
+    }
+
+    fn perform_host_call(
+        &self,
+        host_call: HostCall,
+        memory: &wasmtime::Memory,
+        caller: &mut Caller<'_, StoreState>,
+        caller_module_schema: Arc<ModuleSchema>,
+    ) -> Result<Option<i64>, IntersticeError> {
         return match host_call {
             HostCall::CurrentNodeId => {
                 let node_id = self.handle_current_node_id();
@@ -352,6 +389,7 @@ impl Runtime {
         memory
             .write(&mut *caller, (ptr as u32) as usize, bytes)
             .unwrap();
+        record::capture_response(bytes);
 
         (ptr, bytes.len() as i32)
     }

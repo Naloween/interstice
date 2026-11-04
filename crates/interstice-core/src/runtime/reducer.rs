@@ -15,6 +15,7 @@ use tokio::sync::oneshot;
 
 use crate::network::protocol::NetworkPacket;
 use crate::runtime::blob::BlobScope;
+use crate::runtime::record::{FrameMode, PendingOrigin, RecordCapture};
 use crate::runtime::table::Table;
 
 /// A pinned read lock on one module's tables, held by the outermost query
@@ -170,6 +171,8 @@ pub struct CallFrame {
     pub outbox: Vec<OutboxEntry>,
     /// Read locks pinned by the outermost query frame, per module.
     pub pins: HashMap<String, TablesPin>,
+    /// Record/replay mode; only a root frame's is used (DESIGN §6.7).
+    pub mode: crate::runtime::record::FrameMode,
 }
 
 impl CallFrame {
@@ -195,6 +198,7 @@ impl CallFrame {
             scope,
             outbox: Vec::new(),
             pins: HashMap::new(),
+            mode: Default::default(),
         }
     }
 }
@@ -308,18 +312,20 @@ impl Runtime {
         let table_access = ReducerTableAccess::from_schema(reducer_schema);
         let tx = self.begin_tx(module_name, reducer_name, CallFrameKind::Reducer);
         let scope = BlobScope::new(parent_scope);
-
-        CALL_STACK.with(|s| {
-            s.borrow_mut().push(CallFrame::new(
-                module_name.into(),
-                reducer_name.into(),
-                module.clone(),
-                CallFrameKind::Reducer,
-                tx,
-                table_access,
-                scope,
-            ));
-        });
+        let mut frame = CallFrame::new(
+            module_name.into(),
+            reducer_name.into(),
+            module.clone(),
+            CallFrameKind::Reducer,
+            tx,
+            table_access,
+            scope,
+        );
+        let generation = module.recording_generation();
+        if generation != 0 {
+            frame.mode = FrameMode::Record(Box::new(RecordCapture::new(generation)));
+        }
+        CALL_STACK.with(|s| s.borrow_mut().push(frame));
 
         // ── WASM execution ───────────────────────────────────────────────────
         let reducer_context = ReducerContext::new(
@@ -327,10 +333,27 @@ impl Runtime {
             caller_module_name.to_string(),
             module.state_epoch(),
         );
-        let call_result = module.call_reducer(reducer_name, (reducer_context, args));
+        let (input, call_result) = match interstice_abi::encode(&(reducer_context, args)) {
+            Ok(input) => {
+                let result = module.call_reducer_encoded(reducer_name, &input);
+                (input, result)
+            }
+            Err(err) => (
+                Vec::new(),
+                Err(IntersticeError::Internal(format!(
+                    "failed to serialize reducer arguments: {err}"
+                ))),
+            ),
+        };
         let frame = CALL_STACK.with(|s| s.borrow_mut().pop().unwrap());
         // On error the outbox is dropped with the writes.
         call_result?;
+        let origin = match frame.mode {
+            FrameMode::Record(capture) => {
+                Some(PendingOrigin::new(*capture, reducer_name, input, tx))
+            }
+            _ => None,
+        };
 
         // ── Commit, then release the outbox in commit order ──────────────────
         let mut locals = Vec::new();
@@ -353,7 +376,7 @@ impl Runtime {
                 scope: frame.scope.clone(),
             })
         });
-        self.apply_all_transactions(frame.transactions, &frame.overlays, &module, calls)
+        self.apply_all_transactions(frame.transactions, &frame.overlays, &module, calls, origin)
             .inspect_err(|_| {
                 // The instance ran to completion and may have cached what it
                 // just wrote; those writes are now discarded.
@@ -375,7 +398,7 @@ impl Runtime {
         let id = self.tx_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let timestamp_ms = monotonic_ms(&self.last_tx_ms, wall_clock_ms());
         let rng_state = seed_from_call(&self.network_handle.node_id, module_name, entry_name, kind, id);
-        Tx { id, timestamp_ms, rng_state }
+        Tx::new(id, timestamp_ms, rng_state)
     }
 
     /// Push `event` into the event channel with a fork of the active

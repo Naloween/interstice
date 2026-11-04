@@ -134,6 +134,28 @@ where
     Ok(())
 }
 
+// ── Record and replay (DESIGN §6.7) ────────────────────────────────────────────
+
+/// Start recording a module loaded on this node (DESIGN §6.7).
+#[reducer]
+fn record_start(ctx: ReducerContext, module: String) -> Result<(), String> {
+    ctx.module().record(module, true)
+}
+
+/// Stop recording a module and drop its log.
+#[reducer]
+fn record_stop(ctx: ReducerContext, module: String) -> Result<(), String> {
+    ctx.module().record(module, false)
+}
+
+/// Replay a recorded module against a detached copy and check that it
+/// reproduces the live state. The report (or first divergence) goes to the
+/// node log.
+#[reducer]
+fn replay(ctx: ReducerContext, module: String) -> Result<(), String> {
+    ctx.module().replay(module)
+}
+
 // ── Queries ────────────────────────────────────────────────────────────────────
 
 /// List all registered apps (without their wasm bytes).

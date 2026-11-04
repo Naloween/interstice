@@ -13,14 +13,12 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use interstice_abi::IntersticeValue;
 use parking_lot::Mutex;
 
+use crate::runtime::record::FrameMode;
 use crate::runtime::reducer::CALL_STACK;
-
-static NEXT_BLOB_ID: AtomicU64 = AtomicU64::new(1);
 
 pub type BlobData = Arc<[u8]>;
 
@@ -38,10 +36,16 @@ impl BlobScope {
         })
     }
 
-    fn insert(&self, data: BlobData) -> u64 {
-        let id = NEXT_BLOB_ID.fetch_add(1, Ordering::Relaxed);
+    /// A parentless scope holding `blobs` under their ids (replay, §6.7).
+    pub fn with_blobs(blobs: impl IntoIterator<Item = (u64, BlobData)>) -> Arc<Self> {
+        Arc::new(Self {
+            blobs: Mutex::new(blobs.into_iter().collect()),
+            parent: None,
+        })
+    }
+
+    fn insert(&self, id: u64, data: BlobData) {
         self.blobs.lock().insert(id, data);
-        id
     }
 
     fn resolve(&self, id: u64) -> Option<BlobData> {
@@ -62,13 +66,42 @@ pub fn current_scope() -> Option<Arc<BlobScope>> {
 }
 
 /// Register `data` in the current frame's scope. `None` outside any call.
+/// The id comes from the transaction (`Tx::next_blob_id`), so it is the same
+/// when the transaction is replayed.
 pub fn create_blob(data: BlobData) -> Option<u64> {
-    current_scope().map(|scope| scope.insert(data))
+    CALL_STACK.with(|s| {
+        let mut stack = s.borrow_mut();
+        let nested = stack.len() > 1;
+        let scope = stack.last()?.scope.clone();
+        let id = stack.first_mut()?.tx.next_blob_id(nested);
+        scope.insert(id, data);
+        Some(id)
+    })
 }
 
 /// Look `id` up in the current frame's scope chain.
 pub fn resolve_blob(id: u64) -> Option<BlobData> {
     current_scope()?.resolve(id)
+}
+
+/// [`resolve_blob`] for a guest read. A recorded root frame logs the blobs
+/// it reads that it did not create, since replay can't recreate them (§6.7).
+pub fn resolve_blob_for_guest(id: u64) -> Option<BlobData> {
+    CALL_STACK.with(|s| {
+        let mut stack = s.borrow_mut();
+        let data = stack.last()?.scope.resolve(id)?;
+        if stack.len() == 1 {
+            let root = &mut stack[0];
+            if !root.tx.root_created_blob(id) {
+                if let FrameMode::Record(capture) = &mut root.mode {
+                    if !capture.blobs.iter().any(|(known, _)| *known == id) {
+                        capture.blobs.push((id, data.clone()));
+                    }
+                }
+            }
+        }
+        Some(data)
+    })
 }
 
 /// Replace every `Blob(id)` in `value` with its bytes, for sending somewhere
@@ -99,9 +132,11 @@ mod tests {
     #[test]
     fn resolves_through_parent_chain_only() {
         let root = BlobScope::new(None);
-        let a = root.insert(Arc::from(&b"root"[..]));
+        let a = 1;
+        root.insert(a, Arc::from(&b"root"[..]));
         let child = BlobScope::new(Some(root.clone()));
-        let b = child.insert(Arc::from(&b"child"[..]));
+        let b = 2;
+        child.insert(b, Arc::from(&b"child"[..]));
         assert_eq!(&*child.resolve(a).unwrap(), b"root");
         assert_eq!(&*child.resolve(b).unwrap(), b"child");
         assert!(root.resolve(b).is_none());

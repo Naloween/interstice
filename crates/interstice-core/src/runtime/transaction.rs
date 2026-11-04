@@ -15,7 +15,7 @@ use crate::{
     },
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub enum Transaction {
     Insert {
         module_name: String,
@@ -59,6 +59,7 @@ impl Runtime {
         overlays: &HashMap<String, TableOverlay>,
         module: &Arc<Module>,
         calls: Option<EventInstance>,
+        origin: Option<crate::runtime::record::PendingOrigin>,
     ) -> Result<(), IntersticeError> {
         if transactions.is_empty() {
             // No commit to order against.
@@ -88,6 +89,9 @@ impl Runtime {
             if stale {
                 validate_batch(&transactions, &tables)?;
             }
+            // Recording (DESIGN §6.7): logged below, under this lock.
+            let recorded_writes =
+                (module.recording_generation() != 0).then(|| transactions.clone());
 
             for transaction in transactions {
                 match transaction {
@@ -295,6 +299,10 @@ impl Runtime {
                 table.enforce_retention();
             }
 
+            if let Some(writes) = recorded_writes {
+                module.record_commit_locked(origin, writes);
+            }
+
             for event in events.into_iter().chain(calls) {
                 self.emit_event(event);
             }
@@ -373,6 +381,9 @@ impl Runtime {
                     table.insert(new_row.clone())?;
                 }
                 table.enforce_retention();
+                if module.recording_generation() != 0 {
+                    module.record_commit_locked(None, vec![Transaction::Insert { module_name: module_name.clone(), table_name: table_name.clone(), new_row: new_row.clone() }]);
+                }
 
                 if has_subscriptions {
                     events.push(EventInstance::TableInsertEvent {
@@ -453,6 +464,9 @@ impl Runtime {
                 persistence_kind = table.schema.persistence.clone();
 
                 let old_row = table.update(update_row.clone())?;
+                if module.recording_generation() != 0 {
+                    module.record_commit_locked(None, vec![Transaction::Update { module_name: module_name.clone(), table_name: table_name.clone(), update_row: update_row.clone() }]);
+                }
 
                 if has_subscriptions {
                     events.push(EventInstance::TableUpdateEvent {
@@ -533,6 +547,9 @@ impl Runtime {
                         })?;
                 persistence_kind = table.schema.persistence.clone();
 
+                if module.recording_generation() != 0 {
+                    module.record_commit_locked(None, vec![Transaction::Delete { module_name: module_name.clone(), table_name: table_name.clone(), deleted_row_id: deleted_row_id.clone() }]);
+                }
                 if let Ok(deleted_row) = table.delete(&deleted_row_id) {
                     if has_subscriptions {
                         events.push(EventInstance::TableDeleteEvent {
@@ -609,6 +626,9 @@ impl Runtime {
 
                 let deleted_rows = table.snapshot_rows();
                 table.clear();
+                if module.recording_generation() != 0 {
+                    module.record_commit_locked(None, vec![Transaction::Clear { module_name: module_name.clone(), table_name: table_name.clone() }]);
+                }
 
                 if has_subscriptions {
                     for deleted_row in deleted_rows {

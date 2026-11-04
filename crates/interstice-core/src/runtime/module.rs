@@ -12,7 +12,7 @@ use crate::{
 };
 use interstice_abi::{
     ABI_VERSION, Authority, FileEvent, IndexKey, IntersticeValue, ModuleSchema, NodeSchema,
-    NodeSelection, RawQueryContext as QueryContext, RawReducerContext as ReducerContext,
+    NodeSelection, RawQueryContext as QueryContext,
     SubscriptionEventSchema, TableVisibility,
     get_query_wrapper_name, get_reducer_wrapper_name,
 };
@@ -50,6 +50,9 @@ pub struct Module {
     pub schema: Arc<ModuleSchema>,
     pub tables: Arc<parking_lot::RwLock<HashMap<String, Table>>>,
     pub reducer_names: HashSet<String>,
+    /// Record log (DESIGN §6.7); `recording` is its generation, 0 when off.
+    pub(crate) recorder: Mutex<Option<crate::runtime::record::Recorder>>,
+    pub(crate) recording: std::sync::atomic::AtomicU64,
 }
 
 /// Instantiates `wasm_module` in a fresh store. `schema` is `None` while the
@@ -103,6 +106,11 @@ impl Module {
         runtime: Arc<Runtime>,
         wasm_binary: &[u8],
     ) -> Result<Self, IntersticeError> {
+        Self::build(runtime, wasm_binary)
+    }
+
+    /// Compile and instantiate a module without registering it.
+    pub(crate) fn build(runtime: Arc<Runtime>, wasm_binary: &[u8]) -> Result<Self, IntersticeError> {
         let wasm_module = wasmtimeModule::new(&runtime.engine, wasm_binary)
             .map_err(|e| IntersticeError::Internal(format!("invalid wasm module: {e}")))?;
         let factory = InstanceFactory {
@@ -143,7 +151,17 @@ impl Module {
             schema,
             tables: Arc::new(parking_lot::RwLock::new(tables)),
             reducer_names,
+            recorder: Mutex::new(None),
+            recording: std::sync::atomic::AtomicU64::new(0),
         })
+    }
+
+    pub fn wasm_bytes(&self) -> &[u8] {
+        &self.wasm_bytes
+    }
+
+    pub(crate) fn runtime(&self) -> &Arc<Runtime> {
+        &self.factory.runtime
     }
 
     /// Current [`interstice_abi::RawReducerContext::state_epoch`].
@@ -175,11 +193,8 @@ impl Module {
         }
     }
 
-    pub fn call_reducer(
-        &self,
-        reducer: &str,
-        args: (ReducerContext, impl Serialize),
-    ) -> Result<(), IntersticeError> {
+    /// Run `reducer` with its input already encoded as `(ReducerContext, args)`.
+    pub fn call_reducer_encoded(&self, reducer: &str, input: &[u8]) -> Result<(), IntersticeError> {
         let func_name = get_reducer_wrapper_name(reducer);
         // Borrow an instance from the pool; block if all are in use.
         //
@@ -202,7 +217,7 @@ impl Module {
                 .unwrap_or(0);
             pool.remove(idx).0
         };
-        let result = instance.call_reducer(&func_name, args);
+        let result = instance.call_reducer(&func_name, input);
         self.recycle(&mut instance, &result);
         // Return the instance to the pool and wake a waiting thread if any.
         {

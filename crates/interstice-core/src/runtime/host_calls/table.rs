@@ -130,6 +130,28 @@ impl Runtime {
             .ok_or_else(|| "No active call frame".to_string())
     }
 
+    /// The module a read selects. The frame's own module, named or not,
+    /// resolves to the frame's `Module` (the copy, on replay; DESIGN §6.7).
+    fn selected_module_arc(&self, selection: &ModuleSelection) -> Result<Arc<Module>, String> {
+        let own = CALL_STACK.with(|s| {
+            s.borrow().last().and_then(|f| match selection {
+                ModuleSelection::Current => Some(f.module_arc.clone()),
+                ModuleSelection::Other(name) if *name == f.module => Some(f.module_arc.clone()),
+                ModuleSelection::Other(_) => None,
+            })
+        });
+        match (own, selection) {
+            (Some(module), _) => Ok(module),
+            (None, ModuleSelection::Current) => Err("No active call frame".to_string()),
+            (None, ModuleSelection::Other(name)) => self
+                .modules
+                .lock()
+                .get(name)
+                .cloned()
+                .ok_or_else(|| "Module not found".to_string()),
+        }
+    }
+
     /// Validate a pending write against the frame's merged view (committed
     /// rows + earlier writes of this call), record it in the overlay and
     /// queue the transaction. Runs with `table` locked.
@@ -194,6 +216,19 @@ impl Runtime {
         }
 
         if has_auto_inc {
+            // Record and replay (§6.7): the ids an insert drew are logged,
+            // and a replayed insert gets the logged ones.
+            match crate::runtime::record::logged_auto_inc() {
+                Ok(Some(values)) => {
+                    if let Err(err) = table.set_auto_inc_values(&mut row, values) {
+                        return InsertRowResponse::Err(err.to_string());
+                    }
+                }
+                Ok(None) => {}
+                Err(err) => return InsertRowResponse::Err(err),
+            }
+        }
+        if has_auto_inc && !crate::runtime::record::in_replay() {
             // The auto-inc snapshot shares the table's atomic counters, so ids
             // handed out here never collide with concurrent reducers.
             let res = CALL_STACK.with(|s| {
@@ -210,6 +245,7 @@ impl Runtime {
             if let Err(err) = res {
                 return InsertRowResponse::Err(err);
             }
+            crate::runtime::record::note_auto_inc(|| table.auto_inc_values(&row));
         }
 
         let pk = match IndexKey::try_from(&row.primary_key) {
@@ -434,18 +470,9 @@ impl Runtime {
         }
 
         // For Current module, use the cached module_arc from the call frame
-        let module_arc = match &table_scan_request.module_selection {
-            ModuleSelection::Current => match self.current_frame_module_arc() {
-                Ok(m) => m,
-                Err(e) => return TableScanResponse::Err(e),
-            },
-            ModuleSelection::Other(_) => {
-                let modules = self.modules.lock();
-                match modules.get(&module_name) {
-                    Some(m) => m.clone(),
-                    None => return TableScanResponse::Err("Module not found".into()),
-                }
-            }
+        let module_arc = match self.selected_module_arc(&table_scan_request.module_selection) {
+            Ok(m) => m,
+            Err(e) => return TableScanResponse::Err(e),
         };
 
         let tables = Self::read_tables(&module_arc);
@@ -478,18 +505,9 @@ impl Runtime {
             return TableGetByPrimaryKeyResponse::Err(err);
         }
 
-        let module_arc = match &request.module_selection {
-            ModuleSelection::Current => match self.current_frame_module_arc() {
-                Ok(m) => m,
-                Err(e) => return TableGetByPrimaryKeyResponse::Err(e),
-            },
-            ModuleSelection::Other(_) => {
-                let modules = self.modules.lock();
-                match modules.get(&module_name) {
-                    Some(m) => m.clone(),
-                    None => return TableGetByPrimaryKeyResponse::Err("Module not found".into()),
-                }
-            }
+        let module_arc = match self.selected_module_arc(&request.module_selection) {
+            Ok(m) => m,
+            Err(e) => return TableGetByPrimaryKeyResponse::Err(e),
         };
 
         let row = {
@@ -522,18 +540,9 @@ impl Runtime {
             return TableIndexScanResponse::Err(err);
         }
 
-        let module_arc = match &request.module_selection {
-            ModuleSelection::Current => match self.current_frame_module_arc() {
-                Ok(m) => m,
-                Err(e) => return TableIndexScanResponse::Err(e),
-            },
-            ModuleSelection::Other(_) => {
-                let modules = self.modules.lock();
-                match modules.get(&module_name) {
-                    Some(m) => m.clone(),
-                    None => return TableIndexScanResponse::Err("Module not found".into()),
-                }
-            }
+        let module_arc = match self.selected_module_arc(&request.module_selection) {
+            Ok(m) => m,
+            Err(e) => return TableIndexScanResponse::Err(e),
         };
 
         let rows = {

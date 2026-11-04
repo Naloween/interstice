@@ -6,6 +6,7 @@ use interstice_abi::{IndexKey, IndexQuery, IndexSchema, IndexType, IntersticeTyp
 use std::collections::BTreeMap;
 use wgpu::naga::FastHashMap;
 
+#[derive(Clone)]
 pub struct TableIndex {
     pub field_name: String,
     pub field_index: usize,

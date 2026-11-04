@@ -12,6 +12,7 @@ use interstice_abi::{IndexKey, IndexQuery, Row, TableSchema};
 use std::collections::VecDeque;
 use wgpu::naga::FastHashMap;
 
+#[derive(Clone)]
 pub struct Table {
     pub schema: TableSchema,
     rows: Vec<Row>,
@@ -246,6 +247,18 @@ impl Table {
             .into_iter()
             .filter_map(|pos| self.rows.get(pos))
             .collect())
+    }
+
+    /// A copy that shares nothing with this table (its auto-inc counters
+    /// included), for a record baseline (§6.7).
+    pub fn detached_clone(&self) -> Table {
+        let mut table = self.clone();
+        table.primary_key_auto_inc_counter =
+            table.primary_key_auto_inc_counter.as_ref().map(AutoIncCounter::detached);
+        for index in &mut table.indexes {
+            index.auto_inc_counter = index.auto_inc_counter.as_ref().map(AutoIncCounter::detached);
+        }
+        table
     }
 
     pub fn snapshot_rows(&self) -> Vec<Row> {

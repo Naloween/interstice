@@ -609,7 +609,8 @@ Authorities are typed tokens granting modules access to privileged host function
 
 ## Determinism and concurrency
 
-- Deterministic replay is a design goal: given the same inputs, module versions, and initial state, execution is reproducible.
+- Transactions are deterministic given their inputs: each one has its own id, timestamp and random seed (DESIGN.md §6.5).
+- A module can be recorded and replayed: `call_reducer <node> module_manager record_start <module>`, then `... replay <module>` re-executes the recorded window on a detached copy and checks writes and final state (DESIGN.md §6.7).
 - Reducers are currently processed through a serialized queue in the runtime event loop.
 
 ---
