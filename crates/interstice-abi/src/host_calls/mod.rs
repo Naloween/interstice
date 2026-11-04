@@ -29,6 +29,7 @@ pub enum HostCall {
     Module(ModuleCall),
     Network(NetworkCall),
     CurrentNodeId,
+    Timeline(TimelineCall),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -209,6 +210,64 @@ pub struct TableIndexScanRequest {
 #[derive(Debug, Deserialize, Serialize)]
 pub enum TableIndexScanResponse {
     Ok { rows: Vec<Row> },
+    Err(String),
+}
+
+/// A point of a table's timeline (DESIGN §6.8), resolved against the
+/// committed head.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+pub enum TimelinePoint {
+    /// A node by id (its transaction id); `0` is the base.
+    Commit(u64),
+    /// `n` parents up from the head, clamped to the base.
+    Back(u32),
+    /// `n` steps down, each to the newest child, stopping at a leaf.
+    Forward(u32),
+    /// The deepest ancestor of the head with timestamp `<= ms`, else the base.
+    Time(u64),
+    /// The oldest reachable state.
+    Base,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+pub enum TravelMode {
+    /// Keep the future left behind as a branch.
+    #[default]
+    Branch,
+    /// Drop the branch left behind (undo without redo).
+    Truncate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct TimelineNode {
+    pub id: u64,
+    /// `0` for children of the base.
+    pub parent: u64,
+    pub timestamp_ms: u64,
+    pub ops: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct TimelineInfo {
+    /// `0` when the table is at the base.
+    pub head: u64,
+    /// Every node, by increasing id.
+    pub nodes: Vec<TimelineNode>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum TimelineCall {
+    Info { table_name: String },
+    RowsAt { table_name: String, point: TimelinePoint },
+    Travel { table_name: String, point: TimelinePoint, mode: TravelMode },
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum TimelineResponse {
+    Info(TimelineInfo),
+    Rows(Vec<Row>),
+    /// A travel: the node the table moved to.
+    Travelled(u64),
     Err(String),
 }
 

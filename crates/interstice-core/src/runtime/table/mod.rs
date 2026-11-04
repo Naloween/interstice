@@ -1,8 +1,10 @@
 mod auto_inc;
 mod index;
 mod overlay;
+pub(crate) mod timeline;
 
 pub use overlay::TableOverlay;
+pub use timeline::Timeline;
 
 pub(crate) use auto_inc::{AutoIncCounter, TableAutoIncSnapshot};
 
@@ -25,6 +27,8 @@ pub struct Table {
     /// Event tables: the retention bound and live primary keys, oldest first.
     retention: Option<usize>,
     insertion_order: VecDeque<IndexKey>,
+    /// Timeline tables: the commit tree (§6.8).
+    timeline: Option<Box<Timeline>>,
 }
 
 impl Table {
@@ -57,7 +61,12 @@ impl Table {
         };
 
         let retention = schema.retention.map(|n| n as usize);
+        let timeline = match (schema.timeline, retention) {
+            (Some(n), None) => Some(Box::new(Timeline::new(n as usize))),
+            _ => None,
+        };
         Self {
+            timeline,
             schema,
             retention,
             insertion_order: VecDeque::new(),
@@ -68,6 +77,14 @@ impl Table {
             primary_key_auto_inc_counter,
             version: 0,
         }
+    }
+
+    pub fn timeline(&self) -> Option<&Timeline> {
+        self.timeline.as_deref()
+    }
+
+    pub fn timeline_mut(&mut self) -> Option<&mut Timeline> {
+        self.timeline.as_deref_mut()
     }
 
     #[inline]

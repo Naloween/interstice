@@ -573,3 +573,155 @@ fn op_label(op: &TableAccessOp) -> &'static str {
         TableAccessOp::Delete => "delete",
     }
 }
+
+// ── Timelines (DESIGN §6.8) ──────────────────────────────────────────────────
+
+impl Runtime {
+    pub(crate) fn handle_timeline(
+        &self,
+        caller_module_name: String,
+        call: interstice_abi::TimelineCall,
+    ) -> interstice_abi::TimelineResponse {
+        use interstice_abi::{TimelineCall, TimelineResponse};
+        let result = match call {
+            TimelineCall::Info { table_name } => self
+                .timeline_read(&table_name, |_, timeline| Ok(timeline.info()))
+                .map(TimelineResponse::Info),
+            TimelineCall::RowsAt { table_name, point } => self
+                .timeline_read(&table_name, |table, timeline| {
+                    let to = timeline.resolve(point)?;
+                    let rows = timeline.state_at(table.scan(), to)?;
+                    Ok(crate::runtime::table::timeline::sorted_rows(rows)
+                        .into_iter()
+                        .map(|(_, row)| row)
+                        .collect())
+                })
+                .map(TimelineResponse::Rows),
+            TimelineCall::Travel { table_name, point, mode } => self
+                .timeline_travel(caller_module_name, &table_name, point, mode)
+                .map(TimelineResponse::Travelled),
+        };
+        result.unwrap_or_else(TimelineResponse::Err)
+    }
+
+    /// Run `f` on a timeline table of the current module (committed state).
+    fn timeline_read<R>(
+        &self,
+        table_name: &str,
+        f: impl FnOnce(&crate::runtime::table::Table, &crate::runtime::table::Timeline) -> Result<R, String>,
+    ) -> Result<R, String> {
+        self.ensure_current_frame_table_access(&ModuleSelection::Current, table_name, TableAccessOp::Read)?;
+        let module_arc = self.current_frame_module_arc()?;
+        let tables = Self::read_tables(&module_arc);
+        let table = tables.get(table_name).ok_or("Table not found")?;
+        let timeline = table
+            .timeline()
+            .ok_or_else(|| format!("table '{table_name}' has no timeline"))?;
+        f(table, timeline)
+    }
+
+    /// Stage the writes that turn the table, as this reducer sees it, into
+    /// its state at `point`, followed by the travel marker. All or nothing:
+    /// nothing is staged if any write fails to validate.
+    fn timeline_travel(
+        &self,
+        module_name: String,
+        table_name: &str,
+        point: interstice_abi::TimelinePoint,
+        mode: interstice_abi::TravelMode,
+    ) -> Result<u64, String> {
+        for op in [TableAccessOp::Insert, TableAccessOp::Update, TableAccessOp::Delete] {
+            self.ensure_current_frame_table_access(&ModuleSelection::Current, table_name, op)?;
+        }
+        let module_arc = self.current_frame_module_arc()?;
+        let tables = Self::read_tables(&module_arc);
+        let table = tables.get(table_name).ok_or("Table not found")?;
+        let timeline = table
+            .timeline()
+            .ok_or_else(|| format!("table '{table_name}' has no timeline"))?;
+        let to = timeline.resolve(point)?;
+        let target = timeline.state_at(table.scan(), to)?;
+
+        CALL_STACK.with(|s| {
+            let mut stack = s.borrow_mut();
+            let frame = stack.last_mut().ok_or("No active call frame")?;
+            if frame.kind == CallFrameKind::Query {
+                return Err("Writes are not allowed in query context".to_string());
+            }
+            if frame.transactions.iter().any(
+                |t| matches!(t, Transaction::Travel { table_name: name, .. } if name == table_name),
+            ) {
+                return Err(format!("table '{table_name}' already travelled in this transaction"));
+            }
+            let mut ov = frame
+                .overlays
+                .get(table_name)
+                .cloned()
+                .unwrap_or_else(|| TableOverlay::new(table.version()));
+            let current = table.ov_scan(Some(&ov)).map_err(|e| e.to_string())?;
+
+            // Diff by primary key: deletes, then updates, then inserts, each in
+            // encoded primary key order so the writes are deterministic.
+            let mut target = target;
+            let mut deletes = Vec::new();
+            let mut updates = Vec::new();
+            for row in current {
+                let pk = IndexKey::try_from(&row.primary_key)?;
+                match target.remove(&pk) {
+                    None => deletes.push(pk),
+                    Some(new) => {
+                        let same = interstice_abi::encode(&new).ok() == interstice_abi::encode(&row).ok();
+                        if !same {
+                            updates.push((pk, new));
+                        }
+                    }
+                }
+            }
+            let by_key = |k: &IndexKey| interstice_abi::encode(k).unwrap_or_default();
+            deletes.sort_by_cached_key(by_key);
+            updates.sort_by_cached_key(|(k, _)| by_key(k));
+            let inserts = crate::runtime::table::timeline::sorted_rows(target);
+
+            let mut staged = Vec::new();
+            let fail = |e: crate::IntersticeError| format!("time travel on '{table_name}': {e}");
+            for pk in deletes {
+                table.ov_validate_delete(Some(&ov), &pk).map_err(fail)?;
+                table.ov_record(&mut ov, pk.clone(), None).map_err(fail)?;
+                staged.push(Transaction::Delete {
+                    module_name: module_name.clone(),
+                    table_name: table_name.to_string(),
+                    deleted_row_id: pk,
+                });
+            }
+            for (pk, row) in updates {
+                table.ov_validate_update(Some(&ov), &row).map_err(fail)?;
+                table.ov_record(&mut ov, pk, Some(row.clone())).map_err(fail)?;
+                staged.push(Transaction::Update {
+                    module_name: module_name.clone(),
+                    table_name: table_name.to_string(),
+                    update_row: row,
+                });
+            }
+            for (pk, row) in inserts {
+                table.ov_validate_insert(Some(&ov), &row).map_err(fail)?;
+                table.ov_record(&mut ov, pk, Some(row.clone())).map_err(fail)?;
+                staged.push(Transaction::Insert {
+                    module_name: module_name.clone(),
+                    table_name: table_name.to_string(),
+                    new_row: row,
+                });
+            }
+            staged.push(Transaction::Travel {
+                module_name: module_name.clone(),
+                table_name: table_name.to_string(),
+                to,
+                truncate: matches!(mode, interstice_abi::TravelMode::Truncate),
+            });
+            // The overlay exists from here on, even for an empty diff, so a
+            // concurrent commit to the table is caught at commit time.
+            frame.overlays.insert(table_name.to_string(), ov);
+            frame.transactions.extend(staged);
+            Ok(to)
+        })
+    }
+}

@@ -182,7 +182,8 @@ impl Runtime {
             logger,
             file_watchers: Arc::new(Mutex::new(Vec::new())),
             network_state: Arc::new(NetworkState::new()),
-            tx_counter: AtomicU64::new(0),
+            // Starts at 1: timeline node 0 is the base (§6.8).
+            tx_counter: AtomicU64::new(1),
             last_tx_ms: AtomicU64::new(0),
             active_subscription_count: AtomicI32::new(0),
             timer_tx,

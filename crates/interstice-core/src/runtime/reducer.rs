@@ -376,7 +376,14 @@ impl Runtime {
                 scope: frame.scope.clone(),
             })
         });
-        self.apply_all_transactions(frame.transactions, &frame.overlays, &module, calls, origin)
+        self.apply_all_transactions(
+            frame.transactions,
+            &frame.overlays,
+            &module,
+            calls,
+            origin,
+            (frame.tx.id, frame.tx.timestamp_ms),
+        )
             .inspect_err(|_| {
                 // The instance ran to completion and may have cached what it
                 // just wrote; those writes are now discarded.

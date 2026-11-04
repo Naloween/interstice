@@ -108,6 +108,11 @@ impl Runtime {
                 let result = self.send_data_to_module(response, memory, caller);
                 Ok(Some(result))
             }
+            HostCall::Timeline(call) => {
+                let response = self.handle_timeline(caller_module_schema.name.clone(), call);
+                let result = self.send_data_to_module(response, memory, caller);
+                Ok(Some(result))
+            }
             HostCall::TableIndexScan(request) => {
                 let response = self.handle_table_index_scan(request);
                 let result = self.send_data_to_module(response, memory, caller);

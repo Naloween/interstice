@@ -421,3 +421,46 @@ impl<Caps> HostSchedule for ReducerContext<Caps> {
         schedule(reducer_name.to_string(), delay_ms)
     }
 }
+
+// ── Timelines (DESIGN §6.8) ──────────────────────────────────────────────────
+
+fn timeline_call(call: interstice_abi::TimelineCall) -> interstice_abi::TimelineResponse {
+    unpack(host_call(HostCall::Timeline(call)))
+}
+
+/// The commit tree of a timeline table of the current module.
+pub fn timeline_info(table_name: &str) -> Result<interstice_abi::TimelineInfo, String> {
+    use interstice_abi::{TimelineCall, TimelineResponse};
+    match timeline_call(TimelineCall::Info { table_name: table_name.into() }) {
+        TimelineResponse::Info(info) => Ok(info),
+        TimelineResponse::Err(err) => Err(err),
+        other => Err(format!("unexpected timeline response {other:?}")),
+    }
+}
+
+/// The committed rows of a timeline table at `point`, by primary key.
+pub fn timeline_rows_at(
+    table_name: &str,
+    point: interstice_abi::TimelinePoint,
+) -> Result<Vec<Row>, String> {
+    use interstice_abi::{TimelineCall, TimelineResponse};
+    match timeline_call(TimelineCall::RowsAt { table_name: table_name.into(), point }) {
+        TimelineResponse::Rows(rows) => Ok(rows),
+        TimelineResponse::Err(err) => Err(err),
+        other => Err(format!("unexpected timeline response {other:?}")),
+    }
+}
+
+/// Stage a travel of a timeline table to `point`; returns the target node.
+pub fn timeline_travel(
+    table_name: &str,
+    point: interstice_abi::TimelinePoint,
+    mode: interstice_abi::TravelMode,
+) -> Result<u64, String> {
+    use interstice_abi::{TimelineCall, TimelineResponse};
+    match timeline_call(TimelineCall::Travel { table_name: table_name.into(), point, mode }) {
+        TimelineResponse::Travelled(id) => Ok(id),
+        TimelineResponse::Err(err) => Err(err),
+        other => Err(format!("unexpected timeline response {other:?}")),
+    }
+}

@@ -22,6 +22,7 @@ use crate::runtime::deterministic_random::{FNV_OFFSET, Tx, fnv1a};
 use crate::runtime::module::Module;
 use crate::runtime::reducer::{CALL_STACK, CallFrame, CallFrameKind, ReducerTableAccess};
 use crate::runtime::table::Table;
+use crate::runtime::table::timeline::{TimelineCommit, TimelineOp};
 use crate::runtime::transaction::Transaction;
 
 /// Records kept before the oldest is folded into the baseline.
@@ -66,6 +67,9 @@ pub enum Origin {
 pub struct CommitRecord {
     pub origin: Origin,
     pub writes: Vec<Transaction>,
+    /// The transaction's id and timestamp: timelines key commits by them.
+    /// `(0, 0)` for writes outside a transaction (replicas: no timeline).
+    pub tx: (u64, u64),
 }
 
 pub struct Recorder {
@@ -159,17 +163,22 @@ impl Module {
 
     /// Log a commit. The caller holds the table write lock and has applied
     /// `writes`, so log order is commit order.
-    pub(crate) fn record_commit_locked(&self, origin: Option<PendingOrigin>, writes: Vec<Transaction>) {
+    pub(crate) fn record_commit_locked(
+        &self,
+        origin: Option<PendingOrigin>,
+        writes: Vec<Transaction>,
+        tx: (u64, u64),
+    ) {
         let mut guard = self.recorder.lock();
         let Some(recorder) = guard.as_mut() else { return };
         let origin = match origin {
             Some(o) if o.generation == recorder.generation => Origin::Reducer(Box::new(o.record)),
             _ => Origin::External,
         };
-        recorder.log.push_back(CommitRecord { origin, writes });
+        recorder.log.push_back(CommitRecord { origin, writes, tx });
         while recorder.log.len() > recorder.window {
             let oldest = recorder.log.pop_front().unwrap();
-            if let Err(err) = apply_writes(&mut recorder.baseline, &oldest.writes) {
+            if let Err(err) = apply_writes(&mut recorder.baseline, &oldest.writes, oldest.tx) {
                 // The baseline no longer rebuilds the live state.
                 self.recording.store(0, Ordering::Release);
                 *guard = None;
@@ -188,6 +197,7 @@ impl Module {
 pub(crate) fn apply_writes(
     tables: &mut HashMap<String, Table>,
     writes: &[Transaction],
+    tx: (u64, u64),
 ) -> Result<(), IntersticeError> {
     fn table<'a>(
         tables: &'a mut HashMap<String, Table>,
@@ -199,25 +209,49 @@ pub(crate) fn apply_writes(
             table_name: table_name.into(),
         })
     }
+    let mut timeline = TimelineCommit::default();
     for write in writes {
         match write {
             Transaction::Insert { module_name, table_name, new_row } => {
-                table(tables, module_name, table_name)?.insert_trusted(new_row.clone())?;
+                let t = table(tables, module_name, table_name)?;
+                if t.timeline().is_some() {
+                    timeline.op(table_name, TimelineOp::Insert(new_row.clone()));
+                }
+                t.insert_trusted(new_row.clone())?;
             }
             Transaction::Update { module_name, table_name, update_row } => {
-                table(tables, module_name, table_name)?.update(update_row.clone())?;
+                let t = table(tables, module_name, table_name)?;
+                let old = t.update(update_row.clone())?;
+                if t.timeline().is_some() {
+                    timeline.op(table_name, TimelineOp::Update { old, new: update_row.clone() });
+                }
             }
             Transaction::Delete { module_name, table_name, deleted_row_id } => {
-                let _ = table(tables, module_name, table_name)?.delete(deleted_row_id);
+                let t = table(tables, module_name, table_name)?;
+                if let Ok(old) = t.delete(deleted_row_id) {
+                    if t.timeline().is_some() {
+                        timeline.op(table_name, TimelineOp::Delete(old));
+                    }
+                }
             }
             Transaction::Clear { module_name, table_name } => {
-                table(tables, module_name, table_name)?.clear();
+                let t = table(tables, module_name, table_name)?;
+                if t.timeline().is_some() {
+                    for old in t.snapshot_rows() {
+                        timeline.op(table_name, TimelineOp::Delete(old));
+                    }
+                }
+                t.clear();
+            }
+            Transaction::Travel { table_name, to, truncate, .. } => {
+                timeline.travel(table_name, *to, *truncate);
             }
         }
     }
     for table in tables.values_mut() {
         table.enforce_retention();
     }
+    timeline.finish(tables, tx.0, tx.1);
     Ok(())
 }
 
@@ -275,6 +309,8 @@ pub(crate) fn boundary_for(call: &HostCall) -> Option<Boundary> {
             HostCall::TableScan(r) => own(&r.module_selection),
             HostCall::TableGetByPrimaryKey(r) => own(&r.module_selection),
             HostCall::TableIndexScan(r) => own(&r.module_selection),
+            // Always the module's own tables.
+            HostCall::Timeline(_) => true,
             _ => false,
         };
         (!internal).then_some(boundary)
@@ -295,6 +331,7 @@ pub(crate) fn host_call_kind(call: &HostCall) -> &'static str {
         HostCall::Module(_) => "module",
         HostCall::Network(_) => "network",
         HostCall::CurrentNodeId => "current_node_id",
+        HostCall::Timeline(_) => "timeline",
     }
 }
 
@@ -439,7 +476,7 @@ impl Runtime {
                     return Err(at(why));
                 }
             }
-            apply_writes(&mut copy.tables.write(), &record.writes)
+            apply_writes(&mut copy.tables.write(), &record.writes, record.tx)
                 .map_err(|e| at(format!("logged writes no longer apply: {e}")))?;
         }
 

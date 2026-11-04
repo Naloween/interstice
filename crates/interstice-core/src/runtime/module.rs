@@ -519,6 +519,8 @@ impl Runtime {
 
             let mut local_schema = remote_table.clone();
             local_schema.name = local_table_name.clone();
+            // A replica mirrors rows; it has no commits of its own to travel.
+            local_schema.timeline = None;
             module
                 .tables
                 .write()

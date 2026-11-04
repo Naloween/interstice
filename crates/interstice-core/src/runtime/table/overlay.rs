@@ -18,7 +18,7 @@ use crate::IntersticeError;
 use interstice_abi::{IndexKey, IndexQuery, Row};
 use wgpu::naga::FastHashMap;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TableOverlay {
     /// `Table::version()` when the overlay was created. If the committed
     /// table still has this version at commit time, every validation done
@@ -328,6 +328,7 @@ mod tests {
             ],
             persistence: PersistenceKind::Ephemeral,
             retention: None,
+            timeline: None,
         })
     }
 

@@ -6,6 +6,8 @@ use crate::index_key::validate_index_key_type;
 
 /// Rows kept by a bare `#[table(event)]`.
 const DEFAULT_EVENT_RETENTION: u64 = 256;
+/// `#[table(timeline)]` keeps this many commits (DESIGN §6.8).
+const DEFAULT_TIMELINE_CAPACITY: u64 = 1024;
 
 pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemStruct);
@@ -50,6 +52,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut persistence = quote! { interstice_sdk::PersistenceKind::Logged };
     let mut explicit_persistence = false;
     let mut retention: Option<u64> = None;
+    let mut timeline: Option<u64> = None;
 
     for arg in args.iter() {
         match arg {
@@ -90,15 +93,37 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                     Err(e) => return e.into_compile_error().into(),
                 }
             }
+            // `timeline`: keep a travelable commit tree (DESIGN §6.8).
+            Meta::Path(nv) if nv.is_ident("timeline") => {
+                timeline = Some(DEFAULT_TIMELINE_CAPACITY);
+            }
+            Meta::NameValue(nv) if nv.path.is_ident("timeline") => {
+                let n = match &nv.value {
+                    syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(i), .. }) => i.base10_parse::<u64>(),
+                    other => Err(syn::Error::new_spanned(other, "expected an integer: `timeline = 256`")),
+                };
+                match n {
+                    Ok(n) if n > 0 => timeline = Some(n),
+                    Ok(_) => {
+                        return syn::Error::new_spanned(&nv.value, "a timeline must keep at least one commit")
+                            .into_compile_error()
+                            .into();
+                    }
+                    Err(e) => return e.into_compile_error().into(),
+                }
+            }
             other => {
                 return syn::Error::new_spanned(
                     other,
-                    "invalid table attribute: expected `public`, `private`, `ephemeral`, `stateful`, `logged`, `event` or `event = N`",
+                    "invalid table attribute: expected `public`, `private`, `ephemeral`, `stateful`, `logged`, `event`, `event = N`, `timeline` or `timeline = N`",
                 )
                 .into_compile_error()
                 .into();
             }
         }
+    }
+    if retention.is_some() && timeline.is_some() {
+        return quote! { compile_error!("`event` tables cannot have a timeline"); }.into();
     }
     if retention.is_some() {
         if explicit_persistence {
@@ -107,6 +132,11 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         persistence = quote! { interstice_sdk::PersistenceKind::Ephemeral };
     }
     let retention = match retention {
+        Some(n) => quote! { Some(#n) },
+        None => quote! { None },
+    };
+    let has_timeline = timeline.is_some();
+    let timeline = match timeline {
         Some(n) => quote! { Some(#n) },
         None => quote! { None },
     };
@@ -408,6 +438,62 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         #(#index_read_methods)*
     };
 
+    // Timeline tables: inspect the commit tree and read past states.
+    let timeline_read_imp = if has_timeline {
+        quote! {
+            /// The commit tree of this table (committed state).
+            pub fn timeline(&self) -> Result<interstice_sdk::TimelineInfo, String>
+            where
+                Caps: interstice_sdk::CanRead<#struct_ident>,
+            {
+                interstice_sdk::host_calls::timeline_info(#table_name)
+            }
+
+            /// The committed rows of this table at `point`, by primary key.
+            pub fn rows_at(&self, point: interstice_sdk::TimelinePoint) -> Result<Vec<#struct_ident>, String>
+            where
+                Caps: interstice_sdk::CanRead<#struct_ident>,
+            {
+                interstice_sdk::host_calls::timeline_rows_at(#table_name, point)?
+                    .into_iter()
+                    .map(|row| row.try_into())
+                    .collect()
+            }
+        }
+    } else {
+        quote! {}
+    };
+    let timeline_edit_imp = if has_timeline {
+        quote! {
+            /// Travel to `point`, keeping the abandoned future as a branch.
+            /// Returns the node the table moves to on commit.
+            pub fn travel(&self, point: interstice_sdk::TimelinePoint) -> Result<u64, String>
+            where
+                Caps: interstice_sdk::CanInsert<#struct_ident>
+                    + interstice_sdk::CanUpdate<#struct_ident>
+                    + interstice_sdk::CanDelete<#struct_ident>,
+            {
+                self.travel_with(point, interstice_sdk::TravelMode::Branch)
+            }
+
+            /// Travel to `point` with an explicit [`interstice_sdk::TravelMode`].
+            pub fn travel_with(
+                &self,
+                point: interstice_sdk::TimelinePoint,
+                mode: interstice_sdk::TravelMode,
+            ) -> Result<u64, String>
+            where
+                Caps: interstice_sdk::CanInsert<#struct_ident>
+                    + interstice_sdk::CanUpdate<#struct_ident>
+                    + interstice_sdk::CanDelete<#struct_ident>,
+            {
+                interstice_sdk::host_calls::timeline_travel(#table_name, point, mode)
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     quote! {
         #[interstice_type]
         #output_struct
@@ -547,6 +633,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 indexes: vec![#(#index_schemas),*],
                 persistence: #persistence,
                 retention: #retention,
+                timeline: #timeline,
             }
         }
         #[interstice_sdk::init]
@@ -600,10 +687,13 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 )
             }
 
+            #timeline_edit_imp
+
         }
 
         impl<Caps> #table_edit_handle_struct<Caps> {
             #read_table_imp
+            #timeline_read_imp
         }
 
         pub struct #table_read_handle_struct<Caps>{
@@ -612,6 +702,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
 
         impl<Caps> #table_read_handle_struct<Caps> {
             #read_table_imp
+            #timeline_read_imp
         }
 
         pub trait #has_table_edit_handle_trait<Caps> {

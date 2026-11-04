@@ -18,6 +18,10 @@ pub struct TableSchema {
     /// without delete events. Always ephemeral.
     #[serde(default)]
     pub retention: Option<u64>,
+    /// Timeline tables (`#[table(timeline = N)]`): keep the last `N` commits
+    /// as a tree the module can travel (DESIGN §6.8).
+    #[serde(default)]
+    pub timeline: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]

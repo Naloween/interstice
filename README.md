@@ -611,6 +611,7 @@ Authorities are typed tokens granting modules access to privileged host function
 
 - Transactions are deterministic given their inputs: each one has its own id, timestamp and random seed (DESIGN.md §6.5).
 - A module can be recorded and replayed: `call_reducer <node> module_manager record_start <module>`, then `... replay <module>` re-executes the recorded window on a detached copy and checks writes and final state (DESIGN.md §6.7).
+- Tables can time travel: `#[table(timeline = N)]` keeps a tree of the table's commits, and a reducer can read any past state (`rows_at`) or move the table there (`travel`, as one ordinary atomic write). The next commit starts a branch, so undo/redo and rewinds come for free (DESIGN.md §6.8; see the `hello` example's `undo`/`redo`).
 - Reducers are currently processed through a serialized queue in the runtime event loop.
 
 ---
@@ -628,7 +629,7 @@ The detailed, design-level TODO list (engine semantics, storage, security, SDK, 
 - Network authority — done: raw TCP/UDP sockets, plus a default `network` broker module (TCP + DNS + HTTP) that holds the authority and shares it across apps
 - Better Audio authority and host calls
 - Table views and row-level security: allow modules to filter rows based on runtime state and requesting node id. NOTE: the `network` broker currently stamps each result row with an `owner` and apps filter client-side; once table views exist, move this to runtime-enforced per-app visibility so apps can't read each other's traffic
-- Time travel host call: should be able to time travel some table, creating timelines and branches (reason: very cool and allow easy time-related effects in games and apps in general). There should be several kind of travels changing the behavior of branching, what is saved and what not etc...
+- Time travel — done: `#[table(timeline = N)]` tables keep a commit tree; reducers read past states and travel (branch or truncate), atomically and replayably (DESIGN.md §6.8). Open: travel kinds that keep chosen rows, persisted timelines
 - Bundles to ship nodes as a whole program
 - Table migrations and schema evolution without data loss
 - Iter-based table scans and more efficient index access

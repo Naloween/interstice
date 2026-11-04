@@ -95,6 +95,9 @@ pub struct Tab {
   Eviction runs after the whole batch, so a reducer that inserts then updates
   an event row never sees it vanish mid-commit. `network`'s result tables are
   event tables.
+- **Timelines.** `timeline = N` (bare `timeline`: 1024) keeps the table's last
+  `N` commits as a tree, so a reducer can travel the table back and forth in
+  time and branch from the past. See §6.8. Not allowed on event tables.
 
 ### 3.2 Persistence modes
 
@@ -650,6 +653,124 @@ replay, so a request carrying a blob id has the same digest.
 - A commit that fails halfway leaves its earlier ops applied (a
   pre-existing hazard). Replay reports it as a final-state mismatch.
 
+### 6.8 Time travel
+
+A table declared with `timeline = N` keeps its commit history as a tree. A
+reducer can move the table to any point of that tree. The next commit after
+the move starts a new *branch*, and the future it left stays reachable. Uses:
+undo and redo, game rewind and "ghost" effects, what-if branches.
+
+**The tree** (`Table::timeline`, in memory):
+- Each commit that changes the table adds a node: its id is the
+  transaction id, plus its parent, the `Tx` timestamp, and its ops.
+- An op holds before and after images: `Insert(row)`, `Update(old, new)`,
+  `Delete(old)`. A clear becomes one `Delete` per row.
+- Node `0` is the *base*: the oldest state still reachable. Transaction ids
+  start at 1, so no real node is `0`.
+- `head` is the node the table's current rows correspond to.
+- Only the head's state is stored (the table itself). Any other node's state
+  is computed by undoing ops from the head up to the common ancestor, then
+  redoing ops down to the target.
+
+**Points** (`TimelinePoint`), resolved against the committed head:
+- `Commit(id)`: that node, or `0` for the base. An error if it isn't in the
+  tree.
+- `Back(n)`: `n` parents up from the head, clamped to the base.
+- `Forward(n)`: `n` steps down, each to the most recently committed
+  child, stopping at a leaf.
+- `Time(ms)`: the deepest ancestor of the head (the head included) whose
+  timestamp is `<= ms`, else the base. This is "the table as it was at `ms`
+  on this branch".
+- `Base`.
+
+**Calls** (`HostCall::Timeline`, on the module's own tables only):
+- `info(table)` gives the committed head and every node (id, parent,
+  timestamp, op count). Needs read access.
+- `rows_at(table, point)` gives the rows at a point without moving.
+  Needs read access.
+- `travel(table, point, mode)` moves the table, in a reducer only. It needs
+  insert, update and delete access, because it writes all three.
+
+**How a travel commits.** It is an ordinary write, so the transaction stays
+atomic and everything downstream works unchanged:
+1. Compute the rows at the target (above), then diff them by primary key
+   against the reducer's current view (committed rows plus its earlier
+   writes).
+2. Stage the diff through the usual overlay: deletes, then updates, then
+   inserts, each in primary-key order. Subscribers get normal
+   insert/update/delete events, persistence writes the rows, replicas
+   follow.
+3. Stage a marker, `Transaction::Travel { table, to, truncate }`. It changes
+   no rows.
+4. At commit, the table's ops are collected per table. A marker discards the
+   ops collected before it for that table: they were the reducer's earlier
+   writes plus the diff, whose net effect is exactly the target state. The
+   marker then sets `head = to`. Ops after the marker become this
+   transaction's node, as a child of `to`. That is the new branch.
+
+**Modes** (`TravelMode`):
+- `Branch` (the default) keeps everything.
+- `Truncate` drops the branch left behind: the subtree, under the common
+  ancestor of `to` and the old head, that holds the old head. This is undo
+  without redo. Travelling forward drops nothing.
+
+**Rules:**
+- One travel per table per transaction; a second one is an error. Writes
+  before and after it are fine.
+- A travel's diff is computed against one committed head. If the table
+  changed before the commit (the batch is stale), a batch containing a
+  marker is rejected as a conflict instead of being revalidated.
+- A diff that can't be staged (a unique index clash while rows swap values)
+  fails the call, and nothing of it is staged: the diff is validated on a
+  copy of the overlay first.
+- The table's overlay exists after a travel even when the diff is empty,
+  so a concurrent commit to the table is still detected.
+- Rows keep their primary keys on travel, auto-inc ones included. Counters
+  only move up.
+
+**Retention.** After a commit, while the tree holds more than `N` nodes, the
+base is folded forward:
+- If the head isn't the base: drop every subtree of the base except the one
+  holding the head; if that is not enough, merge the base's child on the
+  head's path into the base. That child's ops are forgotten, and its
+  children become the base's.
+- If the head is the base: drop the base's oldest child subtree.
+
+The oldest history goes first, and branches forked before the window go with
+it. Every remaining node stays reachable from the head.
+
+**SDK.** `#[table(timeline)]` (1024 commits) or `#[table(timeline = N)]`;
+not with `event`. The table handle then has `timeline()` and
+`rows_at(point)` (with `CanRead`), and `travel(point)` and
+`travel_with(point, mode)` (with `CanInsert + CanUpdate + CanDelete`). The
+`hello` example keeps undoable notes this way (`note`, `erase`, `undo`,
+`redo`, `rewind`, `show_notes`).
+
+**Record and replay** (§6.7):
+- The timeline belongs to the table, so the record baseline (a table clone)
+  carries it.
+- Timeline calls read the module's own state, so they are reproduced, not
+  logged.
+- Commits are recorded with their transaction id and timestamp, and
+  `apply_writes` runs the same per-commit bookkeeping as a live commit
+  (`TimelineCommit`). Baseline, replay copy and live tree therefore evolve
+  identically.
+
+**Why this causes no regressions:**
+- Tables without `timeline` skip all of it: one `Option` check per write at
+  commit.
+- `TableSchema` gains a `timeline` field, so ABI 10 (every module rebuilds).
+- Transaction ids start at 1 instead of 0. They are only used as seeds and
+  blob-id prefixes, which only need uniqueness.
+- The `Travel` marker is new, so existing batches are unchanged. Replica
+  application never sees it.
+
+**Status / limits:**
+- History is in memory only. After a restart, the timeline starts from the
+  loaded state.
+- Replicas of a timeline table don't carry its timeline.
+- `rows_at` and `travel` cost O(table rows + ops on the path).
+
 ---
 
 ## 7. Cross-module and cross-node interaction
@@ -966,14 +1087,11 @@ Nested transactions were rejected:
 ### 11.4 Replay and time travel
 
 The building block is in place: transactions are deterministic given their
-inputs (§6.5), and record and replay is done (§6.7). What remains is time
-travel.
+inputs (§6.5), record and replay is done (§6.7), and so are table
+timelines with branches (§6.8).
 
-**Time travel** (README roadmap): modules opt selected tables into a
-*timeline*, keeping their commit-tagged history. A host call rewinds those
-tables to an earlier commit or timestamp. The next commit then starts a new
-*branch* and the old future stays reachable. Different travel kinds decide
-what is kept (state only, or inputs for re-simulation through replay).
+Open: travel kinds that keep *inputs* for re-simulation (rewind, then
+re-run recorded reducers with a change), and persisting timelines.
 
 ### 11.5 Schema evolution
 
@@ -1093,8 +1211,8 @@ but explicitly out of scope for now.
       outbox.
 - [x] **Record and replay** (§6.7): an opt-in log of everything that enters a
       module; replay on a detached copy that checks writes and final state.
-- [ ] **Time travel**: timelines/branches of selected tables (README
-      roadmap), building on determinism.
+- [x] **Time travel** (§6.8): `#[table(timeline = N)]` keeps a commit tree;
+      `travel` / `rows_at` / `info`, with branches and truncation.
 - [ ] **Iterator-based scans** and cheaper index access (no full `Vec`
       materialisation per scan).
 
