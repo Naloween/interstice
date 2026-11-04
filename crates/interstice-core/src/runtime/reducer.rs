@@ -15,7 +15,6 @@ use tokio::sync::oneshot;
 
 use crate::network::protocol::NetworkPacket;
 use crate::runtime::blob::BlobScope;
-use crate::runtime::record::{FrameMode, PendingOrigin, RecordCapture};
 use crate::runtime::table::Table;
 
 /// A pinned read lock on one module's tables, held by the outermost query
@@ -171,8 +170,6 @@ pub struct CallFrame {
     pub outbox: Vec<OutboxEntry>,
     /// Read locks pinned by the outermost query frame, per module.
     pub pins: HashMap<String, TablesPin>,
-    /// Record/replay mode; only a root frame's is used (DESIGN §6.7).
-    pub mode: crate::runtime::record::FrameMode,
 }
 
 impl CallFrame {
@@ -198,7 +195,6 @@ impl CallFrame {
             scope,
             outbox: Vec::new(),
             pins: HashMap::new(),
-            mode: Default::default(),
         }
     }
 }
@@ -312,7 +308,7 @@ impl Runtime {
         let table_access = ReducerTableAccess::from_schema(reducer_schema);
         let tx = self.begin_tx(module_name, reducer_name, CallFrameKind::Reducer);
         let scope = BlobScope::new(parent_scope);
-        let mut frame = CallFrame::new(
+        let frame = CallFrame::new(
             module_name.into(),
             reducer_name.into(),
             module.clone(),
@@ -321,10 +317,6 @@ impl Runtime {
             table_access,
             scope,
         );
-        let generation = module.recording_generation();
-        if generation != 0 {
-            frame.mode = FrameMode::Record(Box::new(RecordCapture::new(generation)));
-        }
         CALL_STACK.with(|s| s.borrow_mut().push(frame));
 
         // ── WASM execution ───────────────────────────────────────────────────
@@ -333,27 +325,15 @@ impl Runtime {
             caller_module_name.to_string(),
             module.state_epoch(),
         );
-        let (input, call_result) = match interstice_abi::encode(&(reducer_context, args)) {
-            Ok(input) => {
-                let result = module.call_reducer_encoded(reducer_name, &input);
-                (input, result)
-            }
-            Err(err) => (
-                Vec::new(),
-                Err(IntersticeError::Internal(format!(
-                    "failed to serialize reducer arguments: {err}"
-                ))),
-            ),
+        let call_result = match interstice_abi::encode(&(reducer_context, args)) {
+            Ok(input) => module.call_reducer_encoded(reducer_name, &input),
+            Err(err) => Err(IntersticeError::Internal(format!(
+                "failed to serialize reducer arguments: {err}"
+            ))),
         };
         let frame = CALL_STACK.with(|s| s.borrow_mut().pop().unwrap());
         // On error the outbox is dropped with the writes.
         call_result?;
-        let origin = match frame.mode {
-            FrameMode::Record(capture) => {
-                Some(PendingOrigin::new(*capture, reducer_name, input, tx))
-            }
-            _ => None,
-        };
 
         // ── Commit, then release the outbox in commit order ──────────────────
         let mut locals = Vec::new();
@@ -381,7 +361,6 @@ impl Runtime {
             &frame.overlays,
             &module,
             calls,
-            origin,
             (frame.tx.id, frame.tx.timestamp_ms),
         )
             .inspect_err(|_| {
@@ -401,9 +380,8 @@ impl Runtime {
 
     /// Fix the inputs of a new transaction (DESIGN §6.5).
     pub(crate) fn begin_tx(&self, module_name: &str, entry_name: &str, kind: CallFrameKind) -> Tx {
-        use crate::runtime::deterministic_random::{monotonic_ms, seed_from_call, wall_clock_ms};
-        let id = self.tx_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let timestamp_ms = monotonic_ms(&self.last_tx_ms, wall_clock_ms());
+        use crate::runtime::deterministic_random::{seed_from_call, wall_clock_ms};
+        let (id, timestamp_ms) = self.tx_clock.next(wall_clock_ms());
         let rng_state = seed_from_call(&self.network_handle.node_id, module_name, entry_name, kind, id);
         Tx::new(id, timestamp_ms, rng_state)
     }

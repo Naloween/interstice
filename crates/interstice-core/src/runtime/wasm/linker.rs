@@ -65,10 +65,7 @@ pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> 
             let runtime = caller.data().runtime.clone();
             let mut buf = vec![0u8; len.max(0) as usize];
             if memory.read(&mut caller, (ptr as u32) as usize, &mut buf).is_ok() {
-                let mut msg = String::from_utf8_lossy(&buf).into_owned();
-                if crate::runtime::record::in_replay() {
-                    msg.insert_str(0, "[replay] ");
-                }
+                let msg = String::from_utf8_lossy(&buf).into_owned();
                 runtime.handle_log(module_name, interstice_abi::LogRequest { message: msg });
             }
         },
@@ -126,7 +123,7 @@ pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> 
         "interstice",
         "interstice_blob_len",
         |_caller: Caller<'_, StoreState>, id: i64| -> i64 {
-            crate::runtime::blob::resolve_blob_for_guest(id as u64).map_or(-1, |b| b.len() as i64)
+            crate::runtime::blob::resolve_blob(id as u64).map_or(-1, |b| b.len() as i64)
         },
     )?;
 
@@ -139,7 +136,7 @@ pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> 
             let Some(wasmtime::Extern::Memory(memory)) = caller.get_export("memory") else {
                 return -1;
             };
-            let Some(blob) = crate::runtime::blob::resolve_blob_for_guest(id as u64) else {
+            let Some(blob) = crate::runtime::blob::resolve_blob(id as u64) else {
                 return -1;
             };
             let offset = (offset.max(0) as usize).min(blob.len());

@@ -53,7 +53,7 @@ pub struct Tx {
 }
 
 /// Blob ids made by nested frames (queries the transaction called) have
-/// this bit set, so the root frame's ids don't depend on them (§6.7).
+/// this bit set, so the root frame's ids don't depend on them.
 const NESTED_BLOB_BIT: u64 = 1 << 23;
 
 impl Tx {
@@ -61,7 +61,7 @@ impl Tx {
         Self { id, timestamp_ms, rng_state, blobs: 0, nested_blobs: 0 }
     }
 
-    /// The next blob id of this transaction: `(id << 24) | n` (DESIGN §6.7).
+    /// The next blob id of this transaction: `(id << 24) | n`.
     pub fn next_blob_id(&mut self, nested: bool) -> u64 {
         let n = if nested {
             self.nested_blobs += 1;
@@ -72,17 +72,38 @@ impl Tx {
         };
         (self.id << 24) | n
     }
-
-    /// Whether the root frame of this transaction created blob `id`.
-    pub fn root_created_blob(&self, id: u64) -> bool {
-        id >> 24 == self.id && id & NESTED_BLOB_BIT == 0
-    }
 }
 
-/// Wall-clock ms, clamped so it never goes below `last` (which it raises).
-pub(crate) fn monotonic_ms(last: &std::sync::atomic::AtomicU64, now_ms: u64) -> u64 {
-    let prev = last.fetch_max(now_ms, std::sync::atomic::Ordering::AcqRel);
-    prev.max(now_ms)
+/// Hands out transaction ids and timestamps together, under one lock, so a
+/// timestamp never decreases as ids grow: a cut of a log by time is also a
+/// cut by id (DESIGN §6.5, §6.7).
+#[derive(Debug)]
+pub(crate) struct TxClock {
+    /// `(next id, last timestamp)`. Ids start at 1: `0` means "no commit".
+    state: parking_lot::Mutex<(u64, u64)>,
+}
+
+impl TxClock {
+    pub fn new() -> Self {
+        Self { state: parking_lot::Mutex::new((1, 0)) }
+    }
+
+    /// A new `(id, timestamp_ms)`: the wall clock, clamped so it never goes
+    /// below an earlier one.
+    pub fn next(&self, now_ms: u64) -> (u64, u64) {
+        let mut state = self.state.lock();
+        let id = state.0;
+        state.0 += 1;
+        state.1 = state.1.max(now_ms);
+        (id, state.1)
+    }
+
+    /// Continue above a restored log's largest id and timestamp.
+    pub fn advance_past(&self, (id, timestamp_ms): (u64, u64)) {
+        let mut state = self.state.lock();
+        state.0 = state.0.max(id + 1);
+        state.1 = state.1.max(timestamp_ms);
+    }
 }
 
 pub(crate) fn wall_clock_ms() -> u64 {
@@ -103,13 +124,16 @@ pub(crate) fn next_u64(state: &mut u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::AtomicU64;
 
     #[test]
     fn transaction_clock_never_goes_back() {
-        let last = AtomicU64::new(0);
-        assert_eq!(monotonic_ms(&last, 100), 100);
-        assert_eq!(monotonic_ms(&last, 90), 100);
-        assert_eq!(monotonic_ms(&last, 120), 120);
+        let clock = TxClock::new();
+        assert_eq!(clock.next(100), (1, 100));
+        assert_eq!(clock.next(90), (2, 100));
+        assert_eq!(clock.next(120), (3, 120));
+        clock.advance_past((10, 500));
+        assert_eq!(clock.next(130), (11, 500));
+        clock.advance_past((4, 0));
+        assert_eq!(clock.next(600), (12, 600));
     }
 }

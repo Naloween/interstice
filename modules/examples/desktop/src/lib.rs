@@ -8,7 +8,7 @@ interstice_module!(visibility: Public);
 // surface, composited here into windows), the input *router* (each app gets
 // the pointer in its own coordinates and the keyboard only when focused), and
 // a client of `module_manager` (apps are registered wasm blobs, loaded and
-// unloaded at runtime, recorded and replayed).
+// unloaded at runtime).
 //
 // The example wasms are baked in because bytes can't ride a CLI string
 // argument. `build_modules.bash` builds them before this module.
@@ -147,8 +147,6 @@ pub struct Window {
     /// Current pixel size of the surface, to resize only on change.
     surf_w: u32,
     surf_h: u32,
-    /// The app is being recorded (the ● button).
-    recording: bool,
 }
 
 /// Singleton desktop bookkeeping. `focus` and `captured` mirror what was last
@@ -237,21 +235,6 @@ where
     let _ = ctx.current.tables.prevmouse().insert(PrevMouse { id: 0, left_down: false });
 }
 
-/// A replay finished: show its outcome in the top bar.
-#[reducer(on = "module_manager.replayreport.insert")]
-pub fn on_replay_report<Caps>(ctx: ReducerContext<Caps>, report: ReplayReport) -> Result<(), String>
-where
-    Caps: CanRead<Toast> + CanInsert<Toast> + CanUpdate<Toast>,
-{
-    let first = report.message.lines().next().unwrap_or("").to_string();
-    let text = if report.ok {
-        format!("Replay of {} reproduced the live state: {first}", report.module)
-    } else {
-        format!("Replay of {} diverged: {first}", report.module)
-    };
-    toast(&ctx, text, report.ok)
-}
-
 /// A load finished. Loads compile in the background, so a failure (e.g.
 /// agar-client while agar-server isn't running) arrives here, later: close
 /// the app's window, as its close box would, and say why.
@@ -272,14 +255,11 @@ where
     toast(&ctx, first, false)
 }
 
-/// Give back what a window holds outside the desktop's tables: its
-/// recording, input route, surface and layers. The caller unloads the app
+/// Give back what a window holds outside the desktop's tables: its input
+/// route, surface and layers. The caller unloads the app
 /// (unless the load already failed) and deletes the `Window` row.
 fn release_window<Caps>(ctx: &ReducerContext<Caps>, win: &Window) {
     let g = ctx.graphics();
-    if win.recording {
-        let _ = ctx.module_manager().reducers.record_stop(win.app_name.clone());
-    }
     let _ = ctx.input().reducers.remove_input_route(win.app_name.clone());
     let _ = g.reducers.assign_module_surface(win.app_name.clone(), 0);
     let _ = g.reducers.destroy_surface(win.surface_id);
@@ -354,7 +334,6 @@ where
     let mut closed_id: Option<u32> = None;
     let mut open_app: Option<&'static AppSpec> = None;
     let mut toggle_service: Option<&'static AppSpec> = None;
-    let mut record_toggle: Option<u32> = None;
     if pressed_edge {
         if in_rect(mx, my, 8.0, 4.0, 80.0, TOPBAR_H - 8.0) {
             state.show_launcher = !state.show_launcher;
@@ -380,8 +359,6 @@ where
                 let on_titlebar = my < win.y + TITLEBAR_H;
                 if on_titlebar && in_rect(mx, my, close_box(win).0, win.y, TITLEBAR_H, TITLEBAR_H) {
                     closed_id = Some(win.id);
-                } else if on_titlebar && in_rect(mx, my, rec_box(win).0, win.y, TITLEBAR_H, TITLEBAR_H) {
-                    record_toggle = Some(win.id);
                 } else if in_rect(
                     mx,
                     my,
@@ -452,7 +429,6 @@ where
                 h: wh,
                 surf_w: cw,
                 surf_h: ch,
-                recording: false,
             });
             state.next_z += 1;
         }
@@ -476,23 +452,6 @@ where
         } else {
             let _ = mm.reducers.load_app(app.name.to_string());
             toast(&ctx, format!("Started {}", app.name), true)?;
-        }
-    }
-
-    // --- Record / replay (the ● button) --------------------------------------------
-    if let Some(id) = record_toggle {
-        if let Some(win) = windows.iter_mut().find(|w| w.id == id) {
-            if win.recording {
-                // Replay what was recorded on a detached copy; the outcome
-                // comes back as a ReplayReport (see `on_replay_report`).
-                let _ = mm.reducers.replay(win.app_name.clone());
-                let _ = mm.reducers.record_stop(win.app_name.clone());
-                toast(&ctx, format!("Replaying {}…", win.app_name), true)?;
-            } else {
-                let _ = mm.reducers.record_start(win.app_name.clone());
-                toast(&ctx, format!("Recording {}: click ● again to replay it", win.app_name), true)?;
-            }
-            win.recording = !win.recording;
         }
     }
 
@@ -635,10 +594,6 @@ fn close_box(win: &Window) -> (f32, f32) {
     (win.x + win.w - TITLEBAR_H, win.y)
 }
 
-fn rec_box(win: &Window) -> (f32, f32) {
-    (win.x + win.w - 2.0 * TITLEBAR_H, win.y)
-}
-
 fn in_rect(px: f32, py: f32, x: f32, y: f32, w: f32, h: f32) -> bool {
     px >= x && px <= x + w && py >= y && py <= y + h
 }
@@ -693,7 +648,7 @@ fn draw_background<Caps>(ctx: &ReducerContext<Caps>, sw: f32, sh: f32) {
     text(
         ctx,
         DESKTOP_LAYER,
-        "Every app is a module: composited surfaces, routed input, loaded at runtime, recorded and replayed.",
+        "Every app is a module: composited surfaces, routed input, loaded at runtime.",
         40.0,
         sh - 56.0,
         14.0,
@@ -717,14 +672,6 @@ fn draw_window<Caps>(ctx: &ReducerContext<Caps>, win: &Window, rank: usize, focu
     rect(ctx, &chrome, Rect { x: win.x, y: win.y, w: win.w, h: TITLEBAR_H }, bar, 8.0);
     text(ctx, &chrome, win.title.clone(), win.x + 12.0, win.y + 8.0, 15.0, rgba(TEXT.0, TEXT.1, TEXT.2, 1.0));
 
-    // ● record / replay.
-    let (rx, ry) = rec_box(win);
-    let centre = Vec2 { x: rx + TITLEBAR_H / 2.0, y: ry + TITLEBAR_H / 2.0 };
-    let rec = if win.recording { rgba(0.95, 0.25, 0.25, 1.0) } else { rgba(0.55, 0.30, 0.32, 1.0) };
-    let _ = g.reducers.draw_circle(chrome.clone(), centre, 7.0, rec, win.recording, 2.0);
-    if win.recording {
-        text(ctx, &chrome, "REC", rx - 30.0, ry + 9.0, 12.0, rgba(0.95, 0.35, 0.35, 1.0));
-    }
     // Close box.
     let (kx, ky) = close_box(win);
     rect(
@@ -776,7 +723,7 @@ fn draw_launcher<Caps>(ctx: &ReducerContext<Caps>, sw: f32, sh: f32, apps: &[App
     text(
         ctx,
         l,
-        "Click an app to open its window, a service to start or stop it. In a window, ● records the app; click it again to replay.",
+        "Click an app to open its window, a service to start or stop it.",
         x0,
         TOPBAR_H + 56.0,
         13.0,

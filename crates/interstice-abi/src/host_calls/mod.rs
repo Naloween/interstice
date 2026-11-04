@@ -29,7 +29,7 @@ pub enum HostCall {
     Module(ModuleCall),
     Network(NetworkCall),
     CurrentNodeId,
-    Timeline(TimelineCall),
+    History(HistoryCall),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -213,61 +213,45 @@ pub enum TableIndexScanResponse {
     Err(String),
 }
 
-/// A point of a table's timeline (DESIGN §6.8), resolved against the
-/// committed head.
+/// A point of a logged table's history (DESIGN §6.7). The state at a point
+/// is the table after every log entry the point covers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-pub enum TimelinePoint {
-    /// A node by id (its transaction id); `0` is the base.
-    Commit(u64),
-    /// `n` parents up from the head, clamped to the base.
-    Back(u32),
-    /// `n` steps down, each to the newest child, stopping at a leaf.
-    Forward(u32),
-    /// The deepest ancestor of the head with timestamp `<= ms`, else the base.
+pub enum HistoryPoint {
+    /// Entries with `tx <= id`; `id` need not be a commit of this table.
+    Tx(u64),
+    /// Entries with `timestamp_ms <= ms`.
     Time(u64),
-    /// The oldest reachable state.
-    Base,
+    /// The `n`-th most recent commit of this table; `Back(0)` is now.
+    Back(u32),
+    /// The oldest retained state.
+    Start,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
-pub enum TravelMode {
-    /// Keep the future left behind as a branch.
-    #[default]
-    Branch,
-    /// Drop the branch left behind (undo without redo).
-    Truncate,
-}
-
+/// One commit of a logged table: a run of log entries with the same `tx`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-pub struct TimelineNode {
-    pub id: u64,
-    /// `0` for children of the base.
-    pub parent: u64,
+pub struct HistoryCommit {
+    pub tx: u64,
     pub timestamp_ms: u64,
+    /// Row operations in the commit (the restore tag not counted).
     pub ops: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-pub struct TimelineInfo {
-    /// `0` when the table is at the base.
-    pub head: u64,
-    /// Every node, by increasing id.
-    pub nodes: Vec<TimelineNode>,
+    /// Set when the commit was a restore: the `tx` it restored to.
+    pub restored_to: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub enum TimelineCall {
-    Info { table_name: String },
-    RowsAt { table_name: String, point: TimelinePoint },
-    Travel { table_name: String, point: TimelinePoint, mode: TravelMode },
+pub enum HistoryCall {
+    /// The newest `limit` commits, newest first.
+    Commits { table_name: String, limit: u32 },
+    RowsAt { table_name: String, point: HistoryPoint },
+    Restore { table_name: String, point: HistoryPoint },
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub enum TimelineResponse {
-    Info(TimelineInfo),
+pub enum HistoryResponse {
+    Commits(Vec<HistoryCommit>),
     Rows(Vec<Row>),
-    /// A travel: the node the table moved to.
-    Travelled(u64),
+    /// A restore: the `tx` of the last entry the point covers (`0`: empty start).
+    Restored(u64),
     Err(String),
 }
 

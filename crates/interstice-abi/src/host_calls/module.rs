@@ -18,19 +18,11 @@ pub enum ModuleCall {
         node_selection: NodeSelection,
         module_name: String,
     },
-    /// Start (`enabled`) or stop recording a local module's commits
-    /// (DESIGN §6.7). Starting again restarts from the current state.
-    Record { module_name: String, enabled: bool },
-    /// Replay a recorded local module against a detached copy and compare
-    /// with its live state. `Err` carries the first divergence.
-    Replay { module_name: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ModuleCallResponse {
     Ok,
-    /// Success with a report (`Replay`).
-    Report(String),
     Err(String),
 }
 

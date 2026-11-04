@@ -6,8 +6,26 @@ use crate::index_key::validate_index_key_type;
 
 /// Rows kept by a bare `#[table(event)]`.
 const DEFAULT_EVENT_RETENTION: u64 = 256;
-/// `#[table(timeline)]` keeps this many commits (DESIGN §6.8).
-const DEFAULT_TIMELINE_CAPACITY: u64 = 1024;
+
+/// Parse a `history` duration: `"all"`, or a number with a unit `s`, `m`,
+/// `h` or `d`. Returns the retention in ms (`None` for `"all"`).
+fn parse_history(text: &str) -> Result<Option<u64>, String> {
+    let text = text.trim();
+    if text == "all" {
+        return Ok(None);
+    }
+    let unit_ms = match text.chars().last() {
+        Some('s') => 1_000,
+        Some('m') => 60_000,
+        Some('h') => 3_600_000,
+        Some('d') => 86_400_000,
+        _ => return Err("expected `\"all\"` or a duration such as `\"30s\"`, `\"15m\"`, `\"12h\"`, `\"7d\"`".into()),
+    };
+    match text[..text.len() - 1].parse::<u64>() {
+        Ok(n) if n > 0 => Ok(Some(n * unit_ms)),
+        _ => Err("the duration must be a positive integer followed by `s`, `m`, `h` or `d`".into()),
+    }
+}
 
 pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemStruct);
@@ -52,7 +70,8 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut persistence = quote! { interstice_sdk::PersistenceKind::Logged };
     let mut explicit_persistence = false;
     let mut retention: Option<u64> = None;
-    let mut timeline: Option<u64> = None;
+    let mut history: Option<u64> = None;
+    let mut explicit_history = false;
 
     for arg in args.iter() {
         match arg {
@@ -93,21 +112,18 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                     Err(e) => return e.into_compile_error().into(),
                 }
             }
-            // `timeline`: keep a travelable commit tree (DESIGN §6.8).
-            Meta::Path(nv) if nv.is_ident("timeline") => {
-                timeline = Some(DEFAULT_TIMELINE_CAPACITY);
-            }
-            Meta::NameValue(nv) if nv.path.is_ident("timeline") => {
-                let n = match &nv.value {
-                    syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(i), .. }) => i.base10_parse::<u64>(),
-                    other => Err(syn::Error::new_spanned(other, "expected an integer: `timeline = 256`")),
+            // `history`: how long a logged table keeps its log (DESIGN §6.7).
+            Meta::NameValue(nv) if nv.path.is_ident("history") => {
+                let parsed = match &nv.value {
+                    syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(text), .. }) => {
+                        parse_history(&text.value()).map_err(|e| syn::Error::new_spanned(text, e))
+                    }
+                    other => Err(syn::Error::new_spanned(other, "expected a string: `history = \"7d\"`")),
                 };
-                match n {
-                    Ok(n) if n > 0 => timeline = Some(n),
-                    Ok(_) => {
-                        return syn::Error::new_spanned(&nv.value, "a timeline must keep at least one commit")
-                            .into_compile_error()
-                            .into();
+                match parsed {
+                    Ok(ms) => {
+                        history = ms;
+                        explicit_history = true;
                     }
                     Err(e) => return e.into_compile_error().into(),
                 }
@@ -115,15 +131,12 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             other => {
                 return syn::Error::new_spanned(
                     other,
-                    "invalid table attribute: expected `public`, `private`, `ephemeral`, `stateful`, `logged`, `event`, `event = N`, `timeline` or `timeline = N`",
+                    "invalid table attribute: expected `public`, `private`, `ephemeral`, `stateful`, `logged`, `event`, `event = N` or `history = \"7d\"`",
                 )
                 .into_compile_error()
                 .into();
             }
         }
-    }
-    if retention.is_some() && timeline.is_some() {
-        return quote! { compile_error!("`event` tables cannot have a timeline"); }.into();
     }
     if retention.is_some() {
         if explicit_persistence {
@@ -135,8 +148,14 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         Some(n) => quote! { Some(#n) },
         None => quote! { None },
     };
-    let has_timeline = timeline.is_some();
-    let timeline = match timeline {
+    // Only logged tables keep a log, hence a history.
+    // (event tables were made ephemeral above).
+    let is_logged =
+        persistence.to_string() == quote! { interstice_sdk::PersistenceKind::Logged }.to_string();
+    if explicit_history && !is_logged {
+        return quote! { compile_error!("`history` only applies to logged tables"); }.into();
+    }
+    let history = match history {
         Some(n) => quote! { Some(#n) },
         None => quote! { None },
     };
@@ -438,23 +457,23 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         #(#index_read_methods)*
     };
 
-    // Timeline tables: inspect the commit tree and read past states.
-    let timeline_read_imp = if has_timeline {
+    // Logged tables: read past states from the log (DESIGN §6.7).
+    let history_read_imp = if is_logged {
         quote! {
-            /// The commit tree of this table (committed state).
-            pub fn timeline(&self) -> Result<interstice_sdk::TimelineInfo, String>
+            /// The newest `limit` commits of this table, newest first.
+            pub fn commits(&self, limit: u32) -> Result<Vec<interstice_sdk::HistoryCommit>, String>
             where
                 Caps: interstice_sdk::CanRead<#struct_ident>,
             {
-                interstice_sdk::host_calls::timeline_info(#table_name)
+                interstice_sdk::host_calls::history_commits(#table_name, limit)
             }
 
-            /// The committed rows of this table at `point`, by primary key.
-            pub fn rows_at(&self, point: interstice_sdk::TimelinePoint) -> Result<Vec<#struct_ident>, String>
+            /// The rows of this table at `point`, by primary key.
+            pub fn rows_at(&self, point: interstice_sdk::HistoryPoint) -> Result<Vec<#struct_ident>, String>
             where
                 Caps: interstice_sdk::CanRead<#struct_ident>,
             {
-                interstice_sdk::host_calls::timeline_rows_at(#table_name, point)?
+                interstice_sdk::host_calls::history_rows_at(#table_name, point)?
                     .into_iter()
                     .map(|row| row.try_into())
                     .collect()
@@ -463,31 +482,18 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     } else {
         quote! {}
     };
-    let timeline_edit_imp = if has_timeline {
+    let history_edit_imp = if is_logged {
         quote! {
-            /// Travel to `point`, keeping the abandoned future as a branch.
-            /// Returns the node the table moves to on commit.
-            pub fn travel(&self, point: interstice_sdk::TimelinePoint) -> Result<u64, String>
+            /// Restore this table to its state at `point`, as one ordinary
+            /// write of this transaction. Returns the `tx` of the last log
+            /// entry the point covers (`0` for an empty start).
+            pub fn restore(&self, point: interstice_sdk::HistoryPoint) -> Result<u64, String>
             where
                 Caps: interstice_sdk::CanInsert<#struct_ident>
                     + interstice_sdk::CanUpdate<#struct_ident>
                     + interstice_sdk::CanDelete<#struct_ident>,
             {
-                self.travel_with(point, interstice_sdk::TravelMode::Branch)
-            }
-
-            /// Travel to `point` with an explicit [`interstice_sdk::TravelMode`].
-            pub fn travel_with(
-                &self,
-                point: interstice_sdk::TimelinePoint,
-                mode: interstice_sdk::TravelMode,
-            ) -> Result<u64, String>
-            where
-                Caps: interstice_sdk::CanInsert<#struct_ident>
-                    + interstice_sdk::CanUpdate<#struct_ident>
-                    + interstice_sdk::CanDelete<#struct_ident>,
-            {
-                interstice_sdk::host_calls::timeline_travel(#table_name, point, mode)
+                interstice_sdk::host_calls::history_restore(#table_name, point)
             }
         }
     } else {
@@ -633,7 +639,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 indexes: vec![#(#index_schemas),*],
                 persistence: #persistence,
                 retention: #retention,
-                timeline: #timeline,
+                history: #history,
             }
         }
         #[interstice_sdk::init]
@@ -687,13 +693,13 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 )
             }
 
-            #timeline_edit_imp
+            #history_edit_imp
 
         }
 
         impl<Caps> #table_edit_handle_struct<Caps> {
             #read_table_imp
-            #timeline_read_imp
+            #history_read_imp
         }
 
         pub struct #table_read_handle_struct<Caps>{
@@ -702,7 +708,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
 
         impl<Caps> #table_read_handle_struct<Caps> {
             #read_table_imp
-            #timeline_read_imp
+            #history_read_imp
         }
 
         pub trait #has_table_edit_handle_trait<Caps> {

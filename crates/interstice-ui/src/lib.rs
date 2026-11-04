@@ -163,8 +163,8 @@ macro_rules! ui_subsystem {
 
             /// Last cumulative wheel total seen by `render` (input reports a
             /// running total; we act on the per-frame increment). A table, not a
-            /// `static`: instance memory is not part of a recording, so a replay
-            /// would start from zero and scroll on its first frame (§12.2).
+            /// `static`: state lives in tables (DESIGN §11.1), and a module
+            /// reloaded with its tables then starts from the right total.
             #[table(ephemeral)]
             pub struct UiPointer {
                 #[primary_key]

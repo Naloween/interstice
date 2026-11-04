@@ -17,7 +17,6 @@ use std::sync::Arc;
 use interstice_abi::IntersticeValue;
 use parking_lot::Mutex;
 
-use crate::runtime::record::FrameMode;
 use crate::runtime::reducer::CALL_STACK;
 
 pub type BlobData = Arc<[u8]>;
@@ -36,15 +35,7 @@ impl BlobScope {
         })
     }
 
-    /// A parentless scope holding `blobs` under their ids (replay, §6.7).
-    pub fn with_blobs(blobs: impl IntoIterator<Item = (u64, BlobData)>) -> Arc<Self> {
-        Arc::new(Self {
-            blobs: Mutex::new(blobs.into_iter().collect()),
-            parent: None,
-        })
-    }
-
-    fn insert(&self, id: u64, data: BlobData) {
+        fn insert(&self, id: u64, data: BlobData) {
         self.blobs.lock().insert(id, data);
     }
 
@@ -66,8 +57,8 @@ pub fn current_scope() -> Option<Arc<BlobScope>> {
 }
 
 /// Register `data` in the current frame's scope. `None` outside any call.
-/// The id comes from the transaction (`Tx::next_blob_id`), so it is the same
-/// when the transaction is replayed.
+/// The id comes from the transaction (`Tx::next_blob_id`), so it is unique
+/// and a deterministic function of the transaction.
 pub fn create_blob(data: BlobData) -> Option<u64> {
     CALL_STACK.with(|s| {
         let mut stack = s.borrow_mut();
@@ -82,26 +73,6 @@ pub fn create_blob(data: BlobData) -> Option<u64> {
 /// Look `id` up in the current frame's scope chain.
 pub fn resolve_blob(id: u64) -> Option<BlobData> {
     current_scope()?.resolve(id)
-}
-
-/// [`resolve_blob`] for a guest read. A recorded root frame logs the blobs
-/// it reads that it did not create, since replay can't recreate them (§6.7).
-pub fn resolve_blob_for_guest(id: u64) -> Option<BlobData> {
-    CALL_STACK.with(|s| {
-        let mut stack = s.borrow_mut();
-        let data = stack.last()?.scope.resolve(id)?;
-        if stack.len() == 1 {
-            let root = &mut stack[0];
-            if !root.tx.root_created_blob(id) {
-                if let FrameMode::Record(capture) = &mut root.mode {
-                    if !capture.blobs.iter().any(|(known, _)| *known == id) {
-                        capture.blobs.push((id, data.clone()));
-                    }
-                }
-            }
-        }
-        Some(data)
-    })
 }
 
 /// Replace every `Blob(id)` in `value` with its bytes, for sending somewhere

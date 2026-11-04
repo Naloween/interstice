@@ -95,15 +95,15 @@ pub struct Tab {
   Eviction runs after the whole batch, so a reducer that inserts then updates
   an event row never sees it vanish mid-commit. `network`'s result tables are
   event tables.
-- **Timelines.** `timeline = N` (bare `timeline`: 1024) keeps the table's last
-  `N` commits as a tree, so a reducer can travel the table back and forth in
-  time and branch from the past. See §6.8. Not allowed on event tables.
+- **History.** A logged table's log is its history. A reducer can read the
+  table at any past point and restore it there (§6.7). `history = "7d"` limits
+  how far back the log is kept; the default, `"all"`, keeps everything.
 
 ### 3.2 Persistence modes
 
 | Mode | Intended use | Storage |
 |---|---|---|
-| **Logged** | Authoritative data whose history matters, the standard SpacetimeDB model | Append-only WAL (`logs/<table>.log`), with a snapshot every 256 ops (`snapshots/<table>.snap`) after which the log is compacted |
+| **Logged** | Authoritative data whose history matters, the standard SpacetimeDB model | Append-only log in segments (`logs/<table>/<first_seq>.log`) plus checkpoints (`snapshots/<table>/<seq>-<tx>-<ts>.snap`). Nothing is compacted away: the log is the table's history, kept as long as `history` says (§6.7) |
 | **Stateful** | Durable current state where history is irrelevant (settings, open tabs) | One file per row: `stateful/<table>/<hex(pk)>.row` |
 | **Ephemeral** | Runtime-only state (input state, in-flight requests, frame data) | Memory only; empty after every load |
 
@@ -114,11 +114,11 @@ Everything on disk is postcard-encoded. A node's data directory looks like this:
   node.log, peer_tokens.toml
   modules/<module>/
     module.wasm, state.toml (loaded = bool)
-    logs/<table>.log  snapshots/<table>.snap  stateful/<table>/*.row
+    logs/<table>/*.log  snapshots/<table>/*.snap  stateful/<table>/*.row
 ```
 
 **On restore** (a module reload):
-- logged tables load the snapshot and then replay WAL entries newer than it;
+- logged tables load the newest checkpoint and then replay the log entries after it;
 - stateful tables read every row file;
 - ephemeral tables start empty.
 
@@ -427,8 +427,8 @@ Not covered by the claim:
 - A reducer that busy-waits on the clock never finishes. Use
   `ctx.schedule`.
 
-`Tx`s and every other input of a module can be recorded and replayed
-(§6.7).
+Logged tables keep each entry's `tx` and timestamp, so a table can be read
+and restored as of any past transaction (§6.7).
 
 ### 6.6 Isolation and ordering
 
@@ -561,216 +561,179 @@ channel *inside* the module's table write lock.
   single job.
 
 
-### 6.7 Record and replay
+### 6.7 Time travel
 
-A module can be *recorded*: the engine keeps enough to re-execute its
-transactions and check that they produce the same writes. This serves
-auditing (is the state what the code produces?), debugging (re-run with
-logging or fixed code) and time travel (§11.4).
+Time travel works as in SpacetimeDB: a **logged** table's log *is* its
+history. Any past state of the table can be rebuilt from the log, read, and
+restored. There is no separate recorder and no in-memory history. Every
+logged table has a history, and its retention is configurable.
 
-**The boundary rule.** The log holds everything that *enters* the module, so
-the module can be replayed alone, with no other module running.
+**The log** (§3.2) holds one entry per operation:
+`LogEntry{seq, tx, timestamp_ms, op}`.
+- `seq` counts the table's entries.
+- `tx` and `timestamp_ms` come from the transaction that wrote the entry (§6.5).
+- `op` is one of `Insert(row)`, `Update(row)`, `Delete(pk)`, `Clear` or
+  `Restore{to}`.
 
-| Reproduced by replay (not logged) | Logged |
+The entries of one transaction are contiguous, because a commit holds the
+module's table write lock (§6.6). A *commit* of the table is a maximal run of
+entries with the same `tx`.
+
+**Every write has a `tx`.**
+- Reducer commits use their own `Tx`.
+- A logged write that doesn't come from a reducer draws a fresh
+  `(id, timestamp)` at apply time, under the table lock. Replica changes are
+  never logged, so today only reducers write to logs.
+- Ids and timestamps are drawn together, under one small lock, so
+  `timestamp_ms` never decreases as `tx` grows. A cut by time is therefore
+  also a cut by `tx`.
+- On restart, the runtime reads the largest `tx` and timestamp in the
+  restored logs and continues above them. Along a table's log, `tx` therefore
+  grows strictly, across restarts too.
+
+**Points** (`HistoryPoint`). The state *at* a point is the table after every
+entry the point covers:
+
+| Point | Covers |
 |---|---|
-| Reads and writes of its own tables | The reducer input: encoded context and arguments |
-| `time_now_ms` and random draws (from the `Tx`) | The `Tx` |
-| Blobs it creates; `log` | The response of every other host call its root frame makes (reducer and query calls, schedules, foreign-table reads, authority calls, current node id), with a digest of the request |
-| | Blobs it read from its caller's scope |
-| | Writes that reach its tables without one of its reducers (replica changes) |
+| `Tx(id)` | entries with `tx <= id`. `id` need not be a commit of this table |
+| `Time(ms)` | entries with `timestamp_ms <= ms` |
+| `Back(n)` | the table's `n`-th most recent commit and everything before it. `Back(0)` is the current state |
+| `Start` | the oldest state still retained |
 
-Notes on the boundary:
-- A query call is logged even when the target is the module itself: during
-  replay nothing but the recorded module exists.
-- Host calls made inside a nested query frame are part of that query, whose
-  result is logged at the boundary.
+A point older than the retained history is an error. With nothing pruned, the
+oldest state is the empty table, so any point resolves.
 
-**Recording** (`Module::recorder`, off by default):
-- When recording starts, the module's tables are cloned as the *baseline*,
-  under the table write lock. The clone keeps rows in order, indexes and
-  auto_inc counters.
-- Each commit into the module's tables appends a record under the same write
-  lock, so log order is commit order. A record holds the origin and the
-  committed writes. The origin is a reducer (name, input, `Tx`, logged
-  responses, inherited blobs) or an external write (a replica change).
-- Only commits are recorded; failed or rejected transactions changed nothing.
-- The log is a window of at most N records (default 10 000). Evicting the
-  oldest applies its writes to the baseline, so baseline + log always
-  rebuilds the live state.
+**A consistent cut across tables.** The same `Tx(id)` (or `Time(ms)`) applied
+to several tables of a module gives a state that a serial execution actually
+reached. Proof:
+- Commit order is a valid serial order (§6.5).
+- If transaction `a` conflicts with an earlier-committed `b`, the scheduler
+  admitted `a` only after `b` committed (§6.6), so `b.id < a.id`.
+- So the set `{tx <= id}` is closed under "committed before and conflicting",
+  which makes it a prefix of a valid serial order.
 
-**Replay** runs on its own thread, against a *copy* of the module built from
-its wasm (`Module::from_bytes`). The copy is never registered, so it has no
-subscriptions, persistence or events. The log and the live tables are
-captured together, under the read lock. Then each record is replayed in
-order:
-- External write: apply its writes.
-- Reducer: run it with the recorded input and `Tx`. The frame is in replay
-  mode: each logged host call checks its kind and request digest, then
-  returns the recorded response and performs nothing (no draw, no call, no
-  packet, no schedule). Its parent blob scope holds the recorded inherited
-  blobs. The writes it produces are compared with the recorded ones
-  (encoded bytes), then applied.
-- A transaction that started before recording began (or under an earlier
-  recording) has no reducer record at commit. Its commit is logged as an
-  external write, which is still exact for state.
-- At the end, the copy's tables are compared with the captured live tables:
-  rows and their order.
+Restoring several tables to the same point in one reducer is therefore
+coherent.
 
-The report gives the number of commits replayed and the first divergence:
-the record, the reducer, and why (request mismatch, a missing or extra host
-call, different writes, or a final state mismatch).
+**Calls** (`HostCall::History`, on the module's own logged tables only):
+- `commits(table, limit)`: the newest `limit` commits, newest first. Each one
+  is `HistoryCommit{tx, timestamp_ms, ops, restored_to}`, where `restored_to`
+  is set when the commit was a restore. Needs read access.
+- `rows_at(table, point)`: the rows at a point, in primary-key order, without
+  changing anything. Needs read access. Allowed in queries.
+- `restore(table, point)`: move the table back to a point, in a reducer only.
+  It returns the `tx` of the last entry the point covers (`0` for an empty
+  start). It needs insert, update and delete access, since it may do all
+  three.
 
-**Blob ids are per transaction:** `(tx.id << 24) | n`, where `n` counts the
-transaction's blobs. They are unique because `Tx` ids are, and identical on
-replay, so a request carrying a blob id has the same digest.
-
-**Control** goes through the Module authority:
-- `ModuleCall::Record { module_name, enabled }` and
-  `ModuleCall::Replay { module_name }`. Replay answers `Ok`, or `Err` with
-  the divergence. Both are logged to the node log.
-- The `module_manager` module wraps them as `record_start(module)`,
-  `record_stop(module)` and `replay(module)` reducers. From the CLI:
-  `call_reducer <node> module_manager record_start <module>`, then
-  `call_reducer <node> module_manager replay <module>`.
-- Verified on `agar-server` (ticks with random draws and clock, plus
-  joins): 316 commits replayed with state matching, and again after the
-  window wrapped (baseline eviction).
-
-**Why this causes no regressions:**
-- Recording off costs one flag check per commit and one thread-local check
-  per dispatched host call.
-- Blob ids only need uniqueness along a scope chain, and guests treat them
-  as opaque.
-- Encoding reducer input in the runtime instead of the instance produces the
-  same bytes.
-- A read of `Other(own_module)` now resolves to the frame's module instead of
-  the registry: the same module in live mode, the copy in replay.
-
-**Status / limits:**
-- The log is in memory only. It is lost on reload or restart, because the
-  recorder lives on the `Module`.
-- Instance memory that isn't a cache of table state shows up as a divergence.
-  That is the audit working, not a bug.
-- A commit that fails halfway leaves its earlier ops applied (a
-  pre-existing hazard). Replay reports it as a final-state mismatch.
-
-### 6.8 Time travel
-
-A table declared with `timeline = N` keeps its commit history as a tree. A
-reducer can move the table to any point of that tree. The next commit after
-the move starts a new *branch*, and the future it left stays reachable. Uses:
-undo and redo, game rewind and "ghost" effects, what-if branches.
-
-**The tree** (`Table::timeline`, in memory):
-- Each commit that changes the table adds a node: its id is the
-  transaction id, plus its parent, the `Tx` timestamp, and its ops.
-- An op holds before and after images: `Insert(row)`, `Update(old, new)`,
-  `Delete(old)`. A clear becomes one `Delete` per row.
-- Node `0` is the *base*: the oldest state still reachable. Transaction ids
-  start at 1, so no real node is `0`.
-- `head` is the node the table's current rows correspond to.
-- Only the head's state is stored (the table itself). Any other node's state
-  is computed by undoing ops from the head up to the common ancestor, then
-  redoing ops down to the target.
-
-**Points** (`TimelinePoint`), resolved against the committed head:
-- `Commit(id)`: that node, or `0` for the base. An error if it isn't in the
-  tree.
-- `Back(n)`: `n` parents up from the head, clamped to the base.
-- `Forward(n)`: `n` steps down, each to the most recently committed
-  child, stopping at a leaf.
-- `Time(ms)`: the deepest ancestor of the head (the head included) whose
-  timestamp is `<= ms`, else the base. This is "the table as it was at `ms`
-  on this branch".
-- `Base`.
-
-**Calls** (`HostCall::Timeline`, on the module's own tables only):
-- `info(table)` gives the committed head and every node (id, parent,
-  timestamp, op count). Needs read access.
-- `rows_at(table, point)` gives the rows at a point without moving.
-  Needs read access.
-- `travel(table, point, mode)` moves the table, in a reducer only. It needs
-  insert, update and delete access, because it writes all three.
-
-**How a travel commits.** It is an ordinary write, so the transaction stays
-atomic and everything downstream works unchanged:
-1. Compute the rows at the target (above), then diff them by primary key
-   against the reducer's current view (committed rows plus its earlier
-   writes).
+**How a restore commits.** A restore is an ordinary write, so the transaction
+stays atomic, and subscribers, replicas and persistence work unchanged:
+1. Rebuild the rows at the point (below). Diff them by primary key against
+   the reducer's current view: committed rows plus its earlier writes.
 2. Stage the diff through the usual overlay: deletes, then updates, then
-   inserts, each in primary-key order. Subscribers get normal
-   insert/update/delete events, persistence writes the rows, replicas
-   follow.
-3. Stage a marker, `Transaction::Travel { table, to, truncate }`. It changes
-   no rows.
-4. At commit, the table's ops are collected per table. A marker discards the
-   ops collected before it for that table: they were the reducer's earlier
-   writes plus the diff, whose net effect is exactly the target state. The
-   marker then sets `head = to`. Ops after the marker become this
-   transaction's node, as a child of `to`. That is the new branch.
+   inserts, each in primary-key order. The diff is validated on a copy of the
+   overlay first, so a diff that can't be staged (for example a unique index
+   clash while rows swap values) fails the call and stages nothing.
+3. Stage a marker, `Transaction::Restore{table, to}`. At commit it becomes a
+   `Restore{to}` log entry, which applies nothing but tags the commit.
 
-**Modes** (`TravelMode`):
-- `Branch` (the default) keeps everything.
-- `Truncate` drops the branch left behind: the subtree, under the common
-  ancestor of `to` and the old head, that holds the old head. This is undo
-  without redo. Travelling forward drops nothing.
+History stays linear: a restore is a new commit on top, and the commits it
+undid stay in the log. A restore can itself be restored away.
 
 **Rules:**
-- One travel per table per transaction; a second one is an error. Writes
-  before and after it are fine.
-- A travel's diff is computed against one committed head. If the table
-  changed before the commit (the batch is stale), a batch containing a
+- One restore per table per transaction. Other writes before or after it are
+  allowed.
+- A restore's diff is computed against one committed state. If the table
+  changed before the commit (the batch is stale), a batch with a restore
   marker is rejected as a conflict instead of being revalidated.
-- A diff that can't be staged (a unique index clash while rows swap values)
-  fails the call, and nothing of it is staged: the diff is validated on a
-  copy of the overlay first.
-- The table's overlay exists after a travel even when the diff is empty,
-  so a concurrent commit to the table is still detected.
-- Rows keep their primary keys on travel, auto-inc ones included. Counters
-  only move up.
+- Rows keep their primary keys, auto-inc ones included. Counters only move up.
 
-**Retention.** After a commit, while the tree holds more than `N` nodes, the
-base is folded forward:
-- If the head isn't the base: drop every subtree of the base except the one
-  holding the head; if that is not enough, merge the base's child on the
-  head's path into the base. That child's ops are forgotten, and its
-  children become the base's.
-- If the head is the base: drop the base's oldest child subtree.
+**Undo, redo and branches** follow from the `restored_to` tags, with no
+extra state. This is app logic over `commits`; the `hello` example implements it.
+- The *position* after a prefix of the log is `to` if the prefix's last
+  commit is `Restore{to}`, otherwise that last commit (or `0` if the prefix is
+  empty).
+- The *parent* of an ordinary commit `c` is the position just before `c`.
+  Ordinary commits and their parents form a tree, and restores add no node.
+  So the linear log still shows the branches an editor needs.
+- *Undo* restores to the parent of the current position. *Redo* restores to
+  the newest child of the current position, while one exists.
+- Example: `A`, `B`, undo (restore to `A`), `C`. Then `C`'s parent is `A`,
+  undo goes to `A` and then to the empty start, and redo from `A` goes back to
+  `C`. `B` stays reachable as a branch from `A`.
 
-The oldest history goes first, and branches forked before the window go with
-it. Every remaining node stays reachable from the head.
+**Rebuilding a past state:**
+1. Pick the newest checkpoint whose last entry the point covers (or the empty
+   start).
+2. Replay later entries, in `seq` order, while the point covers them.
 
-**SDK.** `#[table(timeline)]` (1024 commits) or `#[table(timeline = N)]`;
-not with `event`. The table handle then has `timeline()` and
-`rows_at(point)` (with `CanRead`), and `travel(point)` and
-`travel_with(point, mode)` (with `CanInsert + CanUpdate + CanDelete`). The
-`hello` example keeps undoable notes this way (`note`, `erase`, `undo`,
-`redo`, `rewind`, `show_notes`).
+A checkpoint can sit in the middle of a transaction (it is taken after a
+given entry). It is usable when its last entry is covered: replay then
+finishes the transaction. It is never used for a point before that
+transaction. The cost is reading one checkpoint plus at most one checkpoint
+interval of entries.
 
-**Record and replay** (§6.7):
-- The timeline belongs to the table, so the record baseline (a table clone)
-  carries it.
-- Timeline calls read the module's own state, so they are reproduced, not
-  logged.
-- Commits are recorded with their transaction id and timestamp, and
-  `apply_writes` runs the same per-commit bookkeeping as a live commit
-  (`TimelineCommit`). Baseline, replay copy and live tree therefore evolve
-  identically.
+**Storage:**
+```
+logs/<table>/<first_seq>.log         segments, rotated at each checkpoint
+snapshots/<table>/<seq>-<tx>-<ts>.snap   checkpoints: {seq, tx, timestamp_ms, rows};
+                                         the header is in the name, so choosing one reads none
+```
+- A checkpoint is taken after entry `S` once the entries since the last one
+  reach `max(256, rows the table had at the last checkpoint)`. A checkpoint
+  costs at most as many rows as the entries before it, so checkpoints cost
+  O(1) rows per write, amortised, and take at most about as much disk as the
+  log. (Measuring against the rows *now* would stop checkpoints for a table
+  that only grows.)
+- The writer moves to segment `S + 1` as soon as the checkpoint is planned,
+  under the table lock. The rows are cloned under the same lock, as now, and
+  the file is written after the lock is released.
+- A crash before that write leaves a segment with no checkpoint before it.
+  Readers then fall back to an older checkpoint and replay through it.
+- The old segment's writer is synced by the background thread before it is
+  closed.
+- Restore on load: the newest checkpoint plus every later entry. This is the
+  same as before, with the log split into segments.
+- Legacy layout (`logs/<t>.log`, `snapshots/<t>.snap`): the table is restored
+  the old way and a first checkpoint is written in the new layout. The legacy
+  files are then removed, so the history starts at that checkpoint.
+
+**Retention:**
+- `#[table(history = "7d")]` (units `s`, `m`, `h`, `d`), or
+  `history = "all"`, the default. It goes in `TableSchema.history`, in ms.
+- It applies only to logged tables; anything else is a compile error.
+- After each checkpoint is written, the horizon is `now - history`. The newest
+  checkpoint at or before the horizon becomes the base. Older checkpoints, and
+  segments whose entries are all before the base, are deleted. Every
+  checkpoint ends a segment (the writer rotates when it is planned), so these
+  are exactly the segments that start at or before the base.
+
+**Determinism** (§6.5): history calls read the module's own op history, so
+they are a deterministic function of it, like any table read.
 
 **Why this causes no regressions:**
-- Tables without `timeline` skip all of it: one `Option` check per write at
-  commit.
-- `TableSchema` gains a `timeline` field, so ABI 10 (every module rebuilds).
-- Transaction ids start at 1 instead of 0. They are only used as seeds and
-  blob-id prefixes, which only need uniqueness.
-- The `Travel` marker is new, so existing batches are unchanged. Replica
-  application never sees it.
+- Restore on load still produces the same state: the newest checkpoint plus
+  the later entries.
+- The write path does the same work: one appended entry per op, two more
+  `u64`s per entry.
+- Rotation replaces compaction, which used to rewrite the whole log. Fewer
+  checkpoints are taken (an interval that grows with the table, instead of
+  every 256 entries), so large tables do much less snapshot work.
+- Non-logged tables are untouched.
+- Transaction ids stay unique. They are now also monotone across restarts,
+  where before they restarted at 1.
+- `TableSchema` drops `timeline` and gains `history`, and `HostCall` loses
+  `Timeline` and gains `History`. So the ABI goes to 12, and every module
+  rebuilds.
 
 **Status / limits:**
-- History is in memory only. After a restart, the timeline starts from the
-  loaded state.
-- Replicas of a timeline table don't carry its timeline.
-- `rows_at` and `travel` cost O(table rows + ops on the path).
+- A node without a data directory (in-memory) keeps no history. History
+  calls then return an error.
+- Replica tables are never persisted, so they have no history. The source
+  table's history lives on its own node.
+- `rows_at` and `restore` read from disk: one checkpoint plus up to one
+  interval of entries.
 
 ---
 
@@ -924,7 +887,7 @@ it is not a default module.
    compile in a debug build. When it finishes, the runtime sends
    `ModuleEvent::LoadResult` to the requesting module's `module_load_result`
    subscription, and to no other module. Like every event, it enters the
-   requester as an input, so its recording and replay see it (§6.7). Remote
+   requester as an input, like any other event. Remote
    loads (`NodeSelection::Other`) get no result event yet.
 3. **Unload.** Tear down subscriptions and replicas, release authorities and set
    `loaded = false`. The data is kept.
@@ -1098,12 +1061,13 @@ Nested transactions were rejected:
 
 ### 11.4 Replay and time travel
 
-The building block is in place: transactions are deterministic given their
-inputs (§6.5), record and replay is done (§6.7), and so are table
-timelines with branches (§6.8).
+Transactions are deterministic given their inputs (§6.5). Logged tables keep
+their history with transaction ids and timestamps, and can be read and
+restored at any point (§6.7).
 
-Open: travel kinds that keep *inputs* for re-simulation (rewind, then
-re-run recorded reducers with a change), and persisting timelines.
+Open: restores that re-run later reducers with a change (re-simulation, which
+would need the reducer inputs logged too), and a module-wide restore call
+(today: restore each table to the same `Tx`, which is consistent, §6.7).
 
 ### 11.5 Schema evolution
 
@@ -1202,8 +1166,7 @@ of `module_manager`.
 | Surfaces, `draw_surface` | `graphics` (compositor claim) | each app renders into its own offscreen surface; the desktop composites them into windows |
 | Input routing | `input` (router claim) | pointer and keyboard focus per app, in surface-local coordinates |
 | App registry | `module_manager` | apps are registered wasm blobs, loaded and unloaded at runtime |
-| Record / replay | `module_manager` → Module authority | a window's ● button records its app; a second click replays it on a detached copy and reports the outcome |
-| Time travel | `hello` + `notes` | undo, redo and branches of a `#[table(timeline)]` table, driven from a UI |
+| Time travel | `hello` + `notes` | undo, redo, branches and restore of a logged table's history, driven from a UI |
 
 **Apps.** The desktop bakes the example wasms (`include_bytes!`, since bytes
 can't travel through a CLI string argument) and registers each one with an icon.
@@ -1294,35 +1257,21 @@ browser alone is 36 MB).
   example, frames already scheduled when a window closes) is dropped with a
   warning, not logged as an error.
 
-**Replay reports.**
-- The Module call `Replay` now returns the report text
-  (`ModuleCallResponse::Report`, ABI 11), and the SDK's `replay` returns
-  `Result<String, String>`.
-- `module_manager.replay` no longer fails on a divergence. It inserts a row
-  into the public event table `ReplayReport{seq, module, ok, message}`
-  (`event = 32`) and returns `Ok`.
-- The desktop subscribes to the insert and shows the report as a toast in the
-  top bar.
-- Recording an app needs every input of the app to come through its boundary
-  (§6.7). So `ui_subsystem!` keeps its last-seen wheel total in a table
-  (`UiPointer`), not in a `static`. The static was instance memory, which a
-  replay starts without, so the first replayed frame used to scroll and
-  diverge.
-
 **Notes (time travel from a UI).** `modules/examples/notes` is a front-end
 with no table of its own beyond its UI. It binds to `hello-example` (a local
 module dependency):
-- It reads `Notes` through the binding and history through a new hello query
-  `note_history() -> NoteHistory{head, commits: [NoteCommit{id, parent}]}`.
-- It calls `note`, `erase`, `undo`, `redo` and `rewind(id, "branch")`.
-- Hello keeps the timeline. Undo and redo are travels of hello's table, and a
-  click on a commit chip travels to that commit, keeping the future as a
-  branch.
+- It reads `Notes` through the binding, and the history through the hello
+  query `note_history() -> NoteHistory{head, commits: [NoteCommit{id, parent}]}`.
+  That query derives the tree of ordinary commits and their parents from the
+  table's log (§6.7).
+- It calls `note`, `erase`, `undo`, `redo` and `restore(id)`.
+- `Notes` is an ordinary logged table. Undo, redo and a click on a commit chip
+  are all restores, so the history survives restarts.
 - The UI is rebuilt only when a signature of the notes and history changes.
   The signature is stored in a `NotesView` row.
 
 **Window manager state** is in desktop tables: `Window` (rect, focus order,
-surface, recording flag), `DesktopState` (launcher, focus, pointer capture,
+surface), `DesktopState` (launcher, focus, pointer capture,
 `pending_open`), `Interaction` (move/resize), `PrevMouse` (click edges) and
 `Toast`. The reducer `open(app)` sets `pending_open`, and the next frame opens
 the app exactly as a launcher click would; it is the scriptable entry point
@@ -1363,10 +1312,10 @@ but explicitly out of scope for now.
 - [x] **Determinism** (§6.5): a per-transaction `Tx` (id, timestamp, seed)
       shared by every call in the transaction; schedules go through the
       outbox.
-- [x] **Record and replay** (§6.7): an opt-in log of everything that enters a
-      module; replay on a detached copy that checks writes and final state.
-- [x] **Time travel** (§6.8): `#[table(timeline = N)]` keeps a commit tree;
-      `travel` / `rows_at` / `info`, with branches and truncation.
+- [x] **Time travel** (§6.7): logged tables keep their log as history (with
+      `tx` and timestamps, in segments and checkpoints, `history` retention);
+      `commits` / `rows_at` / `restore`. It replaced an in-memory recorder and
+      per-table timelines, which duplicated what the log already holds.
 - [ ] **Iterator-based scans** and cheaper index access (no full `Vec`
       materialisation per scan).
 
@@ -1415,7 +1364,7 @@ but explicitly out of scope for now.
       `performance`, `crypto`, ES-module scripts).
 - [x] **Desktop**: the window manager is a module (§12.2): compositor,
       input router, app launcher over `module_manager`, services with
-      requirements, record/replay from a window, time travel in `notes`,
+      requirements, time travel in `notes`,
       load-failure reports.
 - [ ] Polish agar, ui, audio and graphics examples into short, readable
       showcases of one feature each.

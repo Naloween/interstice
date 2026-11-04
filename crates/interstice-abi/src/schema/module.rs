@@ -316,7 +316,7 @@ mod blob_tests {
             indexes: Vec::new(),
             persistence: PersistenceKind::Ephemeral,
             retention: None,
-            timeline: None,
+            history: None,
         });
         schema
     }

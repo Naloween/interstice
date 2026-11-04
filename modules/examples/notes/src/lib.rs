@@ -1,11 +1,11 @@
 //! Notes: time travel from a UI (DESIGN §12.2).
 //!
 //! A front-end with no data of its own. The notes live in `hello-example`'s
-//! `Notes` table, which has a timeline (§6.8): this app reads the rows and the
-//! commit tree through its `hello-example` binding, and edits them only by
-//! calling hello's reducers (`note`, `erase`, `undo`, `redo`, `rewind`). A
-//! click on a commit chip travels the table there, keeping the abandoned
-//! future as a branch.
+//! `Notes` table, a logged table whose log is its history (§6.7): this app
+//! reads the rows and the commit tree through its `hello-example` binding,
+//! and edits them only by calling hello's reducers (`note`, `erase`, `undo`,
+//! `redo`, `restore`). A click on a commit chip restores the table there;
+//! the commits it leaves behind stay in the history as a branch.
 //!
 //! All input goes through `input.input_view`, so the app behaves the same on
 //! its own and inside a desktop window.
@@ -35,7 +35,7 @@ const MUTED: (f32, f32, f32, f32) = (0.60, 0.60, 0.66, 1.0);
 
 /// UI bookkeeping (singleton): the signature of what the list and timeline
 /// currently show (rebuilt only when it changes) and the left button last
-/// frame (for click edges). In a table so a recording of the app replays.
+/// frame (for click edges).
 #[table(ephemeral)]
 pub struct NotesView {
     #[primary_key]
@@ -65,7 +65,7 @@ where
         "subtitle",
         "root",
         1,
-        "Stored in hello-example's Notes table, which keeps a timeline. Undo, redo, or click a commit to travel there: the future you leave stays as a branch.",
+        "Stored in hello-example's Notes table, whose log is its history. Undo, redo, or click a commit to restore it: what you leave stays as a branch.",
         13.0,
         MUTED,
         false,
@@ -212,7 +212,7 @@ where
             if let Some(note) = id.strip_prefix("del_") {
                 hello.reducers.erase(note.to_string())?;
             } else if let Some(commit) = id.strip_prefix("commit_") {
-                hello.reducers.rewind(commit.to_string(), "branch".to_string())?;
+                hello.reducers.restore(commit.to_string())?;
             }
         }
     }
@@ -299,7 +299,7 @@ where
     for (i, id) in std::iter::once(0).chain(history.commits.iter().map(|c| c.id)).enumerate() {
         let parent = history.commits.iter().find(|c| c.id == id).map(|c| c.parent).unwrap_or(0);
         let label = match id {
-            0 => "base".to_string(),
+            0 => "start".to_string(),
             _ if parent != prev_id => format!("#{id} (from #{parent})"),
             _ => format!("#{id}"),
         };
@@ -312,8 +312,8 @@ where
     }
 
     if let Some(mut status) = ctx.current.tables.uielement().get(STATUS_ID.to_string())? {
-        let at = if history.head == 0 { "base".to_string() } else { format!("commit #{}", history.head) };
-        status.text = Some(format!("{} notes · at {at} · {} commits kept", notes.len(), history.commits.len()));
+        let at = if history.head == 0 { "the start".to_string() } else { format!("commit #{}", history.head) };
+        status.text = Some(format!("{} notes · at {at} · {} commits", notes.len(), history.commits.len()));
         ctx.current.tables.uielement().update(status)?;
     }
     Ok(())

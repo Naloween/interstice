@@ -10,6 +10,7 @@ use interstice_abi::{
 };
 use std::sync::Arc;
 
+#[derive(Clone, Copy)]
 enum TableAccessOp {
     Read,
     Insert,
@@ -131,7 +132,7 @@ impl Runtime {
     }
 
     /// The module a read selects. The frame's own module, named or not,
-    /// resolves to the frame's `Module` (the copy, on replay; DESIGN §6.7).
+    /// resolves to the frame's `Module`.
     fn selected_module_arc(&self, selection: &ModuleSelection) -> Result<Arc<Module>, String> {
         let own = CALL_STACK.with(|s| {
             s.borrow().last().and_then(|f| match selection {
@@ -216,19 +217,6 @@ impl Runtime {
         }
 
         if has_auto_inc {
-            // Record and replay (§6.7): the ids an insert drew are logged,
-            // and a replayed insert gets the logged ones.
-            match crate::runtime::record::logged_auto_inc() {
-                Ok(Some(values)) => {
-                    if let Err(err) = table.set_auto_inc_values(&mut row, values) {
-                        return InsertRowResponse::Err(err.to_string());
-                    }
-                }
-                Ok(None) => {}
-                Err(err) => return InsertRowResponse::Err(err),
-            }
-        }
-        if has_auto_inc && !crate::runtime::record::in_replay() {
             // The auto-inc snapshot shares the table's atomic counters, so ids
             // handed out here never collide with concurrent reducers.
             let res = CALL_STACK.with(|s| {
@@ -245,7 +233,6 @@ impl Runtime {
             if let Err(err) = res {
                 return InsertRowResponse::Err(err);
             }
-            crate::runtime::record::note_auto_inc(|| table.auto_inc_values(&row));
         }
 
         let pk = match IndexKey::try_from(&row.primary_key) {
@@ -574,73 +561,73 @@ fn op_label(op: &TableAccessOp) -> &'static str {
     }
 }
 
-// ── Timelines (DESIGN §6.8) ──────────────────────────────────────────────────
+// ── History of logged tables (DESIGN §6.7) ───────────────────────────────────
 
 impl Runtime {
-    pub(crate) fn handle_timeline(
+    pub(crate) fn handle_history(
         &self,
         caller_module_name: String,
-        call: interstice_abi::TimelineCall,
-    ) -> interstice_abi::TimelineResponse {
-        use interstice_abi::{TimelineCall, TimelineResponse};
+        call: interstice_abi::HistoryCall,
+    ) -> interstice_abi::HistoryResponse {
+        use interstice_abi::{HistoryCall, HistoryResponse};
         let result = match call {
-            TimelineCall::Info { table_name } => self
-                .timeline_read(&table_name, |_, timeline| Ok(timeline.info()))
-                .map(TimelineResponse::Info),
-            TimelineCall::RowsAt { table_name, point } => self
-                .timeline_read(&table_name, |table, timeline| {
-                    let to = timeline.resolve(point)?;
-                    let rows = timeline.state_at(table.scan(), to)?;
-                    Ok(crate::runtime::table::timeline::sorted_rows(rows)
-                        .into_iter()
-                        .map(|(_, row)| row)
-                        .collect())
+            HistoryCall::Commits { table_name, limit } => self
+                .history_schema(&table_name, &[TableAccessOp::Read])
+                .and_then(|schema| {
+                    self.persistence.history_commits(&caller_module_name, &schema.name, limit as usize)
                 })
-                .map(TimelineResponse::Rows),
-            TimelineCall::Travel { table_name, point, mode } => self
-                .timeline_travel(caller_module_name, &table_name, point, mode)
-                .map(TimelineResponse::Travelled),
+                .map(HistoryResponse::Commits),
+            HistoryCall::RowsAt { table_name, point } => self
+                .history_schema(&table_name, &[TableAccessOp::Read])
+                .and_then(|schema| self.persistence.history_rows_at(&caller_module_name, &schema, point))
+                .map(|(rows, _)| HistoryResponse::Rows(rows)),
+            HistoryCall::Restore { table_name, point } => self
+                .history_restore(caller_module_name, &table_name, point)
+                .map(HistoryResponse::Restored),
         };
-        result.unwrap_or_else(TimelineResponse::Err)
+        result.unwrap_or_else(HistoryResponse::Err)
     }
 
-    /// Run `f` on a timeline table of the current module (committed state).
-    fn timeline_read<R>(
+    /// The schema of a logged table of the current module, after checking
+    /// the frame may perform `ops` on it.
+    fn history_schema(
         &self,
         table_name: &str,
-        f: impl FnOnce(&crate::runtime::table::Table, &crate::runtime::table::Timeline) -> Result<R, String>,
-    ) -> Result<R, String> {
-        self.ensure_current_frame_table_access(&ModuleSelection::Current, table_name, TableAccessOp::Read)?;
-        let module_arc = self.current_frame_module_arc()?;
-        let tables = Self::read_tables(&module_arc);
-        let table = tables.get(table_name).ok_or("Table not found")?;
-        let timeline = table
-            .timeline()
-            .ok_or_else(|| format!("table '{table_name}' has no timeline"))?;
-        f(table, timeline)
-    }
-
-    /// Stage the writes that turn the table, as this reducer sees it, into
-    /// its state at `point`, followed by the travel marker. All or nothing:
-    /// nothing is staged if any write fails to validate.
-    fn timeline_travel(
-        &self,
-        module_name: String,
-        table_name: &str,
-        point: interstice_abi::TimelinePoint,
-        mode: interstice_abi::TravelMode,
-    ) -> Result<u64, String> {
-        for op in [TableAccessOp::Insert, TableAccessOp::Update, TableAccessOp::Delete] {
-            self.ensure_current_frame_table_access(&ModuleSelection::Current, table_name, op)?;
+        ops: &[TableAccessOp],
+    ) -> Result<interstice_abi::TableSchema, String> {
+        for op in ops {
+            self.ensure_current_frame_table_access(&ModuleSelection::Current, table_name, *op)?;
         }
         let module_arc = self.current_frame_module_arc()?;
         let tables = Self::read_tables(&module_arc);
         let table = tables.get(table_name).ok_or("Table not found")?;
-        let timeline = table
-            .timeline()
-            .ok_or_else(|| format!("table '{table_name}' has no timeline"))?;
-        let to = timeline.resolve(point)?;
-        let target = timeline.state_at(table.scan(), to)?;
+        if table.schema.persistence != interstice_abi::PersistenceKind::Logged {
+            return Err(format!("table '{table_name}' is not logged, so it keeps no history"));
+        }
+        Ok(table.schema.clone())
+    }
+
+    /// Stage the writes that turn the table, as this reducer sees it, into
+    /// its state at `point`, followed by the restore marker. All or nothing:
+    /// nothing is staged if any write fails to validate.
+    fn history_restore(
+        &self,
+        module_name: String,
+        table_name: &str,
+        point: interstice_abi::HistoryPoint,
+    ) -> Result<u64, String> {
+        let schema = self.history_schema(
+            table_name,
+            &[TableAccessOp::Insert, TableAccessOp::Update, TableAccessOp::Delete],
+        )?;
+        let (target_rows, to) = self.persistence.history_rows_at(&module_name, &schema, point)?;
+        let mut target = std::collections::BTreeMap::new();
+        for row in target_rows {
+            target.insert(IndexKey::try_from(&row.primary_key)?, row);
+        }
+        let module_arc = self.current_frame_module_arc()?;
+        let tables = Self::read_tables(&module_arc);
+        let table = tables.get(table_name).ok_or("Table not found")?;
 
         CALL_STACK.with(|s| {
             let mut stack = s.borrow_mut();
@@ -649,9 +636,9 @@ impl Runtime {
                 return Err("Writes are not allowed in query context".to_string());
             }
             if frame.transactions.iter().any(
-                |t| matches!(t, Transaction::Travel { table_name: name, .. } if name == table_name),
+                |t| matches!(t, Transaction::Restore { table_name: name, .. } if name == table_name),
             ) {
-                return Err(format!("table '{table_name}' already travelled in this transaction"));
+                return Err(format!("table '{table_name}' was already restored in this transaction"));
             }
             let mut ov = frame
                 .overlays
@@ -661,8 +648,7 @@ impl Runtime {
             let current = table.ov_scan(Some(&ov)).map_err(|e| e.to_string())?;
 
             // Diff by primary key: deletes, then updates, then inserts, each in
-            // encoded primary key order so the writes are deterministic.
-            let mut target = target;
+            // primary key order so the writes are deterministic.
             let mut deletes = Vec::new();
             let mut updates = Vec::new();
             for row in current {
@@ -677,13 +663,11 @@ impl Runtime {
                     }
                 }
             }
-            let by_key = |k: &IndexKey| interstice_abi::encode(k).unwrap_or_default();
-            deletes.sort_by_cached_key(by_key);
-            updates.sort_by_cached_key(|(k, _)| by_key(k));
-            let inserts = crate::runtime::table::timeline::sorted_rows(target);
+            deletes.sort();
+            updates.sort_by(|a, b| a.0.cmp(&b.0));
 
             let mut staged = Vec::new();
-            let fail = |e: crate::IntersticeError| format!("time travel on '{table_name}': {e}");
+            let fail = |e: crate::IntersticeError| format!("restore of '{table_name}': {e}");
             for pk in deletes {
                 table.ov_validate_delete(Some(&ov), &pk).map_err(fail)?;
                 table.ov_record(&mut ov, pk.clone(), None).map_err(fail)?;
@@ -702,7 +686,7 @@ impl Runtime {
                     update_row: row,
                 });
             }
-            for (pk, row) in inserts {
+            for (pk, row) in target {
                 table.ov_validate_insert(Some(&ov), &row).map_err(fail)?;
                 table.ov_record(&mut ov, pk, Some(row.clone())).map_err(fail)?;
                 staged.push(Transaction::Insert {
@@ -711,11 +695,10 @@ impl Runtime {
                     new_row: row,
                 });
             }
-            staged.push(Transaction::Travel {
+            staged.push(Transaction::Restore {
                 module_name: module_name.clone(),
                 table_name: table_name.to_string(),
                 to,
-                truncate: matches!(mode, interstice_abi::TravelMode::Truncate),
             });
             // The overlay exists from here on, even for an empty diff, so a
             // concurrent commit to the table is caught at commit time.

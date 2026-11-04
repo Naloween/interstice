@@ -11,10 +11,7 @@ use crate::{
         Runtime,
         event::EventInstance,
         module::Module,
-        table::{
-            Table, TableOverlay,
-            timeline::{TimelineCommit, TimelineOp},
-        },
+        table::{Table, TableOverlay},
     },
 };
 
@@ -39,14 +36,13 @@ pub enum Transaction {
         module_name: String,
         table_name: String,
     },
-    /// Time travel marker (§6.8): the writes staged before it in this
-    /// transaction turn the table into the state at `to`; at commit the
-    /// timeline head moves there and later writes branch from it.
-    Travel {
+    /// Restore marker (§6.7): the writes staged before it turn the table
+    /// into its state at `to`. It applies nothing; on a logged table it
+    /// becomes a `Restore{to}` log entry that tags the commit.
+    Restore {
         module_name: String,
         table_name: String,
         to: u64,
-        truncate: bool,
     },
 }
 
@@ -71,7 +67,6 @@ impl Runtime {
         overlays: &HashMap<String, TableOverlay>,
         module: &Arc<Module>,
         calls: Option<EventInstance>,
-        origin: Option<crate::runtime::record::PendingOrigin>,
         tx: (u64, u64),
     ) -> Result<(), IntersticeError> {
         if transactions.is_empty() {
@@ -102,10 +97,6 @@ impl Runtime {
             if stale {
                 validate_batch(&transactions, &tables)?;
             }
-            // Recording (DESIGN §6.7): logged below, under this lock.
-            let recorded_writes =
-                (module.recording_generation() != 0).then(|| transactions.clone());
-            let mut timeline = TimelineCommit::default();
 
             for transaction in transactions {
                 match transaction {
@@ -127,9 +118,6 @@ impl Runtime {
                         let need_copy = has_subscriptions
                             || !matches!(persistence_kind, PersistenceKind::Ephemeral);
                         let row_copy = need_copy.then(|| new_row.clone());
-                        if table.timeline().is_some() {
-                            timeline.op(&table_name, TimelineOp::Insert(new_row.clone()));
-                        }
                         table.insert_trusted(new_row)?;
 
                         if let Some(row) = row_copy {
@@ -153,13 +141,14 @@ impl Runtime {
                                 }
                                 PersistenceKind::Logged => {
                                     let pk = row_primary_key(&row)?;
-                                    if let Some(plan) = self.persistence.record_logged_operation(
+                                    if let Some(plan) = self.log_logged(
                                         &module_name,
-                                        &table_name,
+                                        table,
                                         LogOperation::Insert {
                                             primary_key: pk,
                                             row: Some(row.clone()),
                                         },
+                                        tx,
                                     )? {
                                         snapshots.push((plan, table.snapshot_rows()));
                                     }
@@ -182,12 +171,6 @@ impl Runtime {
                         })?;
                         let persistence_kind = table.schema.persistence.clone();
                         let old_row = table.update(update_row.clone())?;
-                        if table.timeline().is_some() {
-                            timeline.op(
-                                &table_name,
-                                TimelineOp::Update { old: old_row.clone(), new: update_row.clone() },
-                            );
-                        }
 
                         if has_subscriptions {
                             events.push(EventInstance::TableUpdateEvent {
@@ -210,13 +193,14 @@ impl Runtime {
                             }
                             PersistenceKind::Logged => {
                                 let pk = row_primary_key(&update_row)?;
-                                if let Some(plan) = self.persistence.record_logged_operation(
+                                if let Some(plan) = self.log_logged(
                                     &module_name,
-                                    &table_name,
+                                    table,
                                     LogOperation::Update {
                                         primary_key: pk,
                                         row: Some(update_row),
                                     },
+                                    tx,
                                 )? {
                                     snapshots.push((plan, table.snapshot_rows()));
                                 }
@@ -239,9 +223,6 @@ impl Runtime {
                         let persistence_kind = table.schema.persistence.clone();
 
                         if let Ok(deleted_row) = table.delete(&deleted_row_id) {
-                            if table.timeline().is_some() {
-                                timeline.op(&table_name, TimelineOp::Delete(deleted_row.clone()));
-                            }
                             if has_subscriptions {
                                 events.push(EventInstance::TableDeleteEvent {
                                     source_node_id: None,
@@ -260,12 +241,13 @@ impl Runtime {
                                 )?;
                             }
                             PersistenceKind::Logged => {
-                                if let Some(plan) = self.persistence.record_logged_operation(
+                                if let Some(plan) = self.log_logged(
                                     &module_name,
-                                    &table_name,
+                                    table,
                                     LogOperation::Delete {
                                         primary_key: deleted_row_id,
                                     },
+                                    tx,
                                 )? {
                                     snapshots.push((plan, table.snapshot_rows()));
                                 }
@@ -285,19 +267,9 @@ impl Runtime {
                             }
                         })?;
                         let persistence_kind = table.schema.persistence.clone();
-                        let has_timeline = table.timeline().is_some();
-                        let deleted_rows = if has_subscriptions || has_timeline {
-                            table.snapshot_rows()
-                        } else {
-                            vec![]
-                        };
+                        let deleted_rows =
+                            if has_subscriptions { table.snapshot_rows() } else { vec![] };
                         table.clear();
-                        if has_timeline {
-                            for row in &deleted_rows {
-                                timeline.op(&table_name, TimelineOp::Delete(row.clone()));
-                            }
-                        }
-                        let deleted_rows = if has_subscriptions { deleted_rows } else { vec![] };
 
                         for deleted_row in deleted_rows {
                             events.push(EventInstance::TableDeleteEvent {
@@ -313,10 +285,11 @@ impl Runtime {
                                     .persist_stateful_clear(&module_name, &table_name)?;
                             }
                             PersistenceKind::Logged => {
-                                if let Some(plan) = self.persistence.record_logged_operation(
+                                if let Some(plan) = self.log_logged(
                                     &module_name,
-                                    &table_name,
+                                    table,
                                     LogOperation::Clear,
+                                    tx,
                                 )? {
                                     snapshots.push((plan, table.snapshot_rows()));
                                 }
@@ -325,8 +298,23 @@ impl Runtime {
                         }
                     }
 
-                    Transaction::Travel { table_name, to, truncate, .. } => {
-                        timeline.travel(&table_name, to, truncate);
+                    Transaction::Restore { module_name, table_name, to } => {
+                        let table = tables.get_mut(&table_name).ok_or_else(|| {
+                            IntersticeError::TableNotFound {
+                                module_name: module_name.clone(),
+                                table_name: table_name.clone(),
+                            }
+                        })?;
+                        if table.schema.persistence == PersistenceKind::Logged {
+                            if let Some(plan) = self.log_logged(
+                                &module_name,
+                                table,
+                                LogOperation::Restore { to },
+                                tx,
+                            )? {
+                                snapshots.push((plan, table.snapshot_rows()));
+                            }
+                        }
                     }
                 }
             }
@@ -334,11 +322,6 @@ impl Runtime {
             // Event tables: evict beyond their retention bound.
             for table in tables.values_mut() {
                 table.enforce_retention();
-            }
-            timeline.finish(&mut tables, tx.0, tx.1);
-
-            if let Some(writes) = recorded_writes {
-                module.record_commit_locked(origin, writes, tx);
             }
 
             for event in events.into_iter().chain(calls) {
@@ -374,9 +357,9 @@ impl Runtime {
         let mut logged_snapshot_rows: Option<Vec<Row>> = None;
 
         match transaction {
-            // Only a module's own reducers travel, through
+            // Only a module's own reducers restore, through
             // `apply_all_transactions`.
-            Transaction::Travel { .. } => return Ok(events),
+            Transaction::Restore { .. } => return Ok(events),
             Transaction::Insert {
                 module_name,
                 table_name,
@@ -422,9 +405,6 @@ impl Runtime {
                     table.insert(new_row.clone())?;
                 }
                 table.enforce_retention();
-                if module.recording_generation() != 0 {
-                    module.record_commit_locked(None, vec![Transaction::Insert { module_name: module_name.clone(), table_name: table_name.clone(), new_row: new_row.clone() }], (0, 0));
-                }
 
                 if has_subscriptions {
                     events.push(EventInstance::TableInsertEvent {
@@ -443,10 +423,11 @@ impl Runtime {
                                 primary_key: pk,
                                 row: Some(new_row.clone()),
                             };
-                            if let Some(plan) = self.persistence.record_logged_operation(
+                            if let Some(plan) = self.log_logged(
                                 &module_name_for_persistence,
-                                &table_name_for_persistence,
+                                table,
                                 log_operation,
+                                self.tx_clock.next(crate::runtime::deterministic_random::wall_clock_ms()),
                             )? {
                                 logged_snapshot_rows = Some(table.snapshot_rows());
                                 logged_snapshot_plan = Some(plan);
@@ -505,9 +486,6 @@ impl Runtime {
                 persistence_kind = table.schema.persistence.clone();
 
                 let old_row = table.update(update_row.clone())?;
-                if module.recording_generation() != 0 {
-                    module.record_commit_locked(None, vec![Transaction::Update { module_name: module_name.clone(), table_name: table_name.clone(), update_row: update_row.clone() }], (0, 0));
-                }
 
                 if has_subscriptions {
                     events.push(EventInstance::TableUpdateEvent {
@@ -527,10 +505,11 @@ impl Runtime {
                                 primary_key: pk,
                                 row: Some(update_row.clone()),
                             };
-                            if let Some(plan) = self.persistence.record_logged_operation(
+                            if let Some(plan) = self.log_logged(
                                 &module_name_for_persistence,
-                                &table_name_for_persistence,
+                                table,
                                 log_operation,
+                                self.tx_clock.next(crate::runtime::deterministic_random::wall_clock_ms()),
                             )? {
                                 logged_snapshot_rows = Some(table.snapshot_rows());
                                 logged_snapshot_plan = Some(plan);
@@ -587,10 +566,6 @@ impl Runtime {
                             table_name: table_name.clone(),
                         })?;
                 persistence_kind = table.schema.persistence.clone();
-
-                if module.recording_generation() != 0 {
-                    module.record_commit_locked(None, vec![Transaction::Delete { module_name: module_name.clone(), table_name: table_name.clone(), deleted_row_id: deleted_row_id.clone() }], (0, 0));
-                }
                 if let Ok(deleted_row) = table.delete(&deleted_row_id) {
                     if has_subscriptions {
                         events.push(EventInstance::TableDeleteEvent {
@@ -608,10 +583,11 @@ impl Runtime {
                             log_operation = LogOperation::Delete {
                                 primary_key: deleted_row_id.clone(),
                             };
-                            if let Some(plan) = self.persistence.record_logged_operation(
+                            if let Some(plan) = self.log_logged(
                                 &module_name_for_persistence,
-                                &table_name_for_persistence,
+                                table,
                                 log_operation,
+                                self.tx_clock.next(crate::runtime::deterministic_random::wall_clock_ms()),
                             )? {
                                 logged_snapshot_rows = Some(table.snapshot_rows());
                                 logged_snapshot_plan = Some(plan);
@@ -667,9 +643,6 @@ impl Runtime {
 
                 let deleted_rows = table.snapshot_rows();
                 table.clear();
-                if module.recording_generation() != 0 {
-                    module.record_commit_locked(None, vec![Transaction::Clear { module_name: module_name.clone(), table_name: table_name.clone() }], (0, 0));
-                }
 
                 if has_subscriptions {
                     for deleted_row in deleted_rows {
@@ -686,10 +659,11 @@ impl Runtime {
                     match persistence_kind {
                         PersistenceKind::Logged => {
                             log_operation = LogOperation::Clear;
-                            if let Some(plan) = self.persistence.record_logged_operation(
+                            if let Some(plan) = self.log_logged(
                                 &module_name_for_persistence,
-                                &table_name_for_persistence,
+                                table,
                                 log_operation,
+                                self.tx_clock.next(crate::runtime::deterministic_random::wall_clock_ms()),
                             )? {
                                 logged_snapshot_rows = Some(table.snapshot_rows());
                                 logged_snapshot_plan = Some(plan);
@@ -719,6 +693,27 @@ impl Runtime {
     }
 }
 
+impl Runtime {
+    /// Append one entry to a logged table's log (§6.7), stamped with the
+    /// transaction that wrote it.
+    fn log_logged(
+        &self,
+        module_name: &str,
+        table: &Table,
+        operation: LogOperation,
+        tx: (u64, u64),
+    ) -> Result<Option<SnapshotPlan>, IntersticeError> {
+        self.persistence.record_logged_operation(
+            module_name,
+            &table.schema.name,
+            operation,
+            tx,
+            table.scan().len(),
+            table.schema.history,
+        )
+    }
+}
+
 fn row_primary_key(row: &Row) -> Result<IndexKey, IntersticeError> {
     row.primary_key
         .clone()
@@ -740,9 +735,9 @@ fn validate_batch(
             | Transaction::Delete { module_name, table_name, .. }
             | Transaction::Clear { module_name, table_name } => (module_name, table_name),
             // Its writes were diffed against a state that has since changed.
-            Transaction::Travel { table_name, .. } => {
+            Transaction::Restore { table_name, .. } => {
                 return Err(IntersticeError::Internal(format!(
-                    "time travel on '{table_name}' conflicted with a concurrent commit"
+                    "restore of '{table_name}' conflicted with a concurrent commit"
                 )));
             }
         };
@@ -769,7 +764,7 @@ fn validate_batch(
                 table.ov_record(ov, deleted_row_id.clone(), None)?;
             }
             Transaction::Clear { .. } => table.ov_record_clear(ov),
-            Transaction::Travel { .. } => unreachable!(),
+            Transaction::Restore { .. } => unreachable!(),
         }
     }
     Ok(())

@@ -50,9 +50,6 @@ pub struct Module {
     pub schema: Arc<ModuleSchema>,
     pub tables: Arc<parking_lot::RwLock<HashMap<String, Table>>>,
     pub reducer_names: HashSet<String>,
-    /// Record log (DESIGN §6.7); `recording` is its generation, 0 when off.
-    pub(crate) recorder: Mutex<Option<crate::runtime::record::Recorder>>,
-    pub(crate) recording: std::sync::atomic::AtomicU64,
 }
 
 /// Instantiates `wasm_module` in a fresh store. `schema` is `None` while the
@@ -151,17 +148,7 @@ impl Module {
             schema,
             tables: Arc::new(parking_lot::RwLock::new(tables)),
             reducer_names,
-            recorder: Mutex::new(None),
-            recording: std::sync::atomic::AtomicU64::new(0),
         })
-    }
-
-    pub fn wasm_bytes(&self) -> &[u8] {
-        &self.wasm_bytes
-    }
-
-    pub(crate) fn runtime(&self) -> &Arc<Runtime> {
-        &self.factory.runtime
     }
 
     /// Current [`interstice_abi::RawReducerContext::state_epoch`].
@@ -545,8 +532,8 @@ impl Runtime {
 
             let mut local_schema = remote_table.clone();
             local_schema.name = local_table_name.clone();
-            // A replica mirrors rows; it has no commits of its own to travel.
-            local_schema.timeline = None;
+            // A replica's history is its own (§6.7): keep everything.
+            local_schema.history = None;
             module
                 .tables
                 .write()
@@ -607,9 +594,9 @@ impl Runtime {
             if let Some(module) = runtime.modules.lock().get(&module_schema.name) {
                 let mut tables = module.tables.write();
                 for table in tables.values_mut() {
-                    runtime
-                        .persistence
-                        .restore_table(&module_schema.name, table)?;
+                    let stamp = runtime.persistence.restore_table(&module_schema.name, table)?;
+                    // Keep transaction ids growing along the log (§6.7).
+                    runtime.tx_clock.advance_past(stamp);
                 }
             }
         }

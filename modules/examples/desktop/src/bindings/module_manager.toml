@@ -1,4 +1,4 @@
-abi_version = 11
+abi_version = 12
 name = "module_manager"
 visibility = "Public"
 subscriptions = []
@@ -68,21 +68,6 @@ table_name = "app"
 node_selection = "Current"
 module_selection = "Current"
 table_name = "appbinary"
-
-[[reducers]]
-name = "replay"
-reads = []
-updates = []
-deletes = []
-
-[[reducers.arguments]]
-name = "module"
-field_type = "String"
-
-[[reducers.inserts]]
-node_selection = "Current"
-module_selection = "Current"
-table_name = "replayreport"
 
 [[reducers]]
 name = "load_app"
@@ -155,28 +140,6 @@ table_name = "app"
 node_selection = "Current"
 module_selection = "Current"
 table_name = "app"
-
-[[reducers]]
-name = "record_stop"
-reads = []
-inserts = []
-updates = []
-deletes = []
-
-[[reducers.arguments]]
-name = "module"
-field_type = "String"
-
-[[reducers]]
-name = "record_start"
-reads = []
-inserts = []
-updates = []
-deletes = []
-
-[[reducers.arguments]]
-name = "module"
-field_type = "String"
 
 [[reducers]]
 name = "register_app"
@@ -272,30 +235,24 @@ field_type = "String"
 name = "seq"
 field_type = "U64"
 
-[[tables]]
-name = "replayreport"
-type_name = "ReplayReport"
-visibility = "Public"
-primary_key_auto_inc = true
-indexes = []
-persistence = "Ephemeral"
-retention = 32
+[type_definitions.LoadReport.Struct]
+name = "LoadReport"
 
-[[tables.fields]]
+[[type_definitions.LoadReport.Struct.fields]]
+name = "seq"
+field_type = "U64"
+
+[[type_definitions.LoadReport.Struct.fields]]
 name = "module"
 field_type = "String"
 
-[[tables.fields]]
+[[type_definitions.LoadReport.Struct.fields]]
 name = "ok"
 field_type = "Bool"
 
-[[tables.fields]]
+[[type_definitions.LoadReport.Struct.fields]]
 name = "message"
 field_type = "String"
-
-[tables.primary_key]
-name = "seq"
-field_type = "U64"
 
 [type_definitions.AppInfo.Struct]
 name = "AppInfo"
@@ -317,41 +274,3 @@ Vec = "U8"
 [[type_definitions.AppInfo.Struct.fields]]
 name = "loaded"
 field_type = "Bool"
-
-[type_definitions.ReplayReport.Struct]
-name = "ReplayReport"
-
-[[type_definitions.ReplayReport.Struct.fields]]
-name = "seq"
-field_type = "U64"
-
-[[type_definitions.ReplayReport.Struct.fields]]
-name = "module"
-field_type = "String"
-
-[[type_definitions.ReplayReport.Struct.fields]]
-name = "ok"
-field_type = "Bool"
-
-[[type_definitions.ReplayReport.Struct.fields]]
-name = "message"
-field_type = "String"
-
-[type_definitions.LoadReport.Struct]
-name = "LoadReport"
-
-[[type_definitions.LoadReport.Struct.fields]]
-name = "seq"
-field_type = "U64"
-
-[[type_definitions.LoadReport.Struct.fields]]
-name = "module"
-field_type = "String"
-
-[[type_definitions.LoadReport.Struct.fields]]
-name = "ok"
-field_type = "Bool"
-
-[[type_definitions.LoadReport.Struct.fields]]
-name = "message"
-field_type = "String"

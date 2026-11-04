@@ -30,18 +30,6 @@ pub struct AppBinary {
     bin: Vec<u8>,
 }
 
-/// Outcome of a `replay` (DESIGN §12.2). `ok` is false when the replay
-/// diverged or could not run; `message` is the report or the divergence.
-#[table(public, event = 32)]
-#[derive(Debug)]
-pub struct ReplayReport {
-    #[primary_key(auto_inc)]
-    pub seq: u64,
-    pub module: String,
-    pub ok: bool,
-    pub message: String,
-}
-
 /// Outcome of a `load_app` (DESIGN §12.2): loads compile in the background,
 /// so the result arrives later. `module` is empty when the binary could not
 /// be compiled.
@@ -183,38 +171,6 @@ where
         ctx.current.tables.appbinary().delete(app.id)?;
     }
     ctx.current.tables.app().delete(app.id)?;
-    Ok(())
-}
-
-// ── Record and replay (DESIGN §6.7) ────────────────────────────────────────────
-
-/// Start recording a module loaded on this node (DESIGN §6.7).
-#[reducer]
-fn record_start(ctx: ReducerContext, module: String) -> Result<(), String> {
-    ctx.module().record(module, true)
-}
-
-/// Stop recording a module and drop its log.
-#[reducer]
-fn record_stop(ctx: ReducerContext, module: String) -> Result<(), String> {
-    ctx.module().record(module, false)
-}
-
-/// Replay a recorded module against a detached copy and check that it
-/// reproduces the live state. The outcome (report or first divergence) is
-/// published as a `ReplayReport` row; a divergence is a result, not a failure
-/// of this reducer.
-#[reducer]
-fn replay<Caps>(ctx: ReducerContext<Caps>, module: String) -> Result<(), String>
-where
-    Caps: CanInsert<ReplayReport>,
-{
-    let (ok, message) = match ctx.module().replay(module.clone()) {
-        Ok(report) => (true, report),
-        Err(err) => (false, err),
-    };
-    ctx.log(&format!("module_manager: replay of '{module}': {message}"));
-    ctx.current.tables.replayreport().insert(ReplayReport { seq: 0, module, ok, message })?;
     Ok(())
 }
 

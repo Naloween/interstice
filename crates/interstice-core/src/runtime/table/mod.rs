@@ -1,10 +1,8 @@
 mod auto_inc;
 mod index;
 mod overlay;
-pub(crate) mod timeline;
 
 pub use overlay::TableOverlay;
-pub use timeline::Timeline;
 
 pub(crate) use auto_inc::{AutoIncCounter, TableAutoIncSnapshot};
 
@@ -27,8 +25,6 @@ pub struct Table {
     /// Event tables: the retention bound and live primary keys, oldest first.
     retention: Option<usize>,
     insertion_order: VecDeque<IndexKey>,
-    /// Timeline tables: the commit tree (§6.8).
-    timeline: Option<Box<Timeline>>,
 }
 
 impl Table {
@@ -61,12 +57,7 @@ impl Table {
         };
 
         let retention = schema.retention.map(|n| n as usize);
-        let timeline = match (schema.timeline, retention) {
-            (Some(n), None) => Some(Box::new(Timeline::new(n as usize))),
-            _ => None,
-        };
         Self {
-            timeline,
             schema,
             retention,
             insertion_order: VecDeque::new(),
@@ -79,15 +70,6 @@ impl Table {
         }
     }
 
-    pub fn timeline(&self) -> Option<&Timeline> {
-        self.timeline.as_deref()
-    }
-
-    pub fn timeline_mut(&mut self) -> Option<&mut Timeline> {
-        self.timeline.as_deref_mut()
-    }
-
-    #[inline]
     pub fn has_auto_inc(&self) -> bool {
         self.primary_key_auto_inc || self.indexes.iter().any(|i| i.auto_inc)
     }
@@ -264,18 +246,6 @@ impl Table {
             .into_iter()
             .filter_map(|pos| self.rows.get(pos))
             .collect())
-    }
-
-    /// A copy that shares nothing with this table (its auto-inc counters
-    /// included), for a record baseline (§6.7).
-    pub fn detached_clone(&self) -> Table {
-        let mut table = self.clone();
-        table.primary_key_auto_inc_counter =
-            table.primary_key_auto_inc_counter.as_ref().map(AutoIncCounter::detached);
-        for index in &mut table.indexes {
-            index.auto_inc_counter = index.auto_inc_counter.as_ref().map(AutoIncCounter::detached);
-        }
-        table
     }
 
     pub fn snapshot_rows(&self) -> Vec<Row> {

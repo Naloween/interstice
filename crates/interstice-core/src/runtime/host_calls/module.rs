@@ -201,33 +201,6 @@ impl Runtime {
                     ModuleCallResponse::Ok
                 }
             },
-            ModuleCall::Record { module_name, enabled } => {
-                let module = self.modules.lock().get(&module_name).cloned();
-                match module {
-                    None => ModuleCallResponse::Err(format!("module '{module_name}' is not loaded")),
-                    Some(module) => {
-                        if enabled {
-                            module.start_recording(crate::runtime::record::DEFAULT_WINDOW);
-                        } else {
-                            module.stop_recording();
-                        }
-                        let state = if enabled { "started" } else { "stopped" };
-                        self.log_record_event(&format!("record: '{module_name}' {state}"), false);
-                        ModuleCallResponse::Ok
-                    }
-                }
-            }
-            ModuleCall::Replay { module_name } => match runtime.replay_module(&module_name) {
-                Ok(report) => {
-                    self.log_record_event(&format!("replay: {report}"), false);
-                    ModuleCallResponse::Report(report)
-                }
-                Err(divergence) => {
-                    let message = format!("replay of '{module_name}' diverged: {divergence}");
-                    self.log_record_event(&message, true);
-                    ModuleCallResponse::Err(message)
-                }
-            },
         };
 
         let packed = self.send_data_to_module(response, _memory, _caller);

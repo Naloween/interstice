@@ -165,11 +165,11 @@ struct Notification { /* ... */ }
 
 | Mode                 | Disk space                                  | Restart behavior                   | Best for                                                                             |
 | -------------------- | ------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------ |
-| **Logged** (default) | Grows with history (compacted at snapshots) | Replays WAL to rebuild exact state | Transactional data, audit trails, small–medium rows                                  |
+| **Logged** (default) | Grows with history (bounded by `history`)    | Checkpoint + log replay            | Transactional data, audit trails, anything you may want to rewind                    |
 | **Stateful**         | ≈ current live data (one file per row)      | Reads row files directly           | Large assets (images, audio, video blobs), rows that update frequently and are large |
 | **Ephemeral**        | Zero                                        | Table starts empty                 | Caches, derived views, session state                                                 |
 
-- **Logged** — every mutation is appended to a write-ahead log (fsynced every ~10 ms in a background thread). Periodic snapshots compact the log. On restart the runtime replays the log from the last snapshot to reconstruct state exactly.
+- **Logged** — every mutation is appended to a log (fsynced every ~10 ms in a background thread), tagged with its transaction id and timestamp. The log is the table's **history**, as in SpacetimeDB: nothing is compacted away, and periodic checkpoints only make restarts and past reads fast. On restart the runtime loads the newest checkpoint and replays the log after it. `#[table(history = "7d")]` bounds how far back it is kept (default `"all"`). See [Time travel](#determinism-and-concurrency).
 - **Stateful** — each row lives in its own file (`<pk>.row`) inside a dedicated directory. Insert and update atomically replace the row file; delete removes it; clear removes all files. Disk usage equals exactly the sum of current row sizes — no history accumulates. On restart the runtime reads every row file to reconstruct the table.
 - **Ephemeral** — never written to disk. The table starts empty when the node starts. Ideal for caches or derived state you can recompute.
 - **Event** (`event = N`) — an ephemeral notification table that keeps only its `N` most recently inserted rows. Subscribers get each row in the insert event; after every commit the engine evicts the oldest rows beyond `N` (evictions don't fire delete events). Use it for results, messages and logs that nobody needs to keep forever.
@@ -445,7 +445,7 @@ You can omit the target argument if the .cargo/config.toml is already well confi
 - `modules/examples/desktop` — **the showcase** (DESIGN.md §12.2)
   - A desktop OS made of modules. It holds no authority: it is the compositor of `graphics` (each app renders into its own surface, composited into a window), the input router of `input` (pointer and keyboard focus per window, surface-local coordinates), and a client of `module_manager` (apps are registered wasm blobs, loaded and unloaded at runtime).
   - Click **Apps** for the launcher. Windows: `ui-example`, `notes`, `browser-example`, `agar-client` (needs `interstice example agar-server`). Services (toggled, no window): `hello-example`, `http-get-example`, `audio-example`. Opening `notes` loads `hello-example` first, and a service can't be stopped while an app needs it.
-  - A window's ● button records its app; a second click replays the recording on a detached copy and shows whether it reproduced the live state. A failed load (e.g. agar without its server) closes its window with the reason.
+  - A failed load (e.g. agar without its server) closes its window with the reason.
   - Scriptable: `interstice call_reducer desktop-example desktop-example open notes`.
 - `modules/examples/notes`
   - A UI over `hello`'s time-travelling `Notes` table: add and erase notes, undo, redo, and click any commit to rewind to it (the future is kept as a branch). Runs standalone with `interstice example notes` or as a desktop app.
@@ -625,8 +625,7 @@ Authorities are typed tokens granting modules access to privileged host function
 ## Determinism and concurrency
 
 - Transactions are deterministic given their inputs: each one has its own id, timestamp and random seed (DESIGN.md §6.5).
-- A module can be recorded and replayed: `call_reducer <node> module_manager record_start <module>`, then `... replay <module>` re-executes the recorded window on a detached copy and checks writes and final state (DESIGN.md §6.7).
-- Tables can time travel: `#[table(timeline = N)]` keeps a tree of the table's commits, and a reducer can read any past state (`rows_at`) or move the table there (`travel`, as one ordinary atomic write). The next commit starts a branch, so undo/redo and rewinds come for free (DESIGN.md §6.8; see the `hello` example's `undo`/`redo`).
+- Logged tables time travel, from their log: a reducer can list a table's commits (`commits(limit)`), read it as of any past transaction or time (`rows_at(HistoryPoint::Tx(id) | Time(ms) | Back(n) | Start)`), and restore it there (`restore(point)`, one ordinary atomic write tagged in the log). Restoring several tables to the same `Tx` gives a consistent state. History survives restarts. Undo, redo and branches derive from the log (DESIGN.md §6.7; see the `hello` example's `undo`/`redo`/`restore` and the `notes` app).
 - Reducers are currently processed through a serialized queue in the runtime event loop.
 
 ---
@@ -644,7 +643,7 @@ The detailed, design-level TODO list (engine semantics, storage, security, SDK, 
 - Network authority — done: raw TCP/UDP sockets, plus a default `network` broker module (TCP + DNS + HTTP) that holds the authority and shares it across apps
 - Better Audio authority and host calls
 - Table views and row-level security: allow modules to filter rows based on runtime state and requesting node id. NOTE: the `network` broker currently stamps each result row with an `owner` and apps filter client-side; once table views exist, move this to runtime-enforced per-app visibility so apps can't read each other's traffic
-- Time travel — done: `#[table(timeline = N)]` tables keep a commit tree; reducers read past states and travel (branch or truncate), atomically and replayably (DESIGN.md §6.8). Open: travel kinds that keep chosen rows, persisted timelines
+- Time travel — done: logged tables keep their log as history; reducers list commits, read past states and restore them, atomically (DESIGN.md §6.7). Open: a module-wide restore call, re-simulation (restore, then re-run later reducers with a change)
 - Bundles to ship nodes as a whole program
 - Table migrations and schema evolution without data loss
 - Iter-based table scans and more efficient index access
@@ -652,8 +651,8 @@ The detailed, design-level TODO list (engine semantics, storage, security, SDK, 
 ## Modules
 
 - Make buttons and click events works on ui
-- Desktop module — done: window manager, launcher, services, record/replay and time travel from the UI (DESIGN.md §12.2)
-- ModuleManager — app registry, async loads with load reports, record/replay; open: routed remote load/remove requests
+- Desktop module — done: window manager, launcher, services and time travel from the UI (DESIGN.md §12.2)
+- ModuleManager — app registry, async loads with load reports; open: routed remote load/remove requests
 - Pages (documents etc.. Replace file system)
 - Better Graphics
 - Better Inputs (Keyboards)

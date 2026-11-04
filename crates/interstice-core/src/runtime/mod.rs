@@ -5,7 +5,6 @@ pub mod event;
 pub mod host_calls;
 pub mod module;
 mod query;
-pub mod record;
 pub mod reducer;
 mod scheduler;
 pub mod table;
@@ -36,7 +35,7 @@ use interstice_abi::{
     Authority, IntersticeValue, ModuleEvent, NodeSchema, SubscriptionEventSchema, TableVisibility,
 };
 use notify::RecommendedWatcher;
-use std::sync::atomic::{AtomicI32, AtomicU64};
+use std::sync::atomic::AtomicI32;
 use parking_lot::Mutex;
 use std::{
     collections::{HashMap, HashSet},
@@ -98,9 +97,8 @@ pub struct Runtime {
     pub(crate) emitted_replica_sync_events: Arc<Mutex<HashSet<String>>>,
     pub(crate) file_watchers: Arc<Mutex<Vec<RecommendedWatcher>>>,
     pub(crate) network_state: Arc<NetworkState>,
-    pub(crate) tx_counter: AtomicU64,
-    /// Highest transaction timestamp handed out (DESIGN §6.5).
-    pub(crate) last_tx_ms: AtomicU64,
+    /// Transaction ids and timestamps (DESIGN §6.5).
+    pub(crate) tx_clock: crate::runtime::deterministic_random::TxClock,
     pub(crate) active_subscription_count: AtomicI32,
     pub(crate) timer_tx: tokio::sync::mpsc::UnboundedSender<(std::time::Instant, String, String)>,
     timer_rx: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<(std::time::Instant, String, String)>>>,
@@ -182,9 +180,7 @@ impl Runtime {
             logger,
             file_watchers: Arc::new(Mutex::new(Vec::new())),
             network_state: Arc::new(NetworkState::new()),
-            // Starts at 1: timeline node 0 is the base (§6.8).
-            tx_counter: AtomicU64::new(1),
-            last_tx_ms: AtomicU64::new(0),
+            tx_clock: crate::runtime::deterministic_random::TxClock::new(),
             active_subscription_count: AtomicI32::new(0),
             timer_tx,
             timer_rx: Mutex::new(Some(timer_rx)),

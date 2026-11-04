@@ -8,7 +8,7 @@ pub fn load(node_selection: NodeSelection, wasm_binary: Vec<u8>) -> Result<(), S
     }));
     let response: ModuleCallResponse = unpack(pack);
     match response {
-        ModuleCallResponse::Ok | ModuleCallResponse::Report(_) => Ok(()),
+        ModuleCallResponse::Ok => Ok(()),
         ModuleCallResponse::Err(err) => Err(err),
     }
 }
@@ -21,7 +21,7 @@ pub fn unload(node_selection: NodeSelection, module_name: String) -> Result<(), 
     }));
     let response: ModuleCallResponse = unpack(pack);
     match response {
-        ModuleCallResponse::Ok | ModuleCallResponse::Report(_) => Ok(()),
+        ModuleCallResponse::Ok => Ok(()),
         ModuleCallResponse::Err(err) => Err(err),
     }
 }
@@ -34,30 +34,7 @@ pub fn remove(node_selection: NodeSelection, module_name: String) -> Result<(), 
     }));
     let response: ModuleCallResponse = unpack(pack);
     match response {
-        ModuleCallResponse::Ok | ModuleCallResponse::Report(_) => Ok(()),
-        ModuleCallResponse::Err(err) => Err(err),
-    }
-}
-
-/// Start or stop recording a local module (DESIGN §6.7).
-pub fn record(module_name: String, enabled: bool) -> Result<(), String> {
-    let pack = host_call(HostCall::Module(ModuleCall::Record { module_name, enabled }));
-    let response: ModuleCallResponse = unpack(pack);
-    match response {
-        ModuleCallResponse::Ok | ModuleCallResponse::Report(_) => Ok(()),
-        ModuleCallResponse::Err(err) => Err(err),
-    }
-}
-
-/// Replay a recorded local module and check it reproduces its live state.
-/// `Ok` carries the report, `Err` the first divergence; both also go to the
-/// node log.
-pub fn replay(module_name: String) -> Result<String, String> {
-    let pack = host_call(HostCall::Module(ModuleCall::Replay { module_name }));
-    let response: ModuleCallResponse = unpack(pack);
-    match response {
-        ModuleCallResponse::Ok => Ok(String::new()),
-        ModuleCallResponse::Report(report) => Ok(report),
+        ModuleCallResponse::Ok => Ok(()),
         ModuleCallResponse::Err(err) => Err(err),
     }
 }
@@ -79,13 +56,5 @@ impl ModuleAuthority {
 
     pub fn remove(&self, node_selection: NodeSelection, module_name: String) -> Result<(), String> {
         remove(node_selection, module_name)
-    }
-
-    pub fn record(&self, module_name: String, enabled: bool) -> Result<(), String> {
-        record(module_name, enabled)
-    }
-
-    pub fn replay(&self, module_name: String) -> Result<String, String> {
-        replay(module_name)
     }
 }

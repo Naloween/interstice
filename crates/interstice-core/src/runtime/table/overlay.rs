@@ -328,7 +328,7 @@ mod tests {
             ],
             persistence: PersistenceKind::Ephemeral,
             retention: None,
-            timeline: None,
+            history: None,
         })
     }
 

@@ -232,7 +232,6 @@ where
 }
 
 /// Click counter and the left button's state last frame (for click edges).
-/// In a table, not in memory, so a recording of this app replays exactly.
 #[table(ephemeral)]
 pub struct ButtonState {
     #[primary_key]

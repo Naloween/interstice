@@ -1,4 +1,4 @@
-abi_version = 11
+abi_version = 12
 name = "hello-example"
 visibility = "Public"
 subscriptions = []
@@ -118,14 +118,10 @@ module_selection = "Current"
 table_name = "greetings"
 
 [[reducers]]
-name = "rewind"
+name = "restore"
 
 [[reducers.arguments]]
 name = "commit"
-field_type = "String"
-
-[[reducers.arguments]]
-name = "truncate"
 field_type = "String"
 
 [[reducers.reads]]
@@ -199,7 +195,6 @@ visibility = "Public"
 primary_key_auto_inc = false
 indexes = []
 persistence = "Logged"
-timeline = 64
 
 [[tables.fields]]
 name = "text"
@@ -236,35 +231,6 @@ index_type = "BTree"
 unique = true
 auto_inc = false
 
-[type_definitions.Notes.Struct]
-name = "Notes"
-
-[[type_definitions.Notes.Struct.fields]]
-name = "id"
-field_type = "U64"
-
-[[type_definitions.Notes.Struct.fields]]
-name = "text"
-field_type = "String"
-
-[type_definitions.TestCustomType.Struct]
-name = "TestCustomType"
-
-[[type_definitions.TestCustomType.Struct.fields]]
-name = "val"
-field_type = "U32"
-
-[type_definitions.NoteCommit.Struct]
-name = "NoteCommit"
-
-[[type_definitions.NoteCommit.Struct.fields]]
-name = "id"
-field_type = "U64"
-
-[[type_definitions.NoteCommit.Struct.fields]]
-name = "parent"
-field_type = "U64"
-
 [type_definitions.Greetings.Struct]
 name = "Greetings"
 
@@ -282,6 +248,28 @@ name = "custom"
 [type_definitions.Greetings.Struct.fields.field_type]
 Named = "TestCustomType"
 
+[type_definitions.NoteCommit.Struct]
+name = "NoteCommit"
+
+[[type_definitions.NoteCommit.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.NoteCommit.Struct.fields]]
+name = "parent"
+field_type = "U64"
+
+[type_definitions.Notes.Struct]
+name = "Notes"
+
+[[type_definitions.Notes.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.Notes.Struct.fields]]
+name = "text"
+field_type = "String"
+
 [type_definitions.NoteHistory.Struct]
 name = "NoteHistory"
 
@@ -294,3 +282,10 @@ name = "commits"
 
 [type_definitions.NoteHistory.Struct.fields.field_type.Vec]
 Named = "NoteCommit"
+
+[type_definitions.TestCustomType.Struct]
+name = "TestCustomType"
+
+[[type_definitions.TestCustomType.Struct.fields]]
+name = "val"
+field_type = "U32"
