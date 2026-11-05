@@ -4,69 +4,94 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-/// Weight/slant of a text run. The four combinations map to the four embedded
-/// DejaVu faces; `bold`/`italic` both false ⇒ the regular face. A `Copy` POD so
-/// it threads cheaply through every measurement helper.
+/// Weight and family of a text run (brand/BRAND.md §4): `bold` selects the
+/// Medium weight, `mono` selects IBM Plex Mono instead of Space Grotesk. There
+/// are no italics in the brand. A `Copy` POD so it threads cheaply through every
+/// measurement helper.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FontStyle {
     pub bold: bool,
-    pub italic: bool,
+    pub mono: bool,
 }
 
 impl FontStyle {
-    pub const REGULAR: FontStyle = FontStyle { bold: false, italic: false };
-    pub fn new(bold: bool, italic: bool) -> Self {
-        FontStyle { bold, italic }
+    pub const REGULAR: FontStyle = FontStyle { bold: false, mono: false };
+    pub const MEDIUM: FontStyle = FontStyle { bold: true, mono: false };
+    pub const MONO: FontStyle = FontStyle { bold: false, mono: true };
+    pub fn new(bold: bool, mono: bool) -> Self {
+        FontStyle { bold, mono }
+    }
+    /// The `font` selector of a graphics text command for this style
+    /// (`modules/defaults/graphics/src/font.rs::parse_style`).
+    pub fn selector(self) -> Option<String> {
+        match (self.bold, self.mono) {
+            (false, false) => None,
+            (true, false) => Some("bold".to_string()),
+            (false, true) => Some("mono".to_string()),
+            (true, true) => Some("mono-bold".to_string()),
+        }
     }
 }
 
-/// The four embedded UI faces (DejaVu Sans regular/bold/oblique/bold-oblique).
-/// The graphics renderer rasterizes these *same* bytes at the *same*
-/// `PxScale::from(size)` convention, so the advances we measure here match the
-/// glyph positions it draws — that agreement keeps wrapped text inside the box
-/// it was laid out in. `FONT_TTF` (regular) is also the SVG fallback face.
-pub const FONT_TTF: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
-pub const FONT_TTF_BOLD: &[u8] = include_bytes!("../assets/DejaVuSans-Bold.ttf");
-pub const FONT_TTF_ITALIC: &[u8] = include_bytes!("../assets/DejaVuSans-Oblique.ttf");
-pub const FONT_TTF_BOLD_ITALIC: &[u8] = include_bytes!("../assets/DejaVuSans-BoldOblique.ttf");
-/// CJK fallback (Droid Sans Fallback): covers Han/Hiragana/Katakana that DejaVu
-/// lacks, so pages with Japanese/Chinese text measure (and, on the graphics side,
-/// draw) at their true widths. Single weight — used for every style. MUST stay in
-/// sync with the matching copy in `modules/defaults/graphics/assets` so drawn pen
-/// positions track this layout (see the module comment).
+/// The four embedded UI faces: Space Grotesk Regular/Medium and IBM Plex Mono
+/// Regular/Medium. The graphics renderer rasterizes these *same* bytes at the
+/// *same* `PxScale::from(size)` convention, so the advances we measure here
+/// match the glyph positions it draws — that agreement keeps wrapped text inside
+/// the box it was laid out in. MUST stay in sync with the copies in
+/// `modules/defaults/graphics/assets`.
+pub const FONT_TTF: &[u8] = include_bytes!("../assets/SpaceGrotesk-Regular.ttf");
+pub const FONT_TTF_BOLD: &[u8] = include_bytes!("../assets/SpaceGrotesk-Medium.ttf");
+pub const FONT_TTF_MONO: &[u8] = include_bytes!("../assets/IBMPlexMono-Regular.ttf");
+pub const FONT_TTF_MONO_BOLD: &[u8] = include_bytes!("../assets/IBMPlexMono-Medium.ttf");
+/// Fallback for what the brand faces lack (Greek, Cyrillic, most symbols):
+/// DejaVu Sans, regular and bold.
+pub const FONT_TTF_FALLBACK: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
+pub const FONT_TTF_FALLBACK_BOLD: &[u8] = include_bytes!("../assets/DejaVuSans-Bold.ttf");
+/// CJK fallback (Droid Sans Fallback): covers Han/Hiragana/Katakana, so pages
+/// with Japanese/Chinese text measure (and, on the graphics side, draw) at
+/// their true widths. Single weight — used for every style.
 pub const FONT_TTF_CJK: &[u8] = include_bytes!("../assets/DroidSansFallbackFull.ttf");
+
+fn parse(bytes: &'static [u8]) -> FontArc {
+    FontArc::try_from_slice(bytes).expect("embedded face is valid")
+}
 
 /// The face for `style`, lazily parsed from the embedded bytes and cached.
 fn face(style: FontStyle) -> &'static FontArc {
+    static FACES: [OnceLock<FontArc>; 4] = [OnceLock::new(), OnceLock::new(), OnceLock::new(), OnceLock::new()];
+    let idx = (style.bold as usize) | ((style.mono as usize) << 1);
+    FACES[idx].get_or_init(|| parse([FONT_TTF, FONT_TTF_BOLD, FONT_TTF_MONO, FONT_TTF_MONO_BOLD][idx]))
+}
+
+/// DejaVu, for characters the brand faces don't cover.
+fn fallback_face(bold: bool) -> &'static FontArc {
     static REG: OnceLock<FontArc> = OnceLock::new();
     static BOLD: OnceLock<FontArc> = OnceLock::new();
-    static ITAL: OnceLock<FontArc> = OnceLock::new();
-    static BI: OnceLock<FontArc> = OnceLock::new();
-    let (cell, bytes) = match (style.bold, style.italic) {
-        (false, false) => (&REG, FONT_TTF),
-        (true, false) => (&BOLD, FONT_TTF_BOLD),
-        (false, true) => (&ITAL, FONT_TTF_ITALIC),
-        (true, true) => (&BI, FONT_TTF_BOLD_ITALIC),
-    };
-    cell.get_or_init(|| FontArc::try_from_slice(bytes).expect("embedded DejaVu face is valid"))
+    match bold {
+        false => REG.get_or_init(|| parse(FONT_TTF_FALLBACK)),
+        true => BOLD.get_or_init(|| parse(FONT_TTF_FALLBACK_BOLD)),
+    }
 }
 
 /// The shared CJK fallback face (one weight for all styles).
 fn cjk_face() -> &'static FontArc {
     static CJK: OnceLock<FontArc> = OnceLock::new();
-    CJK.get_or_init(|| FontArc::try_from_slice(FONT_TTF_CJK).expect("embedded CJK face is valid"))
+    CJK.get_or_init(|| parse(FONT_TTF_CJK))
 }
 
-/// Pick the face that actually has a glyph for `ch`: the styled DejaVu face when
-/// it covers the character, otherwise the CJK fallback. Rendering (graphics
+/// Pick the face that actually has a glyph for `ch`: the brand face for the
+/// style, else DejaVu, else the CJK fallback. Rendering (graphics
 /// `font::face_for`) mirrors this exactly so measured and drawn advances agree.
 pub fn face_for(ch: char, style: FontStyle) -> &'static FontArc {
     let primary = face(style);
-    if primary.glyph_id(ch).0 == 0 && cjk_face().glyph_id(ch).0 != 0 {
-        cjk_face()
-    } else {
-        primary
+    if primary.glyph_id(ch).0 != 0 {
+        return primary;
     }
+    let fallback = fallback_face(style.bold);
+    if fallback.glyph_id(ch).0 != 0 {
+        return fallback;
+    }
+    if cjk_face().glyph_id(ch).0 != 0 { cjk_face() } else { primary }
 }
 
 thread_local! {
@@ -77,7 +102,7 @@ thread_local! {
     // query into a map lookup instead of a font cmap+hmtx read, which is the
     // difference between a heavy page rendering in a few ms vs. stalling the
     // render so long the compositor drops the window. Keyed on the size's exact
-    // bit pattern (sizes recur) + the char + a 2-bit weight/slant. wasm modules
+    // bit pattern (sizes recur) + the char + a 2-bit weight/family. wasm modules
     // are single-threaded so the `thread_local` is contention-free; `BTreeMap`
     // (not `HashMap`) sidesteps the `RandomState` entropy panic on
     // wasm32-unknown-unknown. The key space is tiny (a few sizes × the page's
@@ -87,7 +112,7 @@ thread_local! {
 
 #[inline]
 fn style_bits(style: FontStyle) -> u8 {
-    ((style.bold as u8) << 1) | style.italic as u8
+    ((style.bold as u8) << 1) | style.mono as u8
 }
 
 /// Horizontal advance of a single character at `size` px/em in `style`. Cached:
@@ -141,6 +166,15 @@ pub fn text_line_height(size: f32, style: FontStyle) -> f32 {
     }
     let sf = face(style).as_scaled(PxScale::from(size));
     (sf.height() + sf.line_gap()).ceil()
+}
+
+/// Distance from the line box's top to the baseline at `size` (where the
+/// graphics renderer puts the baseline of a `draw_text` at y).
+pub fn ascent(size: f32, style: FontStyle) -> f32 {
+    if size <= 0.0 {
+        return 0.0;
+    }
+    face(style).as_scaled(PxScale::from(size)).ascent()
 }
 
 pub fn word_wrap(line: &str, size: f32, max_w: f32, style: FontStyle) -> Vec<String> {
@@ -229,7 +263,7 @@ pub struct LaidWord {
 /// whitespace-collapsed by the caller, so char offsets stay stable across lines.
 ///
 /// `style_at` yields the [`FontStyle`] of the char at a given char index, so
-/// words mixing bold/italic runs measure correctly; plain callers pass a closure
+/// words mixing regular/medium/mono runs measure correctly; plain callers pass a closure
 /// returning the element's base style.
 pub fn layout_words(
     text: &str,
@@ -323,14 +357,14 @@ pub fn span_color_at(spans: &[TextSpan], idx: usize, default: (f32, f32, f32, f3
     default
 }
 
-/// [`FontStyle`] for char `idx`: the covering span's own bold/italic, else the
-/// element's `base` style. A span carries the already-resolved weight/slant
+/// [`FontStyle`] for char `idx`: the covering span's own weight/family, else the
+/// element's `base` style. A span carries the already-resolved weight/family
 /// (inheriting the block's base when the inline tag added none), so this is a
 /// plain override — mirroring [`span_color_at`].
 pub fn span_style_at(spans: &[TextSpan], idx: usize, base: FontStyle) -> FontStyle {
     for s in spans {
         if idx >= s.start as usize && idx < s.end as usize {
-            return FontStyle { bold: s.bold, italic: s.italic };
+            return FontStyle { bold: s.bold, mono: s.mono };
         }
     }
     base

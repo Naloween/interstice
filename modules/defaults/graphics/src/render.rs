@@ -138,6 +138,7 @@ where
         // the atlas covers them before we (re)build/upload it below.
         if let Some(text) = &row.text {
             font::note_str(&text.content);
+            font::note_size(text.size);
         }
         commands_by_layer
             .entry(row.layer.clone())
@@ -198,7 +199,7 @@ where
             &mut commands_by_layer,
             &pipeline,
             &textured,
-            atlas_views,
+            &atlas_views,
             &surface_views,
             &mut created_buffers,
             &mut created_bind_groups,
@@ -222,7 +223,7 @@ where
         &mut commands_by_layer,
         &pipeline,
         &textured,
-        atlas_views,
+        &atlas_views,
         &surface_views,
         &mut created_buffers,
         &mut created_bind_groups,
@@ -283,7 +284,7 @@ fn render_layers_to_view<Caps>(
     commands_by_layer: &mut HashMap<String, Vec<Draw2DCommand>>,
     pipeline: &ImmediatePipeline,
     textured: &TexturedPipeline,
-    glyph_atlas_views: [u32; font::STYLE_COUNT],
+    glyph_atlas_views: &[u32],
     surface_views: &HashMap<u32, u32>,
     created_buffers: &mut Vec<u32>,
     created_bind_groups: &mut Vec<u32>,
@@ -411,7 +412,7 @@ fn ensure_pipelines<Caps>(
     ctx: &ReducerContext<Caps>,
     gpu: &Gpu,
     format: TextureFormat,
-) -> Result<(ImmediatePipeline, TexturedPipeline, [u32; font::STYLE_COUNT]), String>
+) -> Result<(ImmediatePipeline, TexturedPipeline, Vec<u32>), String>
 where
     Caps: CanRead<RendererCache> + CanInsert<RendererCache> + CanUpdate<RendererCache>,
 {
@@ -451,7 +452,7 @@ where
 
     // Immediate-mode pipeline.
     if cache.pipeline_id.is_none() {
-        let shader = gpu.create_shader_module(IMMEDIATE_SHADER.into())?;
+        let shader = gpu.create_shader_module(shader_source(IMMEDIATE_SHADER, format))?;
         let layout = gpu.create_pipeline_layout(CreatePipelineLayout {
             bind_group_layouts: vec![],
         })?;
@@ -526,7 +527,7 @@ where
         || cache.tex_bind_group_layout.is_none()
         || cache.sampler.is_none()
     {
-        let shader = gpu.create_shader_module(TEXTURED_SHADER.into())?;
+        let shader = gpu.create_shader_module(shader_source(TEXTURED_SHADER, format))?;
         let bind_group_layout = gpu.create_bind_group_layout(CreateBindGroupLayout {
             entries: vec![
                 BindGroupLayoutEntry {
@@ -629,12 +630,12 @@ where
     };
 
     // Glyph atlases: format-independent, so they are *not* reset by a surface-
-    // format change above — build + upload one rasterized face per weight/slant
+    // format change above — build + upload one rasterized face per weight/family
     // and cache their views (indexed by `font::style_index`). Rebuilt when the
     // atlas contents grow (a new CJK glyph was baked this frame, bumping the
     // generation), re-uploading the textures and freeing the stale ones.
     let atlas_gen = font::generation();
-    let needs_atlas = cache.glyph_atlas_views.len() != font::STYLE_COUNT
+    let needs_atlas = cache.glyph_atlas_views.len() != font::atlas_count()
         || UPLOADED_ATLAS_GEN.with(|g| g.get()) != Some(atlas_gen);
     if needs_atlas {
         // Free the previous generation's textures/views before replacing them.
@@ -644,12 +645,10 @@ where
         for texture in cache.glyph_atlas_textures.drain(..) {
             let _ = gpu.destroy_texture(texture);
         }
-        let mut textures = Vec::with_capacity(font::STYLE_COUNT);
-        let mut views = Vec::with_capacity(font::STYLE_COUNT);
-        for idx in 0..font::STYLE_COUNT {
-            let bold = idx & 1 != 0;
-            let italic = idx & 2 != 0;
-            let texture = font::with_atlas(bold, italic, |a| upload_atlas(gpu, a))?;
+        let mut textures = Vec::with_capacity(font::atlas_count());
+        let mut views = Vec::with_capacity(font::atlas_count());
+        for idx in 0..font::atlas_count() {
+            let texture = font::with_atlas(idx, |a| upload_atlas(gpu, a))?;
             let view = gpu.create_texture_view(CreateTextureView {
                 texture,
                 format: Some(TextureFormat::Rgba8Unorm),
@@ -667,8 +666,7 @@ where
         UPLOADED_ATLAS_GEN.with(|g| g.set(Some(atlas_gen)));
         dirty = true;
     }
-    let mut atlas_views = [0u32; font::STYLE_COUNT];
-    atlas_views.copy_from_slice(&cache.glyph_atlas_views);
+    let atlas_views = cache.glyph_atlas_views.clone();
 
     if dirty {
         if existed {
@@ -741,7 +739,7 @@ fn execute_draw_commands<Caps>(
     pass: u32,
     immediate_pipeline: &ImmediatePipeline,
     textured: &TexturedPipeline,
-    glyph_atlas_views: [u32; font::STYLE_COUNT],
+    glyph_atlas_views: &[u32],
     surface_views: &HashMap<u32, u32>,
     commands: Vec<Draw2DCommand>,
     created_buffers: &mut Vec<u32>,
@@ -759,8 +757,7 @@ where
     // separately as textured glyph-atlas quads, one vertex bucket per font style
     // (each bucket samples its own atlas — see `glyph_atlas_views`).
     let mut immediate_vertices: Vec<ImmediateVertexBytes> = Vec::new();
-    let mut glyph_vertices: [Vec<TexturedVertex>; font::STYLE_COUNT] =
-        [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+    let mut glyph_vertices: Vec<Vec<TexturedVertex>> = vec![Vec::new(); glyph_atlas_views.len()];
 
     for command in &commands {
         match command.command_type {
@@ -788,9 +785,12 @@ where
             }
             Draw2DCommandType::Text => {
                 if let Some(payload) = &command.text {
-                    let (bold, italic) = font::parse_style(payload.font.as_deref());
-                    let bucket = &mut glyph_vertices[font::style_index(bold, italic)];
-                    tessellate_text(surface, payload, bold, italic, bucket);
+                    let (bold, mono) = font::parse_style(payload.font.as_deref());
+                    let (slot, scale) = font::atlas_slot(payload.size);
+                    let atlas = slot * font::STYLE_COUNT + font::style_index(bold, mono);
+                    if let Some(bucket) = glyph_vertices.get_mut(atlas) {
+                        tessellate_text(surface, payload, bold, mono, atlas, scale, bucket);
+                    }
                 }
             }
             _ => {}
@@ -1431,7 +1431,9 @@ fn tessellate_text(
     surface: RenderSurface,
     cmd: &TextCommand,
     bold: bool,
-    italic: bool,
+    mono: bool,
+    atlas: usize,
+    scale: f32,
     out: &mut Vec<TexturedVertex>,
 ) {
     const MAX_GLYPHS: usize = 16_384;
@@ -1442,14 +1444,17 @@ fn tessellate_text(
     }
 
     let size = cmd.size;
-    let s = size / font::ATLAS_BASE_PX;
-    let line_height = font::text_line_height(size, bold, italic);
-    let tab_w = font::char_advance(' ', size, bold, italic) * TAB_SPACES as f32;
+    let s = scale;
+    // An exact-size atlas draws on whole pixels: glyphs snap to the pixel grid
+    // (bearings are already integral), so stems stay one crisp texel wide.
+    let snap = |v: f32| if scale == 1.0 { v.round() } else { v };
+    let line_height = font::text_line_height(size, bold, mono);
+    let tab_w = font::char_advance(' ', size, bold, mono) * TAB_SPACES as f32;
 
     let base_x = cmd.position.x;
     let mut pen_x = base_x;
     // The engine positions a line by its top-left; shift to the baseline to draw.
-    let mut baseline_y = cmd.position.y + font::ascent(size, bold, italic);
+    let mut baseline_y = snap(cmd.position.y + font::ascent(size, bold, mono));
     let color = color_to_array(&cmd.color);
 
     let mut glyph_count = 0usize;
@@ -1460,7 +1465,7 @@ fn tessellate_text(
         match ch {
             '\n' => {
                 pen_x = base_x;
-                baseline_y += line_height;
+                baseline_y = snap(baseline_y + line_height);
                 continue;
             }
             '\t' => {
@@ -1470,10 +1475,10 @@ fn tessellate_text(
             _ => {}
         }
 
-        if let Some(g) = font::glyph_info(ch, bold, italic) {
+        if let Some(g) = font::glyph_info(ch, atlas) {
             if g.width > 0.0 && g.height > 0.0 {
                 let dest = Rect {
-                    x: pen_x + g.left * s,
+                    x: snap(pen_x) + g.left * s,
                     y: baseline_y + g.top * s,
                     w: g.width * s,
                     h: g.height * s,
@@ -1487,7 +1492,7 @@ fn tessellate_text(
                 out.extend(textured_quad(surface, &dest, &uv, color));
             }
         }
-        pen_x += font::char_advance(ch, size, bold, italic);
+        pen_x += font::char_advance(ch, size, bold, mono);
         glyph_count += 1;
     }
 }
@@ -1572,6 +1577,19 @@ impl Drop for SurfaceViewGuard {
     }
 }
 
+/// Colours given to draw calls (fills, text, tints) are sRGB, as in CSS and
+/// brand/BRAND.md. An sRGB render target expects linear values from the
+/// shader (it encodes on write), so for those targets the vertex stage decodes
+/// the colour first; for a plain-unorm target it passes through. Either way
+/// `#151618` drawn is `#151618` on screen, whatever format the platform's
+/// swapchain prefers. Textures carry their own format: images in sRGB bytes
+/// should be created `rgba8unorm_srgb` so sampling decodes them too.
+fn shader_source(src: &str, format: TextureFormat) -> String {
+    let srgb = matches!(format, TextureFormat::Bgra8UnormSrgb | TextureFormat::Rgba8UnormSrgb);
+    let decode = if srgb { "select(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, c <= vec3(0.04045))" } else { "c" };
+    format!("fn to_target(c: vec3<f32>) -> vec3<f32> {{ return {decode}; }}\n{src}")
+}
+
 const IMMEDIATE_SHADER: &str = r#"
 struct VertexOut {
     @builtin(position) position: vec4<f32>,
@@ -1585,7 +1603,7 @@ fn vs_main(
 ) -> VertexOut {
     var out: VertexOut;
     out.position = vec4(position, 0.0, 1.0);
-    out.color = color;
+    out.color = vec4(to_target(color.rgb), color.a);
     return out;
 }
 
@@ -1614,7 +1632,7 @@ fn vs_main(
     var out: VertexOut;
     out.position = vec4(position, 0.0, 1.0);
     out.uv = uv;
-    out.color = color;
+    out.color = vec4(to_target(color.rgb), color.a);
     return out;
 }
 

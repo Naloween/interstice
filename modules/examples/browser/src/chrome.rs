@@ -1,5 +1,5 @@
-//! The browser chrome (tab strip + navigation toolbar), modelled on Firefox's
-//! Proton light theme. It is itself a small Blitz HTML document rendered into
+//! The browser chrome (tab strip + navigation toolbar), in the Interstice
+//! brand's dark style (brand/BRAND.md §7, §8). It is itself a small Blitz HTML document rendered into
 //! its own texture above the page, so hover/active states, the URL text field
 //! (caret, selection, editing) and layout all come from the same engine as the
 //! page content.
@@ -58,7 +58,7 @@ pub enum ChromeAction {
 fn icon(body: &str) -> String {
     let svg = format!(
         "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' \
-         fill='none' stroke='%235b5b66' stroke-width='1.25' stroke-linecap='round' \
+         fill='none' stroke='%23e8e9e6' stroke-width='1.25' stroke-linecap='round' \
          stroke-linejoin='round'>{body}</svg>"
     );
     // Only '#' (as %23 above) and '%' are special in a data URL payload here; the
@@ -113,8 +113,9 @@ fn icons() -> Vec<(&'static str, String)> {
         ),
         (
             "loading",
-            "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><circle cx='8' cy='8' r='6' fill='none' stroke='%23d7d7db' stroke-width='2'/><path d='M8 2a6 6 0 0 1 6 6' fill='none' stroke='%230061e0' stroke-width='2' stroke-linecap='round'/></svg>".to_string(),
+            "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><circle cx='8' cy='8' r='6' fill='none' stroke='%232c2f35' stroke-width='1.5'/><path d='M8 2a6 6 0 0 1 6 6' fill='none' stroke='%23c59b60' stroke-width='1.5' stroke-linecap='round'/></svg>".to_string(),
         ),
+        ("slit", SLIT_ICON.to_string()),
     ]
 }
 
@@ -131,45 +132,60 @@ pub fn icon_url(name: &str) -> String {
     })
 }
 
+/// The brand mark (brand/mark.svg) at favicon size: the slit, a lens of
+/// light with an amber glow. Flat gradients only (no blur filter), so it
+/// renders the same in every SVG backend. Internal pages use it as favicon.
+pub const SLIT_ICON: &str = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><defs><linearGradient id='c' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='%23c59b60' stop-opacity='0'/><stop offset='0.3' stop-color='%23e8c894'/><stop offset='0.5' stop-color='%23f6e9d2'/><stop offset='0.7' stop-color='%23e8c894'/><stop offset='1' stop-color='%23c59b60' stop-opacity='0'/></linearGradient><radialGradient id='g' cx='0.5' cy='0.5' r='0.5'><stop offset='0' stop-color='%23c59b60' stop-opacity='0.55'/><stop offset='1' stop-color='%23c59b60' stop-opacity='0'/></radialGradient></defs><ellipse cx='8' cy='8' rx='4' ry='7.5' fill='url(%23g)'/><path d='M8 0.5Q9.6 8 8 15.5Q6.4 8 8 0.5Z' fill='url(%23c)'/></svg>";
+
 // ── Document ─────────────────────────────────────────────────────────────────
 
+/// The brand tokens (brand/BRAND.md §3), repeated here as CSS variables
+/// because the chrome is HTML: `interstice_ui::theme` is the source of truth
+/// and these must follow it (BRAND.md §8, implementation note).
 const CSS: &str = r#"
-html, body { margin:0; padding:0; overflow:hidden; background:#f0f0f4; color:#15141a;
-  font-family:"Liberation Sans", sans-serif; font-size:12px; cursor:default; user-select:none; }
-#tabbar { height:44px; display:flex; align-items:center; padding:0 2px 0 2px; box-sizing:border-box; }
-#tabs { display:flex; flex:0 1 auto; min-width:0; height:44px; align-items:center; overflow:hidden; }
-.tab { flex:0 1 225px; width:225px; min-width:76px; height:36px; margin:0 2px; border-radius:4px;
-  display:flex; align-items:center; padding:0 4px 0 9px; box-sizing:border-box; position:relative; }
-.tab:hover { background:rgba(207,207,216,0.45); }
-.tab.sel { background:#ffffff; box-shadow:0 0 4px rgba(0,0,0,0.25); }
-.fav { width:16px; height:16px; margin-right:6px; flex:none; }
-.lbl { flex:1 1 auto; min-width:0; overflow:hidden; white-space:nowrap; line-height:16px; }
-.x { width:24px; height:24px; border-radius:4px; flex:none; display:flex; align-items:center; justify-content:center; }
-.x:hover { background:rgba(207,207,216,0.66); }
-.x:active { background:rgb(207,207,216); }
-.x img { width:12px; height:12px; }
-.tbtn { width:32px; height:32px; border-radius:4px; flex:none; display:flex; align-items:center; justify-content:center; margin:0 1px; }
-.tbtn:hover { background:rgba(207,207,216,0.66); }
-.tbtn:active { background:rgb(207,207,216); }
-.tbtn img { width:16px; height:16px; }
+:root { --ink:#0F1012; --ground:#151618; --charcoal:#181B1F; --raised:#212429; --line:#2C2F35;
+  --ivory:#E8E9E6; --muted:#8A9097; --gray:#747B82; --dim:#4A4F56; --amber:#C59B60;
+  --hover:rgba(232,233,230,0.04); --press:rgba(232,233,230,0.08); --input-border:rgba(232,233,230,0.12);
+  --focus:rgba(197,155,96,0.6); }
+html, body { margin:0; padding:0; overflow:hidden; background:var(--ground); color:var(--ivory);
+  font-family:"Space Grotesk", sans-serif; font-size:12px; cursor:default; user-select:none; }
+#tabbar { height:44px; display:flex; align-items:stretch; padding:0; box-sizing:border-box; background:var(--ground); }
+#tabs { display:flex; flex:0 1 auto; min-width:0; height:44px; align-items:stretch; overflow:hidden; }
+.tab { flex:0 1 225px; width:225px; min-width:76px; height:44px; margin:0; border-top:2px solid transparent;
+  border-right:1px solid var(--line); display:flex; align-items:center; padding:0 6px 0 12px;
+  box-sizing:border-box; position:relative; color:var(--muted); }
+.tab:hover { background:var(--hover); color:var(--ivory); }
+.tab.sel { background:var(--charcoal); border-top:2px solid var(--amber); color:var(--ivory); }
+.fav { width:16px; height:16px; margin-right:8px; flex:none; }
+.lbl { flex:1 1 auto; min-width:0; overflow:hidden; white-space:nowrap; line-height:16px; font-size:12px; }
+.x { width:22px; height:22px; border-radius:4px; flex:none; display:flex; align-items:center; justify-content:center; }
+.x img { width:10px; height:10px; opacity:0.55; }
+.x:hover { background:var(--press); }
+.x:hover img { opacity:1; }
+.tbtn { width:32px; height:32px; border-radius:6px; flex:none; display:flex; align-items:center; justify-content:center; margin:0 1px; }
+.tbtn img { width:16px; height:16px; opacity:0.6; }
+.tbtn:hover { background:var(--hover); }
+.tbtn:hover img { opacity:1; }
+.tbtn:active { background:var(--press); }
+.tbtn.dis img, .tbtn.dis:hover img { opacity:0.22; }
 .tbtn.dis:hover, .tbtn.dis:active { background:transparent; }
-.tbtn.dis img { opacity:0.4; }
-#newtab { margin-left:2px; }
+#tabbar .tbtn { margin-top:6px; }
+#newtab { margin-left:4px; }
 #spring { flex:1 1 auto; height:44px; }
-#nav { height:40px; background:#f9f9fb; display:flex; align-items:center; padding:0 4px; border-bottom:1px solid #d7d7db; }
+#nav { height:40px; background:var(--charcoal); display:flex; align-items:center; padding:0 6px; border-bottom:1px solid var(--line); }
 .space { flex:1 1 0; min-width:4px; }
-#urlwrap { flex:16 1 0; min-width:200px; height:32px; background:#f0f0f4; border-radius:4px; display:flex;
-  align-items:center; padding:0 2px 0 4px; box-sizing:border-box; border:1px solid transparent; margin:0 2px; }
-#urlwrap:hover { background:#e6e6ea; }
-#urlwrap.focus { background:#ffffff; border:2px solid #0061e0; padding:0 1px 0 3px; }
+#urlwrap { flex:16 1 0; min-width:200px; height:30px; background:var(--ink); border-radius:6px; display:flex;
+  align-items:center; padding:0 2px 0 4px; box-sizing:border-box; border:1px solid var(--input-border); margin:0 4px; }
+#urlwrap:hover { border:1px solid rgba(232,233,230,0.2); }
+#urlwrap.focus { border:1px solid var(--focus); }
 #ident { width:24px; height:24px; border-radius:4px; flex:none; display:flex; align-items:center; justify-content:center; margin-right:4px; }
-#ident img { width:16px; height:16px; }
-#urlbar { flex:1 1 auto; min-width:0; border:0; background:transparent; font-family:"Liberation Sans", sans-serif;
-  font-size:14px; color:#15141a; padding:0; margin:0; height:22px; outline:none; }
-#urldisp { flex:1 1 auto; min-width:0; overflow:hidden; white-space:nowrap; font-size:14px; line-height:22px; }
-#urldisp .host { color:#15141a; }
-#urldisp .rest { color:#5b5b66; }
-#urldisp .ph { color:#5b5b66; }
+#ident img { width:14px; height:14px; opacity:0.55; }
+#urlbar { flex:1 1 auto; min-width:0; border:0; background:transparent; font-family:"Space Grotesk", sans-serif;
+  font-size:13px; color:var(--ivory); caret-color:var(--amber); padding:0; margin:0; height:22px; outline:none; }
+#urldisp { flex:1 1 auto; min-width:0; overflow:hidden; white-space:nowrap; font-size:13px; line-height:22px; }
+#urldisp .host { color:var(--ivory); }
+#urldisp .rest { color:var(--gray); }
+#urldisp .ph { color:var(--gray); }
 #star { width:28px; height:24px; }
 .hidden { display:none; }
 "#;
@@ -210,7 +226,7 @@ pub fn build(width: u32) -> HtmlDocument {
         menu = ic("menu"),
     );
     let cfg = DocumentConfig {
-        viewport: Some(Viewport::new(width, CHROME_H, 1.0, ColorScheme::Light)),
+        viewport: Some(Viewport::new(width, CHROME_H, 1.0, ColorScheme::Dark)),
         base_url: Some("about:chrome".into()),
         net_provider: Some(Arc::new(crate::providers::Net)),
         shell_provider: Some(Arc::new(crate::providers::ChromeShell)),

@@ -18,20 +18,22 @@ interstice_module!(visibility: Public);
 interstice_ui::ui_subsystem!();
 
 use crate::ui::{AlignItems, HasUiElementEditHandle, LayoutDirection, Size, TextWrap, UiElement};
+use interstice_ui::theme as th;
 
 const INPUT_ID: &str = "note_input";
 const LIST_ID: &str = "list";
 const TIMELINE_ID: &str = "timeline";
 const STATUS_ID: &str = "status";
 
-const BG: (f32, f32, f32, f32) = (0.10, 0.10, 0.13, 1.0);
-const CARD: (f32, f32, f32, f32) = (0.17, 0.18, 0.22, 1.0);
-const FIELD: (f32, f32, f32, f32) = (0.13, 0.14, 0.18, 1.0);
-const ACCENT: (f32, f32, f32, f32) = (0.27, 0.47, 0.87, 1.0);
-const DANGER: (f32, f32, f32, f32) = (0.62, 0.25, 0.28, 1.0);
-const CHIP: (f32, f32, f32, f32) = (0.22, 0.24, 0.30, 1.0);
-const TEXT: (f32, f32, f32, f32) = (0.92, 0.92, 0.95, 1.0);
-const MUTED: (f32, f32, f32, f32) = (0.60, 0.60, 0.66, 1.0);
+type Rgba = (f32, f32, f32, f32);
+
+/// Button kinds (BRAND.md §7).
+#[derive(Clone, Copy)]
+enum Btn {
+    Primary,
+    Secondary,
+    Destructive,
+}
 
 /// UI bookkeeping (singleton): the signature of what the list and timeline
 /// currently show (rebuilt only when it changes) and the left button last
@@ -55,19 +57,19 @@ where
         id: "root".into(),
         width: Size::Grow,
         height: Size::Grow,
-        padding: 18.0,
-        gap: 12.0,
-        background_color: BG,
+        padding: 24.0,
+        gap: 14.0,
+        background_color: th::CHARCOAL,
         ..Default::default()
     });
-    el(text("title", "root", 0, "Notes", 22.0, TEXT, true));
+    el(text("title", "root", 0, "Notes", th::TEXT_HEADING, th::IVORY, false));
     el(text(
         "subtitle",
         "root",
         1,
         "Stored in hello-example's Notes table, whose log is its history. Undo, redo, or click a commit to restore it: what you leave stays as a branch.",
-        13.0,
-        MUTED,
+        th::TEXT_BODY,
+        th::MUTED,
         false,
     ));
     el(UiElement {
@@ -86,25 +88,25 @@ where
         order: 0,
         width: Size::Grow,
         height: Size::Grow,
-        padding: 10.0,
-        background_color: FIELD,
-        corner_radius: 6.0,
+        padding: 11.0,
+        background_color: th::INK,
+        corner_radius: th::RADIUS_CONTROL,
         border_width: 1.0,
-        border_color: (0.32, 0.35, 0.45, 1.0),
+        border_color: th::INPUT_BORDER,
         text: Some(String::new()),
-        text_size: 15.0,
-        text_color: TEXT,
+        text_size: th::TEXT_READING,
+        text_color: th::IVORY,
         is_input: true,
         ..Default::default()
     });
-    el(button("btn_add", "input_row", 1, "Add", ACCENT, 80.0));
+    el(button("btn_add", "input_row", 1, "Add", Btn::Primary, 80.0, 40.0));
     el(UiElement {
         id: LIST_ID.into(),
         parent: Some("root".into()),
         order: 3,
         width: Size::Grow,
         height: Size::Grow,
-        gap: 6.0,
+        gap: 0.0,
         scrollable_y: true,
         ..Default::default()
     });
@@ -119,15 +121,19 @@ where
         gap: 8.0,
         ..Default::default()
     });
-    el(button("btn_undo", "toolbar", 0, "Undo", CHIP, 80.0));
-    el(button("btn_redo", "toolbar", 1, "Redo", CHIP, 80.0));
-    el(text(STATUS_ID, "toolbar", 2, "", 13.0, MUTED, false));
+    el(button("btn_undo", "toolbar", 0, "Undo", Btn::Secondary, 76.0, 34.0));
+    el(button("btn_redo", "toolbar", 1, "Redo", Btn::Secondary, 76.0, 34.0));
+    el(UiElement { text_mono: true, ..text(STATUS_ID, "toolbar", 2, "", th::TEXT_SMALL, th::GRAY, false) });
+    el(UiElement {
+        text_wrap: TextWrap::None,
+        ..text("history_label", "root", 5, &th::label("History"), th::TEXT_CAPTION, th::GRAY, false)
+    });
     el(UiElement {
         id: TIMELINE_ID.into(),
         parent: Some("root".into()),
-        order: 5,
+        order: 6,
         width: Size::Grow,
-        height: Size::Fixed(36.0),
+        height: Size::Fixed(30.0),
         layout_direction: LayoutDirection::Row,
         gap: 6.0,
         scrollable_x: true,
@@ -243,7 +249,8 @@ where
     Caps: CanAll<UiElement>,
 {
     // Drop rows and chips that are no longer shown; upsert the rest.
-    let keep_rows: Vec<String> = notes.iter().map(|n| format!("row_{}", n.id)).collect();
+    let keep_rows: Vec<String> =
+        notes.iter().flat_map(|n| [format!("row_{}", n.id), format!("rule_{}", n.id)]).collect();
     let keep_chips: Vec<String> = std::iter::once(0)
         .chain(history.commits.iter().map(|c| c.id))
         .map(|id| format!("commit_{id}"))
@@ -266,29 +273,48 @@ where
             UiElement {
                 id: row.clone(),
                 parent: Some(LIST_ID.into()),
-                order: i as u32,
+                order: 2 * i as u32,
                 width: Size::Grow,
-                height: Size::Fixed(40.0),
+                height: Size::Fixed(44.0),
                 layout_direction: LayoutDirection::Row,
                 align_items: AlignItems::Center,
-                padding: 6.0,
-                gap: 8.0,
-                background_color: CARD,
-                corner_radius: 6.0,
+                padding_sides: Some((6.0, 0.0, 6.0, 0.0)),
+                gap: 12.0,
                 ..Default::default()
             },
         );
         ui::create_element(
             ctx,
             UiElement {
-                width: Size::Grow,
-                ..text(&format!("text_{}", n.id), &row, 0, &format!("{}.  {}", n.id, n.text), 15.0, TEXT, false)
+                width: Size::Fixed(36.0),
+                text_mono: true,
+                ..text(&format!("num_{}", n.id), &row, 0, &format!("{:02}", n.id), th::TEXT_SMALL, th::GRAY, false)
             },
         );
-        ui::create_element(ctx, button(&format!("del_{}", n.id), &row, 1, "Delete", DANGER, 70.0));
+        ui::create_element(
+            ctx,
+            UiElement {
+                width: Size::Grow,
+                ..text(&format!("text_{}", n.id), &row, 1, &n.text, th::TEXT_READING, th::IVORY, false)
+            },
+        );
+        ui::create_element(ctx, button(&format!("del_{}", n.id), &row, 2, "Delete", Btn::Destructive, 72.0, 32.0));
+        // A hairline under each row.
+        ui::create_element(
+            ctx,
+            UiElement {
+                id: format!("rule_{}", n.id),
+                parent: Some(LIST_ID.into()),
+                order: 2 * i as u32 + 1,
+                width: Size::Grow,
+                height: Size::Fixed(1.0),
+                background_color: th::LINE,
+                ..Default::default()
+            },
+        );
     }
     if notes.is_empty() {
-        ui::create_element(ctx, text("row_empty", LIST_ID, 0, "No notes yet: type one above.", 14.0, MUTED, false));
+        ui::create_element(ctx, text("row_empty", LIST_ID, 0, "No notes yet: type one above.", th::TEXT_BODY, th::GRAY, false));
     } else {
         let _ = ui::delete_element(ctx, "row_empty");
     }
@@ -305,10 +331,7 @@ where
         };
         prev_id = id;
         let head = id == history.head;
-        let w = 18.0 + 8.0 * label.chars().count() as f32;
-        let mut chip = button(&format!("commit_{id}"), TIMELINE_ID, i as u32, &label, if head { ACCENT } else { CHIP }, w);
-        chip.height = Size::Fixed(30.0);
-        ui::create_element(ctx, chip);
+        ui::create_element(ctx, chip(&format!("commit_{id}"), i as u32, &label, head));
     }
 
     if let Some(mut status) = ctx.current.tables.uielement().get(STATUS_ID.to_string())? {
@@ -340,7 +363,7 @@ fn signature(notes: &[Notes], history: &NoteHistory) -> u64 {
     h
 }
 
-fn text(id: &str, parent: &str, order: u32, body: &str, size: f32, color: (f32, f32, f32, f32), bold: bool) -> UiElement {
+fn text(id: &str, parent: &str, order: u32, body: &str, size: f32, color: Rgba, bold: bool) -> UiElement {
     UiElement {
         id: id.into(),
         parent: Some(parent.into()),
@@ -356,19 +379,55 @@ fn text(id: &str, parent: &str, order: u32, body: &str, size: f32, color: (f32, 
     }
 }
 
-fn button(id: &str, parent: &str, order: u32, label: &str, bg: (f32, f32, f32, f32), w: f32) -> UiElement {
+/// `row_h` is the height the button grows to, to centre its label.
+fn button(id: &str, parent: &str, order: u32, label: &str, kind: Btn, w: f32, row_h: f32) -> UiElement {
+    let (bg, fg, border) = match kind {
+        Btn::Primary => (th::AMBER, th::INK, (0.0, 0.0, 0.0, 0.0)),
+        Btn::Secondary => (th::RAISED, th::IVORY, th::LINE),
+        Btn::Destructive => ((0.0, 0.0, 0.0, 0.0), th::DANGER, (0.0, 0.0, 0.0, 0.0)),
+    };
     UiElement {
         id: id.into(),
         parent: Some(parent.into()),
         order,
         width: Size::Fixed(w),
         height: Size::Grow,
-        padding: 8.0,
+        // The engine puts text at the top of the content box: pad the top so
+        // the label sits centred in the row's height.
+        padding_sides: Some((((row_h - interstice_ui::text_line_height(th::TEXT_BODY, interstice_ui::FontStyle::REGULAR)) / 2.0).floor(), 8.0, 0.0, 8.0)),
         background_color: bg,
-        corner_radius: 6.0,
+        corner_radius: th::RADIUS_CONTROL,
+        border_width: if border.3 > 0.0 { 1.0 } else { 0.0 },
+        border_color: border,
         text: Some(label.into()),
-        text_size: 14.0,
-        text_color: TEXT,
+        text_size: th::TEXT_BODY,
+        text_color: fg,
+        text_bold: matches!(kind, Btn::Primary),
+        text_align: 0.5,
+        center_cross: true,
+        ..Default::default()
+    }
+}
+
+/// A commit chip (BRAND.md §7): mono, hairline border; the head is lit.
+fn chip(id: &str, order: u32, label: &str, head: bool) -> UiElement {
+    let w = 20.0 + interstice_ui::text_width(label, th::TEXT_CAPTION, interstice_ui::FontStyle::MONO);
+    let (fg, border) = if head { (th::AMBER, th::alpha(th::AMBER, 0.7)) } else { (th::MUTED, th::LINE) };
+    UiElement {
+        id: id.into(),
+        parent: Some(TIMELINE_ID.into()),
+        order,
+        width: Size::Fixed(w.ceil()),
+        height: Size::Fixed(26.0),
+        padding: 6.0,
+        background_color: if head { th::SELECTED_BG } else { th::RAISED },
+        corner_radius: th::RADIUS_CHIP,
+        border_width: 1.0,
+        border_color: border,
+        text: Some(label.into()),
+        text_size: th::TEXT_CAPTION,
+        text_color: fg,
+        text_mono: true,
         text_align: 0.5,
         center_cross: true,
         ..Default::default()

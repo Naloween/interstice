@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- App icon: the slit on a rounded charcoal tile (BRAND.md §2). -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1D2024"/>
+      <stop offset="1" stop-color="#121417"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C59B60" stop-opacity="0"/>
+      <stop offset="0.22" stop-color="#E8C894"/>
+      <stop offset="0.5" stop-color="#F6E9D2"/>
+      <stop offset="0.78" stop-color="#E8C894"/>
+      <stop offset="1" stop-color="#C59B60" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="bloom" cx="128" cy="128" r="80" gradientUnits="userSpaceOnUse" gradientTransform="translate(128 128) scale(0.4 1) translate(-128 -128)">
+      <stop offset="0" stop-color="#C59B60" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#C59B60" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="blur" x="-2" y="-0.2" width="5" height="1.4"><feGaussianBlur stdDeviation="4"/></filter>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#tile)"/>
+  <rect x="8.5" y="8.5" width="239" height="239" rx="55.5" fill="none" stroke="#E8E9E6" stroke-opacity="0.07"/>
+  <rect x="8" y="40" width="240" height="176" fill="url(#bloom)"/>
+  <path d="M128 52 Q138 128 128 204 Q118 128 128 52Z" fill="#C59B60" opacity="0.6" filter="url(#blur)"/>
+  <path d="M128 52 Q130.6 128 128 204 Q125.4 128 128 52Z" fill="url(#core)"/>
+</svg>

@@ -385,7 +385,8 @@ impl<'a> Browser<'a> {
         tab.doc_parsed = false;
         tab.url = url.to_string();
         tab.title = if url.starts_with("about:newtab") { "New Tab".into() } else { url.to_string() };
-        tab.favicon = None;
+        // Built-in pages wear the brand's mark; the rest get theirs once parsed.
+        tab.favicon = (url.starts_with("about:") && url != "about:blank").then(|| chrome::SLIT_ICON.to_string());
         tab.loading = None;
         let pos = tab.hist_pos as usize;
         match mode {
@@ -751,7 +752,7 @@ impl<'a> Browser<'a> {
         let w = self.ui.viewport.0.max(1);
         let c = self.caches.chrome.get_or_insert_with(|| ChromeCache::new(chrome::build(w)));
         if c.doc.viewport().window_size != (w, CHROME_H) {
-            c.doc.set_viewport(Viewport::new(w, CHROME_H, 1.0, ColorScheme::Light));
+            c.doc.set_viewport(Viewport::new(w, CHROME_H, 1.0, ColorScheme::Dark));
             c.dirty = true;
         }
         let active = self.tabs.iter().position(|t| t.id == self.session.active_tab).unwrap_or(0);

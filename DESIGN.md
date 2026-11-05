@@ -839,7 +839,19 @@ Each authority is held by at most one module per node, claimed at load time.
 | Audio | Output and input streams | `audio` (stub) | – |
 
 `crates/interstice-ui` is a library that modules link against (`ui_subsystem!`);
-it is not a default module.
+it is not a default module. It also holds the brand (`interstice_ui::theme`:
+colour tokens, type scale, baked brand textures; reference `brand/BRAND.md`)
+and the UI faces, Space Grotesk and IBM Plex Mono (DejaVu and Droid Sans
+Fallback for missing glyphs), which graphics rasterizes from identical bytes.
+
+**Colour space.** Colours given to graphics draw calls are sRGB, as in CSS,
+and the 2D compositor blends in sRGB space like a browser, so hex values and
+alpha tints look as designed. The engine prefers a plain-unorm swapchain for
+this. A texture whose bytes are sRGB (decoded pages, baked brand textures) is
+created `rgba8unorm_srgb`; on a unorm target graphics stores it as
+`rgba8unorm` and samples it raw. If a platform only offers an sRGB swapchain,
+graphics keeps the texture formats and decodes draw colours in the vertex
+stage, so colours stay right and only blending shifts to linear light.
 
 **Status:**
 - **`module_manager` drops requests.** Its `module_load` and `module_remove`
@@ -1366,5 +1378,10 @@ but explicitly out of scope for now.
       input router, app launcher over `module_manager`, services with
       requirements, time travel in `notes`,
       load-failure reports.
-- [ ] Polish agar, ui, audio and graphics examples into short, readable
-      showcases of one feature each.
+- [x] **Brand** (`brand/BRAND.md`, from the user's brand board): one theme
+      in `interstice_ui::theme`, Space Grotesk + IBM Plex Mono in the
+      engine, exact-size glyph atlases, sRGB colour space (§8). Applied to
+      the desktop (wallpaper hero, top bar, windows, launcher, cursor),
+      notes, the UI demo (a component sheet), agar, the browser chrome and
+      the graphics example.
+- [ ] Polish audio into a short, readable showcase of one feature.

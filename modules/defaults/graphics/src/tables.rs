@@ -127,8 +127,8 @@ pub struct RendererCache {
     pub tex_bind_group_layout: Option<u32>,
     pub tex_pipeline_id: Option<u32>,
     pub sampler: Option<u32>,
-    // Glyph atlases (format-independent): one RGBA texture of rasterized DejaVu
-    // glyphs per weight/slant face (regular/bold/italic/bold-italic, indexed by
+    // Glyph atlases (format-independent): one RGBA texture of rasterized
+    // glyphs per weight/family face (regular/medium/mono/mono-medium, indexed by
     // `font::style_index`), sampled through the textured pipeline to draw text.
     // Empty until built; both vectors then hold `font::STYLE_COUNT` ids.
     pub glyph_atlas_textures: Vec<u32>,

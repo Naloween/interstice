@@ -1,5 +1,7 @@
 use crate::bindings::{graphics::*, input::*, module_manager::*};
 use interstice_sdk::*;
+use interstice_ui::FontStyle;
+use interstice_ui::theme::{self as th, Canvas, Image, Rgba};
 
 interstice_module!(visibility: Public);
 
@@ -9,6 +11,11 @@ interstice_module!(visibility: Public);
 // the pointer in its own coordinates and the keyboard only when focused), and
 // a client of `module_manager` (apps are registered wasm blobs, loaded and
 // unloaded at runtime).
+//
+// Its look follows brand/BRAND.md: everything is drawn from
+// `interstice_ui::theme`; text that never changes (the wordmark, labels) is
+// baked into textures at load, because the renderer has no letter-spacing
+// and no blur.
 //
 // The example wasms are baked in because bytes can't ride a CLI string
 // argument. `build_modules.bash` builds them before this module.
@@ -36,7 +43,8 @@ struct AppSpec {
     kind: Kind,
     /// Loaded first when the app opens; can't be stopped while it runs.
     requires: &'static [&'static str],
-    color: (f32, f32, f32),
+    /// Draws the app's monochrome glyph on a 0..1 canvas.
+    glyph: fn(&mut Canvas),
     bytes: &'static [u8],
 }
 
@@ -44,69 +52,70 @@ const APPS: &[AppSpec] = &[
     AppSpec {
         name: "ui-example",
         title: "UI demo",
-        blurb: "the UI library",
+        blurb: "Layout, text and inputs",
         kind: Kind::Window,
         requires: &[],
-        color: (60.0, 70.0, 160.0),
+        glyph: glyph_ui,
         bytes: example_wasm!("ui_example.wasm"),
     },
     AppSpec {
         name: "notes",
         title: "Notes",
-        blurb: "time travel",
+        blurb: "Time travel on a logged table",
         kind: Kind::Window,
         requires: &["hello-example"],
-        color: (170.0, 120.0, 40.0),
+        glyph: glyph_notes,
         bytes: example_wasm!("notes.wasm"),
     },
     AppSpec {
         name: "browser-example",
         title: "Browser",
-        blurb: "Blitz + JS + network",
+        blurb: "Blitz, JavaScript, network",
         kind: Kind::Window,
         requires: &[],
-        color: (40.0, 120.0, 160.0),
+        glyph: glyph_browser,
         bytes: example_wasm!("browser_example.wasm"),
     },
     AppSpec {
         name: "agar-client",
         title: "Agar",
-        blurb: "needs example agar-server",
+        blurb: "Multiplayer; needs agar-server",
         kind: Kind::Window,
         requires: &[],
-        color: (40.0, 150.0, 70.0),
+        glyph: glyph_agar,
         bytes: example_wasm!("agar_client.wasm"),
     },
     AppSpec {
         name: "hello-example",
         title: "Hello",
-        blurb: "service: notes backend",
+        blurb: "The notes backend",
         kind: Kind::Service,
         requires: &[],
-        color: (120.0, 60.0, 150.0),
+        glyph: glyph_table,
         bytes: example_wasm!("hello_example.wasm"),
     },
     AppSpec {
         name: "http-get-example",
         title: "HTTP GET",
-        blurb: "service: network broker",
+        blurb: "Network broker",
         kind: Kind::Service,
         requires: &[],
-        color: (150.0, 70.0, 70.0),
+        glyph: glyph_http,
         bytes: example_wasm!("http_get_example.wasm"),
     },
     AppSpec {
         name: "audio-example",
         title: "Audio",
-        blurb: "service: 440 Hz tone",
+        blurb: "A 440 Hz tone",
         kind: Kind::Service,
         requires: &[],
-        color: (60.0, 130.0, 130.0),
+        glyph: glyph_audio,
         bytes: example_wasm!("audio_example.wasm"),
     },
 ];
 
-const ICON_PX: u32 = 64;
+/// Size the app glyphs are rasterized at (drawn smaller, linearly filtered).
+const ICON_PX: u32 = 96;
 
 /// Background (z 0, clearing).
 const DESKTOP_LAYER: &str = "desktop";
@@ -122,11 +131,27 @@ const CURSOR_LAYER: &str = "desktop_cursor";
 const WIN_Z_BASE: i32 = 10;
 
 const TOPBAR_H: f32 = 36.0;
-const TITLEBAR_H: f32 = 32.0;
+const TITLEBAR_H: f32 = 34.0;
+/// The app surface is inset this much from the window's sides and bottom, so
+/// its square corners stay inside the window's rounded ones.
+const INSET: f32 = 3.0;
 const RESIZE_HANDLE: f32 = 18.0;
 const MIN_W: f32 = 240.0;
 const MIN_H: f32 = 160.0;
-const TOAST_MS: u64 = 6000;
+const TOAST_MS: u64 = 4000;
+/// Open / launcher fade-in, and toast fade (BRAND.md §6).
+const OPEN_MS: u64 = 180;
+const TOAST_IN_MS: u64 = 220;
+const TOAST_OUT_MS: u64 = 180;
+/// Breathing period of the slit while something starts.
+const BREATH_MS: u64 = 4000;
+
+/// Wordmark letter sizes: the wallpaper's hero and the top bar's.
+const HERO_PX: f32 = 44.0;
+const BAR_MARK_PX: f32 = 11.0;
+const PILLARS: &str = "MODULAR  /  OPEN  /  EXTENSIBLE  /  FORWARD-LOOKING";
+/// The uppercase labels, baked white and tinted when drawn.
+const LABELS: &[&str] = &["APPS", "APPLICATIONS", "SERVICES", "RUNNING", "STOPPED", "STARTING"];
 
 /// A window wrapping one app's offscreen surface. `id` is also the surface id.
 /// `x/y/w/h` is the outer rect (titlebar included); the content rect, which is
@@ -147,6 +172,8 @@ pub struct Window {
     /// Current pixel size of the surface, to resize only on change.
     surf_w: u32,
     surf_h: u32,
+    /// When the window opened, for its fade-in.
+    opened_ms: u64,
 }
 
 /// Singleton desktop bookkeeping. `focus` and `captured` mirror what was last
@@ -157,6 +184,8 @@ pub struct DesktopState {
     #[primary_key]
     id: u32,
     show_launcher: bool,
+    /// When the launcher last opened, for its fade-in.
+    launcher_ms: u64,
     next_surface_id: u32,
     next_z: i32,
     focus: String,
@@ -196,10 +225,22 @@ pub struct Toast {
     until_ms: u64,
 }
 
+/// Sizes of the baked textures, to lay them out (the textures themselves
+/// live in graphics).
+#[table]
+pub struct Baked {
+    #[primary_key]
+    id: String,
+    w: f32,
+    h: f32,
+    /// Margin around the drawn box (the wordmark's glow spills past it).
+    pad: f32,
+}
+
 #[reducer(on = "load")]
 pub fn on_load<Caps>(ctx: ReducerContext<Caps>)
 where
-    Caps: CanInsert<DesktopState> + CanInsert<Interaction> + CanInsert<PrevMouse>,
+    Caps: CanInsert<DesktopState> + CanInsert<Interaction> + CanInsert<PrevMouse> + CanInsert<Baked>,
 {
     ctx.log("desktop: claiming the compositor and the input router");
     let g = ctx.graphics();
@@ -213,12 +254,19 @@ where
     let _ = i.reducers.set_pointer_capture(true);
 
     for app in APPS {
-        register_app_with_icon(&ctx, app.name, app.bytes, make_icon(app.color));
+        let mut c = Canvas::new(ICON_PX);
+        (app.glyph)(&mut c);
+        let glyph = Image { width: ICON_PX, height: ICON_PX, rgba: c.to_rgba((1.0, 1.0, 1.0, 1.0), (0.0, 0.0, 0.0, 0.0)) };
+        let tile = c.to_rgba(th::IVORY, th::RAISED);
+        let _ = ctx.module_manager().reducers.register_app(app.name.to_string(), Blob::new(app.bytes), Some(tile));
+        upload(&ctx, &icon_texture_id(app.name), &glyph);
     }
+    bake_brand(&ctx);
 
     let _ = ctx.current.tables.desktopstate().insert(DesktopState {
         id: 0,
         show_launcher: true,
+        launcher_ms: 0,
         next_surface_id: 1,
         next_z: 1,
         focus: String::new(),
@@ -235,6 +283,34 @@ where
     let _ = ctx.current.tables.prevmouse().insert(PrevMouse { id: 0, left_down: false });
 }
 
+/// Rasterize the textures that never change: the wordmarks, the tagline and
+/// pillars, the labels, the slit, the cursor.
+fn bake_brand<Caps>(ctx: &ReducerContext<Caps>)
+where
+    Caps: CanInsert<Baked>,
+{
+    let white = (1.0, 1.0, 1.0, 1.0);
+    let put = |id: &str, img: &Image, pad: f32| {
+        upload(ctx, id, img);
+        let row = Baked { id: id.to_string(), w: img.width as f32, h: img.height as f32, pad };
+        let _ = ctx.current.tables.baked().insert(row);
+    };
+    let (hero, pad) = th::wordmark_image(HERO_PX, th::IVORY);
+    put("hero", &hero, pad);
+    let (mark, pad) = th::wordmark_image(BAR_MARK_PX, th::IVORY);
+    put("barmark", &mark, pad);
+    put("tagline", &th::text_image(th::TAGLINE, 13.0, th::TAGLINE_TRACKING, FontStyle::REGULAR, white), 0.0);
+    put("pillars", &th::text_image(PILLARS, th::TEXT_CAPTION, th::LABEL_TRACKING, FontStyle::REGULAR, white), 0.0);
+    for l in LABELS {
+        let img = th::text_image(l, th::TEXT_CAPTION, th::LABEL_TRACKING, FontStyle::REGULAR, white);
+        put(&label_id(l), &img, 0.0);
+    }
+    put("slit", &Image { width: 64, height: 256, rgba: th::slit_rgba(64, 256, 1.0) }, 0.0);
+    // The title bar's slit, baked at the size it's drawn so its core stays a crisp hairline.
+    put("slit_small", &Image { width: 11, height: 26, rgba: th::slit_rgba(11, 26, 1.3) }, 0.0);
+    put("cursor", &cursor_image(), 0.0);
+}
+
 /// A load finished. Loads compile in the background, so a failure (e.g.
 /// agar-client while agar-server isn't running) arrives here, later: close
 /// the app's window, as its close box would, and say why.
@@ -244,7 +320,8 @@ where
     Caps: CanAll<Window> + CanRead<Toast> + CanInsert<Toast> + CanUpdate<Toast>,
 {
     if report.ok {
-        return toast(&ctx, format!("{} is running", report.module), true);
+        let title = APPS.iter().find(|a| a.name == report.module).map_or(report.module.as_str(), |a| a.title);
+        return toast(&ctx, format!("{title} is running"), true);
     }
     let windows = ctx.current.tables.window().scan()?;
     if let Some(win) = windows.iter().find(|w| !report.module.is_empty() && w.app_name == report.module) {
@@ -276,7 +353,8 @@ where
         + CanAll<PrevMouse>
         + CanRead<Toast>
         + CanInsert<Toast>
-        + CanUpdate<Toast>,
+        + CanUpdate<Toast>
+        + CanRead<Baked>,
 {
     // We are unassigned, so this is the swapchain: the real screen size.
     let Ok(info) = ctx.graphics().queries.surface_info() else {
@@ -286,6 +364,7 @@ where
     if sw < 1.0 || sh < 1.0 {
         return Ok(());
     }
+    let now = host_calls::time_now_ms().unwrap_or(0);
 
     // As the router, `input_view` gives us the global pointer and the raw
     // buttons, so chrome works even when a click lands in a window.
@@ -335,10 +414,13 @@ where
     let mut open_app: Option<&'static AppSpec> = None;
     let mut toggle_service: Option<&'static AppSpec> = None;
     if pressed_edge {
-        if in_rect(mx, my, 8.0, 4.0, 80.0, TOPBAR_H - 8.0) {
+        if apps_button().contains(mx, my) {
             state.show_launcher = !state.show_launcher;
+            if state.show_launcher {
+                state.launcher_ms = now;
+            }
         } else if state.show_launcher && my > TOPBAR_H {
-            let hit = launcher_tiles(sw).into_iter().find(|(_, r)| in_rect(mx, my, r.x, r.y, r.w, r.h));
+            let hit = launcher_layout(sw).tiles.into_iter().find(|(_, r)| r.contains(mx, my));
             match hit.map(|(app, _)| app) {
                 Some(app) if app.kind == Kind::Window => open_app = Some(app),
                 Some(app) => toggle_service = Some(app),
@@ -349,24 +431,14 @@ where
             // Windows, top-most first. Any click in a window raises it.
             let mut order: Vec<usize> = (0..windows.len()).collect();
             order.sort_by(|&a, &b| windows[b].z.cmp(&windows[a].z));
-            if let Some(i) = order.into_iter().find(|&i| {
-                let w = &windows[i];
-                in_rect(mx, my, w.x, w.y, w.w, w.h)
-            }) {
+            if let Some(i) = order.into_iter().find(|&i| windows[i].outer().contains(mx, my)) {
                 let win = &mut windows[i];
                 win.z = state.next_z;
                 state.next_z += 1;
                 let on_titlebar = my < win.y + TITLEBAR_H;
-                if on_titlebar && in_rect(mx, my, close_box(win).0, win.y, TITLEBAR_H, TITLEBAR_H) {
+                if on_titlebar && close_box(win).contains(mx, my) {
                     closed_id = Some(win.id);
-                } else if in_rect(
-                    mx,
-                    my,
-                    win.x + win.w - RESIZE_HANDLE,
-                    win.y + win.h - RESIZE_HANDLE,
-                    RESIZE_HANDLE,
-                    RESIZE_HANDLE,
-                ) {
+                } else if resize_handle(win).contains(mx, my) {
                     interaction = Interaction { id: 0, mode: 2, window_id: win.id, grab_dx: 0.0, grab_dy: 0.0 };
                 } else if on_titlebar {
                     interaction =
@@ -421,7 +493,7 @@ where
                 id: sid,
                 app_name: app.name.to_string(),
                 surface_id: sid,
-                title: format!("{} — {}", app.title, app.blurb),
+                title: app.title.to_string(),
                 z: state.next_z,
                 x: wx,
                 y: wy,
@@ -429,6 +501,7 @@ where
                 h: wh,
                 surf_w: cw,
                 surf_h: ch,
+                opened_ms: now,
             });
             state.next_z += 1;
         }
@@ -445,13 +518,13 @@ where
                 .collect();
             if users.is_empty() {
                 let _ = mm.reducers.unload_app(app.name.to_string());
-                toast(&ctx, format!("Stopped {}", app.name), true)?;
+                toast(&ctx, format!("Stopped {}", app.title), true)?;
             } else {
-                toast(&ctx, format!("{} is used by {}: close it first", app.name, users.join(", ")), false)?;
+                toast(&ctx, format!("{} is used by {}: close it first", app.title, users.join(", ")), false)?;
             }
         } else {
             let _ = mm.reducers.load_app(app.name.to_string());
-            toast(&ctx, format!("Started {}", app.name), true)?;
+            toast(&ctx, format!("Starting {}", app.title), true)?;
         }
     }
 
@@ -480,8 +553,8 @@ where
     for win in &windows {
         let old = before.iter().find(|b| b.id == win.id);
         if old.is_none_or(|o| (o.x, o.y, o.w, o.h, o.z) != (win.x, win.y, win.w, win.h, win.z)) {
-            let (x, y, w, h) = content_rect(win);
-            let _ = input.reducers.set_input_route(win.app_name.clone(), x, y, w, h, win.z);
+            let c = content_rect(win);
+            let _ = input.reducers.set_input_route(win.app_name.clone(), c.x, c.y, c.w, c.h, win.z);
         }
     }
     // The keyboard goes to the top window, or to nobody while the launcher is up.
@@ -499,21 +572,26 @@ where
     }
 
     // --- Draw ----------------------------------------------------------------------------
-    let now = host_calls::time_now_ms().unwrap_or(0);
     let toast_row = ctx.current.tables.toast().get(0)?.filter(|t| t.until_ms > now);
-    draw_background(&ctx, sw, sh);
+    let d = Draw { ctx: &ctx, now, mouse: (mx, my) };
+    // The hero is hidden once the launcher's scrim is fully over it.
+    let launcher_settled = state.show_launcher && ease(now, state.launcher_ms, OPEN_MS) >= 1.0;
+    d.background(sw, sh, !launcher_settled);
     let mut by_z: Vec<&Window> = windows.iter().collect();
     by_z.sort_by_key(|w| w.z);
     let top = by_z.last().map(|w| w.id);
+    // Hover goes to the top-most window under the pointer only.
+    let hovered = by_z.iter().rev().find(|w| w.outer().contains(mx, my)).map(|w| w.id);
     for (rank, win) in by_z.iter().enumerate() {
-        draw_window(&ctx, win, rank, Some(win.id) == top && !state.show_launcher);
+        let focused = Some(win.id) == top && !state.show_launcher;
+        let hover = Some(win.id) == hovered && !state.show_launcher;
+        d.window(win, rank, focused, hover, loaded(&win.app_name));
     }
-    draw_topbar(&ctx, sw, &state, toast_row.as_ref(), now);
+    d.topbar(sw, &state, &apps, toast_row.as_ref());
     if state.show_launcher {
-        draw_launcher(&ctx, sw, sh, &apps);
+        d.launcher(sw, sh, &apps, state.launcher_ms);
     }
-    let _ = g.reducers.draw_circle(CURSOR_LAYER.to_string(), Vec2 { x: mx, y: my }, 7.0, rgba(0.0, 0.0, 0.0, 0.5), true, 0.0);
-    let _ = g.reducers.draw_circle(CURSOR_LAYER.to_string(), Vec2 { x: mx, y: my }, 6.0, rgba(1.0, 1.0, 1.0, 1.0), true, 0.0);
+    d.image(CURSOR_LAYER, "cursor", rect(mx - 2.4, my - 1.4, 24.0, 24.0), (1.0, 1.0, 1.0, 1.0));
 
     // --- Write back what changed ----------------------------------------------------------
     let t = &ctx.current.tables;
@@ -582,188 +660,533 @@ where
 
 // ── Geometry ──────────────────────────────────────────────────────────────────
 
-fn content_rect(win: &Window) -> (f32, f32, f32, f32) {
-    (win.x, win.y + TITLEBAR_H, win.w, win.h - TITLEBAR_H)
+trait RectExt {
+    fn contains(&self, px: f32, py: f32) -> bool;
+}
+
+impl RectExt for Rect {
+    fn contains(&self, px: f32, py: f32) -> bool {
+        px >= self.x && px <= self.x + self.w && py >= self.y && py <= self.y + self.h
+    }
+}
+
+fn rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
+    Rect { x, y, w, h }
+}
+
+/// Bindings types aren't `Clone`.
+fn cp(r: &Rect) -> Rect {
+    rect(r.x, r.y, r.w, r.h)
+}
+
+impl Window {
+    fn outer(&self) -> Rect {
+        rect(self.x, self.y, self.w, self.h)
+    }
+}
+
+/// The app's surface: below the title bar, inset from the other three sides.
+fn content_rect(win: &Window) -> Rect {
+    rect(win.x + INSET, win.y + TITLEBAR_H, win.w - 2.0 * INSET, win.h - TITLEBAR_H - INSET)
 }
 
 fn content_px(w: f32, h: f32) -> (u32, u32) {
-    (w.max(1.0) as u32, (h - TITLEBAR_H).max(1.0) as u32)
+    ((w - 2.0 * INSET).max(1.0) as u32, (h - TITLEBAR_H - INSET).max(1.0) as u32)
 }
 
-fn close_box(win: &Window) -> (f32, f32) {
-    (win.x + win.w - TITLEBAR_H, win.y)
+fn close_box(win: &Window) -> Rect {
+    rect(win.x + win.w - TITLEBAR_H - 4.0, win.y, TITLEBAR_H, TITLEBAR_H)
 }
 
-fn in_rect(px: f32, py: f32, x: f32, y: f32, w: f32, h: f32) -> bool {
-    px >= x && px <= x + w && py >= y && py <= y + h
+fn resize_handle(win: &Window) -> Rect {
+    rect(win.x + win.w - RESIZE_HANDLE, win.y + win.h - RESIZE_HANDLE, RESIZE_HANDLE, RESIZE_HANDLE)
 }
 
-/// The launcher grid: one tile per catalog app, centered below the top bar.
-fn launcher_tiles(sw: f32) -> Vec<(&'static AppSpec, Rect)> {
-    const TILE_W: f32 = 170.0;
-    const TILE_H: f32 = 150.0;
-    const GAP: f32 = 24.0;
-    const MARGIN: f32 = 40.0;
+/// The top bar's `APPS` button (the wordmark is part of it).
+fn apps_button() -> Rect {
+    rect(0.0, 0.0, apps_label_x() + label_width("APPS") + 14.0, TOPBAR_H)
+}
+
+fn apps_label_x() -> f32 {
+    (16.0 + th::wordmark(BAR_MARK_PX).width + 28.0).round()
+}
+
+fn label_width(s: &str) -> f32 {
+    th::tracked(s, th::TEXT_CAPTION, th::LABEL_TRACKING, FontStyle::REGULAR).1
+}
+
+const TILE_W: f32 = 216.0;
+const TILE_H: f32 = 124.0;
+const TILE_GAP: f32 = 16.0;
+
+struct LauncherLayout {
+    x0: f32,
+    width: f32,
+    /// Where each section's label sits: (label, y).
+    sections: Vec<(&'static str, f32)>,
+    tiles: Vec<(&'static AppSpec, Rect)>,
+}
+
+/// The launcher: an `Apps` heading, then a section of window apps and one of
+/// services, each a grid of tiles under a hairline label.
+fn launcher_layout(sw: f32) -> LauncherLayout {
+    const MARGIN: f32 = 48.0;
     let usable = (sw - 2.0 * MARGIN).max(TILE_W);
-    let cols = (((usable + GAP) / (TILE_W + GAP)).floor() as usize).clamp(1, 4);
-    let grid_w = cols as f32 * TILE_W + (cols as f32 - 1.0) * GAP;
-    let start_x = ((sw - grid_w) / 2.0).max(MARGIN);
-    let start_y = TOPBAR_H + 90.0;
-    APPS.iter()
-        .enumerate()
-        .map(|(i, app)| {
+    let cols = (((usable + TILE_GAP) / (TILE_W + TILE_GAP)).floor() as usize).clamp(1, 4);
+    let width = cols as f32 * TILE_W + (cols as f32 - 1.0) * TILE_GAP;
+    let x0 = ((sw - width) / 2.0).max(MARGIN).round();
+    let mut y = TOPBAR_H + 132.0;
+    let mut sections = Vec::new();
+    let mut tiles = Vec::new();
+    for (label, kind) in [("APPLICATIONS", Kind::Window), ("SERVICES", Kind::Service)] {
+        sections.push((label, y));
+        y += 28.0;
+        let group: Vec<&'static AppSpec> = APPS.iter().filter(|a| a.kind == kind).collect();
+        for (i, app) in group.iter().enumerate() {
             let (col, row) = (i % cols, i / cols);
-            let rect = Rect {
-                x: start_x + col as f32 * (TILE_W + GAP),
-                y: start_y + row as f32 * (TILE_H + GAP),
-                w: TILE_W,
-                h: TILE_H,
-            };
-            (app, rect)
-        })
-        .collect()
+            let r = rect(x0 + col as f32 * (TILE_W + TILE_GAP), y + row as f32 * (TILE_H + TILE_GAP), TILE_W, TILE_H);
+            tiles.push((*app, r));
+        }
+        let rows = group.len().div_ceil(cols);
+        y += rows as f32 * (TILE_H + TILE_GAP) + 24.0;
+    }
+    LauncherLayout { x0, width, sections, tiles }
 }
 
 // ── Drawing ───────────────────────────────────────────────────────────────────
 
-fn rgba(r: f32, g: f32, b: f32, a: f32) -> Color {
-    Color { r, g, b, a }
+fn col(c: Rgba) -> Color {
+    Color { r: c.0, g: c.1, b: c.2, a: c.3 }
 }
 
-const TEXT: (f32, f32, f32) = (0.92, 0.94, 0.98);
-
-fn text<Caps>(ctx: &ReducerContext<Caps>, layer: &str, s: impl Into<String>, x: f32, y: f32, size: f32, c: Color) {
-    let _ = ctx.graphics().reducers.draw_text(layer.to_string(), s.into(), Vec2 { x, y }, size, c, None);
+/// Ease-out progress of an animation that started at `since`.
+fn ease(now: u64, since: u64, dur: u64) -> f32 {
+    let t = (now.saturating_sub(since) as f32 / dur as f32).clamp(0.0, 1.0);
+    1.0 - (1.0 - t).powi(3)
 }
 
-fn rect<Caps>(ctx: &ReducerContext<Caps>, layer: &str, r: Rect, c: Color, radius: f32) {
-    let radius = if radius > 0.0 { Some(radius) } else { None };
-    let _ = ctx.graphics().reducers.draw_rect(layer.to_string(), r, c, true, 0.0, radius);
+/// Slit breathing (BRAND.md §2): opacity 1 → 0.65 → 1 over 4 s.
+fn breath(now: u64) -> f32 {
+    let phase = (now % BREATH_MS) as f32 / BREATH_MS as f32 * std::f32::consts::TAU;
+    0.825 + 0.175 * phase.cos()
 }
 
-fn draw_background<Caps>(ctx: &ReducerContext<Caps>, sw: f32, sh: f32) {
-    rect(ctx, DESKTOP_LAYER, Rect { x: 0.0, y: 0.0, w: sw, h: sh }, rgba(0.07, 0.08, 0.12, 1.0), 0.0);
-    let c = rgba(0.30, 0.33, 0.42, 1.0);
-    text(ctx, DESKTOP_LAYER, "Interstice desktop", 40.0, sh - 92.0, 26.0, rgba(0.30, 0.33, 0.42, 1.0));
-    text(
-        ctx,
-        DESKTOP_LAYER,
-        "Every app is a module: composited surfaces, routed input, loaded at runtime.",
-        40.0,
-        sh - 56.0,
-        14.0,
-        c,
-    );
-}
-
-fn draw_window<Caps>(ctx: &ReducerContext<Caps>, win: &Window, rank: usize, focused: bool) {
-    let g = ctx.graphics();
-    let content_layer = win_content_layer(win.surface_id);
-    let chrome = win_chrome_layer(win.surface_id);
-    let base_z = WIN_Z_BASE + rank as i32 * 2;
-    let _ = g.reducers.set_layer_z(content_layer.clone(), base_z);
-    let _ = g.reducers.set_layer_z(chrome.clone(), base_z + 1);
-
-    rect(ctx, &content_layer, Rect { x: win.x, y: win.y, w: win.w, h: win.h }, rgba(0.15, 0.16, 0.20, 1.0), 8.0);
-    let (cx, cy, cw, ch) = content_rect(win);
-    let _ = g.reducers.draw_surface(content_layer, win.surface_id, Rect { x: cx, y: cy, w: cw, h: ch }, rgba(1.0, 1.0, 1.0, 1.0));
-
-    let bar = if focused { rgba(0.24, 0.28, 0.40, 1.0) } else { rgba(0.19, 0.20, 0.26, 1.0) };
-    rect(ctx, &chrome, Rect { x: win.x, y: win.y, w: win.w, h: TITLEBAR_H }, bar, 8.0);
-    text(ctx, &chrome, win.title.clone(), win.x + 12.0, win.y + 8.0, 15.0, rgba(TEXT.0, TEXT.1, TEXT.2, 1.0));
-
-    // Close box.
-    let (kx, ky) = close_box(win);
-    rect(
-        ctx,
-        &chrome,
-        Rect { x: kx + 6.0, y: ky + 6.0, w: TITLEBAR_H - 12.0, h: TITLEBAR_H - 12.0 },
-        rgba(0.80, 0.30, 0.32, 1.0),
-        4.0,
-    );
-    // Resize grip.
-    rect(
-        ctx,
-        &chrome,
-        Rect { x: win.x + win.w - RESIZE_HANDLE, y: win.y + win.h - RESIZE_HANDLE, w: RESIZE_HANDLE, h: RESIZE_HANDLE },
-        rgba(0.45, 0.48, 0.58, 0.9),
-        3.0,
-    );
-    let border = if focused { rgba(0.45, 0.55, 0.85, 1.0) } else { rgba(0.35, 0.38, 0.48, 1.0) };
-    let _ = g.reducers.draw_rect(chrome, Rect { x: win.x, y: win.y, w: win.w, h: win.h }, border, false, 2.0, Some(8.0));
-}
-
-fn draw_topbar<Caps>(ctx: &ReducerContext<Caps>, sw: f32, state: &DesktopState, toast: Option<&Toast>, now_ms: u64) {
-    let l = LAUNCHER_LAYER;
-    rect(ctx, l, Rect { x: 0.0, y: 0.0, w: sw, h: TOPBAR_H }, rgba(0.10, 0.11, 0.16, 0.95), 0.0);
-    let apps_bg = if state.show_launcher { rgba(0.30, 0.44, 0.78, 1.0) } else { rgba(0.20, 0.22, 0.30, 1.0) };
-    rect(ctx, l, Rect { x: 8.0, y: 4.0, w: 80.0, h: TOPBAR_H - 8.0 }, apps_bg, 6.0);
-    text(ctx, l, "Apps", 30.0, 11.0, 14.0, rgba(TEXT.0, TEXT.1, TEXT.2, 1.0));
-    if let Some(t) = toast {
-        let c = if t.ok { rgba(0.55, 0.85, 0.60, 1.0) } else { rgba(0.95, 0.55, 0.50, 1.0) };
-        let mut s = t.text.clone();
-        let max_chars = ((sw - 240.0) / 7.5).max(10.0) as usize;
-        if s.chars().count() > max_chars {
-            s = s.chars().take(max_chars.saturating_sub(1)).collect::<String>() + "…";
-        }
-        text(ctx, l, s, 104.0, 11.0, 14.0, c);
+/// Truncate `s` with an ellipsis to fit `max_w` at `size`.
+fn fit(s: &str, size: f32, style: FontStyle, max_w: f32) -> String {
+    if interstice_ui::text_width(s, size, style) <= max_w {
+        return s.to_string();
     }
-    // Clock (UTC), from the transaction clock.
-    let secs = now_ms / 1000;
-    let clock = format!("{:02}:{:02}:{:02} UTC", (secs / 3600) % 24, (secs / 60) % 60, secs % 60);
-    text(ctx, l, clock, sw - 110.0, 11.0, 14.0, rgba(0.70, 0.72, 0.80, 1.0));
+    let mut out = String::new();
+    for ch in s.chars() {
+        if interstice_ui::text_width(&format!("{out}{ch}…"), size, style) > max_w {
+            break;
+        }
+        out.push(ch);
+    }
+    out + "…"
 }
 
-fn draw_launcher<Caps>(ctx: &ReducerContext<Caps>, sw: f32, sh: f32, apps: &[AppInfo]) {
-    let l = LAUNCHER_LAYER;
-    rect(ctx, l, Rect { x: 0.0, y: TOPBAR_H, w: sw, h: sh - TOPBAR_H }, rgba(0.04, 0.05, 0.08, 0.86), 0.0);
-    let tiles = launcher_tiles(sw);
-    let x0 = tiles.first().map(|(_, r)| r.x).unwrap_or(40.0);
-    text(ctx, l, "Apps", x0, TOPBAR_H + 24.0, 22.0, rgba(TEXT.0, TEXT.1, TEXT.2, 1.0));
-    text(
-        ctx,
-        l,
-        "Click an app to open its window, a service to start or stop it.",
-        x0,
-        TOPBAR_H + 56.0,
-        13.0,
-        rgba(0.65, 0.67, 0.75, 1.0),
-    );
-    for (app, r) in tiles {
-        let running = apps.iter().any(|a| a.name == app.name && a.loaded);
-        rect(ctx, l, Rect { x: r.x, y: r.y, w: r.w, h: r.h }, rgba(0.16, 0.18, 0.24, 0.95), 10.0);
-        let icon = 56.0;
-        let _ = ctx.graphics().reducers.draw_image(
-            l.to_string(),
-            icon_texture_id(app.name),
-            Rect { x: r.x + (r.w - icon) / 2.0, y: r.y + 12.0, w: icon, h: icon },
-            rgba(1.0, 1.0, 1.0, 1.0),
-            Rect { x: 0.0, y: 0.0, w: 1.0, h: 1.0 },
-        );
-        text(ctx, l, app.title, r.x + 12.0, r.y + r.h - 50.0, 15.0, rgba(TEXT.0, TEXT.1, TEXT.2, 1.0));
-        text(ctx, l, app.blurb, r.x + 12.0, r.y + r.h - 26.0, 12.0, rgba(0.62, 0.64, 0.72, 1.0));
-        if app.kind == Kind::Service {
-            let label = if running { "running" } else { "stopped" };
-            text(ctx, l, label, r.x + r.w - 62.0, r.y + 10.0, 11.0, rgba(0.62, 0.64, 0.72, 1.0));
+/// One frame's drawing: the reducer context plus what every part needs.
+struct Draw<'a, Caps> {
+    ctx: &'a ReducerContext<Caps>,
+    now: u64,
+    mouse: (f32, f32),
+}
+
+impl<Caps> Draw<'_, Caps>
+where
+    Caps: CanRead<Baked>,
+{
+    fn hover(&self, r: &Rect) -> bool {
+        r.contains(self.mouse.0, self.mouse.1)
+    }
+
+    fn fill(&self, layer: &str, r: Rect, c: Rgba, radius: f32) {
+        if r.w <= 0.0 || r.h <= 0.0 || c.3 <= 0.0 {
+            return;
         }
-        if running {
-            let _ = ctx.graphics().reducers.draw_circle(
-                l.to_string(),
-                Vec2 { x: r.x + 14.0, y: r.y + 16.0 },
-                5.0,
-                rgba(0.30, 0.80, 0.40, 1.0),
-                true,
-                0.0,
-            );
+        let radius = (radius > 0.0).then_some(radius);
+        let _ = self.ctx.graphics().reducers.draw_rect(layer.to_string(), r, col(c), true, 0.0, radius);
+    }
+
+    fn stroke(&self, layer: &str, r: Rect, c: Rgba, radius: f32) {
+        if c.3 <= 0.0 {
+            return;
+        }
+        let radius = (radius > 0.0).then_some(radius);
+        let _ = self.ctx.graphics().reducers.draw_rect(layer.to_string(), r, col(c), false, 1.0, radius);
+    }
+
+    /// A 1 px horizontal hairline.
+    fn hline(&self, layer: &str, x: f32, y: f32, w: f32, c: Rgba) {
+        self.fill(layer, rect(x, y, w, 1.0), c, 0.0);
+    }
+
+    fn dot(&self, layer: &str, x: f32, y: f32, r: f32, c: Rgba) {
+        if c.3 <= 0.0 {
+            return;
+        }
+        let _ = self.ctx.graphics().reducers.draw_circle(layer.to_string(), Vec2 { x, y }, r, col(c), true, 0.0);
+    }
+
+    fn text(&self, layer: &str, s: impl Into<String>, x: f32, y: f32, size: f32, c: Rgba, style: FontStyle) {
+        if c.3 <= 0.0 {
+            return;
+        }
+        let pos = Vec2 { x: x.round(), y: y.round() };
+        let _ = self.ctx.graphics().reducers.draw_text(layer.to_string(), s.into(), pos, size, col(c), style.selector());
+    }
+
+    fn image(&self, layer: &str, id: &str, r: Rect, tint: Rgba) {
+        if tint.3 <= 0.0 {
+            return;
+        }
+        let uv = rect(0.0, 0.0, 1.0, 1.0);
+        let _ = self.ctx.graphics().reducers.draw_image(layer.to_string(), id.to_string(), r, col(tint), uv);
+    }
+
+    fn baked(&self, id: &str) -> Option<Baked> {
+        self.ctx.current.tables.baked().get(id.to_string()).ok().flatten()
+    }
+
+    /// A baked texture, drawn 1:1 with its box's top-left at (x, y).
+    fn baked_at(&self, layer: &str, id: &str, x: f32, y: f32, tint: Rgba) -> Option<Baked> {
+        let b = self.baked(id)?;
+        self.image(layer, id, rect((x - b.pad).round(), (y - b.pad).round(), b.w, b.h), tint);
+        Some(b)
+    }
+
+    /// An uppercase label (baked) at (x, y); returns its width.
+    fn label(&self, layer: &str, s: &str, x: f32, y: f32, c: Rgba) -> f32 {
+        self.baked_at(layer, &label_id(s), x, y, c).map_or(0.0, |b| b.w)
+    }
+
+    /// A section header in the board's style: label, then a hairline to `x_end`.
+    fn section(&self, layer: &str, s: &str, x: f32, y: f32, x_end: f32, a: f32) {
+        let w = self.label(layer, s, x, y, th::alpha(th::GRAY, a));
+        let lx = x + w + 14.0;
+        self.hline(layer, lx, (y + 8.0).round(), x_end - lx, th::alpha(th::LINE, a));
+    }
+
+    /// The wallpaper: the brand board's hero, centred, and its pillars along
+    /// the bottom.
+    fn background(&self, sw: f32, sh: f32, hero: bool) {
+        let l = DESKTOP_LAYER;
+        self.fill(l, rect(0.0, 0.0, sw, sh), th::GROUND, 0.0);
+        if !hero {
+            return;
+        }
+        let wm = th::wordmark(HERO_PX);
+        let tag_w = self.baked("tagline").map_or(0.0, |t| t.w);
+        let block_h = wm.height + 44.0;
+        let top = ((TOPBAR_H + sh) / 2.0 - block_h / 2.0 - 16.0).round();
+        self.baked_at(l, "hero", ((sw - wm.width) / 2.0).round(), top, (1.0, 1.0, 1.0, 0.94));
+        self.baked_at(l, "tagline", ((sw - tag_w) / 2.0).round(), top + wm.height + 28.0, th::GRAY);
+
+        let pw = self.baked("pillars").map_or(0.0, |p| p.w);
+        let y = sh - 44.0;
+        self.baked_at(l, "pillars", 40.0, y, th::alpha(th::GRAY, 0.85));
+        self.hline(l, 40.0 + pw + 18.0, y + 7.0, sw - 80.0 - pw - 18.0, th::LINE);
+    }
+
+    fn window(&self, win: &Window, rank: usize, focused: bool, hover: bool, loaded: bool) {
+        let g = self.ctx.graphics();
+        let content = win_content_layer(win.surface_id);
+        let chrome = win_chrome_layer(win.surface_id);
+        let base_z = WIN_Z_BASE + rank as i32 * 2;
+        let _ = g.reducers.set_layer_z(content.clone(), base_z);
+        let _ = g.reducers.set_layer_z(chrome.clone(), base_z + 1);
+
+        // Opening: fade in and rise 6 px.
+        let a = ease(self.now, win.opened_ms, OPEN_MS);
+        let dy = ((1.0 - a) * 6.0).round();
+        let (x, y, w, h) = (win.x, win.y + dy, win.w, win.h);
+
+        // Shadow: a few soft steps below the window.
+        for (grow, alpha) in [(12.0, 0.04), (7.0, 0.07), (3.0, 0.10)] {
+            let r = rect(x - grow, y - grow + 8.0, w + 2.0 * grow, h + 2.0 * grow);
+            self.fill(&content, r, (0.0, 0.0, 0.0, alpha * a), th::RADIUS_WINDOW + grow);
+        }
+        self.fill(&content, rect(x, y, w, h), th::alpha(th::CHARCOAL, a), th::RADIUS_WINDOW);
+        let mut c = content_rect(win);
+        c.y += dy;
+        let _ = g.reducers.draw_surface(content, win.surface_id, cp(&c), col((1.0, 1.0, 1.0, a)));
+
+        // Still starting: the app hasn't drawn yet, so the window shows the slit, breathing.
+        if !loaded {
+            self.fill(&chrome, cp(&c), th::alpha(th::CHARCOAL, a), 0.0);
+            let sh = (c.h * 0.32).clamp(40.0, 140.0);
+            let sw = sh * 0.25;
+            let (cx, cy) = (c.x + c.w / 2.0, c.y + c.h / 2.0 - 16.0);
+            let r = rect(cx - sw / 2.0, cy - sh / 2.0, sw, sh);
+            self.image(&chrome, "slit", r, (1.0, 1.0, 1.0, breath(self.now) * a));
+            let lw = label_width("STARTING");
+            self.label(&chrome, "STARTING", (cx - lw / 2.0).round(), cy + sh / 2.0 + 18.0, th::alpha(th::GRAY, a));
+        }
+
+        // Title bar: the body's own surface, a hairline below it.
+        self.hline(&chrome, x + 1.0, y + TITLEBAR_H - 1.0, w - 2.0, th::alpha(th::LINE, a));
+        // The slit before the title is lit only on the focused window.
+        let slit_tint = if focused { (1.0, 1.0, 1.0, a) } else { th::alpha(th::DIM, 0.9 * a) };
+        self.image(&chrome, "slit_small", rect(x + 10.0, y + 4.0, 11.0, 26.0), slit_tint);
+        let tx = x + 28.0;
+        let max_w = (w - 28.0 - TITLEBAR_H - 16.0).max(0.0);
+        let title = fit(&win.title, th::TEXT_BODY, FontStyle::MEDIUM, max_w);
+        let title_c = if focused { th::IVORY } else { th::MUTED };
+        self.text(&chrome, title.clone(), tx, y + 9.0, th::TEXT_BODY, th::alpha(title_c, a), FontStyle::MEDIUM);
+        let title_w = interstice_ui::text_width(&title, th::TEXT_BODY, FontStyle::MEDIUM);
+        let rest = max_w - title_w - 12.0;
+        let blurb = APPS.iter().find(|s| s.name == win.app_name).map_or("", |s| s.blurb);
+        if rest > 40.0 && title == win.title {
+            let b = fit(blurb, th::TEXT_BODY, FontStyle::REGULAR, rest);
+            self.text(&chrome, b, tx + title_w + 12.0, y + 9.0, th::TEXT_BODY, th::alpha(th::GRAY, a), FontStyle::REGULAR);
+        }
+
+        // Close: a quiet ×, danger on hover.
+        let mut k = close_box(win);
+        k.y += dy;
+        let over = hover && self.hover(&k);
+        if over {
+            let r = rect(k.x + 6.0, k.y + 6.0, k.w - 12.0, k.h - 12.0);
+            self.fill(&chrome, r, th::alpha(th::DANGER, 0.14 * a), th::RADIUS_CONTROL);
+        }
+        let xc = if over { th::DANGER } else { th::GRAY };
+        let xw = interstice_ui::text_width("×", 18.0, FontStyle::REGULAR);
+        self.text(&chrome, "×", k.x + (k.w - xw) / 2.0, k.y + 6.0, 18.0, th::alpha(xc, a), FontStyle::REGULAR);
+
+        // Resize grip: three dots on the diagonal.
+        let (gx, gy) = (x + w - 8.0, y + h - 8.0);
+        for (ox, oy) in [(0.0, 0.0), (-5.0, 0.0), (0.0, -5.0)] {
+            self.dot(&chrome, gx + ox, gy + oy, 1.2, th::alpha(th::DIM, a));
+        }
+
+        let border = if focused { th::FOCUS_BORDER } else { th::WINDOW_BORDER };
+        self.stroke(&chrome, rect(x, y, w, h), th::alpha(border, border.3 * a), th::RADIUS_WINDOW);
+    }
+
+    fn topbar(&self, sw: f32, state: &DesktopState, apps: &[AppInfo], toast: Option<&Toast>) {
+        let l = LAUNCHER_LAYER;
+        self.fill(l, rect(0.0, 0.0, sw, TOPBAR_H), th::CHARCOAL, 0.0);
+        self.hline(l, 0.0, TOPBAR_H - 1.0, sw, th::TOPBAR_RULE);
+
+        // The wordmark, then APPS: lit while the launcher is open.
+        let wm = th::wordmark(BAR_MARK_PX);
+        self.baked_at(l, "barmark", 16.0, ((TOPBAR_H - wm.height) / 2.0).round(), (1.0, 1.0, 1.0, 1.0));
+        let ax = apps_label_x();
+        let c = if state.show_launcher {
+            th::AMBER
+        } else if self.hover(&apps_button()) {
+            th::IVORY
+        } else {
+            th::MUTED
+        };
+        self.label(l, "APPS", ax, 11.0, c);
+        if state.show_launcher {
+            self.fill(l, rect(ax, TOPBAR_H - 2.0, label_width("APPS"), 2.0), th::AMBER, 0.0);
+        }
+
+        // Right: running services, then the clock (UTC, from the transaction clock).
+        let secs = self.now / 1000;
+        let clock = format!("{:02}:{:02}:{:02}", (secs / 3600) % 24, (secs / 60) % 60, secs % 60);
+        let cw = interstice_ui::text_width(&clock, th::TEXT_SMALL, FontStyle::MONO);
+        let mut x = sw - 16.0 - cw;
+        self.text(l, clock, x, 10.0, th::TEXT_SMALL, th::MUTED, FontStyle::MONO);
+        x -= 24.0;
+        for app in APPS.iter().rev().filter(|a| a.kind == Kind::Service) {
+            if !apps.iter().any(|a| a.name == app.name && a.loaded) {
+                continue;
+            }
+            x -= interstice_ui::text_width(app.title, th::TEXT_SMALL, FontStyle::REGULAR);
+            self.text(l, app.title, x, 10.0, th::TEXT_SMALL, th::GRAY, FontStyle::REGULAR);
+            self.dot(l, x - 10.0, TOPBAR_H / 2.0, 3.0, th::AMBER);
+            x -= 30.0;
+        }
+
+        // The toast: a pill in the middle of the bar.
+        if let Some(t) = toast {
+            let start = t.until_ms.saturating_sub(TOAST_MS);
+            let a_in = ease(self.now, start, TOAST_IN_MS);
+            let a_out = (t.until_ms.saturating_sub(self.now) as f32 / TOAST_OUT_MS as f32).clamp(0.0, 1.0);
+            let a = a_in.min(a_out);
+            let s = fit(&t.text, th::TEXT_BODY, FontStyle::REGULAR, (sw * 0.4).max(160.0));
+            let tw = interstice_ui::text_width(&s, th::TEXT_BODY, FontStyle::REGULAR);
+            let ph = TOPBAR_H - 10.0;
+            let pill = rect(((sw - tw - 44.0) / 2.0).round(), (5.0 + (1.0 - a_in) * 4.0).round(), tw + 44.0, ph);
+            self.fill(l, cp(&pill), th::alpha(th::RAISED, a), ph / 2.0);
+            self.stroke(l, cp(&pill), th::alpha(th::LINE, a), ph / 2.0);
+            let dc = if t.ok { th::SUCCESS } else { th::DANGER };
+            self.dot(l, pill.x + 17.0, pill.y + ph / 2.0, 3.0, th::alpha(dc, a));
+            self.text(l, s, pill.x + 29.0, pill.y + 5.0, th::TEXT_BODY, th::alpha(th::IVORY, a), FontStyle::REGULAR);
+        }
+    }
+
+    fn launcher(&self, sw: f32, sh: f32, apps: &[AppInfo], since: u64) {
+        let l = LAUNCHER_LAYER;
+        let a = ease(self.now, since, OPEN_MS);
+        self.fill(l, rect(0.0, TOPBAR_H, sw, sh - TOPBAR_H), th::alpha(th::INK, 0.88 * a), 0.0);
+        let lay = launcher_layout(sw);
+        let rise = ((1.0 - a) * 6.0).round();
+        let x_end = lay.x0 + lay.width;
+
+        let hy = TOPBAR_H + 48.0 + rise;
+        self.text(l, "Apps", lay.x0, hy, th::TEXT_HEADING, th::alpha(th::IVORY, a), FontStyle::REGULAR);
+        let sub = "Open an app in its own window, or start a service in the background.";
+        self.text(l, sub, lay.x0, hy + 36.0, th::TEXT_BODY, th::alpha(th::MUTED, a), FontStyle::REGULAR);
+        for (label, y) in &lay.sections {
+            self.section(l, label, lay.x0, y + rise, x_end, a);
+        }
+
+        for (app, mut r) in lay.tiles {
+            r.y += rise;
+            let running = apps.iter().any(|x| x.name == app.name && x.loaded);
+            let hover = self.hover(&r);
+            let bg = if hover { th::mix(th::RAISED, th::IVORY, 0.03) } else { th::RAISED };
+            self.fill(l, cp(&r), th::alpha(bg, a), th::RADIUS_TILE);
+            let border = if hover { th::FOCUS_BORDER } else { th::LINE };
+            self.stroke(l, cp(&r), th::alpha(border, border.3 * a), th::RADIUS_TILE);
+
+            // The glyph, on a charcoal well; lit while the app runs.
+            let well = rect(r.x + 16.0, r.y + 16.0, 40.0, 40.0);
+            self.fill(l, cp(&well), th::alpha(th::CHARCOAL, a), 10.0);
+            self.stroke(l, cp(&well), th::alpha(th::LINE, a), 10.0);
+            let gc = if running { th::AMBER } else { th::IVORY };
+            let glyph = rect(well.x + 8.0, well.y + 8.0, 24.0, 24.0);
+            self.image(l, &icon_texture_id(app.name), glyph, th::alpha(gc, a));
+
+            // Status, top right.
+            let status = match (app.kind, running) {
+                (_, true) => Some(("RUNNING", th::AMBER, th::AMBER)),
+                (Kind::Service, false) => Some(("STOPPED", th::GRAY, th::DIM)),
+                (Kind::Window, false) => None,
+            };
+            if let Some((s, text_c, dot_c)) = status {
+                let sx = (r.x + r.w - 16.0 - label_width(s)).round();
+                self.label(l, s, sx, r.y + 18.0, th::alpha(text_c, a));
+                self.dot(l, sx - 9.0, r.y + 25.0, 3.0, th::alpha(dot_c, a));
+            }
+
+            let name_c = th::alpha(th::IVORY, a);
+            self.text(l, app.title, r.x + 16.0, r.y + 70.0, th::TEXT_READING, name_c, FontStyle::MEDIUM);
+            let blurb = fit(app.blurb, th::TEXT_SMALL, FontStyle::REGULAR, r.w - 32.0);
+            self.text(l, blurb, r.x + 16.0, r.y + 94.0, th::TEXT_SMALL, th::alpha(th::GRAY, a), FontStyle::REGULAR);
         }
     }
 }
 
-// ── Apps ──────────────────────────────────────────────────────────────────────
+// ── Brand textures ────────────────────────────────────────────────────────────
+
+fn label_id(s: &str) -> String {
+    format!("label_{s}")
+}
 
 fn icon_texture_id(app_name: &str) -> String {
     format!("icon_{app_name}")
 }
+
+fn upload<Caps>(ctx: &ReducerContext<Caps>, id: &str, img: &Image) {
+    let _ = ctx.graphics().reducers.create_texture(
+        id.to_string(),
+        TextureDescriptorInput {
+            width: img.width,
+            height: img.height,
+            format: "rgba8unorm_srgb".to_string(),
+            mip_levels: 1,
+            sample_count: 1,
+            usage: TextureUsageFlags {
+                copy_src: false,
+                copy_dst: true,
+                texture_binding: true,
+                storage_binding: false,
+                render_attachment: false,
+            },
+        },
+        Blob::new(&img.rgba),
+    );
+}
+
+/// The pointer: an ivory arrow with an ink outline, drawn at 24 px.
+fn cursor_image() -> Image {
+    let n = 96;
+    let arrow = [(0.10, 0.06), (0.10, 0.76), (0.27, 0.61), (0.39, 0.86), (0.50, 0.81), (0.38, 0.57), (0.60, 0.57)];
+    let mut outline = Canvas::new(n);
+    outline.polygon(&arrow);
+    let mut closed = arrow.to_vec();
+    closed.push(arrow[0]);
+    outline.path(&closed, 0.08);
+    let mut fill = Canvas::new(n);
+    fill.polygon(&arrow);
+    Image { width: n, height: n, rgba: th::compose(&[(&outline, th::INK), (&fill, th::IVORY)]) }
+}
+
+// App glyphs: thin monochrome line drawings on a 0..1 square (BRAND.md §7),
+// rasterized white and tinted when drawn.
+const STROKE: f32 = 0.07;
+
+fn glyph_ui(c: &mut Canvas) {
+    c.rrect((0.14, 0.14), (0.32, 0.32), 0.06, STROKE);
+    c.rrect((0.54, 0.14), (0.32, 0.32), 0.06, STROKE);
+    c.rrect((0.14, 0.54), (0.72, 0.32), 0.06, STROKE);
+}
+
+/// A history: commits on a line, one branching off.
+fn glyph_notes(c: &mut Canvas) {
+    c.line((0.34, 0.20), (0.34, 0.80), STROKE);
+    c.path(&[(0.34, 0.50), (0.66, 0.36), (0.66, 0.22)], STROKE);
+    c.disc((0.34, 0.20), 0.08);
+    c.disc((0.34, 0.50), 0.08);
+    c.disc((0.34, 0.80), 0.08);
+    c.disc((0.66, 0.22), 0.08);
+}
+
+fn glyph_browser(c: &mut Canvas) {
+    c.ring((0.5, 0.5), 0.34, STROKE);
+    c.line((0.16, 0.5), (0.84, 0.5), STROKE);
+    // The meridians: two half-ellipses.
+    let half: Vec<(f32, f32)> = (0..=16)
+        .map(|i| {
+            let t = i as f32 / 16.0 * std::f32::consts::PI;
+            (0.5 + 0.15 * t.sin(), 0.5 - 0.34 * t.cos())
+        })
+        .collect();
+    c.path(&half, STROKE);
+    let mirror: Vec<(f32, f32)> = half.iter().map(|(x, y)| (1.0 - x, *y)).collect();
+    c.path(&mirror, STROKE);
+}
+
+fn glyph_agar(c: &mut Canvas) {
+    c.ring((0.42, 0.56), 0.26, STROKE);
+    c.disc((0.76, 0.26), 0.07);
+    c.disc((0.80, 0.70), 0.05);
+    c.disc((0.22, 0.20), 0.05);
+}
+
+/// A table: a header row and lines.
+fn glyph_table(c: &mut Canvas) {
+    c.rrect((0.14, 0.18), (0.72, 0.64), 0.08, STROKE);
+    c.line((0.14, 0.40), (0.86, 0.40), STROKE);
+    c.line((0.14, 0.61), (0.86, 0.61), STROKE);
+    c.line((0.42, 0.40), (0.42, 0.82), STROKE);
+}
+
+fn glyph_http(c: &mut Canvas) {
+    c.line((0.36, 0.18), (0.36, 0.82), STROKE);
+    c.path(&[(0.22, 0.68), (0.36, 0.82), (0.50, 0.68)], STROKE);
+    c.line((0.64, 0.82), (0.64, 0.18), STROKE);
+    c.path(&[(0.50, 0.32), (0.64, 0.18), (0.78, 0.32)], STROKE);
+}
+
+fn glyph_audio(c: &mut Canvas) {
+    let pts: Vec<(f32, f32)> = (0..=40)
+        .map(|i| {
+            let t = i as f32 / 40.0;
+            let env = (t * std::f32::consts::PI).sin();
+            (0.12 + 0.76 * t, 0.5 - 0.24 * (t * std::f32::consts::TAU * 1.5).sin() * env)
+        })
+        .collect();
+    c.path(&pts, STROKE);
+}
+
+// ── Apps ──────────────────────────────────────────────────────────────────────
 
 fn win_content_layer(id: u32) -> String {
     format!("win_content_{id}")
@@ -777,55 +1200,4 @@ fn list_apps_sorted<Caps>(ctx: &ReducerContext<Caps>) -> Vec<AppInfo> {
     let mut apps = ctx.module_manager().queries.list_apps().unwrap_or_default();
     apps.sort_by_key(|a| a.id);
     apps
-}
-
-/// Register an app (without loading it) and upload its launcher icon. The
-/// wasm goes as a call-scoped Blob; module_manager skips the rewrite when the
-/// bytes are unchanged.
-fn register_app_with_icon<Caps>(ctx: &ReducerContext<Caps>, name: &str, bytes: &[u8], icon: Vec<u8>) {
-    let _ = ctx.module_manager().reducers.register_app(name.to_string(), Blob::new(bytes), Some(icon.clone()));
-    let _ = ctx.graphics().reducers.create_texture(
-        icon_texture_id(name),
-        TextureDescriptorInput {
-            width: ICON_PX,
-            height: ICON_PX,
-            format: "rgba8unorm".to_string(),
-            mip_levels: 1,
-            sample_count: 1,
-            usage: TextureUsageFlags {
-                copy_src: false,
-                copy_dst: true,
-                texture_binding: true,
-                storage_binding: false,
-                render_attachment: false,
-            },
-        },
-        Blob::new(&icon),
-    );
-}
-
-/// An app icon as raw RGBA8: a vertical gradient from the app's colour with a
-/// white disc in the middle.
-fn make_icon(base: (f32, f32, f32)) -> Vec<u8> {
-    let n = ICON_PX as usize;
-    let mut data = vec![0u8; n * n * 4];
-    let c = (n as f32 - 1.0) / 2.0;
-    for y in 0..n {
-        for x in 0..n {
-            let idx = (y * n + x) * 4;
-            let t = y as f32 / n as f32;
-            let (dx, dy) = (x as f32 - c, y as f32 - c);
-            let d = (dx * dx + dy * dy).sqrt();
-            let px = if d < 18.0 {
-                [240, 244, 250]
-            } else if d < 22.0 {
-                [120, 140, 200]
-            } else {
-                [(base.0 + 40.0 * t) as u8, (base.1 + 60.0 * t) as u8, (base.2 + 60.0 * t) as u8]
-            };
-            data[idx..idx + 3].copy_from_slice(&px);
-            data[idx + 3] = 255;
-        }
-    }
-    data
 }

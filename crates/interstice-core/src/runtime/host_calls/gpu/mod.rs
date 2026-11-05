@@ -129,7 +129,16 @@ impl GpuState {
             .unwrap();
 
         let surface_caps = surface.get_capabilities(&adapter);
-        let format = surface_caps.formats[0];
+        // Prefer a plain-unorm swapchain: the 2D compositor then blends in sRGB
+        // space, as CSS and image editors do, so hex colours and alpha tints
+        // look as designed. Graphics handles an sRGB-only platform too (see
+        // `shader_source` in the graphics module).
+        let format = surface_caps
+            .formats
+            .iter()
+            .copied()
+            .find(|f| matches!(f, wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm))
+            .unwrap_or(surface_caps.formats[0]);
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,

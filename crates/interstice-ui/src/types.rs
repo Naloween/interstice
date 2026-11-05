@@ -79,10 +79,10 @@ pub struct TextSpan {
     pub end: u32,
     pub color: (f32, f32, f32, f32),
     pub href: Option<String>,
-    /// Resolved weight/slant for this run (already folded with the element's
-    /// base style by the caller), driving which DejaVu face draws it.
+    /// Resolved weight/family for this run (already folded with the element's
+    /// base style by the caller), driving which face draws it.
     pub bold: bool,
-    pub italic: bool,
+    pub mono: bool,
 }
 
 /// The canonical UI element used by the layout and draw engine. Each consuming
@@ -135,10 +135,10 @@ pub struct UiElement {
     pub text_size: f32,
     pub text_color: (f32, f32, f32, f32),
     pub text_wrap: TextWrap,
-    /// Base weight/slant for the whole element (the block's resolved style).
+    /// Base weight/family for the whole element (the block's resolved style).
     /// Inline `spans` may override per-range; uncovered chars use these.
     pub text_bold: bool,
-    pub text_italic: bool,
+    pub text_mono: bool,
     /// Inline style runs over `text` (link/colour). Empty ⇒ plain text.
     pub spans: Vec<TextSpan>,
     /// Horizontal alignment of text lines within the content box: 0.0 = left,
@@ -186,12 +186,12 @@ fn combine_inset(px: Option<f32>, pct: Option<f32>) -> Option<f32> {
 }
 
 impl UiElement {
-    /// The element's base text style (weight/slant) for the plain-text path and
+    /// The element's base text style (weight/family) for the plain-text path and
     /// as the fallback for chars no span covers.
     pub fn base_font_style(&self) -> crate::text::FontStyle {
         crate::text::FontStyle {
             bold: self.text_bold,
-            italic: self.text_italic,
+            mono: self.text_mono,
         }
     }
     /// Effective `position` offset for each side, folding the percentage

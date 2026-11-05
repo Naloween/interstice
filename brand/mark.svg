@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 120" width="40" height="120">
+  <!-- The slit: interstice's "I", light escaping through a gap (BRAND.md §2). -->
+  <defs>
+    <linearGradient id="core" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C59B60" stop-opacity="0"/>
+      <stop offset="0.22" stop-color="#E8C894"/>
+      <stop offset="0.5" stop-color="#F6E9D2"/>
+      <stop offset="0.78" stop-color="#E8C894"/>
+      <stop offset="1" stop-color="#C59B60" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="bloom" cx="0.5" cy="0.5" r="0.5" gradientTransform="translate(0.5 0.5) scale(0.33 1) translate(-0.5 -0.5)">
+      <stop offset="0" stop-color="#C59B60" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#C59B60" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="blur" x="-2" y="-0.2" width="5" height="1.4"><feGaussianBlur stdDeviation="3.2"/></filter>
+  </defs>
+  <rect x="0" y="6" width="40" height="108" fill="url(#bloom)"/>
+  <path d="M20 4 Q28.4 60 20 116 Q11.6 60 20 4Z" fill="#C59B60" opacity="0.6" filter="url(#blur)"/>
+  <path d="M20 4 Q22.1 60 20 116 Q17.9 60 20 4Z" fill="url(#core)"/>
+</svg>

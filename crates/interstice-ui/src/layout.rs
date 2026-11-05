@@ -860,7 +860,7 @@ mod portal_geom {
             text_color: (0.0, 0.0, 0.0, 1.0),
             text_wrap: TextWrap::Words,
             text_bold: false,
-            text_italic: false,
+            text_mono: false,
             spans: Vec::new(),
             text_align: 0.0,
             line_height: 0.0,

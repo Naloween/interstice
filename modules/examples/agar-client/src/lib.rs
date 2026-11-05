@@ -3,6 +3,7 @@ mod hud;
 mod input;
 mod lobby;
 mod render;
+mod style;
 mod tables;
 
 use crate::tables::ClientState;

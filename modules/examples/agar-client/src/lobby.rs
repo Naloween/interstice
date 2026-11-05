@@ -2,286 +2,63 @@ use crate::bindings::input::*;
 use crate::bindings::{agar_server_example::*, *};
 use crate::hud::build_hud_ui;
 use crate::render::BASE_ZOOM;
+use crate::style::*;
 use crate::tables::*;
-use crate::ui::{self, HasUiElementEditHandle, LayoutDirection, Size, TextWrap, UiElement};
+use crate::ui::{self, HasUiElementEditHandle, UiElement};
 use interstice_sdk::key_code::KeyCode;
 use interstice_sdk::*;
+use interstice_ui::theme as th;
 
 const UI_LOBBY_ROOT: &str = "lobby_root";
 const UI_LOBBY_CARD: &str = "lobby_card";
-const UI_LOBBY_TITLE: &str = "lobby_title";
 const UI_LOBBY_INPUT: &str = "lobby_name_input";
-const UI_LOBBY_BTN: &str = "lobby_play_btn";
+pub const UI_LOBBY_BTN: &str = "lobby_play_btn";
 
 pub fn build_lobby_ui<Caps>(ctx: &ReducerContext<Caps>)
 where
-    Caps: CanInsert<UiElement>
-        + CanUpdate<UiElement>
-        + CanInsert<ui::InputFocus>
-        + CanUpdate<ui::InputFocus>,
+    Caps: CanInsert<UiElement> + CanUpdate<UiElement> + CanInsert<ui::InputFocus> + CanUpdate<ui::InputFocus>,
 {
-    let none = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
-    let text_col = (0.92f32, 0.92f32, 0.95f32, 1.0f32);
-    let muted = (0.55f32, 0.55f32, 0.62f32, 1.0f32);
-    let card_bg = (0.14f32, 0.14f32, 0.18f32, 1.0f32);
-    let input_bg = (0.10f32, 0.10f32, 0.13f32, 1.0f32);
-    let btn_bg = (0.27f32, 0.47f32, 0.87f32, 1.0f32);
-
-    let spacer = |id: &str, parent: &str, order: u32| {
-        ui::create_element(ctx, UiElement {
-            id: id.into(),
-            parent: Some(parent.into()),
-            order,
-            width: Size::Grow,
-            height: Size::Grow,
-            layout_direction: LayoutDirection::Row,
-            gap: 0.0,
-            padding: 0.0,
-            margin: 0.0,
-            background_color: none,
-            corner_radius: 0.0,
-            border_width: 0.0,
-            border_color: none,
-            text: None,
-            text_size: 0.0,
-            text_color: none,
-            text_wrap: TextWrap::None,
-            image: None,
-            is_input: false,
-            cursor_pos: 0,
-            scrollable_x: false,
-            scrollable_y: false,
-            scroll_x: 0.0,
-            scroll_y: 0.0,
-            visible: true,
-            ..Default::default()
-        });
-    };
-
-    // Full-screen dark root (Column — vertical centering via spacers).
-    ui::create_element(ctx, UiElement {
-        id: UI_LOBBY_ROOT.into(),
-        parent: None,
-        order: 0,
-        width: Size::Grow,
-        height: Size::Grow,
-        layout_direction: LayoutDirection::Column,
-        gap: 0.0,
-        padding: 0.0,
-        margin: 0.0,
-        background_color: (0.07, 0.07, 0.10, 1.0),
-        corner_radius: 0.0,
-        border_width: 0.0,
-        border_color: none,
-        text: None,
-        text_size: 0.0,
-        text_color: none,
-        text_wrap: TextWrap::None,
-        image: None,
-        is_input: false,
-        cursor_pos: 0,
-        scrollable_x: false,
-        scrollable_y: false,
-        scroll_x: 0.0,
-        scroll_y: 0.0,
-        visible: true,
-        ..Default::default()
-    });
-
-    // Top spacer — pushes center row down.
-    spacer("lobby_v_top", UI_LOBBY_ROOT, 0);
-
-    // Center row — horizontal centering via spacers.
-    ui::create_element(ctx, UiElement {
-        id: "lobby_center_row".into(),
-        parent: Some(UI_LOBBY_ROOT.into()),
-        order: 1,
-        width: Size::Grow,
-        height: Size::Fit,
-        layout_direction: LayoutDirection::Row,
-        gap: 0.0,
-        padding: 0.0,
-        margin: 0.0,
-        background_color: none,
-        corner_radius: 0.0,
-        border_width: 0.0,
-        border_color: none,
-        text: None,
-        text_size: 0.0,
-        text_color: none,
-        text_wrap: TextWrap::None,
-        image: None,
-        is_input: false,
-        cursor_pos: 0,
-        scrollable_x: false,
-        scrollable_y: false,
-        scroll_x: 0.0,
-        scroll_y: 0.0,
-        visible: true,
-        ..Default::default()
-    });
-
-    // Left spacer — pushes card right.
-    spacer("lobby_h_left", "lobby_center_row", 0);
-
-    // Card itself.
-    ui::create_element(ctx, UiElement {
-        id: UI_LOBBY_CARD.into(),
-        parent: Some("lobby_center_row".into()),
-        order: 1,
-        width: Size::Fixed(360.0),
-        height: Size::Fit,
-        layout_direction: LayoutDirection::Column,
-        gap: 16.0,
-        padding: 28.0,
-        margin: 0.0,
-        background_color: card_bg,
-        corner_radius: 12.0,
-        border_width: 1.0,
-        border_color: (0.28, 0.28, 0.34, 1.0),
-        text: None,
-        text_size: 0.0,
-        text_color: none,
-        text_wrap: TextWrap::None,
-        image: None,
-        is_input: false,
-        cursor_pos: 0,
-        scrollable_x: false,
-        scrollable_y: false,
-        scroll_x: 0.0,
-        scroll_y: 0.0,
-        visible: true,
-        ..Default::default()
-    });
-
-    // Right spacer — pushes card left.
-    spacer("lobby_h_right", "lobby_center_row", 2);
-
-    // Bottom spacer — pushes center row up.
-    spacer("lobby_v_bot", UI_LOBBY_ROOT, 2);
-
-    // Card contents.
-    ui::create_element(ctx, UiElement {
-        id: UI_LOBBY_TITLE.into(),
-        parent: Some(UI_LOBBY_CARD.into()),
-        order: 0,
-        width: Size::Grow,
-        height: Size::Fit,
-        layout_direction: LayoutDirection::Row,
-        gap: 0.0,
-        padding: 0.0,
-        margin: 0.0,
-        background_color: none,
-        corner_radius: 0.0,
-        border_width: 0.0,
-        border_color: none,
-        text: Some("agar.io".into()),
-        text_size: 28.0,
-        text_color: text_col,
-        text_wrap: TextWrap::None,
-        image: None,
-        is_input: false,
-        cursor_pos: 0,
-        scrollable_x: false,
-        scrollable_y: false,
-        scroll_x: 0.0,
-        scroll_y: 0.0,
-        visible: true,
-        ..Default::default()
-    });
-    ui::create_element(ctx, UiElement {
-        id: "lobby_sub".into(),
-        parent: Some(UI_LOBBY_CARD.into()),
-        order: 1,
-        width: Size::Grow,
-        height: Size::Fit,
-        layout_direction: LayoutDirection::Row,
-        gap: 0.0,
-        padding: 0.0,
-        margin: 0.0,
-        background_color: none,
-        corner_radius: 0.0,
-        border_width: 0.0,
-        border_color: none,
-        text: Some("Enter your name to play".into()),
-        text_size: 13.0,
-        text_color: muted,
-        text_wrap: TextWrap::None,
-        image: None,
-        is_input: false,
-        cursor_pos: 0,
-        scrollable_x: false,
-        scrollable_y: false,
-        scroll_x: 0.0,
-        scroll_y: 0.0,
-        visible: true,
-        ..Default::default()
-    });
-    ui::create_element(ctx, UiElement {
-        id: UI_LOBBY_INPUT.into(),
-        parent: Some(UI_LOBBY_CARD.into()),
-        order: 2,
-        width: Size::Grow,
-        height: Size::Fixed(36.0),
-        layout_direction: LayoutDirection::Row,
-        gap: 0.0,
-        padding: 8.0,
-        margin: 0.0,
-        background_color: input_bg,
-        corner_radius: 6.0,
-        border_width: 1.0,
-        border_color: (0.28, 0.28, 0.34, 1.0),
-        text: Some(String::new()),
-        text_size: 14.0,
-        text_color: text_col,
-        text_wrap: TextWrap::None,
-        image: None,
-        is_input: true,
-        cursor_pos: 0,
-        scrollable_x: false,
-        scrollable_y: false,
-        scroll_x: 0.0,
-        scroll_y: 0.0,
-        visible: true,
-        ..Default::default()
-    });
-    ui::create_element(ctx, UiElement {
-        id: UI_LOBBY_BTN.into(),
-        parent: Some(UI_LOBBY_CARD.into()),
-        order: 3,
-        width: Size::Grow,
-        height: Size::Fixed(40.0),
-        layout_direction: LayoutDirection::Row,
-        gap: 0.0,
-        padding: 8.0,
-        margin: 0.0,
-        background_color: btn_bg,
-        corner_radius: 8.0,
-        border_width: 0.0,
-        border_color: none,
-        text: Some("Play".into()),
-        text_size: 16.0,
-        text_color: (1.0, 1.0, 1.0, 1.0),
-        text_wrap: TextWrap::None,
-        image: None,
-        is_input: false,
-        cursor_pos: 0,
-        scrollable_x: false,
-        scrollable_y: false,
-        scroll_x: 0.0,
-        scroll_y: 0.0,
-        visible: true,
-        ..Default::default()
-    });
-
+    let el = |e: UiElement| ui::create_element(ctx, e);
+    // Transparent root: the arena is drawn behind it, still and dimmed.
+    el(centred_root(UI_LOBBY_ROOT, 0, th::alpha(th::INK, 0.55)));
+    el(panel(UI_LOBBY_CARD, UI_LOBBY_ROOT, 0, crate::ui::Size::Fixed(380.0), 32.0, 12.0));
+    el(label("lobby_kicker", UI_LOBBY_CARD, 0, "Interstice example", th::GRAY));
+    el(text("lobby_title", UI_LOBBY_CARD, 1, "Agar", th::TEXT_DISPLAY, th::IVORY));
+    el(text(
+        "lobby_sub",
+        UI_LOBBY_CARD,
+        2,
+        "Eat pellets, grow, and stay away from bigger cells. Every cell is a row in agar-server's Player table.",
+        th::TEXT_BODY,
+        th::MUTED,
+    ));
+    el(gap("lobby_gap", UI_LOBBY_CARD, 3, 6.0));
+    el(label("lobby_name_label", UI_LOBBY_CARD, 4, "Your name", th::GRAY));
+    el(input(UI_LOBBY_INPUT, UI_LOBBY_CARD, 5, ""));
+    el(primary_button(UI_LOBBY_BTN, UI_LOBBY_CARD, 6, "Play", false));
+    el(label("lobby_hint", UI_LOBBY_CARD, 7, "Enter to play · steer with the mouse", th::DIM));
     ui::set_focus(ctx, UI_LOBBY_INPUT);
+}
+
+/// Hover feedback on the lobby's or the death screen's primary button.
+pub fn set_button_hover<Caps>(ctx: &ReducerContext<Caps>, id: &str, hover: bool) -> Result<(), String>
+where
+    Caps: CanRead<UiElement> + CanUpdate<UiElement>,
+{
+    if let Some(mut b) = ctx.current.tables.uielement().get(id.to_string())? {
+        let bg = if hover { th::AMBER_HI } else { th::AMBER };
+        if b.background_color != bg {
+            b.background_color = bg;
+            ctx.current.tables.uielement().update(b)?;
+        }
+    }
+    Ok(())
 }
 
 pub fn handle_lobby_input<Caps>(
     ctx: &ReducerContext<Caps>,
     cs: &mut ClientState,
-    sw: f32,
-    sh: f32,
+    clicked: Option<&str>,
 ) -> Result<(), String>
 where
     Caps: CanRead<ClientState>
@@ -291,27 +68,27 @@ where
         + CanInsert<ui::InputFocus>
         + CanUpdate<ui::InputFocus>,
 {
-    // Check Enter or NumpadEnter to submit.
+    if let Some(name) = cs.pending_join.take() {
+        return start_game(ctx, cs, Some(name));
+    }
+    if clicked == Some(UI_LOBBY_BTN) {
+        return start_game(ctx, cs, None);
+    }
     // Keys are ours only while we have keyboard focus (DESIGN §12.2).
     if !ctx.input().queries.input_view()?.keyboard_focus {
         return Ok(());
     }
     let key_states = ctx.input().tables.keystate().scan()?;
-    let enter_pressed = key_states.iter().any(|k| {
-        k.pressed && (k.code == KeyCode::Enter as u32 || k.code == KeyCode::NumpadEnter as u32)
-    });
+    let enter_pressed = key_states
+        .iter()
+        .any(|k| k.pressed && (k.code == KeyCode::Enter as u32 || k.code == KeyCode::NumpadEnter as u32));
     if enter_pressed {
-        start_game(ctx, cs, sw, sh)?;
+        start_game(ctx, cs, None)?;
     }
     Ok(())
 }
 
-fn start_game<Caps>(
-    ctx: &ReducerContext<Caps>,
-    cs: &mut ClientState,
-    _sw: f32,
-    _sh: f32,
-) -> Result<(), String>
+fn start_game<Caps>(ctx: &ReducerContext<Caps>, cs: &mut ClientState, name: Option<String>) -> Result<(), String>
 where
     Caps: CanRead<ClientState>
         + CanUpdate<ClientState>
@@ -319,13 +96,11 @@ where
         + CanInsert<ui::InputFocus>
         + CanUpdate<ui::InputFocus>,
 {
-    // Read the typed name directly from our own UI input element.
-    let name = ctx
-        .current
-        .tables
-        .uielement()
-        .get(UI_LOBBY_INPUT.to_string())?
-        .and_then(|el| el.text)
+    // The typed name, from our own UI input element.
+    let name = name
+        .or_else(|| {
+            ctx.current.tables.uielement().get(UI_LOBBY_INPUT.to_string()).ok().flatten().and_then(|el| el.text)
+        })
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty())
         .unwrap_or_else(|| "Player".to_string());
@@ -345,5 +120,6 @@ where
     cs.state = GameState::InGame;
     cs.zoom = BASE_ZOOM;
     cs.target_zoom = BASE_ZOOM;
+    cs.hud_sig = 0;
     Ok(())
 }

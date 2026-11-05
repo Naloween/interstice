@@ -1487,6 +1487,7 @@ name = "desktop-example"
 version = "0.1.0"
 dependencies = [
  "interstice-sdk",
+ "interstice-ui",
 ]
 
 [[package]]

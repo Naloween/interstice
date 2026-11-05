@@ -22,7 +22,7 @@ pub trait DrawTarget {
         corner_radius: Option<f32>,
     );
     /// A single line of text with its top-left at `(x, y)`, drawn in `style`
-    /// (weight/slant). The backend selects the matching font face.
+    /// (weight/family). The backend selects the matching font face.
     fn text(&mut self, content: &str, x: f32, y: f32, size: f32, style: FontStyle, color: Rgba);
     /// Filled or stroked circle centred at `(x, y)`.
     fn circle(&mut self, x: f32, y: f32, r: f32, color: Rgba, filled: bool, stroke_width: f32);
@@ -68,8 +68,8 @@ pub fn render<T: DrawTarget>(all: &[UiElement], sw: f32, sh: f32, focused: Optio
 /// as the compositor (a standalone app's root, or the desktop) should call this,
 /// so the cursor is never trapped inside a composited child surface.
 pub fn draw_cursor<T: DrawTarget>(target: &mut T, mx: f32, my: f32) {
-    target.circle(mx, my, 6.0, (1.0, 1.0, 1.0, 0.9), true, 0.0);
-    target.circle(mx, my, 6.0, (0.0, 0.0, 0.0, 0.6), false, 1.5);
+    target.circle(mx, my, 5.0, crate::theme::IVORY, true, 0.0);
+    target.circle(mx, my, 5.0, crate::theme::alpha(crate::theme::INK, 0.8), false, 1.5);
 }
 
 /// Intersect a filled axis-aligned rect with `clip`. Returns the visible slice
@@ -276,18 +276,18 @@ fn draw_element<T: DrawTarget>(node: &ComputedElement, focused_id: Option<&str>,
             let cursor_y = node.y + el.pad_t();
 
             if cursor_x < cx + cw && cursor_y < cy + ch {
-                target.rect(cursor_x, cursor_y, 2.0, lh, (0.9, 0.9, 0.9, 1.0), true, 0.0, None);
+                target.rect(cursor_x.round(), cursor_y, 1.5, lh, crate::theme::AMBER, true, 0.0, None);
             }
 
-            // Focused input border highlight.
+            // Focused input border highlight (BRAND.md §7: amber at 60 %).
             target.rect(
                 node.x,
                 node.y,
                 node.width,
                 node.height,
-                (0.4, 0.6, 1.0, 1.0),
+                crate::theme::alpha(crate::theme::AMBER, 0.6),
                 false,
-                1.5,
+                1.0,
                 corner,
             );
         }

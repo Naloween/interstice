@@ -1,3 +1,6 @@
+<p align="center"><img src="brand/wordmark.svg" alt="interstice" width="420"></p>
+<p align="center"><em>A space for things to interact.</em></p>
+
 # Interstice
 
 Interstice is a minimal, modular substrate for running sandboxed WebAssembly modules that cooperate through typed, versioned data and deterministic reducers.
@@ -11,6 +14,8 @@ Contents
 - Loading modules
 - Roadmap & TODOs
 - Contribution & License
+
+The look of every example (colours, type, the mark) is defined in [brand/BRAND.md](brand/BRAND.md) and implemented once in `interstice_ui::theme`.
 
 Repository layout
 

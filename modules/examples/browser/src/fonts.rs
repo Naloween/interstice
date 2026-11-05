@@ -42,6 +42,11 @@ const LIBERATION_SERIF: &[&[u8]] = &[
     font!("LiberationSerif-BoldItalic.ttf"),
 ];
 const CJK: &[u8] = font!("DroidSansFallbackFull.ttf");
+/// The brand faces (brand/BRAND.md §4), registered under their own names for
+/// the chrome and the built-in pages only; no generic family maps to them, so
+/// web pages never pick them up unless they ask for them by name.
+const SPACE_GROTESK: &[&[u8]] = &[font!("SpaceGrotesk-Regular.ttf"), font!("SpaceGrotesk-Medium.ttf")];
+const PLEX_MONO: &[&[u8]] = &[font!("IBMPlexMono-Regular.ttf"), font!("IBMPlexMono-Medium.ttf")];
 
 /// Build a Parley font context holding every embedded face. Cheap to clone
 /// (the collection shares its data), so one is built per document.
@@ -83,6 +88,8 @@ fn build() -> parley::FontContext {
         reg(DEJAVU_MONO, Some(alias));
     }
     let cjk = reg(&[CJK], None);
+    reg(SPACE_GROTESK, None);
+    reg(PLEX_MONO, None);
 
     coll.set_generic_families(GenericFamily::SansSerif, [sans, cjk].into_iter());
     coll.set_generic_families(GenericFamily::SystemUi, [sans, cjk].into_iter());

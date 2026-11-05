@@ -9,13 +9,16 @@ use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::OnceLock;
 
-/// The four embedded UI faces (DejaVu Sans regular/bold/oblique/bold-oblique) —
-/// same bytes the engine measures with (kept in sync via the matching copies in
-/// `crates/interstice-ui/assets`).
-pub const FONT_TTF: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
-pub const FONT_TTF_BOLD: &[u8] = include_bytes!("../assets/DejaVuSans-Bold.ttf");
-pub const FONT_TTF_ITALIC: &[u8] = include_bytes!("../assets/DejaVuSans-Oblique.ttf");
-pub const FONT_TTF_BOLD_ITALIC: &[u8] = include_bytes!("../assets/DejaVuSans-BoldOblique.ttf");
+/// The four embedded UI faces (brand/BRAND.md §4): Space Grotesk Regular/Medium
+/// and IBM Plex Mono Regular/Medium — the same bytes the engine measures with
+/// (kept in sync via the matching copies in `crates/interstice-ui/assets`).
+pub const FONT_TTF: &[u8] = include_bytes!("../assets/SpaceGrotesk-Regular.ttf");
+pub const FONT_TTF_BOLD: &[u8] = include_bytes!("../assets/SpaceGrotesk-Medium.ttf");
+pub const FONT_TTF_MONO: &[u8] = include_bytes!("../assets/IBMPlexMono-Regular.ttf");
+pub const FONT_TTF_MONO_BOLD: &[u8] = include_bytes!("../assets/IBMPlexMono-Medium.ttf");
+/// DejaVu Sans, for what the brand faces lack (Greek, Cyrillic, symbols).
+pub const FONT_TTF_FALLBACK: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
+pub const FONT_TTF_FALLBACK_BOLD: &[u8] = include_bytes!("../assets/DejaVuSans-Bold.ttf");
 /// CJK fallback (Droid Sans Fallback) — the *same* bytes the engine measures with
 /// (`interstice-ui/assets`), so glyphs it supplies advance identically on both
 /// sides. Single weight, used for every style.
@@ -26,88 +29,98 @@ pub const FONT_TTF_CJK: &[u8] = include_bytes!("../assets/DroidSansFallbackFull.
 /// keeps body text crisp without an oversized texture.
 pub const ATLAS_BASE_PX: f32 = 48.0;
 
-/// Number of distinct weight/slant combinations (and thus faces/atlases).
+/// Number of distinct weight/family combinations (and thus faces/atlases).
 pub const STYLE_COUNT: usize = 4;
 
-/// 0=regular 1=bold 2=italic 3=bold-italic. Matches the order the renderer
+/// 0=regular 1=medium 2=mono 3=mono-medium. Matches the order the renderer
 /// caches atlas views and the encoding the engine's draw forwarder packs into
 /// the `font` field of a text command (see [`parse_style`]).
-pub fn style_index(bold: bool, italic: bool) -> usize {
-    (bold as usize) | ((italic as usize) << 1)
+pub fn style_index(bold: bool, mono: bool) -> usize {
+    (bold as usize) | ((mono as usize) << 1)
 }
 
-/// Decode the `font` selector the engine sends ("bold"/"italic"/"bold-italic"/
-/// none) into a `(bold, italic)` pair.
+/// Decode the `font` selector the engine sends ("bold"/"mono"/"mono-bold"/
+/// none) into a `(bold, mono)` pair. The old "italic" selectors draw upright:
+/// the brand has no italics.
 pub fn parse_style(font: Option<&str>) -> (bool, bool) {
     match font {
-        Some("bold") => (true, false),
-        Some("italic") => (false, true),
-        Some("bold-italic") => (true, true),
+        Some("bold") | Some("bold-italic") => (true, false),
+        Some("mono") => (false, true),
+        Some("mono-bold") => (true, true),
         _ => (false, false),
     }
 }
 
-fn face(bold: bool, italic: bool) -> &'static FontArc {
+fn parse(bytes: &'static [u8]) -> FontArc {
+    FontArc::try_from_slice(bytes).expect("embedded face is valid")
+}
+
+fn face(bold: bool, mono: bool) -> &'static FontArc {
     static FACES: [OnceLock<FontArc>; STYLE_COUNT] = [
         OnceLock::new(),
         OnceLock::new(),
         OnceLock::new(),
         OnceLock::new(),
     ];
-    let idx = style_index(bold, italic);
-    FACES[idx].get_or_init(|| {
-        let bytes = match idx {
-            1 => FONT_TTF_BOLD,
-            2 => FONT_TTF_ITALIC,
-            3 => FONT_TTF_BOLD_ITALIC,
-            _ => FONT_TTF,
-        };
-        FontArc::try_from_slice(bytes).expect("embedded DejaVu face is valid")
-    })
+    let idx = style_index(bold, mono);
+    FACES[idx].get_or_init(|| parse([FONT_TTF, FONT_TTF_BOLD, FONT_TTF_MONO, FONT_TTF_MONO_BOLD][idx]))
+}
+
+/// DejaVu, for characters the brand faces don't cover.
+fn fallback_face(bold: bool) -> &'static FontArc {
+    static REG: OnceLock<FontArc> = OnceLock::new();
+    static BOLD: OnceLock<FontArc> = OnceLock::new();
+    match bold {
+        false => REG.get_or_init(|| parse(FONT_TTF_FALLBACK)),
+        true => BOLD.get_or_init(|| parse(FONT_TTF_FALLBACK_BOLD)),
+    }
 }
 
 /// The shared CJK fallback face (one weight for all styles).
 fn cjk_face() -> &'static FontArc {
     static CJK: OnceLock<FontArc> = OnceLock::new();
-    CJK.get_or_init(|| FontArc::try_from_slice(FONT_TTF_CJK).expect("embedded CJK face is valid"))
+    CJK.get_or_init(|| parse(FONT_TTF_CJK))
 }
 
-/// Pick the face that has a glyph for `ch`: the styled DejaVu face when it covers
-/// the character, otherwise the CJK fallback. Mirrors `interstice_ui::face_for`.
-fn face_for(ch: char, bold: bool, italic: bool) -> &'static FontArc {
-    let primary = face(bold, italic);
-    if primary.glyph_id(ch).0 == 0 && cjk_face().glyph_id(ch).0 != 0 {
-        cjk_face()
-    } else {
-        primary
+/// Pick the face that has a glyph for `ch`: the brand face for the style, else
+/// DejaVu, else the CJK fallback. Mirrors `interstice_ui::face_for` exactly.
+fn face_for(ch: char, bold: bool, mono: bool) -> &'static FontArc {
+    let primary = face(bold, mono);
+    if primary.glyph_id(ch).0 != 0 {
+        return primary;
     }
+    let fallback = fallback_face(bold);
+    if fallback.glyph_id(ch).0 != 0 {
+        return fallback;
+    }
+    if cjk_face().glyph_id(ch).0 != 0 { cjk_face() } else { primary }
 }
 
 /// Horizontal advance of a single character at `size` px/em in the given style.
 /// MUST match `interstice_ui::char_advance` exactly so drawn pen positions track
 /// layout.
-pub fn char_advance(ch: char, size: f32, bold: bool, italic: bool) -> f32 {
+pub fn char_advance(ch: char, size: f32, bold: bool, mono: bool) -> f32 {
     if size <= 0.0 {
         return 0.0;
     }
-    let sf = face_for(ch, bold, italic).as_scaled(PxScale::from(size));
+    let sf = face_for(ch, bold, mono).as_scaled(PxScale::from(size));
     sf.h_advance(sf.glyph_id(ch))
 }
 
 /// Distance from the line's top to the text baseline at `size`.
-pub fn ascent(size: f32, bold: bool, italic: bool) -> f32 {
+pub fn ascent(size: f32, bold: bool, mono: bool) -> f32 {
     if size <= 0.0 {
         return 0.0;
     }
-    face(bold, italic).as_scaled(PxScale::from(size)).ascent()
+    face(bold, mono).as_scaled(PxScale::from(size)).ascent()
 }
 
 /// Line advance — matches `interstice_ui::text_line_height`.
-pub fn text_line_height(size: f32, bold: bool, italic: bool) -> f32 {
+pub fn text_line_height(size: f32, bold: bool, mono: bool) -> f32 {
     if size <= 0.0 {
         return 0.0;
     }
-    let sf = face(bold, italic).as_scaled(PxScale::from(size));
+    let sf = face(bold, mono).as_scaled(PxScale::from(size));
     (sf.height() + sf.line_gap()).ceil()
 }
 
@@ -191,7 +204,11 @@ const MAX_EXTRA_GLYPHS: usize = 4096;
 /// single-threaded, so this `thread_local` is contention-free and persists across
 /// frames for the life of the module instance.
 struct AtlasSet {
+    /// `slot * STYLE_COUNT + style_index`: slot 0 is the base atlas
+    /// (`ATLAS_BASE_PX`), slot k ≥ 1 is rasterized at `sizes[k - 1]` px.
     atlases: Vec<Atlas>,
+    sizes: Vec<u32>,
+    pending_sizes: BTreeSet<u32>,
     covered: BTreeSet<char>,
     pending: BTreeSet<char>,
     generation: u32,
@@ -201,6 +218,8 @@ struct AtlasSet {
 thread_local! {
     static ATLAS_SET: RefCell<AtlasSet> = RefCell::new(AtlasSet {
         atlases: Vec::new(),
+        sizes: Vec::new(),
+        pending_sizes: BTreeSet::new(),
         covered: BTreeSet::new(),
         pending: BTreeSet::new(),
         generation: 0,
@@ -224,7 +243,9 @@ pub fn note_str(s: &str) {
             }
             // Bake any char some face can render but the (now Latin-only) base
             // charset omits — Greek/Cyrillic via DejaVu, CJK via the fallback.
-            if face(false, false).glyph_id(ch).0 != 0 || cjk_face().glyph_id(ch).0 != 0 {
+            if face(false, false).glyph_id(ch).0 != 0
+                || fallback_face(false).glyph_id(ch).0 != 0
+                || cjk_face().glyph_id(ch).0 != 0 {
                 set.pending.insert(ch);
                 if set.covered.len() + set.pending.len() >= MAX_EXTRA_GLYPHS {
                     break;
@@ -239,7 +260,7 @@ pub fn note_str(s: &str) {
 pub fn ensure_built() -> u32 {
     ATLAS_SET.with(|cell| {
         let mut set = cell.borrow_mut();
-        if set.built && set.pending.is_empty() {
+        if set.built && set.pending.is_empty() && set.pending_sizes.is_empty() {
             return set.generation;
         }
         let pending: Vec<char> = set.pending.iter().copied().collect();
@@ -247,16 +268,67 @@ pub fn ensure_built() -> u32 {
             set.covered.insert(ch);
         }
         set.pending.clear();
+        let new_sizes: Vec<u32> = set.pending_sizes.iter().copied().collect();
+        set.sizes.extend(new_sizes);
+        set.pending_sizes.clear();
         let extra: Vec<char> = set.covered.iter().copied().collect();
-        let mut atlases = Vec::with_capacity(STYLE_COUNT);
-        for idx in 0..STYLE_COUNT {
-            atlases.push(build_atlas(idx & 1 != 0, idx & 2 != 0, &extra));
+        let mut atlases = Vec::with_capacity(STYLE_COUNT * (1 + set.sizes.len()));
+        let slot_px: Vec<f32> =
+            std::iter::once(ATLAS_BASE_PX).chain(set.sizes.iter().map(|&s| s as f32)).collect();
+        for px in slot_px {
+            for idx in 0..STYLE_COUNT {
+                atlases.push(build_atlas(idx & 1 != 0, idx & 2 != 0, px, &extra));
+            }
         }
         set.atlases = atlases;
         set.built = true;
         set.generation += 1;
         set.generation
     })
+}
+
+/// Smallest and largest sizes that get an atlas rasterized at exactly their
+/// size, and how many such sizes are kept. UI text uses a handful of integer
+/// sizes (BRAND.md §4); a glyph drawn at its own size, on whole pixels, is
+/// crisp, whereas one scaled down from the base atlas loses thin stems.
+/// Other sizes (fractional, huge, or past the cap) scale the base atlas.
+const EXACT_MIN_PX: u32 = 8;
+const EXACT_MAX_PX: u32 = 40;
+const MAX_EXACT_SIZES: usize = 16;
+
+/// Queue an exact-size atlas for `size` if it qualifies (see `EXACT_MAX_PX`).
+pub fn note_size(size: f32) {
+    let px = size.round();
+    if (size - px).abs() > 0.01 || px < EXACT_MIN_PX as f32 || px > EXACT_MAX_PX as f32 {
+        return;
+    }
+    let px = px as u32;
+    ATLAS_SET.with(|cell| {
+        let mut set = cell.borrow_mut();
+        if !set.sizes.contains(&px) && set.sizes.len() + set.pending_sizes.len() < MAX_EXACT_SIZES {
+            set.pending_sizes.insert(px);
+        }
+    });
+}
+
+/// The atlas slot that draws text of `size`, and the scale from atlas pixels
+/// to drawn pixels (1.0 for an exact-size slot).
+pub fn atlas_slot(size: f32) -> (usize, f32) {
+    ATLAS_SET.with(|cell| {
+        let set = cell.borrow();
+        let px = size.round();
+        if (size - px).abs() <= 0.01 {
+            if let Some(i) = set.sizes.iter().position(|&s| s as f32 == px) {
+                return (i + 1, 1.0);
+            }
+        }
+        (0, size / ATLAS_BASE_PX)
+    })
+}
+
+/// Number of atlases (slots × styles); atlas index = `slot * STYLE_COUNT + style`.
+pub fn atlas_count() -> usize {
+    ATLAS_SET.with(|cell| cell.borrow().atlases.len())
 }
 
 /// Current atlas generation — bumped on every (re)build so the renderer knows to
@@ -267,25 +339,20 @@ pub fn generation() -> u32 {
 
 /// A glyph's placement in the given style's current atlas, if baked. `GlyphInfo`
 /// is `Copy`, so this hands back an owned value without holding the borrow.
-pub fn glyph_info(ch: char, bold: bool, italic: bool) -> Option<GlyphInfo> {
+pub fn glyph_info(ch: char, atlas: usize) -> Option<GlyphInfo> {
     ATLAS_SET.with(|cell| {
         let set = cell.borrow();
-        set.atlases
-            .get(style_index(bold, italic))
-            .and_then(|a| a.glyph(ch).copied())
+        set.atlases.get(atlas).and_then(|a| a.glyph(ch).copied())
     })
 }
 
-/// Run `f` against the given style's current atlas (for texture upload). Assumes
-/// `ensure_built` has run this frame.
-pub fn with_atlas<R>(bold: bool, italic: bool, f: impl FnOnce(&Atlas) -> R) -> R {
+pub fn with_atlas<R>(atlas: usize, f: impl FnOnce(&Atlas) -> R) -> R {
     ATLAS_SET.with(|cell| {
         let set = cell.borrow();
-        f(&set.atlases[style_index(bold, italic)])
+        f(&set.atlases[atlas])
     })
 }
 
-/// Whether `ch` is part of the always-baked base charset.
 fn in_base_charset(ch: char) -> bool {
     static BASE: OnceLock<BTreeSet<char>> = OnceLock::new();
     BASE.get_or_init(|| charset().into_iter().collect())
@@ -295,8 +362,8 @@ fn in_base_charset(ch: char) -> bool {
 /// Build one style's glyph atlas: rasterize the base charset plus every `extra`
 /// character at `ATLAS_BASE_PX` into a padded grid, recording each glyph's UV
 /// rect + bearings/size. Each character is rasterized from whichever face covers
-/// it (the styled DejaVu face, or the CJK fallback).
-fn build_atlas(bold: bool, italic: bool, extra: &[char]) -> Atlas {
+/// it (the brand face, DejaVu, or the CJK fallback).
+fn build_atlas(bold: bool, mono: bool, px: f32, extra: &[char]) -> Atlas {
     let mut chars = charset();
     chars.extend_from_slice(extra);
 
@@ -314,8 +381,8 @@ fn build_atlas(bold: bool, italic: bool, extra: &[char]) -> Atlas {
     let mut max_w = 1u32;
     let mut max_h = 1u32;
     for ch in chars {
-        let f = face_for(ch, bold, italic);
-        let glyph = f.glyph_id(ch).with_scale(ATLAS_BASE_PX);
+        let f = face_for(ch, bold, mono);
+        let glyph = f.glyph_id(ch).with_scale(px);
         if let Some(outlined) = f.outline_glyph(glyph) {
             let b = outlined.px_bounds();
             let w = b.width().ceil().max(0.0) as u32;

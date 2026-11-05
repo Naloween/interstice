@@ -273,6 +273,22 @@ fn upload_region<Caps>(
     })
 }
 
+/// `*_srgb` means "these bytes are sRGB-encoded". When the swapchain is plain
+/// unorm, graphics composites in sRGB space, so such a texture is stored as
+/// its unorm twin and sampled raw; on an sRGB swapchain it keeps its format
+/// and is decoded on sampling. Either way a pixel shows as its bytes say.
+fn working_space_format(gpu: &Gpu, format: TextureFormat) -> TextureFormat {
+    let target_srgb = matches!(
+        gpu.get_surface_format(),
+        Ok(TextureFormat::Bgra8UnormSrgb | TextureFormat::Rgba8UnormSrgb)
+    );
+    match format {
+        TextureFormat::Rgba8UnormSrgb if !target_srgb => TextureFormat::Rgba8Unorm,
+        TextureFormat::Bgra8UnormSrgb if !target_srgb => TextureFormat::Bgra8Unorm,
+        f => f,
+    }
+}
+
 fn allocate_texture<Caps>(
     ctx: &ReducerContext<Caps>,
     desc: &TextureDescriptorInput,
@@ -280,7 +296,7 @@ fn allocate_texture<Caps>(
 ) -> Result<u32, String> {
     let gpu = ctx.gpu();
 
-    let format = parse_texture_format(&desc.format)?;
+    let format = working_space_format(&gpu, parse_texture_format(&desc.format)?);
     let usage = texture_usage_flags(&desc.usage);
 
     let texture = gpu.create_texture(CreateTexture {

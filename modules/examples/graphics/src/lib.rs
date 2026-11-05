@@ -25,20 +25,35 @@ where
     // Create shader
     let shader = match gpu.create_shader_module(
         r#"
+        // A raw-GPU triangle in the brand's light (brand/BRAND.md): `core` at
+        // the top fading to `amber`, on `ground`. Values are sRGB, written to
+        // the plain-unorm swapchain as they are (DESIGN §8 colour space).
+        struct Out {
+            @builtin(position) position: vec4<f32>,
+            @location(0) color: vec3<f32>,
+        };
+
         @vertex
-        fn vs_main(@builtin(vertex_index) vid: u32) -> @builtin(position) vec4<f32> {
+        fn vs_main(@builtin(vertex_index) vid: u32) -> Out {
             var pos = array<vec2<f32>, 3>(
                 vec2(0.0, 0.5),
                 vec2(-0.5, -0.5),
                 vec2(0.5, -0.5),
             );
-            let p = pos[vid];
-            return vec4(p, 0.0, 1.0);
+            var col = array<vec3<f32>, 3>(
+                vec3(0.965, 0.914, 0.824),
+                vec3(0.773, 0.608, 0.376),
+                vec3(0.773, 0.608, 0.376),
+            );
+            var out: Out;
+            out.position = vec4(pos[vid], 0.0, 1.0);
+            out.color = col[vid];
+            return out;
         }
 
         @fragment
-        fn fs_main() -> @location(0) vec4<f32> {
-            return vec4(1.0, 0.2, 0.3, 1.0);
+        fn fs_main(in: Out) -> @location(0) vec4<f32> {
+            return vec4(in.color, 1.0);
         }
     "#
         .into(),
@@ -185,7 +200,8 @@ where
             resolve_target: None,
             load: LoadOp::Clear,
             store: StoreOp::Store,
-            clear_color: [0.1, 0.1, 0.1, 1.0],
+            // `ground` (#151618).
+            clear_color: [0.082, 0.086, 0.094, 1.0],
         }],
         encoder,
         depth_stencil: None,

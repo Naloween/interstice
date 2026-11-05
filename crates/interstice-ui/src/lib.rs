@@ -12,6 +12,7 @@ mod draw;
 mod layout;
 mod text;
 mod types;
+pub mod theme;
 
 pub use draw::*;
 pub use layout::*;
@@ -78,7 +79,7 @@ macro_rules! ui_subsystem {
                 pub text_color: (f32, f32, f32, f32),
                 pub text_wrap: TextWrap,
                 pub text_bold: bool,
-                pub text_italic: bool,
+                pub text_mono: bool,
                 pub spans: Vec<TextSpan>,
                 pub text_align: f32,
                 /// Explicit CSS `line-height` in px; `<= 0.0` ⇒ natural font height.
@@ -134,7 +135,7 @@ macro_rules! ui_subsystem {
                         text_color: (0.0, 0.0, 0.0, 0.0),
                         text_wrap: TextWrap::None,
                         text_bold: false,
-                        text_italic: false,
+                        text_mono: false,
                         spans: Vec::new(),
                         text_align: 0.0,
                         line_height: 0.0,
@@ -222,7 +223,7 @@ macro_rules! ui_subsystem {
                     text_color: e.text_color,
                     text_wrap: e.text_wrap,
                     text_bold: e.text_bold,
-                    text_italic: e.text_italic,
+                    text_mono: e.text_mono,
                     spans: e.spans,
                     text_align: e.text_align,
                     line_height: e.line_height,
@@ -280,13 +281,8 @@ macro_rules! ui_subsystem {
                 ) {
                     let (r, g, b, a) = color;
                     // The graphics `draw_text` ABI carries a `font` selector; we
-                    // reuse it to name the weight/slant so no binding changes.
-                    let font = match (style.bold, style.italic) {
-                        (false, false) => None,
-                        (true, false) => Some("bold".to_string()),
-                        (false, true) => Some("italic".to_string()),
-                        (true, true) => Some("bold-italic".to_string()),
-                    };
+                    // reuse it to name the weight/family so no binding changes.
+                    let font = style.selector();
                     let _ = self.ctx.graphics().reducers.draw_text(
                         self.layer.clone(),
                         content.to_string(),

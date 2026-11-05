@@ -3,29 +3,39 @@ use crate::bindings::agar_server_example::agar_server::{
 };
 use crate::bindings::graphics::{Color, Vec2};
 use crate::bindings::{agar_server_example::*, graphics::*, input::*, *};
-use crate::death::{handle_dead_input, show_dead_screen};
+use crate::death::{UI_DEAD_BTN, handle_dead_input, show_dead_screen};
 use crate::hud::update_hud;
 use crate::input::handle_ingame_input;
-use crate::lobby::handle_lobby_input;
+use crate::lobby::{UI_LOBBY_BTN, handle_lobby_input, set_button_hover};
 use crate::tables::*;
 use crate::ui::{self, UiElement};
 use interstice_sdk::*;
+use interstice_ui::FontStyle;
+use interstice_ui::theme::{self as th, Rgba};
+
+// The arena, drawn in the brand (brand/BRAND.md §8, Agar): an ink field with
+// a hairline grid, your cell lit amber, everyone else in the quiet
+// categorical hues, pellets in gray. The camera eases after your cell, so
+// joining swoops in from the lobby's view and growing zooms out smoothly.
 
 // ── Layers ────────────────────────────────────────────────────────────────────
 
 const LAYER_BG: &str = "agar.bg";
 const LAYER_WORLD: &str = "agar.world";
 const LAYER_NAMES: &str = "agar.names";
+const GLOW_TEX: &str = "agar_glow";
 
-// ── Camera zoom constants ─────────────────────────────────────────────────────
+// ── Camera ────────────────────────────────────────────────────────────────────
 
 pub const BASE_ZOOM: f32 = 1.0;
 const ZOOM_SCALE: f32 = 0.012;
 const MIN_ZOOM: f32 = 0.15;
 const ZOOM_LERP: f32 = 0.06;
+const FOLLOW_LERP: f32 = 0.18;
 
 const WORLD_SIZE: f32 = 2_000.0;
-const GRID_SPACING: f32 = 100.0;
+/// Grid spacing in world units at zoom 1 (= screen px).
+const GRID_SPACING: f32 = 48.0;
 
 pub fn init_layers<Caps>(ctx: &ReducerContext<Caps>)
 where
@@ -39,22 +49,57 @@ where
     let _ = g.reducers.create_layer(LAYER_NAMES.to_string(), 3, false);
     // The UI layer (z=100) is created by `ui::install` in `init`.
 
-    // Initialise client state.
+    // Your cell's halo, baked once (the renderer has no blur).
+    let n = 128;
+    let _ = g.reducers.create_texture(
+        GLOW_TEX.to_string(),
+        TextureDescriptorInput {
+            width: n,
+            height: n,
+            format: "rgba8unorm_srgb".to_string(),
+            mip_levels: 1,
+            sample_count: 1,
+            usage: TextureUsageFlags {
+                copy_src: false,
+                copy_dst: true,
+                texture_binding: true,
+                storage_binding: false,
+                render_attachment: false,
+            },
+        },
+        Blob::new(&th::glow_rgba(n, th::AMBER)),
+    );
+
     let _ = ctx.current.tables.clientstate().insert(ClientState {
         id: 0,
         state: GameState::Lobby,
         zoom: BASE_ZOOM,
         target_zoom: BASE_ZOOM,
         final_score: 0.0,
+        cam_x: 0.0,
+        cam_y: 0.0,
+        was_down: false,
+        hud_sig: 0,
+        pending_join: None,
     });
 }
 
+/// Join as `name` as if typed in the lobby (scripting, tests):
+/// `interstice call_reducer agar-client-example agar-client play Ada`.
+#[reducer]
+pub fn play<Caps>(ctx: ReducerContext<Caps>, name: String) -> Result<(), String>
+where
+    Caps: CanRead<ClientState> + CanUpdate<ClientState>,
+{
+    let Some(mut cs) = ctx.current.tables.clientstate().get(0)? else {
+        return Err("agar-client: not loaded".into());
+    };
+    cs.pending_join = Some(name);
+    ctx.current.tables.clientstate().update(cs)
+}
+
 #[reducer(on = "graphics.frametick.update")]
-pub fn on_frame<Caps>(
-    ctx: ReducerContext<Caps>,
-    _prev: FrameTick,
-    _tick: FrameTick,
-) -> Result<(), String>
+pub fn on_frame<Caps>(ctx: ReducerContext<Caps>, _prev: FrameTick, _tick: FrameTick) -> Result<(), String>
 where
     Caps: CanRead<ClientState>
         + CanUpdate<ClientState>
@@ -71,333 +116,223 @@ where
     let Some(mut cs) = ctx.current.tables.clientstate().get(0)? else {
         return Ok(());
     };
+    let before = (cs.was_down, cs.hud_sig, cs.state.clone(), cs.pending_join.clone());
     let g = ctx.graphics();
     // Our own surface: the swapchain standalone, a window inside a desktop.
-    let surface = g.queries.surface_info().ok();
-    let (sw, sh) = match surface {
+    let (sw, sh) = match g.queries.surface_info().ok() {
         Some(s) if s.width > 0 && s.height > 0 => (s.width as f32, s.height as f32),
         _ => return Ok(()),
     };
 
+    // Pointer: the element under it, and a click on this frame's press edge.
+    let view = ctx.input().queries.input_view()?;
+    let over = if view.pointer_inside { ui::element_at(&ctx, view.position) } else { None };
+    let clicked = (view.left && !cs.was_down).then_some(()).and(over.as_deref());
+    cs.was_down = view.left;
+
     match cs.state {
         GameState::Lobby => {
-            handle_lobby_input(&ctx, &mut cs, sw, sh)?;
+            render_world(&ctx, &mut cs, sw, sh)?;
+            set_button_hover(&ctx, UI_LOBBY_BTN, over.as_deref() == Some(UI_LOBBY_BTN))?;
+            handle_lobby_input(&ctx, &mut cs, clicked)?;
         }
         GameState::InGame => {
             // Check for own death.
             let my_id = ctx.current_node_id();
-            let dead = ctx
-                .agar_server_example()
-                .agar_server()
-                .tables
-                .deadplayer()
-                .scan()?;
-            if dead.iter().any(|d| d.id == my_id) {
-                let my_radius = ctx
-                    .agar_server_example()
-                    .agar_server()
-                    .tables
-                    .player()
-                    .get(my_id)?
-                    .map(|p| p.radius)
-                    .unwrap_or(0.0);
-                cs.final_score = my_radius;
+            let server = ctx.agar_server_example().agar_server();
+            if server.tables.deadplayer().scan()?.iter().any(|d| d.id == my_id) {
+                cs.final_score = server.tables.player().get(my_id)?.map(|p| p.radius).unwrap_or(cs.final_score);
                 cs.state = GameState::Dead;
                 ui::clear_focus(&ctx);
                 ui::clear_elements(&ctx)?;
                 show_dead_screen(&ctx, cs.final_score);
-                let _ = ctx.current.tables.clientstate().update(cs);
-                return Ok(());
+            } else {
+                if let Some(me) = server.tables.player().get(my_id)? {
+                    cs.final_score = me.radius;
+                }
+                handle_ingame_input(&ctx, sw, sh)?;
+                update_hud(&ctx, &mut cs)?;
             }
-            handle_ingame_input(&ctx, sw, sh)?;
             render_world(&ctx, &mut cs, sw, sh)?;
-            update_hud(&ctx, sw, sh)?;
         }
         GameState::Dead => {
-            handle_dead_input(&ctx, &mut cs)?;
+            render_world(&ctx, &mut cs, sw, sh)?;
+            set_button_hover(&ctx, UI_DEAD_BTN, over.as_deref() == Some(UI_DEAD_BTN))?;
+            handle_dead_input(&ctx, &mut cs, clicked)?;
         }
     }
 
     // Lay out + draw our UI tree (lobby / HUD / death) into our own layer/surface.
     ui::render(&ctx)?;
 
-    let _ = ctx.current.tables.clientstate().update(cs);
-    Ok(())
-}
-
-fn render_world<Caps>(
-    ctx: &ReducerContext<Caps>,
-    cs: &mut ClientState,
-    sw: f32,
-    sh: f32,
-) -> Result<(), String>
-where
-    Caps: CanRead<Player> + CanRead<Food>,
-{
-    let server = ctx.agar_server_example().agar_server();
-    let players = server.tables.player().scan()?;
-    let foods = server.tables.food().scan()?;
-    let my_id = ctx.current_node_id();
-
-    let camera = players
-        .iter()
-        .find(|p| p.id == my_id)
-        .map(|p| (p.pos.x, p.pos.y, p.radius))
-        .unwrap_or((0.0, 0.0, 18.0));
-    let (cam_x, cam_y, my_radius) = camera;
-
-    // Smooth zoom towards target.
-    cs.target_zoom = (BASE_ZOOM / (1.0 + my_radius * ZOOM_SCALE)).clamp(MIN_ZOOM, BASE_ZOOM);
-    cs.zoom = cs.zoom + (cs.target_zoom - cs.zoom) * ZOOM_LERP;
-    let zoom = cs.zoom;
-
-    let g = ctx.graphics();
-
-    // ── Background: dark fill + grid ─────────────────────────────────────────
-    let bg_color = Color {
-        r: 0.05,
-        g: 0.05,
-        b: 0.08,
-        a: 1.0,
-    };
-    let _ = g.reducers.draw_rect(
-        LAYER_BG.to_string(),
-        Rect {
-            x: 0.0,
-            y: 0.0,
-            w: sw,
-            h: sh,
-        },
-        bg_color,
-        true,
-        0.0,
-        None,
-    );
-
-    // World boundary.
-    let bl = world_to_screen(-WORLD_SIZE, -WORLD_SIZE, cam_x, cam_y, zoom, sw, sh);
-    let br = world_to_screen(WORLD_SIZE, WORLD_SIZE, cam_x, cam_y, zoom, sw, sh);
-    let boundary_w = br.0 - bl.0;
-    let boundary_h = br.1 - bl.1;
-    let _ = g.reducers.draw_rect(
-        LAYER_BG.to_string(),
-        Rect {
-            x: bl.0,
-            y: bl.1,
-            w: boundary_w,
-            h: boundary_h,
-        },
-        Color {
-            r: 0.10,
-            g: 0.10,
-            b: 0.14,
-            a: 1.0,
-        },
-        true,
-        0.0,
-        None,
-    );
-    let _ = g.reducers.draw_rect(
-        LAYER_BG.to_string(),
-        Rect {
-            x: bl.0,
-            y: bl.1,
-            w: boundary_w,
-            h: boundary_h,
-        },
-        Color {
-            r: 0.30,
-            g: 0.30,
-            b: 0.40,
-            a: 1.0,
-        },
-        false,
-        2.0,
-        None,
-    );
-
-    // Grid lines (only draw visible portion).
-
-    let start_x = snap_to_grid(cam_x - sw / (2.0 * zoom), GRID_SPACING);
-    let start_y = snap_to_grid(cam_y - sh / (2.0 * zoom), GRID_SPACING);
-    let end_x = cam_x + sw / (2.0 * zoom) + GRID_SPACING;
-    let end_y = cam_y + sh / (2.0 * zoom) + GRID_SPACING;
-
-    let mut gx = start_x;
-    while gx <= end_x {
-        let sx = world_to_screen_x(gx, cam_x, zoom, sw);
-        let _ = g.reducers.draw_polyline(
-            LAYER_BG.to_string(),
-            vec![Vec2 { x: sx, y: 0.0 }, Vec2 { x: sx, y: sh }],
-            1,
-            Color {
-                r: 0.18,
-                g: 0.18,
-                b: 0.24,
-                a: 1.0,
-            },
-            false,
-            false,
-        );
-        gx += GRID_SPACING;
-    }
-    let mut gy = start_y;
-    while gy <= end_y {
-        let sy = world_to_screen_y(gy, cam_y, zoom, sh);
-        let _ = g.reducers.draw_polyline(
-            LAYER_BG.to_string(),
-            vec![Vec2 { x: 0.0, y: sy }, Vec2 { x: sw, y: sy }],
-            1,
-            Color {
-                r: 0.18,
-                g: 0.18,
-                b: 0.24,
-                a: 1.0,
-            },
-            false,
-            false,
-        );
-        gy += GRID_SPACING;
-    }
-
-    // ── Food ─────────────────────────────────────────────────────────────────
-    // Group food by color for batch draws.
-    let mut batches: Vec<(Color, Vec<Vec2>, Vec<f32>)> = Vec::new();
-    for food in &foods {
-        let color = Color {
-            r: food.color.r,
-            g: food.color.g,
-            b: food.color.b,
-            a: 1.0,
-        };
-        let pos = world_to_screen(food.pos.x, food.pos.y, cam_x, cam_y, zoom, sw, sh);
-        let radius = food.radius * zoom;
-        if let Some(batch) = batches.iter_mut().find(|(c, _, _)| colors_eq(c, &color)) {
-            batch.1.push(Vec2 { x: pos.0, y: pos.1 });
-            batch.2.push(radius);
-        } else {
-            batches.push((color, vec![Vec2 { x: pos.0, y: pos.1 }], vec![radius]));
-        }
-    }
-    for (color, centers, radii) in batches {
-        let _ = g
-            .reducers
-            .draw_circles(LAYER_WORLD.to_string(), centers, radii, color, true, 0.0);
-    }
-
-    // ── Players ───────────────────────────────────────────────────────────────
-    for player in &players {
-        let pos = world_to_screen(player.pos.x, player.pos.y, cam_x, cam_y, zoom, sw, sh);
-        let radius = player.radius * zoom;
-        let pr = player.color.r;
-        let pg = player.color.g;
-        let pb = player.color.b;
-        let is_me = player.id == my_id;
-
-        // Player circle.
-        let _ = g.reducers.draw_circle(
-            LAYER_WORLD.to_string(),
-            Vec2 { x: pos.0, y: pos.1 },
-            radius,
-            Color {
-                r: pr,
-                g: pg,
-                b: pb,
-                a: 1.0,
-            },
-            true,
-            0.0,
-        );
-        // Outline (slightly darker, thicker for self).
-        let outline_w = if is_me { 3.0 } else { 1.5 };
-        let _ = g.reducers.draw_circle(
-            LAYER_WORLD.to_string(),
-            Vec2 { x: pos.0, y: pos.1 },
-            radius,
-            Color {
-                r: pr * 0.6,
-                g: pg * 0.6,
-                b: pb * 0.6,
-                a: 1.0,
-            },
-            false,
-            outline_w,
-        );
-
-        // Name centered above circle.
-        let name_chars = player.name.chars().count() as f32;
-        let name_size = (12.0 * zoom).clamp(10.0, 18.0);
-        let advance = 9.0 * (name_size / 8.0).max(0.125);
-        let name_x = pos.0 - name_chars * advance * 0.5;
-        let name_y = pos.1 - radius - name_size * 1.5;
-        let _ = g.reducers.draw_text(
-            LAYER_NAMES.to_string(),
-            player.name.clone(),
-            Vec2 {
-                x: name_x,
-                y: name_y,
-            },
-            name_size,
-            Color {
-                r: 1.0,
-                g: 1.0,
-                b: 1.0,
-                a: 0.9,
-            },
-            None,
-        );
-
-        // Score below name.
-        let score_str = format!("{}", player.radius as u32);
-        let score_chars = score_str.chars().count() as f32;
-        let score_x = pos.0 - score_chars * advance * 0.5;
-        let _ = g.reducers.draw_text(
-            LAYER_NAMES.to_string(),
-            score_str,
-            Vec2 {
-                x: score_x,
-                y: name_y + name_size,
-            },
-            name_size * 0.85,
-            Color {
-                r: 1.0,
-                g: 1.0,
-                b: 1.0,
-                a: 0.65,
-            },
-            None,
-        );
+    // The camera moves every frame in game; otherwise write only on change.
+    let after = (cs.was_down, cs.hud_sig, cs.state.clone(), cs.pending_join.clone());
+    if cs.state == GameState::InGame || before != after {
+        let _ = ctx.current.tables.clientstate().update(cs);
     }
     Ok(())
 }
 
-fn world_to_screen(
-    wx: f32,
-    wy: f32,
+fn col(c: Rgba) -> Color {
+    Color { r: c.0, g: c.1, b: c.2, a: c.3 }
+}
+
+/// A stable categorical colour for a player id.
+fn player_colour(id: &str) -> Rgba {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in id.bytes() {
+        h = (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    th::categorical(h)
+}
+
+struct View {
     cam_x: f32,
     cam_y: f32,
     zoom: f32,
     sw: f32,
     sh: f32,
-) -> (f32, f32) {
-    (
-        (wx - cam_x) * zoom + sw * 0.5,
-        (wy - cam_y) * zoom + sh * 0.5,
-    )
 }
 
-fn world_to_screen_x(wx: f32, cam_x: f32, zoom: f32, sw: f32) -> f32 {
-    (wx - cam_x) * zoom + sw * 0.5
+impl View {
+    fn to_screen(&self, wx: f32, wy: f32) -> (f32, f32) {
+        ((wx - self.cam_x) * self.zoom + self.sw * 0.5, (wy - self.cam_y) * self.zoom + self.sh * 0.5)
+    }
 }
 
-fn world_to_screen_y(wy: f32, cam_y: f32, zoom: f32, sh: f32) -> f32 {
-    (wy - cam_y) * zoom + sh * 0.5
-}
+fn render_world<Caps>(ctx: &ReducerContext<Caps>, cs: &mut ClientState, sw: f32, sh: f32) -> Result<(), String>
+where
+    Caps: CanRead<Player> + CanRead<Food>,
+{
+    let server = ctx.agar_server_example().agar_server();
+    let mut players = server.tables.player().scan()?;
+    let foods = server.tables.food().scan()?;
+    let my_id = ctx.current_node_id();
+    let me = if cs.state == GameState::InGame { players.iter().find(|p| p.id == my_id) } else { None };
 
-fn snap_to_grid(v: f32, grid: f32) -> f32 {
-    (v / grid).floor() * grid
-}
+    // Ease the camera after our cell (it holds still in the lobby and after death).
+    if let Some(p) = me {
+        cs.cam_x += (p.pos.x - cs.cam_x) * FOLLOW_LERP;
+        cs.cam_y += (p.pos.y - cs.cam_y) * FOLLOW_LERP;
+        cs.target_zoom = (BASE_ZOOM / (1.0 + p.radius * ZOOM_SCALE)).clamp(MIN_ZOOM, BASE_ZOOM);
+    }
+    cs.zoom += (cs.target_zoom - cs.zoom) * ZOOM_LERP;
+    let v = View { cam_x: cs.cam_x, cam_y: cs.cam_y, zoom: cs.zoom, sw, sh };
 
-fn colors_eq(a: &Color, b: &Color) -> bool {
-    (a.r - b.r).abs() < 0.001 && (a.g - b.g).abs() < 0.001 && (a.b - b.b).abs() < 0.001
+    let g = ctx.graphics();
+    let rect = |layer: &str, x: f32, y: f32, w: f32, h: f32, c: Rgba| {
+        if w > 0.0 && h > 0.0 {
+            let _ = g.reducers.draw_rect(layer.to_string(), Rect { x, y, w, h }, col(c), true, 0.0, None);
+        }
+    };
+
+    // ── Arena: ground outside, ink inside, a hairline grid and edge ──────────
+    rect(LAYER_BG, 0.0, 0.0, sw, sh, th::GROUND);
+    let (x0, y0) = v.to_screen(-WORLD_SIZE, -WORLD_SIZE);
+    let (x1, y1) = v.to_screen(WORLD_SIZE, WORLD_SIZE);
+    let (cx0, cy0, cx1, cy1) = (x0.max(0.0), y0.max(0.0), x1.min(sw), y1.min(sh));
+    rect(LAYER_BG, cx0, cy0, cx1 - cx0, cy1 - cy0, th::INK);
+
+    // Coarsen the grid as we zoom out so lines stay ≥ 24 px apart.
+    let mut spacing = GRID_SPACING;
+    while spacing * v.zoom < 24.0 {
+        spacing *= 2.0;
+    }
+    let grid = th::alpha(th::LINE, 0.5);
+    let mut gx = ((v.cam_x - sw / (2.0 * v.zoom)) / spacing).floor() * spacing;
+    while gx <= v.cam_x + sw / (2.0 * v.zoom) {
+        if gx > -WORLD_SIZE && gx < WORLD_SIZE {
+            let sx = v.to_screen(gx, 0.0).0.round();
+            rect(LAYER_BG, sx, cy0, 1.0, cy1 - cy0, grid);
+        }
+        gx += spacing;
+    }
+    let mut gy = ((v.cam_y - sh / (2.0 * v.zoom)) / spacing).floor() * spacing;
+    while gy <= v.cam_y + sh / (2.0 * v.zoom) {
+        if gy > -WORLD_SIZE && gy < WORLD_SIZE {
+            let sy = v.to_screen(0.0, gy).1.round();
+            rect(LAYER_BG, cx0, sy, cx1 - cx0, 1.0, grid);
+        }
+        gy += spacing;
+    }
+    let _ = g.reducers.draw_rect(
+        LAYER_BG.to_string(),
+        Rect { x: x0.round(), y: y0.round(), w: (x1 - x0).round(), h: (y1 - y0).round() },
+        col(th::alpha(th::GRAY, 0.5)),
+        false,
+        1.0,
+        None,
+    );
+
+    // ── Pellets: gray, three shades so the field has some texture ────────────
+    let mut batches: [(Vec<Vec2>, Vec<f32>); 3] = Default::default();
+    let margin = 20.0;
+    for food in &foods {
+        let (x, y) = v.to_screen(food.pos.x, food.pos.y);
+        if x < -margin || y < -margin || x > sw + margin || y > sh + margin {
+            continue;
+        }
+        let b = &mut batches[(food.id % 3) as usize];
+        b.0.push(Vec2 { x, y });
+        b.1.push((food.radius * v.zoom).max(1.5));
+    }
+    for (i, (centers, radii)) in batches.into_iter().enumerate() {
+        if !centers.is_empty() {
+            let c = th::alpha(th::GRAY, [0.55, 0.75, 0.95][i]);
+            let _ = g.reducers.draw_circles(LAYER_WORLD.to_string(), centers, radii, col(c), true, 0.0);
+        }
+    }
+
+    // ── Cells: smaller first, so bigger ones cover them ─────────────────────
+    players.sort_by(|a, b| a.radius.partial_cmp(&b.radius).unwrap_or(std::cmp::Ordering::Equal));
+    for player in &players {
+        let (x, y) = v.to_screen(player.pos.x, player.pos.y);
+        let r = player.radius * v.zoom;
+        if x + r < 0.0 || y + r < 0.0 || x - r > sw || y - r > sh {
+            continue;
+        }
+        let is_me = player.id == my_id && cs.state == GameState::InGame;
+        let centre = Vec2 { x, y };
+        let (fill, rim) = if is_me {
+            // The lit cell: a soft amber halo, then the cell with a core rim.
+            let halo = r * 2.4;
+            let _ = g.reducers.draw_image(
+                LAYER_WORLD.to_string(),
+                GLOW_TEX.to_string(),
+                Rect { x: x - halo, y: y - halo, w: 2.0 * halo, h: 2.0 * halo },
+                col((1.0, 1.0, 1.0, 0.7)),
+                Rect { x: 0.0, y: 0.0, w: 1.0, h: 1.0 },
+            );
+            (th::AMBER, th::alpha(th::CORE, 0.9))
+        } else {
+            let c = player_colour(&player.id);
+            (c, th::alpha(th::mix(c, th::IVORY, 0.35), 0.9))
+        };
+        let _ = g.reducers.draw_circle(LAYER_WORLD.to_string(), Vec2 { x, y }, r, col(fill), true, 0.0);
+        let _ = g.reducers.draw_circle(LAYER_WORLD.to_string(), centre, (r - 1.0).max(1.0), col(rim), false, if is_me { 2.0 } else { 1.5 });
+
+        // Name (and mass) in Space Grotesk: inside the cell when it's big
+        // enough, above it otherwise.
+        let mass = format!("{}", player.radius as u32);
+        let name_size = (r * 0.34).clamp(12.0, 22.0).round();
+        let name_w = interstice_ui::text_width(&player.name, name_size, FontStyle::MEDIUM);
+        let inside = r >= 28.0 && name_w < r * 1.7;
+        let text = |s: String, x: f32, y: f32, size: f32, c: Rgba, style: FontStyle| {
+            let pos = Vec2 { x: x.round(), y: y.round() };
+            let _ = g.reducers.draw_text(LAYER_NAMES.to_string(), s, pos, size, col(c), style.selector());
+        };
+        if inside {
+            let mass_size = (name_size * 0.7).round().max(11.0);
+            let mass_w = interstice_ui::text_width(&mass, mass_size, FontStyle::MONO);
+            let block = name_size * 1.25 + mass_size;
+            let top = y - block / 2.0;
+            let ink = th::alpha(th::INK, 0.88);
+            text(player.name.clone(), x - name_w / 2.0, top, name_size, ink, FontStyle::MEDIUM);
+            text(mass, x - mass_w / 2.0, top + name_size * 1.25, mass_size, th::alpha(th::INK, 0.6), FontStyle::MONO);
+        } else {
+            let c = if is_me { th::IVORY } else { th::MUTED };
+            text(player.name.clone(), x - name_w / 2.0, y - r - name_size - 6.0, name_size, c, FontStyle::MEDIUM);
+        }
+    }
+    Ok(())
 }
