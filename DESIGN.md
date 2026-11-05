@@ -868,6 +868,23 @@ stage, so colours stay right and only blending shifts to linear light.
   A different host may resolve layouts differently (or not at all), so this
   part of the ABI may still change. Dead keys / IME composition are not
   forwarded.
+- **Mouse capture is a host concern.** Modules only ever see relative
+  `MouseMotion` deltas and draw their own cursor (the desktop, agar), so
+  the host's pointer and the module's cursor drift apart unless the host
+  pointer is held. The CLI window starts *released*: motion and button
+  events are not forwarded (raw device motion arrives even when the window
+  is unfocused). A left click inside the window *captures*: the pointer is
+  locked (falling back to confined where the platform can't lock) and
+  hidden, and that click is swallowed so it doesn't land wherever the
+  module's cursor happens to be. **Ctrl+Alt+G** releases (that key press
+  is swallowed too), as does losing focus. Keys and the wheel are forwarded
+  in both states. The window title says which state it is in. No module
+  state is involved, so replay and time travel are unaffected.
+- **Wheel direction is a module setting.** The host forwards wheel deltas
+  as the OS reports them; the input module's persisted `WheelSettings`
+  row (`invert`, default `true`) negates them before they accumulate in
+  `MouseState.wheel_delta`, so every consumer agrees. Change it with
+  `set_wheel_direction inverted|host`. Scripted browser scrolls bypass it.
 
 ---
 

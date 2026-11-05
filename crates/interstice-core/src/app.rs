@@ -34,6 +34,11 @@ pub struct App {
     gpu: Arc<Mutex<Option<GpuState>>>,
     runtime: Arc<Runtime>,
     gpu_call_receiver: Receiver<GpuCallRequest>,
+    /// The CLI window (kept for mouse capture and the title).
+    window: Option<Arc<Window>>,
+    /// Whether the host pointer is captured (DESIGN §8 "Mouse capture").
+    captured: bool,
+    modifiers: winit::keyboard::ModifiersState,
 }
 
 impl App {
@@ -53,6 +58,9 @@ impl App {
             event_sender,
             runtime,
             gpu_call_receiver,
+            window: None,
+            captured: false,
+            modifiers: Default::default(),
         }
     }
 
@@ -82,6 +90,8 @@ impl ApplicationHandler for App {
             .expect("Failed to create window");
         window.request_redraw();
         let window = Arc::new(window);
+        self.window = Some(window.clone());
+        self.set_captured(false);
         let gpu = GpuState::new(window.clone()).block_on();
         *self.gpu.lock() = Some(gpu);
         self.event_sender
@@ -136,6 +146,24 @@ impl ApplicationHandler for App {
                 delta,
                 phase: _phase,
             } => self.device_event(event_loop, device_id, DeviceEvent::MouseWheel { delta }),
+            WindowEvent::MouseInput {
+                state: winit::event::ElementState::Pressed,
+                button: winit::event::MouseButton::Left,
+                ..
+            } if !self.captured => self.set_captured(true),
+            WindowEvent::MouseInput { .. } if !self.captured => {}
+            WindowEvent::Focused(false) => self.set_captured(false),
+            WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
+            WindowEvent::KeyboardInput { ref event, .. }
+                if self.captured
+                    && event.state == winit::event::ElementState::Pressed
+                    && event.physical_key
+                        == winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::KeyG)
+                    && self.modifiers.control_key()
+                    && self.modifiers.alt_key() =>
+            {
+                self.set_captured(false)
+            }
             WindowEvent::MouseInput {
                 device_id,
                 state,
@@ -202,6 +230,10 @@ impl ApplicationHandler for App {
         if matches!(event, DeviceEvent::Key(_)) {
             return;
         }
+        // Released: the pointer belongs to the host (DESIGN §8).
+        if !self.captured && matches!(event, DeviceEvent::MouseMotion { .. }) {
+            return;
+        }
         let input_event = get_input_event_from_device_event(hash_device(device_id), event);
         self.send_input(input_event);
     }
@@ -214,6 +246,26 @@ fn hash_device(device_id: DeviceId) -> u32 {
 }
 
 impl App {
+    /// Capture (lock, or confine, and hide) or release the host pointer.
+    fn set_captured(&mut self, captured: bool) {
+        use winit::window::CursorGrabMode;
+        let Some(window) = &self.window else { return };
+        let captured = captured
+            && (window.set_cursor_grab(CursorGrabMode::Locked).is_ok()
+                || window.set_cursor_grab(CursorGrabMode::Confined).is_ok());
+        if !captured {
+            let _ = window.set_cursor_grab(CursorGrabMode::None);
+        }
+        window.set_cursor_visible(!captured);
+        let hint = if captured {
+            "Ctrl+Alt+G releases the mouse"
+        } else {
+            "click to capture the mouse"
+        };
+        window.set_title(&format!("interstice - node({}) — {hint}", self.node_id));
+        self.captured = captured;
+    }
+
     fn send_input(&mut self, input_event: InputEvent) {
         self.drain_gpu_calls();
         self.event_sender

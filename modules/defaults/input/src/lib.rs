@@ -35,6 +35,16 @@ pub struct KeyboardLayout {
 
 pub const LAYOUTS: &[&str] = &["system", "us", "fr"];
 
+/// Wheel direction (singleton, id 0). `invert = true` (the default) negates
+/// the host's wheel deltas before they reach `MouseState.wheel_delta`.
+/// Persisted like the keyboard layout; change it with `set_wheel_direction`.
+#[table(public, stateful)]
+pub struct WheelSettings {
+    #[primary_key]
+    id: u32,
+    pub invert: bool,
+}
+
 #[table(public, ephemeral)]
 pub struct MouseState {
     #[primary_key]
@@ -70,8 +80,17 @@ where
         + CanInsert<MouseButton>
         + CanInsert<TextInputBuffer>
         + CanRead<KeyboardLayout>
-        + CanInsert<KeyboardLayout>,
+        + CanInsert<KeyboardLayout>
+        + CanRead<WheelSettings>
+        + CanInsert<WheelSettings>,
 {
+    if ctx.current.tables.wheelsettings().get(0)?.is_none() {
+        let _ = ctx
+            .current
+            .tables
+            .wheelsettings()
+            .insert(WheelSettings { id: 0, invert: true });
+    }
     let res = ctx.current.tables.mousestate().insert(MouseState {
         id: 0,
         position: (0.0, 0.0),
@@ -143,6 +162,31 @@ where
     Ok(())
 }
 
+/// Wheel direction: `"inverted"` (the default) or `"host"` (as the OS
+/// reports it).
+#[reducer]
+fn set_wheel_direction<Caps>(ctx: ReducerContext<Caps>, name: String) -> Result<(), String>
+where
+    Caps: CanRead<WheelSettings> + CanInsert<WheelSettings> + CanUpdate<WheelSettings>,
+{
+    let invert = match name.as_str() {
+        "inverted" => true,
+        "host" => false,
+        _ => {
+            ctx.log(&format!("Unknown wheel direction {name:?} (expected \"inverted\" or \"host\")"));
+            return Ok(());
+        }
+    };
+    let row = WheelSettings { id: 0, invert };
+    let t = ctx.current.tables.wheelsettings();
+    if t.get(0)?.is_some() {
+        let _ = t.update(row);
+    } else {
+        let _ = t.insert(row);
+    }
+    Ok(())
+}
+
 #[reducer(on = "input")]
 fn on_input<Caps>(ctx: ReducerContext<Caps>, event: InputEvent) -> Result<(), String>
 where
@@ -157,6 +201,7 @@ where
         + CanRead<TextInputBuffer>
         + CanUpdate<TextInputBuffer>
         + CanRead<KeyboardLayout>
+        + CanRead<WheelSettings>
         + CanRead<InputRouter>
         + CanRead<InputRoute>
         + CanAll<PointerGrab>,
@@ -188,6 +233,14 @@ where
                 .mousestate()
                 .get(0)?
                 .ok_or("mouse state row missing")?;
+            let invert = ctx
+                .current
+                .tables
+                .wheelsettings()
+                .get(0)?
+                .map(|w| w.invert)
+                .unwrap_or(true);
+            let delta = if invert { (-delta.0, -delta.1) } else { delta };
             let new_wheel_delta = (
                 mouse_state.wheel_delta.0 + delta.0 as f32,
                 mouse_state.wheel_delta.1 + delta.1 as f32,

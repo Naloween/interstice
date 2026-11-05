@@ -43,7 +43,10 @@ where
 #[reducer]
 pub fn tick<Caps>(ctx: ReducerContext<Caps>) -> Result<(), String>
 where
-    Caps: CanAll<(Food, Player)> + CanRead<DeadPlayer> + CanInsert<DeadPlayer> + CanDelete<DeadPlayer>,
+    Caps: CanAll<(Food, Player)>
+        + CanRead<DeadPlayer>
+        + CanInsert<DeadPlayer>
+        + CanDelete<DeadPlayer>,
 {
     if ctx.caller_node_id != ctx.current_node_id() {
         ctx.log("tick can only be called by the server itself");
@@ -82,9 +85,16 @@ where
     let mut dead_ids: Vec<String> = Vec::new();
     for i in 0..players.len() {
         for j in 0..players.len() {
-            if i == j { continue; }
+            if i == j {
+                continue;
+            }
             if players[j].radius > players[i].radius * 1.1
-                && collides(&players[i].pos, players[i].radius, &players[j].pos, players[j].radius)
+                && collides(
+                    &players[i].pos,
+                    players[i].radius,
+                    &players[j].pos,
+                    players[j].radius,
+                )
             {
                 players[j].radius = grow_radius(
                     players[j].radius,
@@ -100,7 +110,11 @@ where
     for p in &players {
         if dead_ids.contains(&p.id) {
             let _ = ctx.current.tables.player().delete(p.id.clone());
-            let _ = ctx.current.tables.deadplayer().insert(DeadPlayer { id: p.id.clone() });
+            let _ = ctx
+                .current
+                .tables
+                .deadplayer()
+                .insert(DeadPlayer { id: p.id.clone() });
         } else {
             let _ = ctx.current.tables.player().update(p.clone());
         }
