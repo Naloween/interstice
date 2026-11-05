@@ -445,12 +445,14 @@ impl Network {
                     }
                     NetworkPacket::ModuleEvent(module_event_instance) => {
                         match module_event_instance {
-                            protocol::ModuleEventInstance::Load { wasm_binary } => self
+                            protocol::ModuleEventInstance::Load { wasm_binary, policy, request_id } => self
                                 .runtime_event_sender
                                 .send((
                                     EventInstance::LoadModule {
                                         wasm_binary,
                                         source_node_id: node_id,
+                                        policy,
+                                        request_id,
                                     },
                                     None,
                                 ))
@@ -473,6 +475,13 @@ impl Network {
                                 ))
                                 .unwrap(),
                         }
+                    }
+                    NetworkPacket::ModuleLoadResult { outcome, .. } => {
+                        self.logger.log(
+                            &format!("Module load on {}: {:?}", node_id, outcome),
+                            LogSource::Network,
+                            LogLevel::Info,
+                        );
                     }
                     NetworkPacket::SchemaRequest {
                         request_id,

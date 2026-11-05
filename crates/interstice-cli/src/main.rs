@@ -46,7 +46,15 @@ async fn main() -> Result<(), IntersticeError> {
             }
             let node_ref = args[2].clone();
             let module_project_path = Path::new(&args[3]);
-            load(node_ref, module_project_path).await
+            // Answers the migration prompt in advance (DESIGN §3.3).
+            let decision = if args[4..].iter().any(|a| a == "--delete-data") {
+                Some(interstice_core::MigrationPolicy::DeleteData)
+            } else if args[4..].iter().any(|a| a == "--allow-data-loss") {
+                Some(interstice_core::MigrationPolicy::AllowDataLoss)
+            } else {
+                None
+            };
+            load(node_ref, module_project_path, decision).await
         }
         "update" => update(),
         "unload" => {
@@ -134,7 +142,8 @@ fn print_help() {
     println!(
         "  init                                   Initialize a new interstice module project in the current directory"
     );
-    println!("  load <node> <module_path>      Load a module onto a node");
+    println!("  load <node> <module_path> [--allow-data-loss|--delete-data]");
+    println!("                                 Load or update a module; asks before a migration that loses data");
     println!("  unload <node> <module_name>    Unload a module but keep its data");
     println!("  remove <node> <module_name>    Remove a module and delete its data");
     println!("  update                          Update the interstice CLI");

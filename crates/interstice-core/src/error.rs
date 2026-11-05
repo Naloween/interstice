@@ -57,6 +57,9 @@ pub enum IntersticeError {
     WasmFuncNotFound(String),
     BadSignature(String),
     InvalidSchema,
+    /// A load whose migration plan needs a decision (DESIGN §3.3); the
+    /// string is the rendered plan.
+    MigrationRequired(String),
     AbiVersionMismatch {
         expected: u16,
         found: u16,
@@ -199,6 +202,7 @@ impl fmt::Display for IntersticeError {
             InvalidSchema => {
                 write!(f, "invalid module schema")
             }
+            MigrationRequired(plan) => write!(f, "{}", plan),
             AbiVersionMismatch { expected, found } => {
                 write!(
                     f,

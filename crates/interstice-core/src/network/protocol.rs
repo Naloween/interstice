@@ -47,6 +47,23 @@ pub enum NetworkPacket {
         schema: NodeSchema,
     },
     Error(String),
+    /// The answer to a `ModuleEvent::Load` (DESIGN §3.3).
+    ModuleLoadResult {
+        request_id: String,
+        outcome: LoadOutcome,
+    },
+}
+
+/// What happened to a module load.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum LoadOutcome {
+    /// Loaded; the plan that was applied (rendered).
+    Loaded { plan: String },
+    /// Nothing changed: the plan needs a decision (rendered).
+    NeedsDecision { plan: String },
+    Failed(String),
+    /// Handed to the module holding the Module authority.
+    Forwarded,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -85,7 +102,12 @@ pub enum TableEventInstance {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ModuleEventInstance {
-    Load { wasm_binary: Vec<u8> },
+    Load {
+        wasm_binary: Vec<u8>,
+        policy: crate::runtime::migration::MigrationPolicy,
+        /// Answered with `ModuleLoadResult` when not empty.
+        request_id: String,
+    },
     Unload { module_name: String },
     Remove { module_name: String },
 }

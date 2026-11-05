@@ -113,7 +113,7 @@ Everything on disk is postcard-encoded. A node's data directory looks like this:
 <data_dir>/nodes/<uuid>/
   node.log, peer_tokens.toml
   modules/<module>/
-    module.wasm, state.toml (loaded = bool)
+    module.wasm, schema.bin (the ModuleSchema the data is in), state.toml (loaded = bool)
     logs/<table>/*.log  snapshots/<table>/*.snap  stateful/<table>/*.row
 ```
 
@@ -130,9 +130,96 @@ Everything on disk is postcard-encoded. A node's data directory looks like this:
 - **`auto_inc` counters are not persisted.** On restore they are recomputed from
   the largest key present, so the ID of a deleted maximum row can be handed out
   again after a restart.
-- **No schema migration.** A changed table schema is not checked against the
-  persisted data.
 - **Dead code.** `PersistenceConfig` and `LogRotator` are never used.
+
+### 3.3 Schema versioning and migrations
+
+Updating a module must not lose or garble its data. This follows
+SpacetimeDB's *automatic migrations*: each load compares the schema the data
+was written in with the new module's schema and builds a **migration plan**.
+Safe plans are applied without asking. Anything that would lose data, or
+change the row layout that other modules are compiled against, is refused
+until someone decides.
+
+**Old schema.** Each successful load writes `schema.bin` (postcard
+`ModuleSchema`) next to the data. On a reload the old schema is that file.
+For data written before `schema.bin` existed, the old `module.wasm` is
+described if it still instantiates. Otherwise the old schema is unknown: the
+plan is safe only if every restored row passes `validate_row` against the new
+schema.
+
+**Rows are positional** (`Row.entries` follows `TableSchema.fields`), and
+dependents decode them positionally from their bindings, ignoring extra
+trailing entries. Columns are matched **by name**, and types are compared
+structurally, including the named struct and enum definitions they reference.
+
+| Change | Plan |
+|---|---|
+| Reducer, query or subscription added, removed or changed; any code change | safe (a removed reducer or query is listed: callers may break) |
+| Table added; **empty** table removed | safe |
+| Column appended **at the end** with a default (`#[default(expr)]`, or `Option<T>` → `None`) | safe; existing rows get the default |
+| Index added or removed; `auto_inc` toggled; visibility, `history` or `retention` changed | safe |
+| `unique` added, and the current rows satisfy it | safe |
+| Any change to an **ephemeral** table, or a table becoming ephemeral while empty | safe (there is no persisted data) |
+| Column removed (a rename is a removal plus an addition) | **asks**: the column's values are dropped |
+| Columns reordered, or a column inserted mid-table | **asks**: lossless, but modules built against the old layout must be rebuilt |
+| Column type changed | **asks**: the column is dropped and the new one filled with its default; with no default, the table is cleared |
+| Column added without a default | **asks**: the table is cleared |
+| Non-empty table removed | **asks**: its rows are dropped |
+| Primary key renamed or retyped | **asks**: the table is cleared |
+| `unique` added that the current rows violate | **asks**: the table is cleared |
+| Persistence changed (logged ↔ stateful, or to ephemeral with data) | **asks**: the table is cleared |
+
+The plan is per table, one of: *keep* (layout unchanged), *map* (each new
+column is taken from an old position or filled with a default), *clear*,
+*drop* (removed table), or *create*. Applying a plan rewrites the data in
+the new layout: stateful row files, **every log entry and checkpoint** of
+logged tables. History survives a migration, so time travel to a point
+before it shows the old rows in the new layout.
+
+**Deciding.** A load carries a `MigrationPolicy`:
+- `Safe` (the default for every path): apply safe plans; refuse the rest
+  with `MigrationRequired(plan)`. Nothing changes: the old module keeps
+  running and its data and `module.wasm` are untouched.
+- `AllowDataLoss`: apply the plan as listed, including the drops and clears.
+- `DeleteData`: discard this module's data and load it as new (`init` runs).
+
+`interstice load <node> <path>` asks the node for the plan, prints it, and
+when the plan needs a decision prompts `[a]bort / [m]igrate (apply as
+listed) / [d]elete this module's data`. `--allow-data-loss` answers the
+prompt in advance; `--delete-data` always discards the module's data, as
+SpacetimeDB's flag does. Without a terminal and without a flag, the CLI
+aborts. The node answers every load with
+`ModuleLoadResult` (loaded with plan, decision needed with plan, failed, or
+forwarded to the Module authority).
+
+**Updating a loaded module.** A `load` of a module that is already loaded is
+an **update**, not a remove-and-reload. The plan is checked against the
+running schema first; only if it passes is the old version unloaded, keeping
+its data, and the new one loaded as a reload (no `init`; `load` fires).
+Node startup, `module_manager` and the `ModuleCall::Load` host call use
+`Safe`. A refused plan at node startup leaves the module unloaded, with its
+data, and logs the plan.
+
+**Crash safety.** The new data is written into `<module>/.migrate/`, then
+`.migrate/READY` is written, then each of `stateful/`, `logs/` and
+`snapshots/` is swapped in, then `schema.bin`. At startup, a `.migrate/`
+without `READY` is deleted (the old data is intact). One with `READY` is
+finished. Every mapped row is checked with `validate_row` before `READY`; a
+failure aborts the migration and changes nothing.
+
+**Status:**
+- **Remote dependents are not checked.** Modules on other nodes that
+  replicate a table see the new layout at their next sync.
+- **Loaded local dependents keep running.** They are compiled against the
+  old layout: an appended column is fine, anything listed as *asks* needs a
+  rebuild. Dependency versions must still match exactly (§7.2).
+- **No custom migration hook yet.** For a transformation the plan can't
+  express, use SpacetimeDB's incremental pattern: add `note_v2`, copy or
+  convert from `note` in the `load` reducer, then remove `note` once it is
+  empty.
+- **`interstice example` always starts from a fresh node**, so migrations
+  matter for `interstice node` plus `load`.
 
 ---
 
@@ -857,8 +944,9 @@ stage, so colours stay right and only blending shifts to linear light.
 - **`module_manager` drops requests.** Its `module_load` and `module_remove`
   hooks are no-ops, so remote load and remove requests are silently dropped
   while it is loaded.
-- **Without a Module holder, `load` of an existing module removes it**, which
-  deletes its data, and then loads the new one.
+- **Without a Module holder, `load` of an existing module updates it** with a
+  migration plan (§3.3). With a holder, the request is forwarded, and
+  `module_manager` drops it.
 - **Unload is never routed through the authority.**
 - **File watchers are never removed.**
 - **Keyboard layout comes from the host.** The engine forwards winit's
@@ -1100,9 +1188,9 @@ would need the reducer inputs logged too), and a module-wide restore call
 
 ### 11.5 Schema evolution
 
-Today nothing checks persisted rows against a new table schema. A migration
-story is needed: versioned table schemas plus a `migrate` hook or automatic
-additive changes.
+Automatic migrations are designed in §3.3. Open: a `migrate` hook for
+transformations the plan can't express, and checking dependents (local and
+remote) before an update.
 
 ---
 
@@ -1353,7 +1441,7 @@ but explicitly out of scope for now.
       after a restart, §3.2).
 - [ ] fsync stateful row files; document the ~10 ms durability window or make
       it configurable.
-- [ ] Schema evolution / migrations (§11.5).
+- [x] Schema versioning and automatic migrations (§3.3), SpacetimeDB-style.
 - [ ] Remove dead `PersistenceConfig` / `LogRotator`.
 
 ### 13.3 Security and distribution

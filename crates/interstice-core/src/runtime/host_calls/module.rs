@@ -99,7 +99,11 @@ impl Runtime {
                     self.network_handle.send_packet(
                         node_id,
                         crate::network::protocol::NetworkPacket::ModuleEvent(
-                            crate::network::protocol::ModuleEventInstance::Load { wasm_binary },
+                            crate::network::protocol::ModuleEventInstance::Load {
+                                wasm_binary,
+                                policy: Default::default(),
+                                request_id: String::new(),
+                            },
                         ),
                     );
                     ModuleCallResponse::Ok

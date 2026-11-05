@@ -1,10 +1,18 @@
 use crate::node_client::handshake_with_node;
 use crate::node_registry::NodeRegistry;
-use interstice_core::{IntersticeError, ModuleEventInstance, NetworkPacket, packet::write_packet};
+use interstice_core::{
+    IntersticeError, LoadOutcome, MigrationPolicy, ModuleEventInstance, NetworkPacket,
+    packet::{read_packet, write_packet},
+};
+use std::io::{BufRead, IsTerminal, Write};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-pub async fn load(node_ref: String, module_project_path: &Path) -> Result<(), IntersticeError> {
+pub async fn load(
+    node_ref: String,
+    module_project_path: &Path,
+    decision: Option<MigrationPolicy>,
+) -> Result<(), IntersticeError> {
     // This should take a path to a rust project that it will build and load. The module name is from Cargo.toml. It should build the project using cargo, then read the generated wasm file and send it to the node using the network module.
     // It should also be able to use saved servers nodes with their adress to easily load to known nodes.
 
@@ -42,15 +50,98 @@ pub async fn load(node_ref: String, module_project_path: &Path) -> Result<(), In
     let wasm_path = resolve_wasm_path(&manifest_path)?;
     let wasm_binary = std::fs::read(wasm_path).expect("Failed to read generated wasm file");
 
-    // Send wasm binary to node
-    let packet = NetworkPacket::ModuleEvent(ModuleEventInstance::Load { wasm_binary });
-    write_packet(&mut stream, &packet).await?;
+    // Load with the safe policy first; if the migration plan needs a
+    // decision, ask (or use the flag) and send again (DESIGN §3.3).
+    // `--delete-data` always wipes, like SpacetimeDB's; `--allow-data-loss`
+    // only answers a plan that asks.
+    let mut policy = match decision {
+        Some(MigrationPolicy::DeleteData) => MigrationPolicy::DeleteData,
+        _ => MigrationPolicy::Safe,
+    };
+    let result = loop {
+        let outcome = send_load(&mut stream, &wasm_binary, policy).await?;
+        match outcome {
+            LoadOutcome::Loaded { plan } => {
+                if !plan.is_empty() {
+                    println!("{plan}");
+                }
+                println!("Module loaded.");
+                break Ok(());
+            }
+            LoadOutcome::Forwarded => {
+                println!("The node's module authority handles loads; the request was forwarded to it.");
+                break Ok(());
+            }
+            LoadOutcome::Failed(err) => break Err(IntersticeError::Internal(format!("Load failed: {err}"))),
+            LoadOutcome::NeedsDecision { plan } => {
+                println!("{plan}");
+                if policy != MigrationPolicy::Safe {
+                    break Err(IntersticeError::Internal("The node still asks for a decision".into()));
+                }
+                match decision.or_else(ask_decision) {
+                    Some(choice) => policy = choice,
+                    None => {
+                        println!("Aborted: nothing changed on the node.");
+                        break Ok(());
+                    }
+                }
+            }
+        }
+    };
 
     // Close connection properly
     let packet = NetworkPacket::Close;
     write_packet(&mut stream, &packet).await?;
 
-    Ok(())
+    result
+}
+
+async fn send_load(
+    stream: &mut tokio::net::TcpStream,
+    wasm_binary: &[u8],
+    policy: MigrationPolicy,
+) -> Result<LoadOutcome, IntersticeError> {
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let packet = NetworkPacket::ModuleEvent(ModuleEventInstance::Load {
+        wasm_binary: wasm_binary.to_vec(),
+        policy,
+        request_id: request_id.clone(),
+    });
+    write_packet(stream, &packet).await?;
+    loop {
+        match read_packet(stream).await? {
+            NetworkPacket::ModuleLoadResult { request_id: id, outcome } if id == request_id => {
+                return Ok(outcome);
+            }
+            NetworkPacket::Close => {
+                return Err(IntersticeError::Internal("The node closed the connection".into()));
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Ask how to proceed with a plan that needs a decision; `None` aborts.
+/// Without a terminal it aborts.
+fn ask_decision() -> Option<MigrationPolicy> {
+    if !std::io::stdin().is_terminal() {
+        println!("No terminal to ask: pass --allow-data-loss or --delete-data to decide.");
+        return None;
+    }
+    loop {
+        print!("[a]bort / [m]igrate (apply as listed) / [d]elete this module's data? [a] ");
+        let _ = std::io::stdout().flush();
+        let mut line = String::new();
+        if std::io::stdin().lock().read_line(&mut line).is_err() {
+            return None;
+        }
+        match line.trim().to_lowercase().as_str() {
+            "" | "a" | "abort" => return None,
+            "m" | "migrate" => return Some(MigrationPolicy::AllowDataLoss),
+            "d" | "delete" => return Some(MigrationPolicy::DeleteData),
+            _ => println!("Please answer a, m or d."),
+        }
+    }
 }
 
 pub async fn unload(node_ref: String, module_name: &str) -> Result<(), IntersticeError> {

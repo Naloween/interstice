@@ -403,26 +403,7 @@ impl TableStore {
 
         // Stateful: restore from per-row files (no WAL)
         if table.schema.persistence == PersistenceKind::Stateful {
-            let dir = Self::stateful_dir(root, module, &table.schema.name);
-            if dir.exists() {
-                for entry in fs::read_dir(&dir).map_err(|e| {
-                    IntersticeError::Internal(format!("Failed to read stateful dir: {}", e))
-                })? {
-                    let entry = entry.map_err(|e| {
-                        IntersticeError::Internal(format!("Failed to read dir entry: {}", e))
-                    })?;
-                    let path = entry.path();
-                    if path.extension().and_then(|e| e.to_str()) == Some("row") {
-                        let bytes = fs::read(&path).map_err(|e| {
-                            IntersticeError::Internal(format!("Failed to read row file: {}", e))
-                        })?;
-                        let row: Row = decode(&bytes).map_err(|e| {
-                            IntersticeError::Internal(format!("Failed to decode row: {}", e))
-                        })?;
-                        table.insert(row)?;
-                    }
-                }
-            }
+            replay_table(root, module, table)?;
             let state = self.get_or_create_state(module, &table.schema.name, PersistenceKind::Stateful)?;
             let mut guard = state.lock();
             guard.persistence = PersistenceKind::Stateful;
@@ -431,30 +412,11 @@ impl TableStore {
 
         // Logged: the legacy single-file layout is migrated first.
         let table_name = table.schema.name.clone();
-        let mut max_stamp: LogStamp = (0, 0);
-        let mut next_seq = match self.restore_legacy(root, module, table)? {
-            Some(next_seq) => next_seq,
-            None => 0,
-        };
-        let mut entries_since_checkpoint = 0;
-        if next_seq == 0 {
-            let files = HistoryFiles::list(root, module, &table_name)?;
-            let mut after = None;
-            if let Some(cp) = files.checkpoints.last() {
-                let checkpoint = read_checkpoint(&cp.path)?;
-                table.restore_from_rows(checkpoint.rows)?;
-                max_stamp = (cp.tx, cp.timestamp_ms);
-                next_seq = cp.seq + 1;
-                after = Some(cp.seq);
-            }
-            files.for_each_entry(after, |entry| {
-                apply_entry(table, &entry.op)?;
-                max_stamp = (max_stamp.0.max(entry.tx), max_stamp.1.max(entry.timestamp_ms));
-                next_seq = entry.seq + 1;
-                entries_since_checkpoint += 1;
-                Ok(true)
-            })?;
-        }
+        let (max_stamp, next_seq, entries_since_checkpoint) =
+            match self.restore_legacy(root, module, table)? {
+                Some(next_seq) => ((0, 0), next_seq, 0),
+                None => replay_table(root, module, table)?,
+            };
 
         let state = self.get_or_create_state(module, &table_name, PersistenceKind::Logged)?;
         let mut guard = state.lock();
@@ -783,6 +745,262 @@ impl TableStore {
     pub fn forget_module(&self, module: &str) {
         self.cleanup_module(module);
     }
+
+    // ── Migrations (DESIGN §3.3) ────────────────────────────────────────────
+
+    /// The table's current rows, read from disk in the layout of `schema`
+    /// without registering any state.
+    pub fn read_rows(&self, module: &str, schema: &TableSchema) -> Result<Vec<Row>, IntersticeError> {
+        let Some(root) = &self.modules_root else {
+            return Ok(Vec::new());
+        };
+        if schema.persistence == PersistenceKind::Ephemeral {
+            return Ok(Vec::new());
+        }
+        let mut scratch = Table::new(schema.clone());
+        replay_table(root, module, &mut scratch)?;
+        Ok(scratch.snapshot_rows())
+    }
+
+    /// Flush everything pending and forget the module's open files and
+    /// table state, keeping the data on disk.
+    pub fn release_module(&self, module: &str) {
+        self.flush_stateful();
+        self.flush_wal();
+        self.tables.lock().retain(|key, _| key.module != module);
+        if let Some(root) = &self.modules_root {
+            let module_log_dir = root.join(module).join("logs");
+            self.wal_writers.lock().retain(|path, _| !path.starts_with(&module_log_dir));
+        }
+    }
+
+    /// Delete all of a module's table data (`MigrationPolicy::DeleteData`).
+    pub fn delete_module_data(&self, module: &str) -> Result<(), IntersticeError> {
+        self.release_module(module);
+        let Some(root) = &self.modules_root else { return Ok(()) };
+        for kind in DATA_KINDS {
+            remove_path(&root.join(module).join(kind))?;
+        }
+        Ok(())
+    }
+
+    /// Rewrite the module's data with `actions`, crash-safely: stage into
+    /// `.migrate/`, mark it `READY`, swap each touched table in, then move
+    /// the new `schema.bin`. Nothing changes if staging fails.
+    pub fn migrate_module(
+        &self,
+        module: &str,
+        new: &interstice_abi::ModuleSchema,
+        old_tables: &[TableSchema],
+        actions: &[crate::runtime::migration::TableAction],
+        schema_bytes: &[u8],
+    ) -> Result<(), IntersticeError> {
+        use crate::runtime::migration::{TableAction, map_row};
+        let Some(root) = &self.modules_root else { return Ok(()) };
+        self.release_module(module);
+        let dir = root.join(module);
+        let stage = dir.join(MIGRATE_DIR);
+        remove_path(&stage)?;
+        create_dir(&stage)?;
+        let staged = (|| -> Result<Vec<String>, IntersticeError> {
+            let mut ready = Vec::new();
+            for action in actions {
+                match action {
+                    TableAction::Remove { table } => ready.push(format!("remove {table}")),
+                    TableAction::Map { table, columns } => {
+                        let old = old_tables.iter().find(|t| &t.name == table).ok_or_else(|| {
+                            IntersticeError::Internal(format!("migration: no old schema for table {table}"))
+                        })?;
+                        let new_table = new.tables.iter().find(|t| &t.name == table).ok_or_else(|| {
+                            IntersticeError::Internal(format!("migration: no new schema for table {table}"))
+                        })?;
+                        let map = |row: Row| -> Result<Row, IntersticeError> {
+                            let row = map_row(row, columns);
+                            new_table.validate_row(&row, &new.type_definitions).map_err(|e| {
+                                IntersticeError::Internal(format!("migration: a row of {table} doesn't fit: {e}"))
+                            })?;
+                            Ok(row)
+                        };
+                        stage_mapped_table(&dir, &stage, table, &old.persistence, map)?;
+                        ready.push(format!("map {table}"));
+                    }
+                }
+            }
+            Ok(ready)
+        })();
+        let ready = match staged {
+            Ok(ready) => ready,
+            Err(e) => {
+                let _ = remove_path(&stage);
+                return Err(e);
+            }
+        };
+        write_atomically(&stage.join("schema.bin"), schema_bytes)?;
+        write_atomically(&stage.join("READY"), ready.join("\n").as_bytes())?;
+        finish_migration(&dir)
+    }
+
+    /// Finish or discard a migration interrupted by a crash.
+    pub fn recover_migration(&self, module: &str) -> Result<(), IntersticeError> {
+        let Some(root) = &self.modules_root else { return Ok(()) };
+        let dir = root.join(module);
+        let stage = dir.join(MIGRATE_DIR);
+        if !stage.exists() {
+            return Ok(());
+        }
+        if stage.join("READY").exists() {
+            finish_migration(&dir)
+        } else {
+            remove_path(&stage)
+        }
+    }
+}
+
+const DATA_KINDS: [&str; 3] = ["stateful", "logs", "snapshots"];
+const MIGRATE_DIR: &str = ".migrate";
+
+/// Swap the staged tables listed in `READY` in. Idempotent, so a crash
+/// part-way is finished by running it again.
+fn finish_migration(dir: &Path) -> Result<(), IntersticeError> {
+    let stage = dir.join(MIGRATE_DIR);
+    let ready = String::from_utf8_lossy(&read_file(&stage.join("READY"))?).to_string();
+    for line in ready.lines() {
+        let Some((op, table)) = line.split_once(' ') else { continue };
+        for kind in DATA_KINDS {
+            let live = dir.join(kind).join(table);
+            let staged = stage.join(kind).join(table);
+            match op {
+                "remove" => remove_path(&live)?,
+                // Once the staged copy is gone it has been moved in.
+                "map" if staged.exists() => {
+                    remove_path(&live)?;
+                    create_dir(&dir.join(kind))?;
+                    fs::rename(&staged, &live).map_err(|e| {
+                        IntersticeError::Internal(format!("migration: failed to move {staged:?}: {e}"))
+                    })?;
+                }
+                _ => {}
+            }
+        }
+    }
+    let schema = stage.join("schema.bin");
+    if schema.exists() {
+        fs::rename(&schema, dir.join("schema.bin")).map_err(|e| {
+            IntersticeError::Internal(format!("migration: failed to move schema.bin: {e}"))
+        })?;
+    }
+    remove_path(&stage)
+}
+
+/// Write `table`'s data, every row passed through `map`, under `stage`.
+/// Logged tables keep their whole history: every log entry and checkpoint.
+fn stage_mapped_table(
+    dir: &Path,
+    stage: &Path,
+    table: &str,
+    persistence: &PersistenceKind,
+    map: impl Fn(Row) -> Result<Row, IntersticeError>,
+) -> Result<(), IntersticeError> {
+    match persistence {
+        PersistenceKind::Ephemeral => Ok(()),
+        PersistenceKind::Stateful => {
+            let out = stage.join("stateful").join(table);
+            create_dir(&out)?;
+            for path in list_dir(&dir.join("stateful").join(table))? {
+                if path.extension().and_then(|e| e.to_str()) != Some("row") {
+                    continue;
+                }
+                let row: Row = decode_internal(&read_file(&path)?)?;
+                let name = path.file_name().expect("listed file");
+                write_atomically(&out.join(name), &encode_internal(&map(row)?)?)?;
+            }
+            Ok(())
+        }
+        PersistenceKind::Logged => {
+            let out = stage.join("logs").join(table);
+            create_dir(&out)?;
+            for path in list_dir(&dir.join("logs").join(table))? {
+                if path.extension().and_then(|e| e.to_str()) != Some("log") {
+                    continue;
+                }
+                let mut bytes = Vec::new();
+                read_entries::<LogEntry>(&path, |mut entry| {
+                    entry.op = match entry.op {
+                        LogOperation::Insert { primary_key, row } => {
+                            LogOperation::Insert { primary_key, row: row.map(&map).transpose()? }
+                        }
+                        LogOperation::Update { primary_key, row } => {
+                            LogOperation::Update { primary_key, row: row.map(&map).transpose()? }
+                        }
+                        op => op,
+                    };
+                    let encoded = encode_internal(&entry)?;
+                    bytes.extend_from_slice(&(encoded.len() as u32).to_le_bytes());
+                    bytes.extend_from_slice(&encoded);
+                    Ok(true)
+                })?;
+                write_atomically(&out.join(path.file_name().expect("listed file")), &bytes)?;
+            }
+            let out = stage.join("snapshots").join(table);
+            create_dir(&out)?;
+            for path in list_dir(&dir.join("snapshots").join(table))? {
+                if path.extension().and_then(|e| e.to_str()) != Some("snap") {
+                    continue;
+                }
+                let mut cp = read_checkpoint(&path)?;
+                cp.rows = cp.rows.into_iter().map(&map).collect::<Result<_, _>>()?;
+                write_atomically(&out.join(path.file_name().expect("listed file")), &encode_internal(&cp)?)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn remove_path(path: &Path) -> Result<(), IntersticeError> {
+    let result = if path.is_dir() {
+        fs::remove_dir_all(path)
+    } else if path.exists() {
+        fs::remove_file(path)
+    } else {
+        return Ok(());
+    };
+    result.map_err(|e| IntersticeError::Internal(format!("Failed to remove {path:?}: {e}")))
+}
+
+/// Replay a table's persisted data into `table`: stateful row files, or
+/// the newest checkpoint plus the log after it. Returns the largest stamp,
+/// the next seq and the entries since the checkpoint.
+fn replay_table(root: &Path, module: &str, table: &mut Table) -> Result<(LogStamp, u64, u64), IntersticeError> {
+    if table.schema.persistence == PersistenceKind::Stateful {
+        let dir = TableStore::stateful_dir(root, module, &table.schema.name);
+        for path in list_dir(&dir)? {
+            if path.extension().and_then(|e| e.to_str()) == Some("row") {
+                let row: Row = decode_internal(&read_file(&path)?)?;
+                table.insert(row)?;
+            }
+        }
+        return Ok(((0, 0), 0, 0));
+    }
+    let files = HistoryFiles::list(root, module, &table.schema.name)?;
+    let mut max_stamp: LogStamp = (0, 0);
+    let mut next_seq = 0;
+    let mut entries_since_checkpoint = 0;
+    let mut after = None;
+    if let Some(cp) = files.checkpoints.last() {
+        let checkpoint = read_checkpoint(&cp.path)?;
+        table.restore_from_rows(checkpoint.rows)?;
+        max_stamp = (cp.tx, cp.timestamp_ms);
+        next_seq = cp.seq + 1;
+        after = Some(cp.seq);
+    }
+    files.for_each_entry(after, |entry| {
+        apply_entry(table, &entry.op)?;
+        max_stamp = (max_stamp.0.max(entry.tx), max_stamp.1.max(entry.timestamp_ms));
+        next_seq = entry.seq + 1;
+        entries_since_checkpoint += 1;
+        Ok(true)
+    })?;
+    Ok((max_stamp, next_seq, entries_since_checkpoint))
 }
 
 // ── On-disk format ───────────────────────────────────────────────────────────
@@ -1052,6 +1270,7 @@ mod tests {
             persistence: PersistenceKind::Logged,
             retention: None,
             history,
+            defaults: Vec::new(),
         }
     }
 
@@ -1226,6 +1445,88 @@ mod tests {
         f.insert(4, "d", (10, 10));
         assert_eq!(f.rows_at(HistoryPoint::Back(1)).unwrap().len(), 3);
         assert_eq!(f.rows_at(HistoryPoint::Back(0)).unwrap().len(), 4);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// A logged table with checkpoints gets a column appended: every log
+    /// entry and checkpoint is rewritten, history still answers, and an
+    /// interrupted migration is finished on recovery.
+    #[test]
+    fn migration_rewrites_log_and_checkpoints() {
+        use crate::runtime::migration::{self, TableAction};
+        let root = temp_root("migrate");
+        let mut f = Fixture::new(&root, None);
+        for i in 1..=300u64 {
+            f.insert(i, "x", (i, i));
+        }
+        f.store.flush_wal();
+        let old = {
+            let mut m = interstice_abi::ModuleSchema::empty();
+            m.name = "m".into();
+            m.tables = vec![schema(None)];
+            m
+        };
+        let mut new = old.clone();
+        new.tables[0].fields.push(FieldDef { name: "n".into(), field_type: IntersticeType::U64 });
+        new.tables[0].defaults.push(interstice_abi::ColumnDefault::new("n", &IntersticeValue::U64(7)));
+        let store = &f.store;
+        let plan = migration::plan(&old, &new, &mut |t| store.read_rows("m", t)).unwrap();
+        assert!(!plan.needs_decision(), "{}", plan.render());
+        assert!(matches!(plan.actions[..], [TableAction::Map { .. }]));
+        f.store.migrate_module("m", &new, &old.tables, &plan.actions, b"schema").unwrap();
+
+        let rows = f.store.read_rows("m", &new.tables[0]).unwrap();
+        assert_eq!(rows.len(), 300);
+        assert!(rows.iter().all(|r| r.entries[1] == IntersticeValue::U64(7)));
+        let (at, _) = f.store.history_rows_at("m", &new.tables[0], HistoryPoint::Tx(100)).unwrap();
+        assert_eq!(at.len(), 100);
+        assert_eq!(fs::read(root.join("m").join("schema.bin")).unwrap(), b"schema");
+        assert!(!root.join("m").join(MIGRATE_DIR).exists());
+
+        // A crash before READY: the staging is discarded.
+        fs::create_dir_all(root.join("m").join(MIGRATE_DIR).join("logs").join("t")).unwrap();
+        f.store.recover_migration("m").unwrap();
+        assert!(!root.join("m").join(MIGRATE_DIR).exists());
+        assert_eq!(f.store.read_rows("m", &new.tables[0]).unwrap().len(), 300);
+
+        // Removing the column back needs a decision; applied, rows lose it.
+        let plan = migration::plan(&new, &old, &mut |t| store.read_rows("m", t)).unwrap();
+        assert!(plan.needs_decision());
+        f.store.migrate_module("m", &old, &new.tables, &plan.actions, b"schema2").unwrap();
+        let rows = f.store.read_rows("m", &old.tables[0]).unwrap();
+        assert!(rows.iter().all(|r| r.entries.len() == 1));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn migration_rewrites_stateful_rows() {
+        use crate::runtime::migration::{self, TableAction};
+        let root = temp_root("migrate-stateful");
+        let store = TableStore::new(Some(root.clone()));
+        let mut t = schema(None);
+        t.persistence = PersistenceKind::Stateful;
+        for i in 1..=3u64 {
+            let mut table = Table::new(t.clone());
+            let r = row(i, "s");
+            table.insert(r.clone()).unwrap();
+            store.persist_stateful_insert("m", &t.name, &IndexKey::U64(i), &r).unwrap();
+        }
+        store.flush_stateful();
+        let mut old = interstice_abi::ModuleSchema::empty();
+        old.name = "m".into();
+        old.tables = vec![t.clone()];
+        let mut new = old.clone();
+        new.tables[0].fields.push(FieldDef {
+            name: "tag".into(),
+            field_type: IntersticeType::Option(Box::new(IntersticeType::String)),
+        });
+        let plan = migration::plan(&old, &new, &mut |t| store.read_rows("m", t)).unwrap();
+        assert!(!plan.needs_decision(), "{}", plan.render());
+        assert!(matches!(plan.actions[..], [TableAction::Map { .. }]));
+        store.migrate_module("m", &new, &old.tables, &plan.actions, b"s").unwrap();
+        let rows = store.read_rows("m", &new.tables[0]).unwrap();
+        assert_eq!(rows.len(), 3);
+        assert!(rows.iter().all(|r| r.entries[1] == IntersticeValue::Option(None)));
         let _ = fs::remove_dir_all(&root);
     }
 }

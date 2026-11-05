@@ -6,6 +6,7 @@ use crate::{
         Runtime,
         authority::AuthorityEntry,
         event::EventInstance,
+        migration::{self, MigrationPolicy},
         table::Table,
         wasm::{StoreState, instance::WasmInstance},
     },
@@ -46,7 +47,7 @@ pub struct Module {
     factory: InstanceFactory,
     /// See [`interstice_abi::RawReducerContext::state_epoch`].
     state_epoch: std::sync::atomic::AtomicU64,
-    wasm_bytes: Vec<u8>,
+    pub(crate) wasm_bytes: Vec<u8>,
     pub schema: Arc<ModuleSchema>,
     pub tables: Arc<parking_lot::RwLock<HashMap<String, Table>>>,
     pub reducer_names: HashSet<String>,
@@ -229,15 +230,74 @@ impl Module {
 }
 
 impl Runtime {
+    /// The schema a module's data was written in: `schema.bin`, else the
+    /// stored `module.wasm` described (same bytes as `new_wasm` → `None`
+    /// is never needed there), else unknown.
+    async fn stored_schema(runtime: &Arc<Self>, name: &str, new_wasm: &[u8]) -> Option<ModuleSchema> {
+        let dir = runtime.modules_path.as_ref()?.join(name);
+        if let Ok(bytes) = std::fs::read(dir.join("schema.bin")) {
+            if let Ok(schema) = interstice_abi::decode::<ModuleSchema>(&bytes) {
+                return Some(schema);
+            }
+        }
+        let old_wasm = std::fs::read(dir.join("module.wasm")).ok()?;
+        if old_wasm == new_wasm {
+            return None; // same module: validated by `plan_unknown`
+        }
+        Module::build(runtime.clone(), &old_wasm).ok().map(|m| m.schema.as_ref().clone())
+    }
+
+    /// The migration plan from the module's stored data to `module`.
+    async fn plan_for(
+        runtime: &Arc<Self>,
+        module: &Module,
+    ) -> Result<(Option<ModuleSchema>, migration::MigrationPlan), IntersticeError> {
+        let name = module.schema.name.clone();
+        let old = Self::stored_schema(runtime, &name, &module.wasm_bytes).await;
+        let persistence = runtime.persistence.clone();
+        let mut rows = |t: &interstice_abi::TableSchema| persistence.read_rows(&name, t);
+        let plan = match &old {
+            Some(old) => migration::plan(old, &module.schema, &mut rows)?,
+            None => migration::plan_unknown(&module.schema, &mut rows)?,
+        };
+        Ok((old, plan))
+    }
+
+    /// `Some(rendered plan)` when loading `module` over its stored data
+    /// needs a decision.
+    pub(crate) async fn check_migration(
+        runtime: &Arc<Self>,
+        module: &Module,
+    ) -> Result<Option<String>, IntersticeError> {
+        if runtime.modules_path.is_none() {
+            return Ok(None);
+        }
+        runtime.persistence.recover_migration(&module.schema.name)?;
+        let (_, plan) = Self::plan_for(runtime, module).await?;
+        Ok(plan.needs_decision().then(|| plan.render()))
+    }
+
     pub async fn load_module(
         runtime: Arc<Self>,
         module: Module,
     ) -> Result<ModuleSchema, IntersticeError> {
+        Self::load_module_with(runtime, module, MigrationPolicy::Safe)
+            .await
+            .map(|(schema, _)| schema)
+    }
+
+    /// Load with a migration policy (DESIGN §3.3). Returns the schema and
+    /// the rendered migration plan that was applied.
+    pub async fn load_module_with(
+        runtime: Arc<Self>,
+        module: Module,
+        policy: MigrationPolicy,
+    ) -> Result<(ModuleSchema, String), IntersticeError> {
         // A load that fails part-way (bad dependency, unreachable node, ...)
         // must not keep the authorities it claimed, or the next attempt would
         // be refused with "authority already taken".
         let mut claimed = Vec::new();
-        let result = Self::load_module_inner(runtime.clone(), module, &mut claimed).await;
+        let result = Self::load_module_inner(runtime.clone(), module, policy, &mut claimed).await;
         if result.is_err() {
             let mut authorities = runtime.authority_modules.lock();
             for authority in claimed {
@@ -250,8 +310,9 @@ impl Runtime {
     async fn load_module_inner(
         runtime: Arc<Self>,
         module: Module,
+        policy: MigrationPolicy,
         claimed: &mut Vec<Authority>,
-    ) -> Result<ModuleSchema, IntersticeError> {
+    ) -> Result<(ModuleSchema, String), IntersticeError> {
         let module_schema = module.schema.clone();
 
         // Decide first-load vs reload from persistent state, independently of how
@@ -265,6 +326,30 @@ impl Runtime {
             .as_ref()
             .map(|path| path.join(&module_schema.name).join("state.toml").exists())
             .unwrap_or(false);
+
+        // Schema versioning (DESIGN §3.3): decide now, before anything is
+        // claimed or written; apply just before the module is saved.
+        let mut is_reload = is_reload;
+        let mut migration = None;
+        let mut plan_text = String::new();
+        if is_reload && runtime.modules_path.is_some() {
+            let name = module_schema.name.clone();
+            runtime.persistence.recover_migration(&name)?;
+            if policy == MigrationPolicy::DeleteData {
+                runtime.persistence.delete_module_data(&name)?;
+                is_reload = false;
+                plan_text = format!("Module '{name}': previous data deleted, loaded as new.");
+            } else {
+                let (old, plan) = Self::plan_for(&runtime, &module).await?;
+                plan_text = plan.render();
+                if plan.needs_decision() && policy == MigrationPolicy::Safe {
+                    return Err(IntersticeError::MigrationRequired(plan_text));
+                }
+                if !plan.actions.is_empty() {
+                    migration = Some((plan, old.map(|o| o.tables).unwrap_or_default()));
+                }
+            }
+        }
 
         // If the module requires GPU authority and the app is not initialized yet, initialize it
         if module_schema
@@ -554,6 +639,19 @@ impl Runtime {
                 });
         }
 
+        if let Some((plan, old_tables)) = &migration {
+            let bytes = interstice_abi::encode(module_schema.as_ref())
+                .map_err(|e| IntersticeError::Internal(format!("cannot encode schema: {e}")))?;
+            runtime.persistence.migrate_module(
+                &module_schema.name,
+                &module_schema,
+                old_tables,
+                &plan.actions,
+                &bytes,
+            )?;
+            runtime.logger.log(&plan.render(), LogSource::Runtime, LogLevel::Info);
+        }
+
         // save module
         if let Some(modules_path) = &runtime.modules_path {
             let module_dir = modules_path.join(&module_schema.name);
@@ -561,6 +659,10 @@ impl Runtime {
             std::fs::create_dir_all(module_dir.join("logs")).unwrap();
             std::fs::create_dir_all(module_dir.join("snapshots")).unwrap();
             std::fs::write(module_dir.join("module.wasm"), &module.wasm_bytes).unwrap();
+            // The schema the data is now in (DESIGN §3.3).
+            if let Ok(bytes) = interstice_abi::encode(module_schema.as_ref()) {
+                let _ = std::fs::write(module_dir.join("schema.bin"), bytes);
+            }
             // Mark the module as loaded so it is auto-loaded again on node startup.
             write_module_state(&module_dir, true);
         }
@@ -664,7 +766,7 @@ impl Runtime {
             LogLevel::Info,
         );
 
-        return Ok(module_schema.as_ref().clone());
+        return Ok((module_schema.as_ref().clone(), plan_text));
     }
 
     pub(crate) async fn request_node_schema(

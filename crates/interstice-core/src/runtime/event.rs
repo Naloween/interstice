@@ -98,6 +98,9 @@ pub enum EventInstance {
     LoadModule {
         wasm_binary: Vec<u8>,
         source_node_id: NodeId,
+        policy: crate::runtime::migration::MigrationPolicy,
+        /// Answered with `ModuleLoadResult` when not empty.
+        request_id: String,
     },
     UnloadModule {
         module_name: String,

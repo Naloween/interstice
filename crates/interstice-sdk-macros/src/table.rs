@@ -176,6 +176,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         bool,
     )> = None;
     let mut schema_fields = Vec::new();
+    let mut default_values = Vec::new();
     let mut entry_fields = Vec::new();
     let mut index_schemas = Vec::new();
     let mut indexed_fields: Vec<(
@@ -325,6 +326,23 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 pk_auto_inc,
             ));
         } else {
+            // `#[default(expr)]`: the value existing rows take when a
+            // migration appends this column (DESIGN §3.3).
+            if let Some(attr) = field.attrs.iter().find(|a| a.path().is_ident("default")) {
+                let expr: syn::Expr = match attr.parse_args() {
+                    Ok(expr) => expr,
+                    Err(_) => {
+                        return quote! {compile_error!("#[default(...)] takes one expression, e.g. #[default(false)]");}.into();
+                    }
+                };
+                default_values.push(quote! {
+                    interstice_sdk::ColumnDefault::new(#field_name, &{
+                        let value: #field_ty_ident = (#expr).into();
+                        let value: interstice_sdk::IntersticeValue = value.into();
+                        value
+                    })
+                });
+            }
             entry_fields.push(field_ident.clone());
             schema_fields.push(quote! {
                 interstice_sdk::FieldDef {
@@ -361,6 +379,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         for field in fields.named.iter_mut() {
             field.attrs.retain(|a| !a.path().is_ident("primary_key"));
             field.attrs.retain(|a| !a.path().is_ident("index"));
+            field.attrs.retain(|a| !a.path().is_ident("default"));
         }
     }
 
@@ -640,6 +659,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 persistence: #persistence,
                 retention: #retention,
                 history: #history,
+                defaults: vec![#(#default_values),*],
             }
         }
         #[interstice_sdk::init]

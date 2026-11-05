@@ -22,6 +22,28 @@ pub struct TableSchema {
     /// (`#[table(history = "7d")]`); `None` keeps everything (DESIGN §6.7).
     #[serde(default)]
     pub history: Option<u64>,
+    /// Column defaults (`#[default(expr)]`), used when a migration appends a
+    /// column (DESIGN §3.3). `Option<T>` columns default to `None` without one.
+    #[serde(default)]
+    pub defaults: Vec<ColumnDefault>,
+}
+
+/// A column's default value, postcard-encoded `IntersticeValue` (bytes, so
+/// the schema stays representable in TOML bindings).
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct ColumnDefault {
+    pub column: String,
+    pub value: Vec<u8>,
+}
+
+impl ColumnDefault {
+    pub fn new(column: &str, value: &crate::IntersticeValue) -> Self {
+        Self { column: column.to_string(), value: crate::encode(value).unwrap_or_default() }
+    }
+
+    pub fn value(&self) -> Option<crate::IntersticeValue> {
+        crate::decode(&self.value).ok()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -52,6 +74,19 @@ pub struct IndexSchema {
 }
 
 impl TableSchema {
+    /// The value a new column `name` takes in existing rows: its declared
+    /// default, or `None` for an `Option` column.
+    pub fn column_default(&self, name: &str) -> Option<crate::IntersticeValue> {
+        if let Some(d) = self.defaults.iter().find(|d| d.column == name) {
+            return d.value();
+        }
+        let field = self.fields.iter().find(|f| f.name == name)?;
+        match field.field_type {
+            crate::IntersticeType::Option(_) => Some(crate::IntersticeValue::Option(None)),
+            _ => None,
+        }
+    }
+
     pub fn validate_row(
         &self,
         row: &Row,

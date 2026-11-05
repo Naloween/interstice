@@ -3,6 +3,7 @@ pub mod blob;
 mod deterministic_random;
 pub mod event;
 pub mod host_calls;
+pub mod migration;
 pub mod module;
 mod query;
 pub mod reducer;
@@ -13,6 +14,7 @@ mod wasm;
 
 pub(crate) use authority::AuthorityEntry;
 
+use crate::runtime::migration::MigrationPolicy;
 use crate::{
     IntersticeError,
     logger::{LogLevel, LogSource, Logger},
@@ -645,11 +647,28 @@ impl Runtime {
             EventInstance::LoadModule {
                 wasm_binary,
                 source_node_id,
+                policy,
+                request_id,
             } => {
+                // Answer the requester (the CLI waits for it, DESIGN §3.3).
+                let reply = {
+                    let runtime = runtime.clone();
+                    move |outcome: crate::network::protocol::LoadOutcome| {
+                        if !request_id.is_empty() {
+                            runtime.network_handle.send_packet(
+                                source_node_id,
+                                crate::network::protocol::NetworkPacket::ModuleLoadResult {
+                                    request_id: request_id.clone(),
+                                    outcome,
+                                },
+                            );
+                        }
+                    }
+                };
+                use crate::network::protocol::LoadOutcome;
                 if runtime
                     .authority_modules
                     .lock()
-                    
                     .contains_key(&Authority::Module)
                 {
                     let module_name = match Module::from_bytes(runtime.clone(), &wasm_binary).await
@@ -664,6 +683,7 @@ impl Runtime {
                                 LogSource::Runtime,
                                 LogLevel::Error,
                             );
+                            reply(LoadOutcome::Failed(err.to_string()));
                             return;
                         }
                     };
@@ -675,45 +695,12 @@ impl Runtime {
                             wasm_binary,
                         },
                     ), None));
+                    reply(LoadOutcome::Forwarded);
                 } else {
                     let runtime_cloned = runtime.clone();
                     tokio::task::spawn_local(async move {
-                        let module = match Module::from_bytes(runtime_cloned.clone(), &wasm_binary)
-                            .await
-                        {
-                            Ok(module) => module,
-                            Err(err) => {
-                                runtime_cloned.logger.log(
-                                    &format!("Failed to decode loaded module bytes: {}", err),
-                                    LogSource::Runtime,
-                                    LogLevel::Error,
-                                );
-                                return;
-                            }
-                        };
-
-                        let module_name = module.schema.name.clone();
-                        if runtime_cloned
-                            .modules
-                            .lock()
-                            
-                            .contains_key(&module_name)
-                        {
-                            Runtime::remove_module(runtime_cloned.clone(), &module_name);
-                        }
-
-                        if let Err(err) =
-                            Runtime::load_module(runtime_cloned.clone(), module).await
-                        {
-                            runtime_cloned.logger.log(
-                                &format!(
-                                    "Failed to load module '{}': {}",
-                                    module_name, err
-                                ),
-                                LogSource::Runtime,
-                                LogLevel::Error,
-                            );
-                        }
+                        let outcome = Runtime::update_module(runtime_cloned, wasm_binary, policy).await;
+                        reply(outcome);
                     });
                 }
             }
@@ -1031,6 +1018,82 @@ fn reducer_accesses_cached(
         .or_default()
         .insert(reducer_name.to_string(), arc.clone());
     arc
+}
+
+impl Runtime {
+    /// Load `wasm_binary`; when that module is already loaded this is an
+    /// update (DESIGN §3.3): the plan is checked against the running
+    /// version first, and if the new version then fails to load, the old
+    /// one is loaded back.
+    pub(crate) async fn update_module(
+        runtime: Arc<Self>,
+        wasm_binary: Vec<u8>,
+        policy: MigrationPolicy,
+    ) -> crate::network::protocol::LoadOutcome {
+        use crate::network::protocol::LoadOutcome;
+        let log_err = |runtime: &Arc<Self>, text: String| {
+            runtime.logger.log(&text, LogSource::Runtime, LogLevel::Error);
+        };
+        let module = match Module::from_bytes(runtime.clone(), &wasm_binary).await {
+            Ok(module) => module,
+            Err(err) => {
+                log_err(&runtime, format!("Failed to decode loaded module bytes: {}", err));
+                return LoadOutcome::Failed(err.to_string());
+            }
+        };
+        let name = module.schema.name.clone();
+        let running = runtime.modules.lock().get(&name).map(|m| m.wasm_bytes.clone());
+        if let Some(old_wasm) = running {
+            // Check the plan while the old version still runs.
+            if policy == MigrationPolicy::Safe {
+                runtime.persistence.flush_stateful();
+                runtime.persistence.flush_wal();
+                match Runtime::check_migration(&runtime, &module).await {
+                    Ok(None) => {}
+                    Ok(Some(plan)) => {
+                        runtime.logger.log(
+                            &format!("Update of '{name}' refused, the old version keeps running.\n{plan}"),
+                            LogSource::Runtime,
+                            LogLevel::Warning,
+                        );
+                        return LoadOutcome::NeedsDecision { plan };
+                    }
+                    Err(err) => return LoadOutcome::Failed(err.to_string()),
+                }
+            }
+            Runtime::unload_module(runtime.clone(), &name);
+            return match Runtime::load_module_with(runtime.clone(), module, policy).await {
+                Ok((_, plan)) => LoadOutcome::Loaded { plan },
+                Err(err) => {
+                    log_err(&runtime, format!("Update of '{name}' failed ({err}); loading the old version back"));
+                    if let Ok(old) = Module::from_bytes(runtime.clone(), &old_wasm).await {
+                        if let Err(e) = Runtime::load_module(runtime.clone(), old).await {
+                            log_err(&runtime, format!("Reloading the old '{name}' failed: {e}"));
+                        }
+                    }
+                    match err {
+                        IntersticeError::MigrationRequired(plan) => LoadOutcome::NeedsDecision { plan },
+                        err => LoadOutcome::Failed(err.to_string()),
+                    }
+                }
+            };
+        }
+        match Runtime::load_module_with(runtime.clone(), module, policy).await {
+            Ok((_, plan)) => LoadOutcome::Loaded { plan },
+            Err(IntersticeError::MigrationRequired(plan)) => {
+                runtime.logger.log(
+                    &format!("Load of '{name}' refused, nothing changed.\n{plan}"),
+                    LogSource::Runtime,
+                    LogLevel::Warning,
+                );
+                LoadOutcome::NeedsDecision { plan }
+            }
+            Err(err) => {
+                log_err(&runtime, format!("Failed to load module '{}': {}", name, err));
+                LoadOutcome::Failed(err.to_string())
+            }
+        }
+    }
 }
 
 #[cfg(test)]

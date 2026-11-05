@@ -317,6 +317,7 @@ mod blob_tests {
             persistence: PersistenceKind::Ephemeral,
             retention: None,
             history: None,
+            defaults: Vec::new(),
         });
         schema
     }
