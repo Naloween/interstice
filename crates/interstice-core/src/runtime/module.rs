@@ -592,10 +592,13 @@ impl Runtime {
                     )
                 })?;
 
+            // A replicated view has the shape of a table (DESIGN §7.5).
+            let remote_view_shape = remote_module.view_table_schema(&replicated.table_name);
             let remote_table = remote_module
                 .tables
                 .iter()
                 .find(|t| t.name == replicated.table_name)
+                .or(remote_view_shape.as_ref())
                 .ok_or_else(|| IntersticeError::TableNotFound {
                     module_name: replicated.module_name.clone(),
                     table_name: replicated.table_name.clone(),
@@ -746,6 +749,10 @@ impl Runtime {
         }
 
         setup_file_watches(runtime.clone(), &module_schema)?;
+
+        // Function views this module reads or publishes keep a result to diff
+        // against (DESIGN §7.5).
+        runtime.prime_views(&module_schema.name);
 
         // Trigger startup events asynchronously via the runtime event queue.
         // `init` fires only on the first load; a reload does not re-run it.
@@ -1142,6 +1149,7 @@ impl Runtime {
 
         runtime.modules.lock().remove(module_name);
         runtime.clear_reducer_access_cache();
+        runtime.drop_view_caches(module_name);
         runtime
             .replica_bindings
             .lock()

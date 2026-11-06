@@ -25,6 +25,7 @@ pub type QuerySchemaFn = fn() -> QuerySchema;
 pub type SubscriptionSchemaFn = fn() -> SubscriptionSchema;
 pub type IntersticeTypeDefFn = fn() -> IntersticeTypeDef;
 pub type ReplicatedTableSchemaFn = fn() -> Vec<ReplicatedTableSchema>;
+pub type ViewSchemaFn = fn() -> interstice_abi::ViewSchema;
 
 lazy_static::lazy_static! {
     pub static ref TABLE_REGISTRY: Arc<Mutex<Vec<TableSchemaFn>>> = Arc::new(Mutex::new(Vec::new()));
@@ -32,6 +33,7 @@ lazy_static::lazy_static! {
     pub static ref QUERY_REGISTRY: Arc<Mutex<Vec<QuerySchemaFn>>> = Arc::new(Mutex::new(Vec::new()));
     pub static ref SUBSCRIPTION_REGISTRY: Arc<Mutex<Vec<SubscriptionSchemaFn>>> = Arc::new(Mutex::new(Vec::new()));
     pub static ref INTERSTICE_TYPE_DEFINITION_REGISTRY: Arc<Mutex<Vec<IntersticeTypeDefFn>>> = Arc::new(Mutex::new(Vec::new()));
+    pub static ref VIEW_REGISTRY: Arc<Mutex<Vec<ViewSchemaFn>>> = Arc::new(Mutex::new(Vec::new()));
     pub static ref REPLICATED_TABLE_REGISTRY: Arc<Mutex<Vec<ReplicatedTableSchemaFn>>> = Arc::new(Mutex::new(Vec::new()));
 }
 
@@ -58,6 +60,15 @@ pub fn register_subscription(s: SubscriptionSchemaFn) {
 /// Called by each `#[derive(IntersticeType)]` macro to register its TypeDef function
 pub fn register_type_def(s: IntersticeTypeDefFn) {
     INTERSTICE_TYPE_DEFINITION_REGISTRY.lock().unwrap().push(s);
+}
+
+/// Called by each `#[view]` (DESIGN §7.5).
+pub fn register_view(f: ViewSchemaFn) {
+    VIEW_REGISTRY.lock().unwrap().push(f);
+}
+
+pub fn collect_views() -> Vec<interstice_abi::ViewSchema> {
+    VIEW_REGISTRY.lock().unwrap().iter().map(|f| f()).collect()
 }
 
 pub fn register_replicated_tables(s: ReplicatedTableSchemaFn) {

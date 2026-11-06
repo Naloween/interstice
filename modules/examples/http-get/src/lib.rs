@@ -4,15 +4,11 @@ use interstice_sdk::*;
 // Demonstrates the *shared* network broker: instead of holding the Network
 // authority itself, this module asks the default `network` module to fetch a URL
 // for it. The broker resolves DNS, opens the TCP socket, sends the GET and
-// assembles the response, then hands the result back as a row in its public
-// `HttpResponse` table (stamped with this module's name so we filter to our own
-// request). Proves multiple apps can share the single NIC through the normal
-// cross-module ABI.
+// assembles the response, then hands the result back as a row of its private
+// `HttpResponse` table, which this module reads through the `my_responses`
+// view: it sees its own responses only (DESIGN §7.5). Proves multiple apps can
+// share the single NIC through the normal cross-module ABI.
 interstice_module!(visibility: Private);
-
-/// This module's schema name — the broker stamps results with the caller's name,
-/// so we ignore rows that belong to other apps.
-const ME: &str = "http-get-example";
 
 /// Inspectable copy of the fetched result.
 #[table(public)]
@@ -53,14 +49,12 @@ fn on_load(ctx: ReducerContext) {
     }
 }
 
-#[reducer(on = "network.httpresponse.insert")]
-fn on_http<Caps>(ctx: ReducerContext<Caps>, row: HttpResponse)
+// `my_responses` shows this module its own responses only (DESIGN §7.5).
+#[reducer(on = "network.my_responses.insert")]
+fn on_http<Caps>(ctx: ReducerContext<Caps>, row: MyResponses)
 where
     Caps: CanInsert<HttpResult>,
 {
-    if row.owner != ME {
-        return; // belongs to another app
-    }
     if !row.error.is_empty() {
         ctx.log(&format!(
             "http-get: request {} failed: {}",

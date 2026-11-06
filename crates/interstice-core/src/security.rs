@@ -143,6 +143,16 @@ impl Security {
         if self.is_owner(&peer) {
             return Ok(());
         }
+        // A view: it must be public, in a public module (DESIGN §7.5).
+        if schema.view(table).is_some() {
+            return if schema.visibility == ModuleVisibility::Public
+                && schema.view_visibility(table) == Some(CallVisibility::Public)
+            {
+                Ok(())
+            } else {
+                Err(IntersticeError::PermissionDenied(format!("view '{}.{table}' is not public", schema.name)))
+            };
+        }
         let table_public = schema
             .tables
             .iter()
@@ -233,6 +243,7 @@ mod tests_support {
             module_dependencies: vec![],
             node_dependencies: vec![],
             replicated_tables: vec![],
+            views: vec![],
         }
     }
 }

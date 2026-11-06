@@ -96,6 +96,10 @@ pub fn get_register_subscription_function(
                                                 for t in module_schema.tables {
                                                     set.insert(t.name.to_lowercase());
                                                 }
+                                                // Views are subscribed to like tables (DESIGN §7.5).
+                                                for v in module_schema.views {
+                                                    set.insert(v.name.to_lowercase());
+                                                }
                                                 module_tables.insert(("".into(), mname), set);
                                             } else if let Ok(node_schema) = node_schema_from_toml_str(&content) {
                                                 let nname = node_schema.name.to_lowercase();
@@ -107,6 +111,9 @@ pub fn get_register_subscription_function(
                                                     let mut set = HashSet::new();
                                                     for t in module.tables {
                                                         set.insert(t.name.to_lowercase());
+                                                    }
+                                                    for v in module.views {
+                                                        set.insert(v.name.to_lowercase());
                                                     }
                                                     module_tables.insert((nname.clone(), mname), set.clone());
                                                 }

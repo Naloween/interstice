@@ -7,6 +7,7 @@ mod path_segments;
 mod query;
 mod reducer;
 mod table;
+mod view;
 mod visibility;
 
 use proc_macro::TokenStream;
@@ -34,6 +35,14 @@ pub fn reducer(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn query(attr: TokenStream, item: TokenStream) -> TokenStream {
     query_macro(attr, item)
+}
+
+/// A view (DESIGN §7.5): a filter view `fn name(r: &Table, viewer: &Viewer)
+/// -> bool { condition }`, or a function view `#[view(key = id)] fn
+/// name<Caps>(ctx: ViewContext<Caps>) -> Vec<Row>`.
+#[proc_macro_attribute]
+pub fn view(attr: TokenStream, item: TokenStream) -> TokenStream {
+    view::view_macro(attr, item)
 }
 
 #[proc_macro_attribute]

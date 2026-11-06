@@ -7,6 +7,7 @@ mod reducer;
 mod subscription;
 mod table;
 mod version;
+mod view;
 
 pub use dependency::*;
 pub use event::*;
@@ -17,3 +18,4 @@ pub use reducer::*;
 pub use subscription::*;
 pub use table::*;
 pub use version::*;
+pub use view::*;

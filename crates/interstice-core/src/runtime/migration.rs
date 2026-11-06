@@ -277,8 +277,9 @@ pub fn plan(
         names(&mut new.reducers.iter().map(|r| &r.name)),
     );
     let (oq, nq) = (
-        names(&mut old.queries.iter().map(|q| &q.name)),
-        names(&mut new.queries.iter().map(|q| &q.name)),
+        // A function view's query is part of the view, not an API.
+        names(&mut old.queries.iter().filter(|q| !old.views.iter().any(|v| q.name == format!("view_fn_{}", v.name))).map(|q| &q.name)),
+        names(&mut new.queries.iter().filter(|q| !new.views.iter().any(|v| q.name == format!("view_fn_{}", v.name))).map(|q| &q.name)),
     );
     for r in sorted(nr.difference(&or)) {
         plan.safe(None, format!("reducer `{r}` added"));
@@ -291,6 +292,17 @@ pub fn plan(
     }
     for q in sorted(oq.difference(&nq)) {
         plan.safe(None, format!("query `{q}` removed: callers may break"));
+    }
+    // Views are the module's API (DESIGN §7.5).
+    let (ov, nv) = (
+        names(&mut old.views.iter().map(|v| &v.name)),
+        names(&mut new.views.iter().map(|v| &v.name)),
+    );
+    for v in sorted(nv.difference(&ov)) {
+        plan.safe(None, format!("view `{v}` added"));
+    }
+    for v in sorted(ov.difference(&nv)) {
+        plan.safe(None, format!("view `{v}` removed: readers may break"));
     }
     Ok(plan)
 }

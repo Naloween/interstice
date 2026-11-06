@@ -60,6 +60,13 @@ pub fn generate_bindings() {
                                         (#node_name, #module_name, #table_name) => Some(#is_public)
                                     });
                                 }
+                                // Views replicate like tables (DESIGN §7.5).
+                                for view in &module.views {
+                                    let view_name = view.name.clone();
+                                    replicated_table_match_arms.push(quote! {
+                                        (#node_name, #module_name, #view_name) => Some(true)
+                                    });
+                                }
                             }
 
                             node_dependency_entries.push(quote! {

@@ -85,13 +85,15 @@ pub struct HttpJob {
     redirects: u32,
 }
 
-// ── Public result tables (apps subscribe, filter by `owner`) ────────────────────
+// ── Result tables (private; apps read them through the views below) ────────────
 //
 // Event tables: a subscriber receives the full row in the insert event, so the
 // engine keeps only a rolling window of the newest rows (otherwise every HTTP
-// body ever fetched would stay in memory).
+// body ever fetched would stay in memory). Each row is stamped with the app
+// that asked (`owner`); the `my_*` views show an app its own rows only
+// (DESIGN §7.5), so no app sees another's traffic.
 
-#[table(public, event = 256)]
+#[table(event = 256)]
 #[derive(Debug)]
 pub struct Connection {
     #[primary_key(auto_inc)]
@@ -103,7 +105,7 @@ pub struct Connection {
     pub error: String,
 }
 
-#[table(public, event = 256)]
+#[table(event = 256)]
 #[derive(Debug)]
 pub struct Inbound {
     #[primary_key(auto_inc)]
@@ -113,7 +115,7 @@ pub struct Inbound {
     pub data: Vec<u8>,
 }
 
-#[table(public, event = 256)]
+#[table(event = 256)]
 #[derive(Debug)]
 pub struct ConnClosed {
     #[primary_key(auto_inc)]
@@ -122,7 +124,7 @@ pub struct ConnClosed {
     pub handle: u64,
 }
 
-#[table(public, event = 256)]
+#[table(event = 256)]
 #[derive(Debug)]
 pub struct Resolved {
     #[primary_key(auto_inc)]
@@ -135,7 +137,7 @@ pub struct Resolved {
 }
 
 /// Bodies can be large: keep few.
-#[table(public, event = 16)]
+#[table(event = 16)]
 #[derive(Debug)]
 pub struct HttpResponse {
     #[primary_key(auto_inc)]
@@ -153,6 +155,33 @@ pub struct HttpResponse {
     pub final_host: String,
     pub final_path: String,
     pub final_tls: bool,
+}
+
+// ── Views: each app sees its own results (DESIGN §7.5) ──────────────────────────
+
+#[view(local)]
+fn my_connections(r: &Connection, viewer: &Viewer) -> bool {
+    r.owner == viewer.module
+}
+
+#[view(local)]
+fn my_inbound(r: &Inbound, viewer: &Viewer) -> bool {
+    r.owner == viewer.module
+}
+
+#[view(local)]
+fn my_closed(r: &ConnClosed, viewer: &Viewer) -> bool {
+    r.owner == viewer.module
+}
+
+#[view(local)]
+fn my_resolved(r: &Resolved, viewer: &Viewer) -> bool {
+    r.owner == viewer.module
+}
+
+#[view(local)]
+fn my_responses(r: &HttpResponse, viewer: &Viewer) -> bool {
+    r.owner == viewer.module
 }
 
 // ── Lifecycle ───────────────────────────────────────────────────────────────────

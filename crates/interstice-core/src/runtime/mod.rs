@@ -7,6 +7,7 @@ pub mod migration;
 pub mod module;
 mod query;
 pub mod reducer;
+pub(crate) mod view;
 mod scheduler;
 pub mod table;
 pub mod transaction;
@@ -95,7 +96,9 @@ pub struct Runtime {
     pub(crate) gpu_call_sender: mpsc::Sender<GpuCallRequest>,
     gpu_call_receiver: Mutex<Option<mpsc::Receiver<GpuCallRequest>>>,
     pub(crate) modules_path: Option<PathBuf>,
-    node_subscriptions: Arc<Mutex<HashMap<NodeId, Vec<SubscriptionEventSchema>>>>,
+    pub(crate) node_subscriptions: Arc<Mutex<HashMap<NodeId, Vec<SubscriptionEventSchema>>>>,
+    /// Function-view results (DESIGN §7.5).
+    pub(crate) view_cache: view::ViewCache,
     pub(crate) node_names_by_id: Arc<Mutex<HashMap<NodeId, String>>>,
     pub(crate) replica_bindings: Arc<Mutex<Vec<ReplicaBinding>>>,
     pub(crate) emitted_replica_sync_events: Arc<Mutex<HashSet<String>>>,
@@ -184,6 +187,7 @@ impl Runtime {
             modules_path,
             run_app_notify,
             node_subscriptions: Arc::new(Mutex::new(HashMap::new())),
+            view_cache: Default::default(),
             node_names_by_id: Arc::new(Mutex::new(HashMap::new())),
             replica_bindings: Arc::new(Mutex::new(Vec::new())),
             emitted_replica_sync_events: Arc::new(Mutex::new(HashSet::new())),
@@ -582,6 +586,22 @@ impl Runtime {
                     );
                     return;
                 }
+                // A function view keeps a result for this peer (DESIGN §7.5).
+                if let SubscriptionEventSchema::Insert { module_name, table_name, .. }
+                | SubscriptionEventSchema::Update { module_name, table_name, .. }
+                | SubscriptionEventSchema::Delete { module_name, table_name, .. } = &event
+                {
+                    let owner = runtime.modules.lock().get(module_name).cloned();
+                    if let Some(owner) = owner {
+                        if let Some(view) = owner.schema.view(table_name).cloned() {
+                            if matches!(view.kind, interstice_abi::ViewKind::Function { .. }) {
+                                let runtime = runtime.clone();
+                                let viewer = Runtime::remote_viewer(requesting_node_id);
+                                tokio::task::spawn_blocking(move || runtime.prime_view(&owner, &view, &viewer));
+                            }
+                        }
+                    }
+                }
                 let mut subscriptions_by_node = runtime.node_subscriptions.lock();
                 let subscriptions = subscriptions_by_node
                     .entry(requesting_node_id)
@@ -614,8 +634,7 @@ impl Runtime {
                 table_name,
             } => {
                 let rows_result = {
-                    let modules = runtime.modules.lock();
-                    let module = modules.get(&module_name).ok_or_else(|| {
+                    let module = runtime.modules.lock().get(&module_name).cloned().ok_or_else(|| {
                         IntersticeError::ModuleNotFound(
                             module_name.clone(),
                             "When handling table sync request".to_string(),
@@ -623,6 +642,14 @@ impl Runtime {
                     });
 
                     module.and_then(|module| {
+                        // A view syncs as the peer sees it (DESIGN §7.5).
+                        if let Some(view) = module.schema.view(&table_name) {
+                            runtime.security.check_remote_table(&module.schema, &table_name, requesting_node_id)?;
+                            let viewer = Runtime::remote_viewer(requesting_node_id);
+                            return runtime
+                                .view_rows(&module, view, &viewer, false)
+                                .map_err(IntersticeError::Internal);
+                        }
                         module
                             .schema
                             .tables
@@ -847,6 +874,11 @@ impl Runtime {
                 for sub in triggered {
                     let _ = runtime.invoke_subscription(sub, event.clone(), fork_token(&completion_token));
                 }
+                // Views over this table, as each subscriber sees them (DESIGN §7.5).
+                for (target, view_event) in runtime.view_events(&event) {
+                    let _ = runtime.invoke_subscription(target, view_event, fork_token(&completion_token));
+                }
+                Runtime::refresh_function_views(&runtime, &event);
             }
             EventInstance::TableUpdateEvent {
                 source_node_id,
@@ -880,6 +912,11 @@ impl Runtime {
                 for sub in triggered {
                     let _ = runtime.invoke_subscription(sub, event.clone(), fork_token(&completion_token));
                 }
+                // Views over this table, as each subscriber sees them (DESIGN §7.5).
+                for (target, view_event) in runtime.view_events(&event) {
+                    let _ = runtime.invoke_subscription(target, view_event, fork_token(&completion_token));
+                }
+                Runtime::refresh_function_views(&runtime, &event);
             }
             EventInstance::TableDeleteEvent {
                 source_node_id,
@@ -910,6 +947,14 @@ impl Runtime {
                 for sub in triggered {
                     let _ = runtime.invoke_subscription(sub, event.clone(), fork_token(&completion_token));
                 }
+                // Views over this table, as each subscriber sees them (DESIGN §7.5).
+                for (target, view_event) in runtime.view_events(&event) {
+                    let _ = runtime.invoke_subscription(target, view_event, fork_token(&completion_token));
+                }
+                Runtime::refresh_function_views(&runtime, &event);
+            }
+            EventInstance::Targeted { target, event } => {
+                let _ = runtime.invoke_subscription(target, *event, fork_token(&completion_token));
             }
             event => {
                 let triggered = runtime.find_subscriptions(&event).unwrap();
@@ -1039,6 +1084,41 @@ fn job_accesses(runtime: &Arc<Runtime>, job: &Job) -> Arc<[scheduler::TableAcces
     }
 }
 
+/// The scheduler keys of the tables behind `table_ref`, if it names a view
+/// of a module on this node.
+fn view_base_tables(
+    modules: &HashMap<String, Arc<Module>>,
+    module_name: &str,
+    table_ref: &interstice_abi::ReducerTableRef,
+) -> Vec<scheduler::AccessKey> {
+    use interstice_abi::{ModuleSelection, NodeSelection, ViewKind};
+    if table_ref.node_selection != NodeSelection::Current {
+        return Vec::new();
+    }
+    let target = match &table_ref.module_selection {
+        ModuleSelection::Current => module_name,
+        ModuleSelection::Other(m) => m.as_str(),
+    };
+    let Some(owner) = modules.values().find(|m| m.schema.name.eq_ignore_ascii_case(target)) else {
+        return Vec::new();
+    };
+    let Some(view) = owner.schema.views.iter().find(|v| v.name.eq_ignore_ascii_case(&table_ref.table_name)) else {
+        return Vec::new();
+    };
+    let owner_name = owner.schema.name.clone();
+    match &view.kind {
+        ViewKind::Filter { table, .. } => vec![normalized_table_key(
+            &owner_name,
+            &interstice_abi::ReducerTableRef {
+                node_selection: NodeSelection::Current,
+                module_selection: ModuleSelection::Current,
+                table_name: table.clone(),
+            },
+        )],
+        ViewKind::Function { reads, .. } => reads.iter().map(|r| normalized_table_key(&owner_name, r)).collect(),
+    }
+}
+
 fn reducer_accesses_uncached(
     runtime: &Arc<Runtime>,
     module_name: &str,
@@ -1063,6 +1143,10 @@ fn reducer_accesses_uncached(
             key: normalized_table_key(module_name, table_ref),
             op: scheduler::TableOp::Read,
         });
+        // Reading a view reads the tables behind it (DESIGN §7.5).
+        for base in view_base_tables(&modules, module_name, table_ref) {
+            out.push(scheduler::TableAccess { key: base, op: scheduler::TableOp::Read });
+        }
     }
     for table_ref in &reducer.inserts {
         out.push(scheduler::TableAccess {

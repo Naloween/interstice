@@ -440,6 +440,45 @@ impl Runtime {
         module.tables.read_recursive()
     }
 
+    /// Scan `table` of `module_name` with the calling frame's pending writes.
+    pub(crate) fn frame_scan(
+        module_name: &str,
+        table_name: &str,
+        table: &crate::runtime::table::Table,
+    ) -> Result<Vec<interstice_abi::Row>, String> {
+        Self::with_overlay(module_name, table_name, |ov| table.ov_scan(ov)).map_err(|e| e.to_string())
+    }
+
+    /// The module of the calling frame.
+    fn reader_module(&self) -> String {
+        CALL_STACK.with(|s| s.borrow().last().map(|f| f.module.clone())).unwrap_or_default()
+    }
+
+    /// Reading another module's data (DESIGN §7.5): its views, as this
+    /// reader sees them; or its public tables. `Ok(Some(rows))` for a view,
+    /// `Ok(None)` for a table it may read.
+    fn published_read(&self, module: &Arc<crate::runtime::module::Module>, name: &str) -> Result<Option<Vec<interstice_abi::Row>>, String> {
+        let reader = self.reader_module();
+        if let Some(view) = module.schema.view(name) {
+            if !Self::may_read_view_locally(&module.schema, name, &reader) {
+                return Err(format!("view '{}.{name}' is internal", module.schema.name));
+            }
+            let viewer = self.local_viewer(&reader);
+            return self.view_rows(module, view, &viewer, true).map(Some);
+        }
+        if reader != module.schema.name {
+            if let Some(table) = module.schema.tables.iter().find(|t| t.name == name) {
+                if table.visibility != interstice_abi::TableVisibility::Public {
+                    return Err(format!(
+                        "table '{}.{name}' is private; read one of its views",
+                        module.schema.name
+                    ));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     pub(crate) fn handle_table_scan(
         &self,
         table_scan_request: TableScanRequest,
@@ -461,6 +500,11 @@ impl Runtime {
             Ok(m) => m,
             Err(e) => return TableScanResponse::Err(e),
         };
+        match self.published_read(&module_arc, &table_scan_request.table_name) {
+            Ok(Some(rows)) => return TableScanResponse::Ok { rows },
+            Ok(None) => {}
+            Err(err) => return TableScanResponse::Err(err),
+        }
 
         let tables = Self::read_tables(&module_arc);
         let table = match tables.get(&table_scan_request.table_name) {
@@ -496,6 +540,15 @@ impl Runtime {
             Ok(m) => m,
             Err(e) => return TableGetByPrimaryKeyResponse::Err(e),
         };
+        match self.published_read(&module_arc, &request.table_name) {
+            Ok(Some(rows)) => {
+                return TableGetByPrimaryKeyResponse::Ok(
+                    rows.into_iter().find(|r| interstice_abi::IndexKey::try_from(&r.primary_key).ok().as_ref() == Some(&request.primary_key)),
+                );
+            }
+            Ok(None) => {}
+            Err(err) => return TableGetByPrimaryKeyResponse::Err(err),
+        }
 
         let row = {
             let tables = Self::read_tables(&module_arc);
@@ -531,6 +584,12 @@ impl Runtime {
             Ok(m) => m,
             Err(e) => return TableIndexScanResponse::Err(e),
         };
+        if module_arc.schema.view(&request.table_name).is_some() {
+            return TableIndexScanResponse::Err("views have no indexes; scan the view".into());
+        }
+        if let Err(err) = self.published_read(&module_arc, &request.table_name) {
+            return TableIndexScanResponse::Err(err);
+        }
 
         let rows = {
             let tables = Self::read_tables(&module_arc);

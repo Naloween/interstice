@@ -81,3 +81,6 @@ impl<Caps> From<RawQueryContext> for QueryContext<Caps> {
         }
     }
 }
+
+/// The context of a function view (DESIGN §7.5): a read-only query context.
+pub type ViewContext<Caps = ()> = QueryContext<Caps>;

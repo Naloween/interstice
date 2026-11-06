@@ -124,6 +124,12 @@ pub enum EventInstance {
     NodeDisconnect {
         node_id: NodeId,
     },
+    /// An event computed for one subscriber only: a view's change as that
+    /// subscriber sees it (DESIGN §7.5).
+    Targeted {
+        target: SubscriptionTarget,
+        event: Box<EventInstance>,
+    },
 }
 
 impl EventInstance {
@@ -285,7 +291,7 @@ impl EventInstance {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SubscriptionTarget {
     Local { module: String, reducer: String },
     Remote(NodeId),
@@ -416,7 +422,23 @@ impl Runtime {
                 }
             }
         } else {
+            // A private table's events stay in its module (DESIGN §7.5).
+            let private_owner = match event {
+                EventInstance::TableInsertEvent { source_node_id: None, module_name, table_name, .. }
+                | EventInstance::TableUpdateEvent { source_node_id: None, module_name, table_name, .. }
+                | EventInstance::TableDeleteEvent { source_node_id: None, module_name, table_name, .. } => self
+                    .modules
+                    .lock()
+                    .get(module_name)
+                    .and_then(|m| m.schema.tables.iter().find(|t| &t.name == table_name).map(|t| t.visibility.clone()))
+                    .filter(|v| *v != interstice_abi::TableVisibility::Public)
+                    .map(|_| module_name.clone()),
+                _ => None,
+            };
             for module in self.modules.lock().values() {
+                if private_owner.as_ref().is_some_and(|owner| *owner != module.schema.name) {
+                    continue;
+                }
                 for sub in &module.schema.subscriptions {
                     if event.has_schema(&sub.event) {
                         out.push(SubscriptionTarget::Local {

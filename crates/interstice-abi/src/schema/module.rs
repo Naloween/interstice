@@ -36,9 +36,67 @@ pub struct ModuleSchema {
     pub module_dependencies: Vec<ModuleDependency>,
     pub node_dependencies: Vec<NodeDependency>,
     pub replicated_tables: Vec<ReplicatedTableSchema>,
+    /// Published read-only relations (DESIGN §7.5).
+    #[serde(default)]
+    pub views: Vec<crate::ViewSchema>,
 }
 
 impl ModuleSchema {
+    pub fn view(&self, name: &str) -> Option<&crate::ViewSchema> {
+        self.views.iter().find(|v| v.name == name)
+    }
+
+    /// Who may read view `name` (DESIGN §7.5): `Default` is `Public` in a
+    /// public module, `Local` in a private one.
+    pub fn view_visibility(&self, name: &str) -> Option<crate::CallVisibility> {
+        use crate::CallVisibility as V;
+        Some(match self.view(name)?.visibility {
+            V::Default if self.visibility == ModuleVisibility::Public => V::Public,
+            V::Default => V::Local,
+            other => other,
+        })
+    }
+
+    /// The fields of `type_name`, if it is a struct of this module.
+    fn struct_fields(&self, type_name: &str) -> Option<&Vec<crate::FieldDef>> {
+        match self.type_definitions.get(type_name)? {
+            IntersticeTypeDef::Struct { fields, .. } => Some(fields),
+            IntersticeTypeDef::Enum { .. } => None,
+        }
+    }
+
+    /// View `name` shaped as a table (DESIGN §7.5): what bindings, replicas
+    /// and table sync see. Its type is named after the view
+    /// (`my_responses` → `MyResponses`); fields exclude the key, in order.
+    pub fn view_table_schema(&self, name: &str) -> Option<TableSchema> {
+        let view = self.view(name)?;
+        let all = self.struct_fields(&view.row_type)?;
+        let primary_key = all.iter().find(|f| f.name == view.primary_key)?.clone();
+        Some(TableSchema {
+            name: view.name.clone(),
+            type_name: crate::view_type_name(&view.name),
+            visibility: TableVisibility::Public,
+            fields: all.iter().filter(|f| f.name != view.primary_key).cloned().collect(),
+            primary_key,
+            primary_key_auto_inc: false,
+            indexes: Vec::new(),
+            persistence: crate::PersistenceKind::Ephemeral,
+            retention: None,
+            history: None,
+            defaults: Vec::new(),
+        })
+    }
+
+    /// The bindings' struct for view `name`: the row type's fields, under
+    /// the view's own type name.
+    pub fn view_type_def(&self, name: &str) -> Option<IntersticeTypeDef> {
+        let view = self.view(name)?;
+        Some(IntersticeTypeDef::Struct {
+            name: crate::view_type_name(&view.name),
+            fields: self.struct_fields(&view.row_type)?.clone(),
+        })
+    }
+
     /// The effective visibility of reducer or query `name` (DESIGN §7.4);
     /// `None` when there is no such function.
     pub fn call_visibility(&self, name: &str, query: bool) -> Option<crate::CallVisibility> {
@@ -120,6 +178,7 @@ impl ModuleSchema {
             module_dependencies: Vec::new(),
             node_dependencies: Vec::new(),
             replicated_tables: Vec::new(),
+            views: Vec::new(),
         }
     }
 
@@ -151,6 +210,7 @@ impl ModuleSchema {
             module_dependencies,
             node_dependencies,
             replicated_tables,
+            views: Vec::new(),
         }
     }
 
@@ -166,6 +226,13 @@ impl ModuleSchema {
         self.reducers.retain(|_| keep.next().unwrap_or(false));
         let mut keep = keep_queries.into_iter();
         self.queries.retain(|_| keep.next().unwrap_or(false));
+        let keep_views: Vec<bool> = self
+            .views
+            .iter()
+            .map(|v| self.view_visibility(&v.name) == Some(crate::CallVisibility::Public))
+            .collect();
+        let mut keep = keep_views.into_iter();
+        self.views.retain(|_| keep.next().unwrap_or(false));
         self.to_public()
     }
 
@@ -254,7 +321,8 @@ impl ModuleSchema {
         for reducer_schema in &self.reducers {
             // Event handlers are not an API, unless marked `public` (§7.4).
             let add_reducer = reducer_schema.visibility == crate::CallVisibility::Public
-                || !self.subscriptions.iter().any(|s| s.reducer_name == reducer_schema.name);
+                || (reducer_schema.visibility != crate::CallVisibility::Internal
+                    && !self.subscriptions.iter().any(|s| s.reducer_name == reducer_schema.name));
             if add_reducer {
                 reducers.push(reducer_schema.clone());
 
@@ -273,8 +341,13 @@ impl ModuleSchema {
             }
         }
 
-        // Collect types from queries
-        let queries = self.queries.clone();
+        // Collect types from queries (internal ones are not callable from outside)
+        let queries: Vec<_> = self
+            .queries
+            .iter()
+            .filter(|q| self.call_visibility(&q.name, true) != Some(crate::CallVisibility::Internal))
+            .cloned()
+            .collect();
         for query_schema in &queries {
             // Collect types from query arguments and their dependencies
             for arg in &query_schema.arguments {
@@ -297,7 +370,28 @@ impl ModuleSchema {
             }
         }
 
+        // Views readable from outside, with their row types (DESIGN §7.5)
+        let views: Vec<crate::ViewSchema> = self
+            .views
+            .iter()
+            .filter(|v| self.view_visibility(&v.name) != Some(crate::CallVisibility::Internal))
+            .cloned()
+            .collect();
+        for view in &views {
+            collect_type_recursively(&view.row_type, &mut type_definitions, &self.type_definitions);
+            if let Some(IntersticeTypeDef::Struct { fields, .. }) = self.type_definitions.get(&view.row_type) {
+                for field in fields {
+                    let mut nested = Vec::new();
+                    extract_named_types(&field.field_type, &mut nested);
+                    for type_name in nested {
+                        collect_type_recursively(&type_name, &mut type_definitions, &self.type_definitions);
+                    }
+                }
+            }
+        }
+
         Self {
+            views,
             abi_version: self.abi_version,
             name: self.name,
             visibility: self.visibility,

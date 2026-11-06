@@ -1,7 +1,8 @@
-abi_version = 8
+abi_version = 15
 name = "network"
 visibility = "Public"
 queries = []
+tables = []
 subscriptions = []
 authorities = ["Network"]
 module_dependencies = []
@@ -18,6 +19,7 @@ name = "send"
 inserts = []
 updates = []
 deletes = []
+visibility = "Default"
 
 [[reducers.arguments]]
 name = "handle"
@@ -38,6 +40,7 @@ table_name = "tcppending"
 name = "close"
 inserts = []
 updates = []
+visibility = "Default"
 
 [[reducers.arguments]]
 name = "handle"
@@ -58,6 +61,7 @@ name = "connect"
 reads = []
 updates = []
 deletes = []
+visibility = "Default"
 
 [[reducers.arguments]]
 name = "req_id"
@@ -79,6 +83,7 @@ table_name = "tcppending"
 [[reducers]]
 name = "resolve"
 deletes = []
+visibility = "Default"
 
 [[reducers.arguments]]
 name = "req_id"
@@ -106,6 +111,7 @@ table_name = "netcfg"
 [[reducers]]
 name = "http_get"
 deletes = []
+visibility = "Default"
 
 [[reducers.arguments]]
 name = "req_id"
@@ -143,171 +149,6 @@ node_selection = "Current"
 module_selection = "Current"
 table_name = "netcfg"
 
-[[tables]]
-name = "inbound"
-type_name = "Inbound"
-visibility = "Public"
-primary_key_auto_inc = true
-indexes = []
-persistence = "Ephemeral"
-retention = 256
-
-[[tables.fields]]
-name = "owner"
-field_type = "String"
-
-[[tables.fields]]
-name = "handle"
-field_type = "U64"
-
-[[tables.fields]]
-name = "data"
-
-[tables.fields.field_type]
-Vec = "U8"
-
-[tables.primary_key]
-name = "id"
-field_type = "U64"
-
-[[tables]]
-name = "resolved"
-type_name = "Resolved"
-visibility = "Public"
-primary_key_auto_inc = true
-indexes = []
-persistence = "Ephemeral"
-retention = 256
-
-[[tables.fields]]
-name = "owner"
-field_type = "String"
-
-[[tables.fields]]
-name = "req_id"
-field_type = "U64"
-
-[[tables.fields]]
-name = "host"
-field_type = "String"
-
-[[tables.fields]]
-name = "ip"
-field_type = "String"
-
-[[tables.fields]]
-name = "error"
-field_type = "String"
-
-[tables.primary_key]
-name = "id"
-field_type = "U64"
-
-[[tables]]
-name = "connclosed"
-type_name = "ConnClosed"
-visibility = "Public"
-primary_key_auto_inc = true
-indexes = []
-persistence = "Ephemeral"
-retention = 256
-
-[[tables.fields]]
-name = "owner"
-field_type = "String"
-
-[[tables.fields]]
-name = "handle"
-field_type = "U64"
-
-[tables.primary_key]
-name = "id"
-field_type = "U64"
-
-[[tables]]
-name = "connection"
-type_name = "Connection"
-visibility = "Public"
-primary_key_auto_inc = true
-indexes = []
-persistence = "Ephemeral"
-retention = 256
-
-[[tables.fields]]
-name = "owner"
-field_type = "String"
-
-[[tables.fields]]
-name = "req_id"
-field_type = "U64"
-
-[[tables.fields]]
-name = "handle"
-field_type = "U64"
-
-[[tables.fields]]
-name = "status"
-field_type = "String"
-
-[[tables.fields]]
-name = "error"
-field_type = "String"
-
-[tables.primary_key]
-name = "id"
-field_type = "U64"
-
-[[tables]]
-name = "httpresponse"
-type_name = "HttpResponse"
-visibility = "Public"
-primary_key_auto_inc = true
-indexes = []
-persistence = "Ephemeral"
-retention = 16
-
-[[tables.fields]]
-name = "owner"
-field_type = "String"
-
-[[tables.fields]]
-name = "req_id"
-field_type = "U64"
-
-[[tables.fields]]
-name = "status_line"
-field_type = "String"
-
-[[tables.fields]]
-name = "body"
-
-[tables.fields.field_type]
-Vec = "U8"
-
-[[tables.fields]]
-name = "error"
-field_type = "String"
-
-[[tables.fields]]
-name = "done"
-field_type = "Bool"
-
-[[tables.fields]]
-name = "final_host"
-field_type = "String"
-
-[[tables.fields]]
-name = "final_path"
-field_type = "String"
-
-[[tables.fields]]
-name = "final_tls"
-field_type = "Bool"
-
-[tables.primary_key]
-name = "id"
-field_type = "U64"
-
 [type_definitions.Inbound.Struct]
 name = "Inbound"
 
@@ -329,30 +170,30 @@ name = "data"
 [type_definitions.Inbound.Struct.fields.field_type]
 Vec = "U8"
 
-[type_definitions.Connection.Struct]
-name = "Connection"
+[type_definitions.Resolved.Struct]
+name = "Resolved"
 
-[[type_definitions.Connection.Struct.fields]]
+[[type_definitions.Resolved.Struct.fields]]
 name = "id"
 field_type = "U64"
 
-[[type_definitions.Connection.Struct.fields]]
+[[type_definitions.Resolved.Struct.fields]]
 name = "owner"
 field_type = "String"
 
-[[type_definitions.Connection.Struct.fields]]
+[[type_definitions.Resolved.Struct.fields]]
 name = "req_id"
 field_type = "U64"
 
-[[type_definitions.Connection.Struct.fields]]
-name = "handle"
-field_type = "U64"
-
-[[type_definitions.Connection.Struct.fields]]
-name = "status"
+[[type_definitions.Resolved.Struct.fields]]
+name = "host"
 field_type = "String"
 
-[[type_definitions.Connection.Struct.fields]]
+[[type_definitions.Resolved.Struct.fields]]
+name = "ip"
+field_type = "String"
+
+[[type_definitions.Resolved.Struct.fields]]
 name = "error"
 field_type = "String"
 
@@ -401,6 +242,33 @@ field_type = "String"
 name = "final_tls"
 field_type = "Bool"
 
+[type_definitions.Connection.Struct]
+name = "Connection"
+
+[[type_definitions.Connection.Struct.fields]]
+name = "id"
+field_type = "U64"
+
+[[type_definitions.Connection.Struct.fields]]
+name = "owner"
+field_type = "String"
+
+[[type_definitions.Connection.Struct.fields]]
+name = "req_id"
+field_type = "U64"
+
+[[type_definitions.Connection.Struct.fields]]
+name = "handle"
+field_type = "U64"
+
+[[type_definitions.Connection.Struct.fields]]
+name = "status"
+field_type = "String"
+
+[[type_definitions.Connection.Struct.fields]]
+name = "error"
+field_type = "String"
+
 [type_definitions.ConnClosed.Struct]
 name = "ConnClosed"
 
@@ -416,29 +284,97 @@ field_type = "String"
 name = "handle"
 field_type = "U64"
 
-[type_definitions.Resolved.Struct]
-name = "Resolved"
+[[views]]
+name = "my_closed"
+visibility = "Local"
+row_type = "ConnClosed"
+primary_key = "id"
+per_viewer = true
 
-[[type_definitions.Resolved.Struct.fields]]
-name = "id"
-field_type = "U64"
+[views.kind.Filter]
+table = "connclosed"
 
-[[type_definitions.Resolved.Struct.fields]]
-name = "owner"
-field_type = "String"
+[views.kind.Filter.predicate.Compare]
+op = "Eq"
 
-[[type_definitions.Resolved.Struct.fields]]
-name = "req_id"
-field_type = "U64"
+[views.kind.Filter.predicate.Compare.left]
+Column = "owner"
 
-[[type_definitions.Resolved.Struct.fields]]
-name = "host"
-field_type = "String"
+[views.kind.Filter.predicate.Compare.right]
+Viewer = "Module"
 
-[[type_definitions.Resolved.Struct.fields]]
-name = "ip"
-field_type = "String"
+[[views]]
+name = "my_inbound"
+visibility = "Local"
+row_type = "Inbound"
+primary_key = "id"
+per_viewer = true
 
-[[type_definitions.Resolved.Struct.fields]]
-name = "error"
-field_type = "String"
+[views.kind.Filter]
+table = "inbound"
+
+[views.kind.Filter.predicate.Compare]
+op = "Eq"
+
+[views.kind.Filter.predicate.Compare.left]
+Column = "owner"
+
+[views.kind.Filter.predicate.Compare.right]
+Viewer = "Module"
+
+[[views]]
+name = "my_resolved"
+visibility = "Local"
+row_type = "Resolved"
+primary_key = "id"
+per_viewer = true
+
+[views.kind.Filter]
+table = "resolved"
+
+[views.kind.Filter.predicate.Compare]
+op = "Eq"
+
+[views.kind.Filter.predicate.Compare.left]
+Column = "owner"
+
+[views.kind.Filter.predicate.Compare.right]
+Viewer = "Module"
+
+[[views]]
+name = "my_responses"
+visibility = "Local"
+row_type = "HttpResponse"
+primary_key = "id"
+per_viewer = true
+
+[views.kind.Filter]
+table = "httpresponse"
+
+[views.kind.Filter.predicate.Compare]
+op = "Eq"
+
+[views.kind.Filter.predicate.Compare.left]
+Column = "owner"
+
+[views.kind.Filter.predicate.Compare.right]
+Viewer = "Module"
+
+[[views]]
+name = "my_connections"
+visibility = "Local"
+row_type = "Connection"
+primary_key = "id"
+per_viewer = true
+
+[views.kind.Filter]
+table = "connection"
+
+[views.kind.Filter.predicate.Compare]
+op = "Eq"
+
+[views.kind.Filter.predicate.Compare.left]
+Column = "owner"
+
+[views.kind.Filter.predicate.Compare.right]
+Viewer = "Module"

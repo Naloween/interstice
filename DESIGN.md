@@ -1088,6 +1088,165 @@ server to issue tokens and no proxy in front, so:
 
 ---
 
+### 7.5 Views
+
+A **view** is a read-only relation that a module publishes. Its rows have
+a primary key, and they are defined from the module's tables, possibly
+depending on who reads them, the **viewer**. A table is stored and
+observable; a query is defined by code but answers once. A view is
+defined by code and observable: readers scan it, get by key, subscribe
+to its insert, update and delete events, and replicate it across nodes,
+exactly like a table they can't write. It follows SpacetimeDB's views,
+which it also plans to use in place of row-level security.
+
+**The viewer** is `Viewer { node, module }`, supplied by the kernel and
+never by the reader:
+- A module on the same node: `node` is this node, `module` the calling
+  module. The kernel vouches for both.
+- Another node: `node` is the peer's identity (§7.4), and `module` is
+  empty. The remote node only claims which of its modules is asking, so
+  that claim is not trusted. As in SpacetimeDB, the identity (the node,
+  i.e. the user) authorizes; a remote node's modules act for the same
+  user, as one SpacetimeDB identity's several connections do.
+
+**What is published.** From outside a module (other modules, other
+nodes) only **public tables and views** can be read or subscribed to.
+A module reads its own tables directly. `#[table(public)]` stays: it is
+the trivial view, every row to everyone. Private tables are refused to
+other modules for reads and subscriptions; until now only the declared
+access was checked locally. The convention: **a module's views are its
+API, its tables its implementation**. A view can keep its shape while
+the tables behind it change, so dependents don't break on a migration
+(§3.3).
+
+**Two kinds**, the same split SpacetimeDB makes between query-builder
+views (incremental) and procedural views (re-run).
+
+1. **Filter views.** One table and a row condition:
+
+   ```rust
+   #[view(public, from = HttpResponse)]
+   fn my_responses(r: &HttpResponse, viewer: &Viewer) -> bool {
+       r.owner == viewer.module
+   }
+   ```
+
+   - The body is a restricted closure: column fields of `r`,
+     `viewer.node` / `viewer.module`, literals (strings, integers,
+     booleans), `== != < <= > >=`, `&& || !` and parentheses.
+   - The macro rejects anything else with an error at that span. It also
+     emits the function unchanged, so rustc type-checks the condition.
+     It records the condition as an expression in the schema
+     (`ViewExpr`), which the kernel evaluates natively.
+   - Rows are the table's rows, and the key is the table's key. The
+     `viewer` parameter is optional; without it the view is the same for
+     everyone (anonymous).
+   - A view is a filter view when it takes `&Row` and returns `bool`. The
+     row parameter names the table, so `from = Table` is optional; when
+     given, it must match.
+   - **Cost:**
+     - **No copy:** nothing is stored.
+     - **No WebAssembly:** the kernel evaluates the condition itself.
+     - **Reads:** a scan of the table, filtered.
+     - **Deltas:** for each change of the table, the condition is tested
+       on the old and new row for each subscriber:
+       - true → true is an update;
+       - false → true is an insert;
+       - true → false is a delete;
+       - false → false sends nothing.
+2. **Function views.** Arbitrary code with declared reads, like a query:
+
+   ```rust
+   #[view(public, key = name)]
+   fn leaderboard<Caps>(ctx: ViewContext<Caps>) -> Vec<Entry>
+   where Caps: CanRead<Player> { … }
+   ```
+
+   - `ViewContext` is a `QueryContext`: read-only and deterministic. An
+     optional second parameter `viewer: &Viewer` makes the view per
+     viewer. `key = field` names the row type's primary key, which is
+     required: without a key, an update can't be told from a delete and
+     an insert.
+   - **How it is run:** the macro turns the function into an internal
+     query (`view_fn_<name>`), so it runs on the query path, against a
+     consistent snapshot.
+   - **When it is re-run:** whenever a table it declared changes. Its
+     result is then compared with the previous one by key, which yields
+     the inserts, updates and deletes.
+
+**Caches.**
+- Filter views have none.
+- A function view keeps one result per (view, viewer) that has
+  subscribers. An anonymous view keeps one result shared by all of
+  them, which is why anonymous views are preferred.
+- The cache is in memory, owned by the kernel, and never persisted. It
+  is derived data: the tables and their logs hold the truth and the
+  history.
+- It is filled when a subscriber appears (a module loads, or a peer
+  subscribes) and when the owner loads. It is dropped with the
+  subscriber.
+- Plain reads of a function view run the function. They don't use the
+  cache, so they see the reader's snapshot.
+
+**Visibility.** Views take `public`, `local` or `internal` like
+reducers. The default is `public` in a public module and `local` in a
+private one. Remote readers need a `public` view in a `Public` module;
+owners and the kernel are never limited (§7.4).
+
+**SDK, reader side.** The bindings generate views next to tables, as
+read-only handles. Each view gets its own row struct, named after it
+(`MyResponses`):
+- reads: `ctx.network().views.my_responses().scan()` and `.get(pk)`;
+- subscriptions: `#[reducer(on = "network.my_responses.insert")]`;
+- replicas: `replicated_tables: ["node.module.my_responses"]`.
+
+Reading is declared like a table (`CanRead<MyResponses>`).
+
+**Kernel.**
+- **Schema.** `ModuleSchema.views: Vec<ViewSchema { name, visibility,
+  row_type, primary_key, per_viewer, kind: Filter { table, predicate } |
+  Function { query, reads } }>` (ABI 15).
+  `ModuleSchema::view_table_schema` gives a view the shape of a table,
+  which bindings, replicas and table sync reuse.
+- **Names.** A view shares the module's table namespace, so the read host
+  calls (`TableScan`, `TableGetByPrimaryKey`, `TableIndexScan`) take a
+  view name where they take a table name.
+- **Scheduling.** Reading a view counts, for the scheduler, as reading
+  the tables behind it.
+- **Subscriptions.** After each local commit to table `T` of module `M`,
+  the kernel derives the events of `M`'s filter views over `T` for each
+  subscriber, local or remote, and re-runs the function views (of any
+  module) that read `M.T`. Derived events go only to the subscriber
+  they were computed for, and after the commit's own events.
+- **Replicas and remote subscriptions.** A replica of a view is synced
+  and kept current with the peer as viewer.
+- **Migrations.** The plan lists added and removed views, like
+  reducers: a removed view is "readers may break".
+
+**The network module** is the first user. Its result tables
+(`Connection`, `Inbound`, `ConnClosed`, `Resolved`, `HttpResponse`) are
+private, published as `local` views `my_connections`, `my_inbound`,
+`my_closed`, `my_resolved` and `my_responses`, filtered by `owner ==
+viewer.module`. An app no longer sees, or filters out, other apps'
+traffic. The browser and http-get subscribe to
+`network.my_responses.insert`.
+
+**Status:**
+- **No views with arguments yet** (SpacetimeDB's
+  `players_at_level(2)`).
+- **No column projection, and no joins in filter views.**
+- **No time travel on views.** A filter view at time t is simply the
+  filter applied to the table at t, but it is not exposed yet.
+- **Function views are re-run on any change of a table they read.** No
+  finer read-set tracking.
+- **Function views over replicas aren't re-run on replica changes.**
+- **A function view's events arrive slightly after the commit's own
+  events.** It is re-run off the event loop.
+- **Reading a function view inside a reducer runs it.** It sees committed
+  data, not the reducer's pending writes; filter views see both.
+
+---
+
 ## 8. Authorities and default modules
 
 Each authority is held by at most one module per node, claimed at load time
@@ -1737,11 +1896,13 @@ but explicitly out of scope for now.
 - [x] Key-pair identities (self-certifying ids), mutual TLS 1.3 between
       peers, admission by the Module holder's `connect` handler (§7.4),
       after SpacetimeDB's identity model.
-- [ ] Row-level visibility / views (SpacetimeDB's RLS), key rotation.
+- [x] Views (§7.5): filter and function views, per viewer or anonymous;
+      private tables closed to other modules.
+- [ ] Key rotation; views with arguments.
 - [ ] Authority model for the "OS" use case: which module may grant which
       authority to whom; per-user identities.
 - [ ] Replica writes and remote queries through the scheduler (§6.3).
-- [ ] Row-level visibility (e.g. per-app filtering of `network` results,
+- [x] Row-level visibility (e.g. per-app filtering of `network` results,
       which today rely on an `owner` column filtered client-side).
 - [x] Bundles (§9.1): a node's modules and data in one `.itb` file, or as
       a program; install and update go through the §3.3 migration plan.

@@ -46,7 +46,6 @@ use engine::{Browser, Store};
 
 interstice_module!(visibility: Public, authorities: [File]);
 
-const ME: &str = "browser-example";
 const LAYER: &str = "browser";
 const OVERLAY_LAYER: &str = "browser_overlay";
 const CURSOR_LAYER: &str = "browser_cursor";
@@ -313,12 +312,10 @@ pub fn on_load(ctx: ReducerContext<BrowserCaps>) -> Result<(), String>
 
 // ── Network ──────────────────────────────────────────────────────────────────
 
-#[reducer(on = "network.httpresponse.insert")]
-pub fn on_http(ctx: ReducerContext<BrowserCaps>, row: HttpResponse) -> Result<(), String>
+/// `my_responses` shows the browser its own responses only (DESIGN §7.5).
+#[reducer(on = "network.my_responses.insert")]
+pub fn on_http(ctx: ReducerContext<BrowserCaps>, row: MyResponses) -> Result<(), String>
 {
-    if row.owner != ME {
-        return Ok(());
-    }
     let requests = ctx.current.tables.request();
     let Some(req) = requests.get(row.req_id)? else { return Ok(()) };
     let _ = requests.delete(row.req_id);

@@ -250,6 +250,13 @@ pub fn describe_module(
     let tables = interstice_sdk_core::registry::collect_tables();
     let subscriptions = interstice_sdk_core::registry::collect_subscriptions();
     let type_definitions = interstice_sdk_core::registry::collect_type_definitions();
+    let views = finalize_views(
+        name,
+        interstice_sdk_core::registry::collect_views(),
+        &tables,
+        &queries,
+        &type_definitions,
+    );
 
     validate_declared_accesses(
         name,
@@ -284,12 +291,62 @@ pub fn describe_module(
         module_dependencies,
         node_dependencies,
         replicated_tables,
+        views,
     };
 
     let bytes = encode(&schema).unwrap();
     let len = bytes.len() as i32;
     let ptr = Box::into_raw(bytes.into_boxed_slice()) as *mut u8 as i32;
     return pack_ptr_len(ptr, len);
+}
+
+/// Fill in what a `#[view]` can't know on its own (DESIGN §7.5): a filter
+/// view's row type and key come from its table, a function view's reads
+/// from its query. A bad view fails the describe, so the module won't load.
+fn finalize_views(
+    module: &str,
+    mut views: Vec<interstice_abi::ViewSchema>,
+    tables: &[interstice_abi::TableSchema],
+    queries: &[QuerySchema],
+    type_definitions: &std::collections::HashMap<String, interstice_abi::IntersticeTypeDef>,
+) -> Vec<interstice_abi::ViewSchema> {
+    for view in &mut views {
+        if tables.iter().any(|t| t.name == view.name) {
+            panic!("module '{module}': view '{}' has the name of a table", view.name);
+        }
+        match &mut view.kind {
+            interstice_abi::ViewKind::Filter { table, .. } => {
+                let schema = tables
+                    .iter()
+                    .find(|t| &t.name == table)
+                    .unwrap_or_else(|| panic!("module '{module}': view '{}' filters unknown table '{table}'", view.name));
+                view.row_type = schema.type_name.clone();
+                view.primary_key = schema.primary_key.name.clone();
+            }
+            interstice_abi::ViewKind::Function { query, reads } => {
+                let schema = queries
+                    .iter()
+                    .find(|q| &q.name == query)
+                    .unwrap_or_else(|| panic!("module '{module}': view '{}' lost its query", view.name));
+                *reads = schema.reads.clone();
+                match type_definitions.get(&view.row_type) {
+                    Some(interstice_abi::IntersticeTypeDef::Struct { fields, .. }) => {
+                        if !fields.iter().any(|f| f.name == view.primary_key) {
+                            panic!(
+                                "module '{module}': view '{}' has key '{}', which '{}' does not have",
+                                view.name, view.primary_key, view.row_type
+                            );
+                        }
+                    }
+                    _ => panic!(
+                        "module '{module}': view '{}' returns '{}', which is not an #[interstice_type] struct",
+                        view.name, view.row_type
+                    ),
+                }
+            }
+        }
+    }
+    views
 }
 
 fn validate_declared_accesses(
