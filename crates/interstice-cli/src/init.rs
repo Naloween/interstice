@@ -2,22 +2,25 @@ use std::{io, path::Path};
 
 use interstice_core::IntersticeError;
 
-// Init module projectect structure in current directory, it should ask the project name create the directory
-// and create a template module in it. The template has the basic rust structure with the additional interstice_sdk dependency, a build.rs file filled twith the provided macro
-// and a src/lib.rs file with a template module using the interstice_module macro and a simple reducer.
-// It should also add a .cargo/config.toml to set the target to be wasm32-unknown-unknown and a Cargo.toml with the interstice_sdk dependency and the build script.
-// The command should fail if the current directory is not empty to avoid overwriting files.
-pub fn init() -> Result<(), IntersticeError> {
-    println!("Enter the project name: ");
-    let project_name = &mut String::new();
-    io::stdin()
-        .read_line(project_name)
-        .expect("Should be able to read line");
-    let project_name = project_name
-        .parse::<String>()
-        .map_err(|_| IntersticeError::Internal("Failed to read project name".into()))?
-        .trim()
-        .to_string();
+/// `interstice init [name]`: create `<name>/` with a hello-world module:
+/// `Cargo.toml` (cdylib, `interstice-sdk`), `build.rs` (bindings),
+/// `.cargo/config.toml` (wasm32 target) and `src/lib.rs`. Asks for the name
+/// when it is not given; refuses an existing directory.
+pub fn init(name: Option<&str>) -> Result<(), IntersticeError> {
+    let project_name = match name {
+        Some(name) => name.trim().to_string(),
+        None => {
+            println!("Enter the project name: ");
+            let mut line = String::new();
+            io::stdin()
+                .read_line(&mut line)
+                .map_err(|e| IntersticeError::Internal(format!("Failed to read the project name: {e}")))?;
+            line.trim().to_string()
+        }
+    };
+    if project_name.is_empty() {
+        return Err(IntersticeError::Internal("give a project name: interstice init <name>".into()));
+    }
     let project_path = Path::new(&project_name);
     if project_path.exists() {
         return Err(IntersticeError::Internal("Directory already exists".into()));

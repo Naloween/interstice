@@ -3,58 +3,27 @@
 
 # Interstice
 
-Interstice is a minimal, modular substrate for running sandboxed WebAssembly modules that cooperate through typed, versioned data and deterministic reducers.
+Interstice runs sandboxed WebAssembly **modules** that cooperate through typed
+tables and transactional reducers, on one machine or across many. It is built
+like an operating system:
+- **The engine is the kernel.** It stores tables, schedules reducers in
+  parallel when they don't conflict, enforces who may call and read what, and
+  proves who is calling.
+- **Everything else is a module**, from the drivers (GPU, input, audio, files,
+  network) to the module manager and the apps.
 
-Contents
+- **Tables** are typed, indexed and persistent. Logged tables keep their
+  history, so state can be read at, and restored to, any past transaction.
+  Schemas migrate automatically.
+- **Reducers** are atomic, deterministic transactions. They react to table
+  changes, input, timers and other nodes.
+- **Views** publish read-only relations that each reader may see differently.
+- **Nodes** talk over mutual TLS. Their identities are their keys, and the
+  security model follows SpacetimeDB's.
+- **Bundles** ship a whole node (modules and data) as one file, or as a
+  program.
 
-- Architecture Overview
-- Quickstart
-- Module authoring
-- Examples
-- Loading modules
-- Roadmap & TODOs
-- Contribution & License
-
-The look of every example (colours, type, the mark) is defined in [brand/BRAND.md](brand/BRAND.md) and implemented once in `interstice_ui::theme`.
-
-Repository layout
-
-- The core runtime: [crates/interstice-core](crates/interstice-core)
-- The WASM ABI and types: [crates/interstice-abi](crates/interstice-abi)
-- The Rust SDK and macros: [crates/interstice-sdk\*](crates/interstice-sdk)
-- The CLI: [crates/interstice-cli](crates/interstice-cli)
-- Example modules: [modules/examples/desktop](modules/examples/desktop) (the showcase), [modules/examples/notes](modules/examples/notes), [modules/hello](modules/hello), [modules/caller](modules/caller), [modules/graphics](modules/graphics), [modules/audio](modules/audio)
-
----
-
-# Install CLI
-
-Prebuilt binaries are published on GitHub Releases.
-
-Linux / macOS:
-
-```bash
-VERSION="0.5.0"
-TARGET="x86_64-unknown-linux-gnu" # or x86_64-apple-darwin, aarch64-apple-darwin
-curl -L -o interstice.tar.gz \
-  https://github.com/Naloween/interstice/releases/download/v${VERSION}/interstice-${VERSION}-${TARGET}.tar.gz
-tar -xzf interstice.tar.gz
-sudo mv interstice /usr/local/bin/
-interstice --help
-```
-
-Windows (PowerShell):
-
-```powershell
-$Version = "0.5.0"
-$Target = "x86_64-pc-windows-msvc"
-$Url = "https://github.com/Naloween/interstice/releases/download/v${Version}/interstice-${Version}-${Target}.zip"
-
-Invoke-WebRequest $Url -OutFile interstice.zip
-Expand-Archive interstice.zip -DestinationPath .
-Move-Item .\interstice.exe "$Env:USERPROFILE\AppData\Local\Microsoft\WindowsApps\"
-interstice --help
-```
+## Install
 
 From crates.io:
 
@@ -62,560 +31,89 @@ From crates.io:
 cargo install interstice-cli
 ```
 
-If `interstice` is not found, ensure the destination folder is on your PATH.
+Prebuilt binaries for Linux, macOS and Windows are attached to the
+[GitHub releases](https://github.com/Naloween/interstice/releases).
 
----
-
-# Quickstart
-
-The full showcase is the desktop: a window manager written as an ordinary
-module, which launches the other examples as apps (see below):
+## Try it
 
 ```bash
-interstice example agar-server   # optional, in another terminal: lets the agar app connect
-interstice example desktop
+interstice example desktop     # a desktop made of modules; click Apps
+interstice example hello       # a minimal module
+interstice example caller      # with hello running: calls across nodes
 ```
 
-Start the hello example:
-
-```bash
-interstice example hello
-```
-
-Start the caller example to simulate remote interactions:
-
-```bash
-interstice example caller
-```
-
----
-
-# Module authoring
-
-## Prerequisites
-
-- Rust toolchain (stable) and `cargo`
-- Add the WASM target:
+## Write a module
 
 ```bash
 rustup target add wasm32-unknown-unknown
+interstice init counter && cd counter
 ```
-
-## Quickstart
-
-The CLI provides a simple init command to start a Rust module for Interstice. It fills the project with a hello example, sets up the config to build for WASM, and adds the required macro calls in build.rs and at the top of lib.rs.
-
-```bash
-interstice init
-```
-
-## Minimal layout
-
-- `Cargo.toml` — set `crate-type = ["cdylib"]` and depend on `interstice-sdk`.
-- `build.rs` — generate module bindings.
-- `src/lib.rs` — module implementation.
-
-## SDK macros & patterns
-
-At the top of `lib.rs`, call `interstice_module!()` to define the required global WASM glue. The module name is read from Cargo.toml.
-You can also pass parameters like `interstice_module!(visibility: Public, authorities: [Gpu, Input])`. `visibility` controls whether the module is accessible from other nodes (default is `Private`). When a module is `Private`, only local modules on the same node can access its reducers, queries, and tables for subscriptions.
-The `authorities` argument declares which capabilities the module claims. See below for details.
-
-### Table
-
-Define tables with the `#[table]` macro on top of a struct:
 
 ```rust
+use interstice_sdk::*;
+
+interstice_module!(visibility: Public);
+
 #[table]
-struct MyTable{
-  #[primary_key(auto_inc)]
-  id: u64,
-
-  #[index(hash, unique)]
-  email: String,
-
-  #[index(btree)]
-  created_at: i64,
-
-  content: String
-}
-```
-
-Rules:
-
-- `#[primary_key]` is required and enforces uniqueness. Add `auto_inc` to generate values automatically.
-- `#[index(hash)]` and `#[index(btree)]` create secondary indexes. Use `unique` to enforce uniqueness, and `auto_inc` to generate integer values on insert.
-- `auto_inc` is supported for integer types only (u8, u32, u64, i32, i64).
-
-#### Persistence modes
-
-Tables default to **logged** persistence. You can opt into other behaviors:
-
-```rust
-#[table(stateful)]
-struct AssetStore { /* ... */ }
-
-#[table(ephemeral)]
-struct DerivedCache { /* ... */ }
-
-#[table(public, event = 256)]   // bare `event` keeps 256
-struct Notification { /* ... */ }
-```
-
-| Mode                 | Disk space                                  | Restart behavior                   | Best for                                                                             |
-| -------------------- | ------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------ |
-| **Logged** (default) | Grows with history (bounded by `history`)    | Checkpoint + log replay            | Transactional data, audit trails, anything you may want to rewind                    |
-| **Stateful**         | ≈ current live data (one file per row)      | Reads row files directly           | Large assets (images, audio, video blobs), rows that update frequently and are large |
-| **Ephemeral**        | Zero                                        | Table starts empty                 | Caches, derived views, session state                                                 |
-
-- **Logged** — every mutation is appended to a log (fsynced every ~10 ms in a background thread), tagged with its transaction id and timestamp. The log is the table's **history**, as in SpacetimeDB: nothing is compacted away, and periodic checkpoints only make restarts and past reads fast. On restart the runtime loads the newest checkpoint and replays the log after it. `#[table(history = "7d")]` bounds how far back it is kept (default `"all"`). See [Time travel](#determinism-and-concurrency).
-- **Stateful** — each row lives in its own file (`<pk>.row`) inside a dedicated directory. Insert and update atomically replace the row file; delete removes it; clear removes all files. Disk usage equals exactly the sum of current row sizes — no history accumulates. On restart the runtime reads every row file to reconstruct the table.
-- **Ephemeral** — never written to disk. The table starts empty when the node starts. Ideal for caches or derived state you can recompute.
-- **Event** (`event = N`) — an ephemeral notification table that keeps only its `N` most recently inserted rows. Subscribers get each row in the insert event; after every commit the engine evicts the oldest rows beyond `N` (evictions don't fire delete events). Use it for results, messages and logs that nobody needs to keep forever.
-
-Only one persistence keyword may be used per table. If you omit the keyword you get the default logged behavior.
-
-When inserting, the table API returns the inserted row so you can read generated values:
-
-```rust
-let row = ctx.current.tables.mytable().insert(MyTable {
-  id: 0,
-  email: "user@example.com".to_string(),
-  created_at: 0,
-  content: "hello".to_string(),
-})?;
-```
-
-### Interstice types
-
-Inside a table struct, a variety of default types are supported. If you need custom types, use `#[interstice_type]` on top of an enum or struct definition:
-
-```rust
-#[interstice_type]
-pub enum MyCustomEnum {
-  A,
-  B(String),
-  C(MyCustomStruct),
+pub struct Counter {
+    #[primary_key]
+    pub name: String,
+    pub value: u64,
 }
 
-#[interstice_type]
-pub struct MyCustomStruct {
-  value: i64,
-}
-```
-
-Note that defining a struct as a table also makes it an interstice type and may be used as such.
-
-#### Bulk data: `Blob`
-
-To hand a large buffer (pixels, audio, file contents) to another module, take a `Blob` parameter instead of `Vec<u8>`. The caller copies the bytes once into the host; callees read them (`len`, `read_into`, `to_vec`) or pass the handle on, and the GPU authority uploads straight from it:
-
-```rust
-// caller
-let pixels: Vec<u8> = render();
-ctx.graphics().reducers.update_texture("page".into(), 0, 0, w, h, Blob::new(&pixels))?;
-
-// callee
 #[reducer]
-fn update_texture(ctx: ReducerContext, id: String, x: u32, y: u32, w: u32, h: u32, pixels: Blob) { … }
-```
-
-A blob lives as long as the call that created it and every reducer call it issued, so it cannot be stored in a table or kept in an instance cache. Calls to another node send it inline, and it arrives as a fresh blob.
-
-### Reducer
-
-After defining your data (tables and types), you will likely define reducers and queries. Reducers do not return anything and may update the tables of the current module. Reducers can call other queries and reducers from other modules.
-
-A query call runs immediately and returns its result; it sees the caller's pending writes. A reducer call is a message: it is recorded, and runs as its own transaction after the caller commits (in issue order, and never if the caller fails). The call returns `Err` only when the target doesn't exist, so a caller can't read a callee's effects in the same reducer — react to them with a subscription instead.
-
-You define them through the `#[reducer]` marker on top of a function:
-
-```rust
-#[reducer]
-fn my_reducer<Caps>(ctx: ReducerContext<Caps>, my_arg1: u32, my_arg2: MyCustomEnum)
+pub fn bump<Caps>(ctx: ReducerContext<Caps>, name: String) -> Result<(), String>
 where
-    Caps: CanRead<MyTable> + CanInsert<MyTable>,
+    Caps: CanRead<Counter> + CanInsert<Counter> + CanUpdate<Counter>,
 {
-    // ...
-}
-```
-
-The first argument of a reducer should always be a `ReducerContext<Caps>`, with explicit table-access bounds.
-Use `ctx.current.tables.<table>().insert(...)` and `ctx.current.tables.<table>().scan()` for table operations.
-
-Table operations never panic: reads return `Result` (`scan() -> Result<Vec<T>, String>`,
-`get(pk) -> Result<Option<T>, String>`, same for `scan_by_*` / `get_by_*`), like writes do.
-A reducer may return `Result<(), E>` (any `E: Display`) and use `?`; an `Err` aborts the
-reducer, so none of its writes commit, and the error is logged. A query may return
-`Result<T, E>`, where its schema exposes `T`.
-
-```rust
-#[reducer]
-fn rename(ctx: ReducerContext<AppCaps>, id: u64, name: String) -> Result<(), String> {
-    let mut user = ctx.current.tables.user().get(id)?.ok_or("no such user")?;
-    user.name = name;
-    ctx.current.tables.user().update(user)
-}
-```
-
-Reducers can also subscribe to events, in which case they cannot be called externally.
-There are different kinds of events, all following the format:
-`#[reducer(on = "<event>")]`
-
-where event can be `init`, `<module>.<table>.<table_event>`, `<node>.<module>.<table>.<table_event>`.
-
-Here `<module>` is the module name you want to subscribe to. For the current module, use the module name defined in Cargo.toml.
-`<table>` should be the table name you want to subscribe to.
-`<table_event>` can be `insert`, `update` or `delete`.
-When subscribing to an event, it requires specific arguments for the reducer. For example, an insert event requires a single additional argument of the table type that receives the inserted row.
-
-#### Core subscription events
-
-The runtime also exposes core events through `#[reducer(on = "...")]`:
-
-- `init` → reducer signature: `fn x(ctx: ReducerContext)`
-- `load` → reducer signature: `fn x(ctx: ReducerContext)`
-- `connect` → reducer signature: `fn x(ctx: ReducerContext, node_id: String)`
-- `disconnect` → reducer signature: `fn x(ctx: ReducerContext, node_id: String)`
-
-`node_id` is the UUID string of the peer node that just connected or disconnected.
-
-Example:
-
-```rust
-#[reducer(on = "connect")]
-fn on_node_connected(_ctx: ReducerContext, node_id: String) {
-  host_calls::log(&format!("peer connected: {}", node_id));
-}
-
-#[reducer(on = "disconnect")]
-fn on_node_disconnected(_ctx: ReducerContext, node_id: String) {
-  host_calls::log(&format!("peer disconnected: {}", node_id));
-}
-```
-
-### Query
-
-Apart from reducers you may also want to define queries. Similar to reducers, they are defined through the `#[query]` marker on top of functions:
-
-```rust
-#[query]
-fn my_query<Caps>(ctx: QueryContext<Caps>, my_arg1: u32, my_arg2: MyCustomEnum) -> MyCustomStruct
-where
-    Caps: CanRead<MyTable>,
-{
-  ...
-}
-```
-
-Contrary to reducers, queries can return values but are read-only and cannot mutate any tables. They can call other queries but cannot call reducers. They also cannot subscribe to events, since they cannot affect the current state.
-
-### Table access capabilities (core pattern)
-
-Interstice enforces table access through capability traits on context generics:
-
-- `CanRead<Row>`
-- `CanInsert<Row>`
-- `CanUpdate<Row>`
-- `CanDelete<Row>`
-
-`Row` is the actual `#[table]` row struct type. There is no implicit "allow all": every
-table a reducer touches is declared, but there are shorthands for declaring many at once:
-
-- `CanAll<Row>` = read + insert + update + delete (works on helper functions too).
-- A tuple of rows in a reducer `where` clause: `CanRead<(A, B)>`, `CanAll<(A, B, C)>`.
-- `caps!` names a concrete set once, for reducers that share it:
-
-```rust
-caps! {
-    pub struct AppCaps {
-        all: [Session, Tab],      // read + insert + update + delete
-        read: [MouseState],
-        write: [Log],             // insert + update + delete
+    let counters = ctx.current.tables.counter();
+    match counters.get(name.clone())? {
+        Some(mut c) => {
+            c.value += 1;
+            counters.update(c)?;
+        }
+        None => {
+            counters.insert(Counter { name, value: 1 })?;
+        }
     }
-}
-
-#[reducer]
-pub fn step(ctx: ReducerContext<AppCaps>) { /* … */ }
-```
-
-Narrow `where` bounds remain preferable where they fit: the scheduler runs reducers whose
-access sets don't conflict in parallel.
-
-Example:
-
-```rust
-#[table]
-pub struct Greetings {
-    #[primary_key(auto_inc)]
-    pub id: u64,
-    pub message: String,
-}
-
-#[reducer]
-pub fn hello<Caps>(ctx: ReducerContext<Caps>, message: String)
-where
-    Caps: CanInsert<Greetings>,
-{
-    let _ = ctx.current.tables.greetings().insert(Greetings { id: 0, message });
-}
-
-#[query]
-pub fn list_greetings<Caps>(ctx: QueryContext<Caps>) -> Result<Vec<Greetings>, String>
-where
-    Caps: CanRead<Greetings>,
-{
-    ctx.current.tables.greetings().scan()
+    Ok(())
 }
 ```
-
-Why this matters:
-
-- Access is explicit in function signatures.
-- ABI schema access declarations are derived from `Can*` bounds.
-- Runtime permission checks stay aligned with compile-time intent.
-- Narrow capabilities improve safety and allow reducer parallelization.
-
-### Schedule system
-
-The schedule system provides general-purpose time-based reducer invocation. Instead of relying on window render events or external triggers, modules can schedule reducers to run at specific future times. The runtime maintains a schedule queue and dispatches reducers when their scheduled time arrives.
-
-Schedule a reducer to run after a delay:
-
-```rust
-#[reducer]
-fn start_timer(ctx: ReducerContext) {
-    // Schedule my_callback to run in 1000ms
-    ctx.schedule("my_callback", 1000);
-}
-
-#[reducer]
-fn my_callback(ctx: ReducerContext) {
-    // This runs 1000ms after start_timer scheduled it
-    // Can reschedule itself for periodic behavior
-    ctx.schedule("my_callback", 1000);
-}
-```
-
-The `ctx.schedule(reducer_name, delay_ms)` host call queues the schedule in the current transaction. When the transaction commits, the schedule is released, and after the delay the runtime invokes the named reducer with no arguments. If the transaction fails, nothing is scheduled.
-
-Time and randomness are per transaction: `ctx.time_now_ms()` returns the same timestamp for the whole reducer run, including the queries it calls. That timestamp never decreases across transactions on a node. `ctx.deterministic_random_u64()` draws from a stream seeded by the transaction. A reducer is therefore reproducible from its inputs (DESIGN.md §6.5).
-
-Rules:
-
-- `reducer_name` must belong to the current module.
-- Scheduled reducers must have no extra arguments (signature: `fn x(ctx: ReducerContext)`).
-- Scheduling with `delay_ms = 0` is allowed and enqueues the reducer for immediate async execution.
-
-### Bindings
-
-Bindings live in `src/bindings/`.
-
-That folder can contain TOML files describing either:
-
-- Module dependencies (local): module schemas for other modules available in the _same node_.
-- Node dependencies (remote): node schemas that include the node address and the public schemas of the modules you depend on.
-
-With only those files, the SDK reads the schemas and generates typed functions to call reducers/queries and subscribe to tables.
-
-When adding a binding, the CLI should fetch the schema from a running node and write it into `src/bindings/`. The schema used is the **public** view (`schema.to_public()`), which strips private tables and (for node schemas) private modules.
-
-## Build for WASM
 
 ```bash
-rustup target add wasm32-unknown-unknown
-cargo build -p <module> --target wasm32-unknown-unknown --release
+interstice node create dev 8100 && interstice node start dev   # keep running
+interstice load dev .                                          # in another terminal
+interstice call_reducer dev counter bump clicks                # → committed
 ```
 
-You can omit the target argument if the .cargo/config.toml is already well configured, which is the case when you used the init cli command.
+## Documentation
 
----
+| | |
+|---|---|
+| [docs/guide.md](docs/guide.md) | Writing modules: tables, reducers, queries, views, events, capabilities, calls between modules and nodes, clients |
+| [docs/cli.md](docs/cli.md) | Every `interstice` command: nodes, modules, calls, examples, bundles |
+| [docs/security.md](docs/security.md) | Identities, owners, visibility, authorities |
+| [benchmarks/README.md](benchmarks/README.md) | Benchmarks comparable to SpacetimeDB's, and the latest results |
+| [DESIGN.md](DESIGN.md) | How the engine works, design decisions, and the roadmap (§13) |
+| [CHANGELOG.md](CHANGELOG.md), [RELEASING.md](RELEASING.md) | Releases |
+| [brand/BRAND.md](brand/BRAND.md) | The visual identity, implemented in `interstice_ui::theme` |
 
-# Examples
+## Repository
 
-- `modules/hello`
-  - `Greetings` table, `hello` reducer, and an `init` hook.
-- `modules/caller`
-  - Uses generated bindings to call `hello` remotely and subscribes to `hello.greetings.insert`.
-- `modules/graphics`
-  - Requests `Input` and `Gpu` authorities and renders a triangle; implements `init`, `render`, and `input` hooks.
-- `modules/audio`
-  - Requests `Audio` authority and plays a tone while logging input buffers.
-- `modules/examples/desktop` — **the showcase** (DESIGN.md §12.2)
-  - A desktop OS made of modules. It holds no authority: it is the compositor of `graphics` (each app renders into its own surface, composited into a window), the input router of `input` (pointer and keyboard focus per window, surface-local coordinates), and a client of `module_manager` (apps are registered wasm blobs, loaded and unloaded at runtime).
-  - Click **Apps** for the launcher. Windows: `ui-example`, `notes`, `browser-example`, `agar-client` (needs `interstice example agar-server`). Services (toggled, no window): `hello-example`, `http-get-example`, `audio-example`. Opening `notes` loads `hello-example` first, and a service can't be stopped while an app needs it.
-  - A failed load (e.g. agar without its server) closes its window with the reason.
-  - Scriptable: `interstice call_reducer desktop-example desktop-example open notes`.
-- `modules/examples/notes`
-  - A UI over `hello`'s time-travelling `Notes` table: add and erase notes, undo, redo, and click any commit to rewind to it (the future is kept as a branch). Runs standalone with `interstice example notes` or as a desktop app.
-  - Benchmark-oriented reducers/queries for noop, insert/update/delete/mix workloads across ephemeral/stateful/logged tables, event fanout, and scheduler pressure.
+| Path | What it holds |
+|---|---|
+| `crates/interstice-core` | The engine: runtime, scheduler, tables, persistence, network, security |
+| `crates/interstice-abi`, `interstice-abi-macros` | The types and calls shared by the engine and modules |
+| `crates/interstice-sdk`, `-sdk-core`, `-sdk-macros` | The Rust SDK for modules |
+| `crates/interstice-client` | A client library for programs that aren't modules |
+| `crates/interstice-cli` | The `interstice` command |
+| `crates/interstice-ui` | A UI engine for modules |
+| `crates/interstice-bench` | The benchmark suite |
+| `modules/defaults` | The default modules: `graphics`, `input`, `audio`, `network`, `module_manager` |
+| `modules/examples` | Example modules, from `hello` to the desktop and the browser |
+| `modules/benchmarks` | Benchmark workloads |
+| `scripts`, `vendor` | Build and benchmark scripts; patched dependencies |
 
-Reproduce
+## License
 
-1. Start the hello example (`interstice example hello`).
-2. Start the caller example (`interstice example caller`) so it can call hello.
-3. Start graphics or audio with `interstice example graphics` or `interstice example audio`.
-
----
-
-# Loading modules
-
-## Manual workflow
-
-1. Build module WASM:
-
-```bash
-cargo build -p hello --target wasm32-unknown-unknown --release
-```
-
-2. Locate the WASM in `target/wasm32-unknown-unknown/release/`.
-3. Use this path to manually add a module from rust code using `Node::load_module()`
-
-There is no manual way to load a module onto an already running node. See the CLI flow below.
-
-## CLI flow
-
-- `interstice load <node> <module-rust-project-path>` — build, upload, validate, and install a module on a running node. The node verifies schema compatibility and requested capabilities.
-- `interstice unload <node> <module-name>` — remove a module from the runtime (stop running its reducers) while keeping its persisted table data on disk. The module is marked unloaded so the node does not auto-load it on the next startup; loading it again resumes with its tables intact. Ephemeral tables are wiped (by design — same as a node restart).
-- `interstice remove <node> <module-name>` — fully uninstall a module and delete all of its persisted data.
-
-# CLI usage
-
-## Data layout
-
-- CLI metadata lives under the OS data directory (`data_file()` in the CLI).
-- Node registry is stored in `nodes.toml` (friendly names, addresses, IDs, etc.).
-- Node runtime data lives under `nodes/<node_id>/` (modules, logs, transaction log).
-
-## Node management
-
-- `interstice node add <name> <address>`
-- `interstice node create <name> <port>`
-- `interstice node list`
-- `interstice node remove <name|id>`
-- `interstice node rename <old> <new>`
-- `interstice node show <name|id>`
-- `interstice node start <name|id>`
-- `interstice node ping <name|id>`
-- `interstice node schema <name|id> [out]`
-
-## Example command
-
-- `interstice example <hello|caller|graphics|audio|agar-server|agar-client|ui|desktop|notes|http-get|browser>`
-- Built-in ports are fixed by example name: `hello=8080`, `caller=8081`, `graphics=8082`, `audio=8083`, `agar-server=8086`, `agar-client=8084`, `ui=8088`, `desktop=8089`, `http-get=8090`, `browser=8091`, `notes=8092`.
-- `http-get` demonstrates the **shared network broker**: instead of holding the `Network` authority itself, it asks the default `network` module to `http_get("example.com", "/")`. The broker resolves DNS, opens the TCP socket, sends the request and assembles the response, then returns it as a row in its public `HttpResponse` table (see [modules/examples/http-get](modules/examples/http-get) and [modules/defaults/network](modules/defaults/network)).
-- `browser` is the flagship app tying the whole model together: it fetches pages over the shared `network` broker, parses static HTML with `tl`, translates the DOM into a `UiElement` tree (via the reusable [`interstice-ui`](crates/interstice-ui) engine) and renders through the graphics ABI. Click links to navigate, type a URL and press Enter to go there, scroll with the wheel; `<img>` tags are really fetched and decoded (PNG/JPEG) into textures. Scope is static HTML only — no JavaScript or CSS engine; styling is a small built-in user-agent stylesheet plus inline `style="color:…"` (see [modules/examples/browser](modules/examples/browser)). Starts pointed at `http://info.cern.ch/`.
-- Running the same example command multiple times recreates the example node (removes existing data and registry entry, then creates the node afresh with the example modules).
-- **Important**: Stop any running example instance (Ctrl+C) before running the command again to avoid conflicts.
-
-## Bindings helpers
-
-- `interstice bindings add module <node> <module> [project_path]`
-- `interstice bindings add node <node> [project_path]`
-
-These commands fetch **public** schemas from the target node and write TOML files into `src/bindings/`.
-
-If the target node is a local node that is not currently running, the command **starts it automatically**, waits for it to become ready, fetches the schema, and shuts it back down — you do not need to `node start`/`node stop` yourself. (A GPU-holding module may log a `winit` event-loop panic on its render thread during this temporary headless start; that is harmless noise — the binding is still written.)
-
-## Module commands
-
-- `interstice load <node> <module_path>`
-- `interstice unload <node> <module_name>` (keeps data)
-- `interstice remove <node> <module_name>` (deletes data)
-- `interstice call_reducer <node> <module_name> <reducer_name> [args...]`
-- `interstice call_query <node> <module_name> <query_name> [args...]`
-- `interstice update`
-
-## Benchmarking
-
-See [benchmarks/README.md](benchmarks/README.md): micro-benchmarks with the
-same matrix as SpacetimeDB's (`cargo bench -p interstice-bench`) and the
-keynote transfer load (`interstice-bench transfer`).
-
-# Security
-
-- Loading doesn't require any privilege by default, so anyone can load and remove modules, even remotely.
-- To prevent this default behavior, the node should load a module with the Module authority. In this case, all requests are forwarded to this module, which can enforce custom policies for load/remove and access.
-
----
-
-# Architecture Overview
-
-Interstice is organized around a small trusted core that loads, sandboxes, and executes WASM modules. Modules express functionality entirely through typed, versioned interfaces composed of tables and reducers. The core is responsible for state, scheduling, capability enforcement, and deterministic ordering; modules own logic and optional privileged abilities when granted.
-
-## Key concepts
-
-- Node: a runtime process hosting modules and exposing endpoints for inter-node calls.
-- Module: a WASM component with a serialized interface (tables, reducers, requested authorities, version).
-- Table: typed, versioned records owned by a module; mutations happen inside reducers.
-- Reducer: deterministic state-transition function that runs inside a module.
-- Query: deterministic read-only function that runs inside a module and returns a value.
-- Subscription: declarative binding that schedules reducers when events occur (table changes, initialization, input event...).
-
-## Authorities
-
-Authorities are typed tokens granting modules access to privileged host functionality (gpu access, input event...). Only one module can hold an authority at a time. Declare them via `interstice_module!(authorities: [...])` so the runtime can enforce exclusivity.
-
-- **Gpu** – grants access to the render loop plus GPU host calls. Modules with this authority can receive `render` events and submit draw commands to the host surface (see `modules/graphics`).
-- **Audio** – allows the module to stream audio samples or capture input through host calls. Reducers can subscribe to `audio_output` and `audio_input` events for output ticks and input readiness.
-- **Input** – subscribes the module to keyboard/mouse/controller events and lets it inspect the current input state through the `input` reducer.
-- **File** – provides controlled access to the node's data directory for reading assets, watching paths, or performing limited file IO needed for development workflows.
-- **Module** – designates a module as the module-manager for that node. When present, all load/remove requests are routed through it (see the Security section) so it can enforce custom policies.
-
-## Execution model
-
-1. Reducer invocation (external call or subscription)
-2. Reducer performs host calls to mutate tables
-3. Core records changes and resolves subscriptions
-4. Dependent reducers are scheduled deterministically
-
-## Determinism and concurrency
-
-- Transactions are deterministic given their inputs: each one has its own id, timestamp and random seed (DESIGN.md §6.5).
-- Logged tables time travel, from their log: a reducer can list a table's commits (`commits(limit)`), read it as of any past transaction or time (`rows_at(HistoryPoint::Tx(id) | Time(ms) | Back(n) | Start)`), and restore it there (`restore(point)`, one ordinary atomic write tagged in the log). Restoring several tables to the same `Tx` gives a consistent state. History survives restarts. Undo, redo and branches derive from the log (DESIGN.md §6.7; see the `hello` example's `undo`/`redo`/`restore` and the `notes` app).
-- Reducers are currently processed through a serialized queue in the runtime event loop.
-
----
-
-# Roadmap & TODOs
-
-This roadmap is a living checklist of the main directions for Interstice. It favors clarity over fixed timelines and can evolve as the runtime grows.
-
-The detailed, design-level TODO list (engine semantics, storage, security, SDK, examples) lives in [DESIGN.md §13](DESIGN.md#13-roadmap--todo); this section keeps the high-level directions.
-
----
-
-## Runtime
-
-- Network authority — done: raw TCP/UDP sockets, plus a default `network` broker module (TCP + DNS + HTTP) that holds the authority and shares it across apps
-- Better Audio authority and host calls
-- Table views and row-level security: allow modules to filter rows based on runtime state and requesting node id. NOTE: the `network` broker currently stamps each result row with an `owner` and apps filter client-side; once table views exist, move this to runtime-enforced per-app visibility so apps can't read each other's traffic
-- Time travel — done: logged tables keep their log as history; reducers list commits, read past states and restore them, atomically (DESIGN.md §6.7). Open: a module-wide restore call, re-simulation (restore, then re-run later reducers with a change)
-- Bundles to ship nodes as a whole program
-- Table migrations and schema evolution without data loss
-- Iter-based table scans and more efficient index access
-
-## Modules
-
-- Make buttons and click events works on ui
-- Desktop module — done: window manager, launcher, services and time travel from the UI (DESIGN.md §12.2)
-- ModuleManager — app registry, async loads with load reports; open: routed remote load/remove requests
-- Pages (documents etc.. Replace file system)
-- Better Graphics
-- Better Inputs (Keyboards)
-
-## Fixes
-
-- Fix SDK module subscription not checking table names for current module at compile time
-- Fix agar-client example not working on WSL (no waylands)
-- Harden network reconnections and peer health handling as well as connection workflow (currently always throw a warning when disconnecting)
-
-## Tooling
-
-- Time travel tooling: rewind and inspect previous node/module states
-
----
-
-# License
-
-This repository is licensed under the MIT License. See `LICENSE` for details.
+MIT; see [LICENSE](LICENSE).

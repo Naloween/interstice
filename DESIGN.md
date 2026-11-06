@@ -1135,10 +1135,10 @@ server to issue tokens and no proxy in front, so:
   the admission policy (`block_peer`).
 - **A refused CLI sees "connection reset"**, not a reason, because the
   node closes the connection after its handshake reply.
-- **The cost of TLS on the benchmark path is not measured yet.**
-- **An `Err` from a reducer is logged as a panic with a backtrace** (the
-  SDK aborts the call that way), which makes a refusal look alarming in
-  the log.
+- **TLS costs about a third of the serial throughput**: ~98k transfers/s over
+  64 TLS connections, against 140k in process (benchmarks/README.md).
+- **An `Err` from a reducer is reported as its message** (ABI 16, §10). A
+  module built for ABI 15 still shows the trap and its backtrace.
 - **Local modules trust each other.** Any module on the node may call the
   module manager's `local` admin reducers. Per-caller rules (for example
   "only the desktop may load apps") are the manager's business, through

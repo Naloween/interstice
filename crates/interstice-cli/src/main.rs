@@ -72,7 +72,7 @@ async fn run() -> Result<(), IntersticeError> {
             println!("To make this CLI an owner of a node: interstice node owner add <node> {}", identity.id);
             Ok(())
         }
-        "init" => init(),
+        "init" => init(args.get(2).map(String::as_str)),
         "load" => {
             if args.len() < 4 {
                 print_help();
@@ -167,7 +167,7 @@ fn print_help() {
     );
     print_bundle_help();
     println!(
-        "  init                                   Initialize a new interstice module project in the current directory"
+        "  init [name]                            Create a module project in ./<name>"
     );
     println!("  load <node> <module_path> [--allow-data-loss|--delete-data] [--grant]");
     println!("                                 Load or update a module; asks before a migration that loses data");
