@@ -4,10 +4,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum NetworkPacket {
+    /// Sent inside the TLS channel; `node_id` must be the key's (DESIGN §7.4).
     Handshake {
         node_id: String,
         address: String,
-        token: String,
     },
     Close,
     ReducerCall {

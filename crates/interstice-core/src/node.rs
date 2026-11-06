@@ -7,7 +7,8 @@ use crate::{
     error::IntersticeError,
     logger::{LogLevel, LogSource, Logger},
     network::{Network, NetworkHandle},
-    persistence::{PeerTokenStore, TableStore},
+    network::identity::{KnownPeers, LocalIdentity, Trust},
+    persistence::TableStore,
     runtime::{
         Runtime,
         event::EventInstance,
@@ -28,6 +29,10 @@ use uuid::Uuid;
 
 pub type NodeId = Uuid;
 
+/// The node's key pair, and the keys remembered for legacy peers (§7.4).
+pub const IDENTITY_FILE: &str = "identity.key";
+pub const KNOWN_PEERS_FILE: &str = "known_peers.toml";
+
 /// Answers a migration plan that asks: `(module, rendered plan) -> policy`;
 /// `Safe` means abort (keep the old version). DESIGN §3.3, §9.1.
 pub type Decide = Box<dyn Fn(&str, &str) -> MigrationPolicy + Send + Sync>;
@@ -47,7 +52,7 @@ pub struct Node {
     runtime: Arc<Runtime>,
     logger: Logger,
     data_path: std::path::PathBuf,
-    peer_tokens: Arc<Mutex<PeerTokenStore>>,
+    trust: Arc<Trust>,
 }
 
 impl Node {
@@ -62,7 +67,9 @@ impl Node {
         port: u32,
         public_address: String,
     ) -> Result<Self, IntersticeError> {
-        let id = Uuid::new_v4();
+        // The id is the key's (DESIGN §7.4).
+        let (identity, key_pem) = LocalIdentity::generate()?;
+        let id = identity.id;
         let data_path = nodes_path.join(id.to_string());
         let modules_path = data_path.join("modules");
         std::fs::create_dir_all(&data_path).expect("Should be able to create node data path");
@@ -77,9 +84,11 @@ impl Node {
             File::create(data_path.join("node.log")).expect("Should be able to create log file"),
         );
 
-        let peer_tokens = Arc::new(Mutex::new(PeerTokenStore::load_or_create(
-            data_path.join("peer_tokens.toml"),
-        )?));
+        crate::network::identity::save_key(&data_path.join(IDENTITY_FILE), &key_pem)?;
+        let trust = Arc::new(Trust {
+            identity,
+            known: KnownPeers::load(Some(data_path.join(KNOWN_PEERS_FILE))),
+        });
 
         // Bounded reducer ingress: producers use blocking `send` so a full queue
         // stalls readers / the event loop instead of dropping reducer jobs.
@@ -92,7 +101,7 @@ impl Node {
             public_address.clone(),
             event_sender.clone(),
             reducer_sender.clone(),
-            peer_tokens.clone(),
+            trust.clone(),
             logger.clone(),
         );
         let network_handle = network.get_handle();
@@ -135,7 +144,7 @@ impl Node {
             run_app_notify,
             logger,
             data_path,
-            peer_tokens,
+            trust,
         };
 
         Ok(node)
@@ -161,9 +170,11 @@ impl Node {
             .expect("Should be able to open log file");
         let logger = Logger::new(logger_file);
 
-        let peer_tokens = Arc::new(Mutex::new(PeerTokenStore::load_or_create(
-            data_path.join("peer_tokens.toml"),
-        )?));
+        // Nodes created before keys keep their id and get a key now.
+        let trust = Arc::new(Trust {
+            identity: LocalIdentity::load_or_create(&data_path.join(IDENTITY_FILE), Some(id))?,
+            known: KnownPeers::load(Some(data_path.join(KNOWN_PEERS_FILE))),
+        });
 
         let (reducer_sender, reducer_receiver) =
             crossbeam_channel::bounded::<Job>(REDUCER_QUEUE_CAPACITY);
@@ -174,7 +185,7 @@ impl Node {
             public_address.clone(),
             event_sender.clone(),
             reducer_sender.clone(),
-            peer_tokens.clone(),
+            trust.clone(),
             logger.clone(),
         );
         let network_handle = network.get_handle();
@@ -217,7 +228,7 @@ impl Node {
             run_app_notify,
             logger,
             data_path,
-            peer_tokens,
+            trust,
         };
 
         Ok(node)
@@ -232,11 +243,11 @@ impl Node {
         config.save(&self.data_path)
     }
 
-    /// Make `id` an owner of this node and pin its token, so no other peer
-    /// can present that id first (DESIGN §7.4).
-    pub fn add_owner(&self, id: &str, token: &str) -> Result<(), IntersticeError> {
+    /// Make `id` an owner of this node (DESIGN §7.4). Ids are bound to
+    /// keys, so no secret is needed.
+    pub fn add_owner(&self, id: &str) -> Result<(), IntersticeError> {
         let mut config = self.config()?;
-        if config.add_owner(id, token) {
+        if config.add_owner(id) {
             self.save_config(&config)?;
         }
         Ok(())
@@ -289,20 +300,12 @@ impl Node {
             run_app_notify,
             logger,
             data_path,
-            peer_tokens,
+            trust: _trust,
         } = self;
 
         // Security config (DESIGN §7.4): owners, file root, listen host.
         let config = NodeConfig::load(&data_path)?;
         runtime.security.apply(&config, &data_path);
-        {
-            let mut tokens = peer_tokens.lock();
-            for owner in &config.owners {
-                if let Ok(id) = owner.id.parse::<NodeId>() {
-                    tokens.set_peer_token(&id, owner.token.clone())?;
-                }
-            }
-        }
         network.set_bind_host(config.listen_host());
 
         logger.log(

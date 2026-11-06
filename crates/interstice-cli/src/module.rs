@@ -119,7 +119,7 @@ pub(crate) fn build_module_project(module_project_path: &Path) -> Result<Vec<u8>
 }
 
 async fn send_load(
-    stream: &mut tokio::net::TcpStream,
+    stream: &mut interstice_core::SecureStream,
     wasm_binary: &[u8],
     policy: MigrationPolicy,
     grant: bool,

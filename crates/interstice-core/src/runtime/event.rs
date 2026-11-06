@@ -118,6 +118,8 @@ pub enum EventInstance {
     },
     NodeConnect {
         node_id: NodeId,
+        /// Decided by the Module holder's `connect` handler, if any (§7.4).
+        admission: Option<crate::network::peer::Admission>,
     },
     NodeDisconnect {
         node_id: NodeId,
@@ -445,6 +447,18 @@ impl Runtime {
     ) -> Result<(), IntersticeError> {
         match target {
             SubscriptionTarget::Local { module, reducer } => {
+                // Admission: the Module holder may refuse a peer (DESIGN §7.4).
+                let admission = match &event {
+                    EventInstance::NodeConnect { admission: Some(admission), .. } => {
+                        let holder = self
+                            .authority_modules
+                            .lock()
+                            .get(&interstice_abi::Authority::Module)
+                            .map(|e| e.module_name().to_string());
+                        (holder.as_deref() == Some(module.as_str())).then(|| admission.clone())
+                    }
+                    _ => None,
+                };
                 let args = match event {
                     EventInstance::TableInsertEvent {
                         source_node_id: _,
@@ -480,7 +494,7 @@ impl Runtime {
                     EventInstance::Module(module_event) => {
                         IntersticeValue::Vec(vec![module_event.into()])
                     }
-                    EventInstance::NodeConnect { node_id }
+                    EventInstance::NodeConnect { node_id, .. }
                     | EventInstance::NodeDisconnect { node_id } => {
                         IntersticeValue::Vec(vec![node_id.to_string().into()])
                     }
@@ -492,6 +506,7 @@ impl Runtime {
                     input: args,
                     caller_node_id: self.network_handle.node_id,
                     caller_module_name: String::new(),
+                    admission,
                     completion,
                 };
                 // Push to the ordered ingress (unbounded → never blocks this

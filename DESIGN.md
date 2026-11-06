@@ -905,24 +905,67 @@ The node core is the **kernel** of an operating system made of modules.
   - where the file authority may go.
 - **Decisions are policy, and policy belongs to the module that holds the
   `Module` authority** (`module_manager` by default). Decisions here mean
-  loading, unloading or removing a module, granting an authority, and later
-  trusting a peer.
+  loading, unloading or removing a module, granting an authority, and
+  admitting a peer.
 - **Without such a module, the kernel decides on its own**, from the
   owners list and a CLI prompt. That is the "simple command program" mode.
 
-**Identities.**
-- Every connection starts with a handshake of `(id, token)`. A node or a
-  CLI has a UUID and a random token.
-- Tokens are remembered on first use: a known id that presents another
-  token is refused.
-- A malformed id refuses the connection; it does not panic.
-- **Owners** are the identities allowed to administer a node. They are
-  listed in `node.toml` in the node directory, with their tokens.
-  - The CLI that creates or starts a local node adds itself, and pins
-    its token, so another peer can't claim the owner's id first.
-  - Remote owners are added with
-    `interstice node owner add <node> <id> <token>`;
-    `interstice identity` prints this CLI's id and token.
+**Identities and transport, after SpacetimeDB.**
+
+SpacetimeDB is the guideline. Its identity is a hash of a credential: an
+ES256 JWT's issuer and subject, signed by the server's `id_ecdsa` key or
+by an OIDC provider. Reducers see that identity as `ctx.sender`, and the
+database owner is an identity too. Its server listens on localhost, and
+TLS is left to a reverse proxy. Interstice is peer to peer, with no
+server to issue tokens and no proxy in front, so:
+
+| SpacetimeDB | Interstice |
+|---|---|
+| Identity = hash of (issuer, subject) of an ES256 JWT | Identity = hash of the peer's own ECDSA P-256 public key: every node and CLI is its own issuer |
+| The server keeps its signing key pair (`id_ecdsa`) on disk; losing it loses the identities | Every node (`<node>/identity.key`) and CLI (`cli_identity.key`) keeps its key pair on disk |
+| A bearer token is sent with each connection | Nothing secret crosses the wire: a peer proves it holds the key in a mutual TLS 1.3 handshake |
+| TLS from a reverse proxy; the server listens on localhost | TLS built in, since there is no proxy between peers; still localhost by default |
+| `ctx.sender` | `ctx.caller_node_id` |
+| The database owner publishes, updates and deletes | Owners (§7.4 Administration) |
+| `client_connected` may return an error to refuse a client | The Module holder's `connect` handler may return an error to refuse a peer |
+| Tables private by default; RLS and views for rows | Same defaults; rows: future work |
+
+- **The identity is the id.**
+  - A new node's or CLI's id is a UUID made from the first 16 bytes of
+    SHA-256 over its public key (SubjectPublicKeyInfo), with the version
+    bits of UUID v8. So an id is **self-certifying**: no one else can
+    present it without the key.
+  - Nodes created before keys keep their random UUID and get a key at
+    their next start. Their peers remember that key on first use
+    (`known_peers.toml`, like SSH's `known_hosts`), and refuse another
+    key for that id afterwards.
+- **Handshake.**
+  1. TCP, then TLS 1.3 with client authentication. Both sides present a
+     self-signed certificate for their key, generated at start. The
+     verifiers check every handshake signature but no CA chain: trust is
+     the identity, not a certificate authority, as in libp2p's TLS
+     transport.
+  2. Inside the encrypted channel, a `Handshake { node_id, address }`.
+     The receiver checks that `node_id` matches the key: derived from it,
+     or remembered for it.
+  3. The CLI also checks that the node answering is the one its
+     registry names.
+- **Owners** are the identities allowed to administer a node, listed
+  by id in `node.toml` in the node directory.
+  - The CLI that creates or starts a local node adds itself.
+  - Others are added with `node owner add <node> <id>`;
+    `interstice identity` prints this CLI's id.
+  - No secret is needed: an id can't be claimed without its key. The
+    tokens of the previous design are gone.
+- **Admission.**
+  - When a peer connects, the `connect` event runs as before.
+  - If the Module holder's `connect` handler returns `Err`, the kernel
+    disconnects that peer, like SpacetimeDB's `client_connected`.
+  - `module_manager` refuses peers listed in its `BlockedPeer` table
+    (`block_peer` / `unblock_peer`, both `local`), and admits everyone
+    else, as SpacetimeDB admits any valid identity.
+  - Without a holder, everyone with a valid key is admitted. What a peer
+    may then do is the visibility rules' business.
 
 **Listening.**
 - A node listens on `127.0.0.1` by default, so only this machine can
@@ -1019,12 +1062,21 @@ The node core is the **kernel** of an operating system made of modules.
   remotely.
 
 **Status:**
-- **No encryption yet.** Transport is plain TCP: tokens travel in clear
-  and can be copied by anyone who sees the traffic. The next step is a
-  key pair per node with an encrypted channel (`tokio-rustls` is already a
-  dependency).
-- **Trusting new peers isn't delegated yet.** It stays trust-on-first-use;
-  delegating it to the module manager (pairing) is future work.
+- **Admission runs after the handshake.** The peer is registered and its
+  `connect` event delivered, but its connection reads nothing until the
+  holder's handler has decided (30 s at most, then it is dropped), so a
+  refused peer's requests never run.
+- **Losing a key file loses the identity**, as in SpacetimeDB: a node
+  that regenerates its key gets a new id (a legacy id keeps its id, but
+  its peers will refuse the new key).
+- **No key rotation or revocation yet.** Refusing a stolen key is up to
+  the admission policy (`block_peer`).
+- **A refused CLI sees "connection reset"**, not a reason, because the
+  node closes the connection after its handshake reply.
+- **The cost of TLS on the benchmark path is not measured yet.**
+- **An `Err` from a reducer is logged as a panic with a backtrace** (the
+  SDK aborts the call that way), which makes a refusal look alarming in
+  the log.
 - **Local modules trust each other.** Any module on the node may call the
   module manager's `local` admin reducers. Per-caller rules (for example
   "only the desktop may load apps") are the manager's business, through
@@ -1682,7 +1734,10 @@ but explicitly out of scope for now.
       schema requests; owners; localhost by default; administration and
       authority grants decided by the Module holder, else by the kernel
       (§7.4).
-- [ ] Encrypted transport with node key pairs; delegated peer trust (§7.4).
+- [x] Key-pair identities (self-certifying ids), mutual TLS 1.3 between
+      peers, admission by the Module holder's `connect` handler (§7.4),
+      after SpacetimeDB's identity model.
+- [ ] Row-level visibility / views (SpacetimeDB's RLS), key rotation.
 - [ ] Authority model for the "OS" use case: which module may grant which
       authority to whom; per-user identities.
 - [ ] Replica writes and remote queries through the scheduler (§6.3).

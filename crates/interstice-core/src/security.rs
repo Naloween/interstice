@@ -14,10 +14,11 @@ use std::{
 pub const CONFIG_FILE: &str = "node.toml";
 pub const DEFAULT_LISTEN: &str = "127.0.0.1";
 
+/// An identity allowed to administer the node. Ids are bound to keys
+/// (DESIGN §7.4), so no secret is stored; an old `token` field is ignored.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Owner {
     pub id: String,
-    pub token: String,
 }
 
 /// `node.toml` in the node directory.
@@ -56,19 +57,13 @@ impl NodeConfig {
         self.files_root.clone().unwrap_or_else(|| node_dir.join("files"))
     }
 
-    /// Add or update an owner; `true` if something changed.
-    pub fn add_owner(&mut self, id: &str, token: &str) -> bool {
-        match self.owners.iter_mut().find(|o| o.id == id) {
-            Some(o) if o.token == token => false,
-            Some(o) => {
-                o.token = token.to_string();
-                true
-            }
-            None => {
-                self.owners.push(Owner { id: id.into(), token: token.into() });
-                true
-            }
+    /// Add an owner; `true` if it was not one yet.
+    pub fn add_owner(&mut self, id: &str) -> bool {
+        if self.owners.iter().any(|o| o.id == id) {
+            return false;
         }
+        self.owners.push(Owner { id: id.into() });
+        true
     }
 }
 
@@ -254,7 +249,7 @@ mod tests {
         let peer = uuid::Uuid::new_v4();
         let sec = Security::new(me, std::env::temp_dir());
         let mut config = NodeConfig::default();
-        config.add_owner(&owner.to_string(), "t");
+        config.add_owner(&owner.to_string());
         sec.apply(&config, Path::new("/tmp"));
 
         let public = schema(ModuleVisibility::Public);

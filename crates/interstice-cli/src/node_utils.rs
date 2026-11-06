@@ -11,7 +11,7 @@ use std::path::Path;
 /// starts a local node administers it.
 pub fn own_node(node: &Node) -> Result<(), IntersticeError> {
     let identity = crate::data_directory::load_cli_identity()?;
-    node.add_owner(&identity.cli_id, &identity.cli_token)
+    node.add_owner(&identity.id.to_string())
 }
 
 /// The data directory of the local node `name_or_id`.
@@ -232,15 +232,15 @@ pub async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError>
             println!("Node '{}' will listen on {} from its next start.", args[3], config.listen_host());
         }
         "owner" => {
-            // `node owner add <node> <id> <token>` / `node owner list <node>`
+            // `node owner add <node> <id>` / `node owner list <node>`
             match (args.get(3).map(String::as_str), args.len()) {
-                (Some("add"), 7) => {
+                (Some("add"), 6) => {
                     let dir = local_node_dir(&registry, &args[4])?;
                     let mut config = NodeConfig::load(&dir)?;
                     args[5]
                         .parse::<interstice_core::NodeId>()
                         .map_err(|_| IntersticeError::Internal(format!("'{}' is not an id", args[5])))?;
-                    config.add_owner(&args[5], &args[6]);
+                    config.add_owner(&args[5]);
                     config.save(&dir)?;
                     println!("Owner added; it takes effect at the node's next start.");
                 }
@@ -271,6 +271,6 @@ fn print_node_help() {
     println!("  interstice node ping <name|id>");
     println!("  interstice node schema <name|id> [out]");
     println!("  interstice node expose <name|id> on|off        listen on every interface, or on localhost only");
-    println!("  interstice node owner add <name|id> <id> <token>  let another CLI administer this node");
+    println!("  interstice node owner add <name|id> <id>        let another CLI administer this node");
     println!("  interstice node owner list <name|id>");
 }

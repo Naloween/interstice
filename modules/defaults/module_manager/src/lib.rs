@@ -130,6 +130,54 @@ where
     Ok(())
 }
 
+// ── Admission (DESIGN §7.4) ────────────────────────────────────────────────────
+//
+// As SpacetimeDB's `client_connected`: when a peer connects, the kernel runs
+// this handler, and an `Err` disconnects the peer. The default policy admits
+// every valid identity except the blocked ones.
+
+/// Peers refused at connection, by id.
+#[table(stateful)]
+pub struct BlockedPeer {
+    #[primary_key]
+    id: String,
+}
+
+#[reducer(on = "connect")]
+fn on_peer_connect<Caps>(ctx: ReducerContext<Caps>, node_id: String) -> Result<(), String>
+where
+    Caps: CanRead<BlockedPeer>,
+{
+    if ctx.current.tables.blockedpeer().get(node_id.clone())?.is_some() {
+        ctx.log(&format!("module_manager: refusing blocked peer {node_id}"));
+        return Err(format!("peer {node_id} is blocked"));
+    }
+    Ok(())
+}
+
+/// Refuse `id` from now on (its current connection is kept until it reconnects).
+#[reducer(local)]
+fn block_peer<Caps>(ctx: ReducerContext<Caps>, id: String) -> Result<(), String>
+where
+    Caps: CanRead<BlockedPeer> + CanInsert<BlockedPeer>,
+{
+    if ctx.current.tables.blockedpeer().get(id.clone())?.is_none() {
+        ctx.current.tables.blockedpeer().insert(BlockedPeer { id })?;
+    }
+    Ok(())
+}
+
+#[reducer(local)]
+fn unblock_peer<Caps>(ctx: ReducerContext<Caps>, id: String) -> Result<(), String>
+where
+    Caps: CanRead<BlockedPeer> + CanDelete<BlockedPeer>,
+{
+    if ctx.current.tables.blockedpeer().get(id.clone())?.is_some() {
+        ctx.current.tables.blockedpeer().delete(id)?;
+    }
+    Ok(())
+}
+
 /// A load we requested finished. A failed app is no longer `loaded`.
 #[reducer(on = "module_load_result")]
 fn on_load_result<Caps>(ctx: ReducerContext<Caps>, event: ModuleEvent) -> Result<(), String>

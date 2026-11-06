@@ -58,9 +58,8 @@ async fn main() -> Result<(), IntersticeError> {
         "bundle" => handle_bundle_command(&args).await,
         "identity" => {
             let identity = interstice_cli::data_directory::load_cli_identity()?;
-            println!("id:    {}", identity.cli_id);
-            println!("token: {}", identity.cli_token);
-            println!("On another machine: interstice node owner add <node> {} {}", identity.cli_id, identity.cli_token);
+            println!("{}", identity.id);
+            println!("To make this CLI an owner of a node: interstice node owner add <node> {}", identity.id);
             Ok(())
         }
         "init" => init(),
@@ -174,7 +173,7 @@ fn print_help() {
     println!("  load <node> <module_path> [--allow-data-loss|--delete-data] [--grant]");
     println!("                                 Load or update a module; asks before a migration that loses data");
     println!("                                 and before granting authorities (--grant grants them)");
-    println!("  identity                       Show this CLI's id and token (to become an owner of a remote node)");
+    println!("  identity                       Show this CLI's id (its key's), to become an owner of a node");
     println!("  unload <node> <module_name>    Unload a module but keep its data");
     println!("  remove <node> <module_name>    Remove a module and delete its data");
     println!("  update                          Update the interstice CLI");

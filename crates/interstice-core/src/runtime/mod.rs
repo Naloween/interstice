@@ -315,14 +315,23 @@ impl Runtime {
                             Job::Reducer(job) => {
                                 // Keep the original as the guard for THIS job's share.
                                 let _completion_guard = job.completion;
-                                if let Err(err) = rt.call_reducer(
+                                let result = rt.call_reducer(
                                     &job.module_name,
                                     &job.reducer_name,
                                     job.input,
                                     job.caller_node_id,
                                     &job.caller_module_name,
                                     None,
-                                ) {
+                                );
+                                if let Some(admission) = &job.admission {
+                                    // No holder any more means no policy: admit.
+                                    let admit = matches!(result, Ok(()) | Err(IntersticeError::ModuleNotFound(..)));
+                                    admission.decide(admit);
+                                    if !admit {
+                                        rt.network_handle.disconnect_peer(admission.peer);
+                                    }
+                                }
+                                if let Err(err) = result {
                                     // The target module is not loaded: a call to a
                                     // wrong name, or a job queued (e.g. an event)
                                     // for a module unloaded before it ran. Either
@@ -401,6 +410,7 @@ impl Runtime {
                                 input: interstice_abi::IntersticeValue::Vec(vec![]),
                                 caller_node_id: timer_node_id,
                                 caller_module_name: String::new(),
+                                admission: None,
                                 completion: None,
                             };
                             let _ = timer_reducer_sender.send(job.into());
@@ -479,6 +489,7 @@ impl Runtime {
                     input,
                     caller_node_id: requesting_node_id,
                     caller_module_name: String::new(),
+                    admission: None,
                     completion: None,
                 };
                 let _ = runtime.reducer_ingress.send(job.into());
@@ -902,6 +913,21 @@ impl Runtime {
             }
             event => {
                 let triggered = runtime.find_subscriptions(&event).unwrap();
+                // A connecting peer waits for the Module holder's `connect`
+                // handler; with none, it is admitted now (DESIGN §7.4).
+                if let EventInstance::NodeConnect { admission: Some(admission), .. } = &event {
+                    let holder = runtime
+                        .authority_modules
+                        .lock()
+                        .get(&Authority::Module)
+                        .map(|e| e.module_name().to_string());
+                    let gated = triggered.iter().any(|t| {
+                        matches!(t, event::SubscriptionTarget::Local { module, .. } if Some(module) == holder.as_ref())
+                    });
+                    if !gated {
+                        admission.decide(true);
+                    }
+                }
 
                 for sub in triggered {
                     let _ = runtime.invoke_subscription(sub, event.clone(), fork_token(&completion_token));

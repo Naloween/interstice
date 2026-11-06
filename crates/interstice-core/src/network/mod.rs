@@ -3,7 +3,6 @@ use crate::logger::{LogLevel, LogSource, Logger};
 use crate::network::peer::PeerHandle;
 use crate::network::protocol::NetworkPacket;
 use crate::node::NodeId;
-use crate::persistence::PeerTokenStore;
 use crate::runtime::event::EventInstance;
 use crate::runtime::reducer::{Job, ReducerJob};
 use crossbeam_channel::Sender as CbSender;
@@ -12,13 +11,14 @@ use packet::{read_packet, write_packet};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
+pub mod identity;
 pub mod packet;
-mod peer;
+pub(crate) mod peer;
 pub mod protocol;
 
 const CHANNEL_SIZE: usize = 1000;
@@ -28,7 +28,7 @@ pub struct Network {
     bind_address: String,
     public_address: String,
     peers: Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
-    peer_tokens: Arc<Mutex<PeerTokenStore>>,
+    trust: Arc<identity::Trust>,
     runtime_event_sender: mpsc::UnboundedSender<(
         EventInstance,
         Option<crate::runtime::reducer::CompletionToken>,
@@ -50,7 +50,7 @@ pub struct NetworkHandle {
     pub node_id: Uuid,
     pub address: String,
     peers: Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
-    peer_tokens: Arc<Mutex<PeerTokenStore>>,
+    trust: Arc<identity::Trust>,
     packet_sender: mpsc::Sender<(NodeId, NetworkPacket)>,
     runtime_event_sender: mpsc::UnboundedSender<(
         EventInstance,
@@ -64,6 +64,18 @@ pub struct NetworkHandle {
 }
 
 impl NetworkHandle {
+    /// Refuse a connected peer (DESIGN §7.4, admission): tell it, then drop
+    /// the connection.
+    pub fn disconnect_peer(&self, node_id: NodeId) {
+        let peer = { self.peers.lock().remove(&node_id) };
+        if let Some(peer) = peer {
+            let _ = peer.sender.try_send(NetworkPacket::Close);
+            peer.close();
+            self.logger.log(&format!("Peer {node_id} refused and disconnected"), LogSource::Network, LogLevel::Warning);
+            let _ = self.runtime_event_sender.send((EventInstance::NodeDisconnect { node_id }, None));
+        }
+    }
+
     /// Connect and handshake with the node at `node_address`. An unreachable
     /// node is an error (a module that depends on it can't load); a failed
     /// handshake is logged.
@@ -80,11 +92,8 @@ impl NetworkHandle {
         let packet_sender = self.packet_sender.clone();
         let address = self.address.clone();
         let my_node_id = self.node_id.clone();
-        let mut stream = TcpStream::connect(&node_address)
-            .await
-            .map_err(|e| IntersticeError::Internal(format!("Failed to connect to node at {node_address}: {e}")))?;
-
-        let local_token = { self.peer_tokens.lock().local_token() };
+        // Mutual TLS: both sides prove their keys (DESIGN §7.4).
+        let (mut stream, spki) = self.trust.identity.connect(&node_address).await?;
 
         // Send our handshake
         write_packet(
@@ -92,7 +101,6 @@ impl NetworkHandle {
             &NetworkPacket::Handshake {
                 address: address.clone(),
                 node_id: my_node_id.to_string(),
-                token: local_token,
             },
         )
         .await?;
@@ -101,12 +109,13 @@ impl NetworkHandle {
             my_node_id,
             address,
             stream,
+            spki,
             &mut cloned_peers,
             packet_sender,
             self.runtime_event_sender.clone(),
             self.reducer_sender.clone(),
             self.logger.clone(),
-            self.peer_tokens.clone(),
+            self.trust.clone(),
             false,
         )
         .await
@@ -158,7 +167,7 @@ impl Network {
             Option<crate::runtime::reducer::CompletionToken>,
         )>,
         reducer_sender: CbSender<Job>,
-        peer_tokens: Arc<Mutex<PeerTokenStore>>,
+        trust: Arc<identity::Trust>,
         logger: Logger,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
@@ -168,7 +177,7 @@ impl Network {
             bind_address,
             public_address,
             peers: Arc::new(Mutex::new(HashMap::new())),
-            peer_tokens,
+            trust,
             packet_receiver: receiver,
             packet_sender: sender,
             runtime_event_sender: event_sender,
@@ -182,7 +191,7 @@ impl Network {
             node_id: self.node_id.clone(),
             address: self.public_address.clone(),
             peers: self.peers.clone(),
-            peer_tokens: self.peer_tokens.clone(),
+            trust: self.trust.clone(),
             packet_sender: self.packet_sender.clone(),
             runtime_event_sender: self.runtime_event_sender.clone(),
             reducer_sender: self.reducer_sender.clone(),
@@ -202,7 +211,7 @@ impl Network {
         let sender = self.packet_sender.clone();
         let event_sender = self.runtime_event_sender.clone();
         let reducer_sender = self.reducer_sender.clone();
-        let peer_tokens = self.peer_tokens.clone();
+        let trust = self.trust.clone();
         let bind_address = self.bind_address.clone();
         let public_address = self.public_address.clone();
         let my_node_id = self.node_id.clone();
@@ -227,19 +236,31 @@ impl Network {
                         let event_sender = event_sender.clone();
                         let public_address = public_address.clone();
                         let logger = logger.clone();
-                        let peer_tokens = peer_tokens.clone();
+                        let trust = trust.clone();
                         let reducer_sender = reducer_sender.clone();
                         tokio::spawn(async move {
+                            let (stream, spki) = match trust.identity.accept(stream).await {
+                                Ok(accepted) => accepted,
+                                Err(e) => {
+                                    logger.log(
+                                        &format!("Refused connection: {e}"),
+                                        LogSource::Network,
+                                        LogLevel::Warning,
+                                    );
+                                    return;
+                                }
+                            };
                             if let Err(e) = handshake_incoming(
                                 my_node_id,
                                 public_address,
                                 stream,
+                                spki,
                                 &mut cloned_peers,
                                 cloned_sender,
                                 event_sender.clone(),
                                 reducer_sender,
                                 logger.clone(),
-                                peer_tokens.clone(),
+                                trust.clone(),
                                 true,
                             )
                             .await
@@ -547,14 +568,15 @@ impl Network {
 
 async fn connection_task(
     node_id: NodeId,
-    stream: TcpStream,
+    stream: identity::SecureStream,
     mut receiver: mpsc::Receiver<NetworkPacket>,
     sender: mpsc::Sender<(NodeId, NetworkPacket)>,
     reducer_sender: CbSender<Job>,
     close_receiver: watch::Receiver<bool>,
+    admitted: tokio::sync::oneshot::Receiver<bool>,
     logger: Logger,
 ) {
-    let (mut reader, mut writer) = stream.into_split();
+    let (mut reader, mut writer) = tokio::io::split(stream);
     let write_logger = logger.clone();
     let read_logger = logger;
     let mut write_close = close_receiver.clone();
@@ -593,6 +615,19 @@ async fn connection_task(
     });
 
     let read_loop = tokio::spawn(async move {
+        match tokio::time::timeout(std::time::Duration::from_secs(30), admitted).await {
+            Ok(Ok(true)) => {}
+            Ok(Ok(false)) => return, // refused: the runtime disconnects it
+            _ => {
+                read_logger.log(
+                    &format!("No admission decision for {node_id}: disconnecting"),
+                    LogSource::Network,
+                    LogLevel::Warning,
+                );
+                let _ = read_sender.send((node_id, NetworkPacket::Close)).await;
+                return;
+            }
+        }
         loop {
             tokio::select! {
                 _ = read_close.changed() => {
@@ -614,6 +649,7 @@ async fn connection_task(
                                 input,
                                 caller_node_id: node_id,
                                 caller_module_name: String::new(),
+                                admission: None,
                                 completion: None,
                             };
                             let sender = reducer_sender.clone();
@@ -675,7 +711,8 @@ fn is_disconnect_error(err: &IntersticeError) -> bool {
 async fn handshake_incoming(
     my_node_id: NodeId,
     my_address: String,
-    mut stream: TcpStream,
+    mut stream: identity::SecureStream,
+    spki: Vec<u8>,
     peers: &mut Arc<Mutex<HashMap<NodeId, PeerHandle>>>,
     packet_sender: mpsc::Sender<(NodeId, NetworkPacket)>,
     runtime_event_sender: mpsc::UnboundedSender<(
@@ -684,17 +721,13 @@ async fn handshake_incoming(
     )>,
     reducer_sender: CbSender<Job>,
     logger: Logger,
-    peer_tokens: Arc<Mutex<PeerTokenStore>>,
+    trust: Arc<identity::Trust>,
     send_handshake_response: bool,
 ) -> Result<(), IntersticeError> {
     let packet = read_packet(&mut stream).await?;
 
-    let (peer_id_str, peer_address, peer_token) = match packet {
-        NetworkPacket::Handshake {
-            node_id,
-            address,
-            token,
-        } => (node_id, address, token),
+    let (peer_id_str, peer_address) = match packet {
+        NetworkPacket::Handshake { node_id, address } => (node_id, address),
         _ => {
             return Err(IntersticeError::ProtocolError(
                 "Expected handshake packet".into(),
@@ -706,22 +739,10 @@ async fn handshake_incoming(
         IntersticeError::ProtocolError(format!("Invalid node id in handshake: {peer_id_str:?}"))
     })?;
 
-    {
-        let mut store = peer_tokens.lock();
-        if let Some(existing) = store.get_peer_token(&peer_id) {
-            if existing != peer_token {
-                return Err(IntersticeError::ProtocolError(format!(
-                    "Peer token mismatch for {}",
-                    peer_id
-                )));
-            }
-        } else {
-            store.set_peer_token(&peer_id, peer_token)?;
-        }
-    }
+    // The id must be the key's (DESIGN §7.4).
+    trust.known.bind(peer_id, &spki)?;
 
     if send_handshake_response {
-        let local_token = { peer_tokens.lock().local_token() };
         // Reply with our handshake immediately so the remote side won't block
         // waiting for it (prevents their read from hitting EOF if we drop
         // the connection due to a duplicate).
@@ -730,7 +751,6 @@ async fn handshake_incoming(
             &NetworkPacket::Handshake {
                 node_id: my_node_id.to_string(),
                 address: my_address,
-                token: local_token,
             },
         )
         .await?;
@@ -747,6 +767,9 @@ async fn handshake_incoming(
         );
         return Ok(());
     }
+
+    // Nothing is read from the peer until it is admitted (DESIGN §7.4).
+    let (admission, admitted) = peer::Admission::new(peer_id);
 
     // Create channel
     let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
@@ -769,6 +792,7 @@ async fn handshake_incoming(
         packet_sender.clone(),
         reducer_sender,
         close_receiver,
+        admitted,
         logger.clone(),
     ));
 
@@ -777,7 +801,10 @@ async fn handshake_incoming(
         LogSource::Network,
         LogLevel::Info,
     );
-    let _ = runtime_event_sender.send((EventInstance::NodeConnect { node_id: peer_id }, None));
+    let _ = runtime_event_sender.send((
+        EventInstance::NodeConnect { node_id: peer_id, admission: Some(admission) },
+        None,
+    ));
 
     Ok(())
 }

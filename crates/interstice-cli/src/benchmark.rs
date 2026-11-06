@@ -196,7 +196,7 @@ async fn run_simple(args: &[String]) -> Result<(), IntersticeError> {
 }
 
 async fn query_snapshot_on_stream(
-    stream: &mut tokio::net::TcpStream,
+    stream: &mut interstice_core::SecureStream,
     module_name: &str,
     run_id: &str,
 ) -> Result<Snapshot, IntersticeError> {

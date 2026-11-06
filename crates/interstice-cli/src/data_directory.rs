@@ -1,8 +1,6 @@
 use directories::ProjectDirs;
 use interstice_core::IntersticeError;
-use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
-use uuid::Uuid;
 
 pub fn data_file() -> PathBuf {
     let proj_dirs = ProjectDirs::from(
@@ -24,52 +22,13 @@ pub fn nodes_dir() -> PathBuf {
     dir
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CliIdentity {
-    pub cli_id: String,
-    pub cli_token: String,
+/// This CLI's identity: a key pair in `cli_identity.key`; its id is the
+/// key's (DESIGN §7.4). The token file of earlier versions is unused.
+pub fn load_cli_identity() -> Result<interstice_core::LocalIdentity, IntersticeError> {
+    interstice_core::LocalIdentity::load_or_create(&data_file().join("cli_identity.key"), None)
 }
 
-pub fn load_cli_identity() -> Result<CliIdentity, IntersticeError> {
-    let path = data_file().join("cli_identity.toml");
-    if path.exists() {
-        let contents = fs::read_to_string(&path).map_err(|err| {
-            IntersticeError::Internal(format!(
-                "Failed to read CLI identity {}: {err}",
-                path.display()
-            ))
-        })?;
-        if contents.trim().is_empty() {
-            return create_and_save_identity(&path);
-        }
-        let identity: CliIdentity = toml::from_str(&contents).map_err(|err| {
-            IntersticeError::Internal(format!(
-                "Failed to parse CLI identity {}: {err}",
-                path.display()
-            ))
-        })?;
-        if identity.cli_id.trim().is_empty() || identity.cli_token.trim().is_empty() {
-            return create_and_save_identity(&path);
-        }
-        Ok(identity)
-    } else {
-        create_and_save_identity(&path)
-    }
-}
-
-fn create_and_save_identity(path: &PathBuf) -> Result<CliIdentity, IntersticeError> {
-    let identity = CliIdentity {
-        cli_id: Uuid::new_v4().to_string(),
-        cli_token: Uuid::new_v4().to_string(),
-    };
-    let contents = toml::to_string_pretty(&identity).map_err(|err| {
-        IntersticeError::Internal(format!("Failed to serialize CLI identity: {err}"))
-    })?;
-    fs::write(path, contents).map_err(|err| {
-        IntersticeError::Internal(format!(
-            "Failed to write CLI identity {}: {err}",
-            path.display()
-        ))
-    })?;
-    Ok(identity)
+/// Keys this CLI remembers for nodes created before keys.
+pub fn cli_known_peers() -> interstice_core::KnownPeers {
+    interstice_core::KnownPeers::load(Some(data_file().join("known_peers.toml")))
 }

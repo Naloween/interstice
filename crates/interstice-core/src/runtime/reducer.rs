@@ -42,6 +42,10 @@ pub struct ReducerJob {
     /// Schema name of the calling module, or empty for runtime-originated jobs
     /// (events, render, network). See [`interstice_abi::RawReducerContext`].
     pub caller_module_name: String,
+    /// Admission (DESIGN §7.4): set on the Module holder's `connect` handler;
+    /// its result admits or refuses the peer, like SpacetimeDB's
+    /// `client_connected`.
+    pub admission: Option<crate::network::peer::Admission>,
     pub completion: Option<CompletionToken>,
 }
 

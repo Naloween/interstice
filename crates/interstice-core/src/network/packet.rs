@@ -17,6 +17,11 @@ pub async fn write_packet<W: AsyncWriteExt + Unpin>(
         .write_all(&bytes)
         .await
         .map_err(|err| IntersticeError::Internal(format!("Failed to write packet: {err}")))?;
+    // A TLS stream may hold the last record back until flushed.
+    writer
+        .flush()
+        .await
+        .map_err(|err| IntersticeError::Internal(format!("Failed to write packet: {err}")))?;
     Ok(())
 }
 
