@@ -8,8 +8,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-interstice-sdk = "0.5.0"
-
+interstice-sdk = { workspace = true }
 # ── Web engine ──────────────────────────────────────────────────────────────
 # Blitz: a real HTML/CSS engine (html5ever parser, Servo's Stylo cascade,
 # Taffy block/flex/grid/float layout, Parley text). Pure Rust → builds for
@@ -45,4 +44,4 @@ getrandom = "0.3"
 boa_engine = { version = "0.22", default-features = false }
 
 [build-dependencies]
-interstice-sdk = "0.5.0"
+interstice-sdk = { workspace = true }

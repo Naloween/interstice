@@ -1,15 +1,15 @@
 [package]
 name = "interstice-client"
-version = "0.5.0"
-edition = "2024"
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 description = "Client library for programs that talk to an Interstice node: reducer calls with results, queries, schemas"
 readme = "../../README.md"
-repository = "https://github.com/naloween/interstice"
+repository.workspace = true
 keywords = ["interstice", "client", "sdk"]
 
 [dependencies]
-interstice-core = { path = "../interstice-core", version = "0.5.0" }
+interstice-core = { workspace = true }
 tokio = { version = "1.49", features = ["full"] }
 uuid = { version = "1.20", features = ["v4"] }
 parking_lot = "0.12"

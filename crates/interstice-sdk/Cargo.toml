@@ -1,19 +1,19 @@
 [package]
 name = "interstice-sdk"
-version = "0.5.0"
-edition = "2024"
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 description = "Rust SDK and helpers for writing Interstice WASM modules"
 readme = "../../README.md"
-repository = "https://github.com/naloween/interstice"
+repository.workspace = true
 keywords = ["interstice", "wasm", "sdk"]
 [package.metadata.docs.rs]
 all-features = true
 
 [dependencies]
-interstice-abi = { path = "../interstice-abi", version = "0.5.0" }
-interstice-sdk-core = { path = "../interstice-sdk-core", version = "0.5.0" }
-interstice-sdk-macros = { path = "../interstice-sdk-macros", version = "0.5.0" }
+interstice-abi = { workspace = true }
+interstice-sdk-core = { workspace = true }
+interstice-sdk-macros = { workspace = true }
 syn = { version = "2", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"

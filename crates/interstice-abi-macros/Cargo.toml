@@ -1,11 +1,11 @@
 [package]
 name = "interstice-abi-macros"
-version = "0.5.0"
-edition = "2024"
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 description = "Procedural macros for generating ABI types and helpers for Interstice"
 readme = "../../README.md"
-repository = "https://github.com/naloween/interstice"
+repository.workspace = true
 keywords = ["interstice", "wasm", "proc-macro"]
 [package.metadata.docs.rs]
 all-features = true

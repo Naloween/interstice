@@ -39,11 +39,13 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-interstice-sdk = "0.3.0"
+interstice-sdk = "{sdk}"
 
 [build-dependencies]
-interstice-sdk = "0.3.0"
+interstice-sdk = "{sdk}"
 "#,
+        // The SDK released with this CLI (they share the workspace version).
+        sdk = env!("CARGO_PKG_VERSION"),
     );
     std::fs::write(project_path.join("Cargo.toml"), cargo_toml_content).map_err(|err| {
         IntersticeError::Internal(format!("Failed to create Cargo.toml: {}", err))

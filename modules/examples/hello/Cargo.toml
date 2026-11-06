@@ -9,7 +9,6 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-interstice-sdk = { path = "../../../crates/interstice-sdk" }
-
+interstice-sdk = { workspace = true }
 [build-dependencies]
-interstice-sdk = { path = "../../../crates/interstice-sdk" }
+interstice-sdk = { workspace = true }

@@ -1,5 +1,4 @@
 use interstice_sdk::*;
-use std::str::FromStr;
 
 use crate::types::{
     BindGroupDescriptorInput, CircleCommand, ComputeSubmission, Draw2DCommandType, ImageCommand,

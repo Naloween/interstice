@@ -1,11 +1,11 @@
 [package]
 name = "interstice-cli"
-version = "0.5.0"
-edition = "2024"
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 description = "Command-line tools to run and manage Interstice nodes and modules"
 readme = "../../README.md"
-repository = "https://github.com/naloween/interstice"
+repository.workspace = true
 keywords = ["interstice", "cli", "wasm", "runtime"]
 [package.metadata.docs.rs]
 all-features = true
@@ -16,8 +16,8 @@ path = "src/main.rs"
 
 [dependencies]
 directories = "6.0.0"
-interstice-core = { path = "../interstice-core", version = "0.5.0" }
-interstice-client = { path = "../interstice-client", version = "0.5.0" }
+interstice-core = { workspace = true }
+interstice-client = { workspace = true }
 mimalloc = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

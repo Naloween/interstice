@@ -1,5 +1,4 @@
 use interstice_sdk::*;
-use std::str::FromStr;
 
 #[interstice_type]
 #[derive(Debug)]
