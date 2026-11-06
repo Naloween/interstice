@@ -1980,8 +1980,12 @@ but explicitly out of scope for now.
       `tx` and timestamps, in segments and checkpoints, `history` retention);
       `commits` / `rows_at` / `restore`. It replaced an in-memory recorder and
       per-table timelines, which duplicated what the log already holds.
-- [ ] **Iterator-based scans** and cheaper index access (no full `Vec`
-      materialisation per scan).
+- [x] **Scans without copies**: a scan or index scan with no pending writes
+      over it encodes its reply straight from the table's rows (borrowed,
+      the same postcard bytes), instead of cloning every row first. The host
+      side of a 256-row scan went from 33 to 18 µs, and of an index lookup
+      of ~256 rows from 59 to 21 µs. Streaming rows to the guest one at a
+      time would need the typed value encoding (§10, proposal).
 
 ### 13.2 Storage
 - [ ] Persist `auto_inc` counters (ids of deleted maximum rows are reused

@@ -479,45 +479,37 @@ impl Runtime {
         Ok(None)
     }
 
-    pub(crate) fn handle_table_scan(
-        &self,
-        table_scan_request: TableScanRequest,
-    ) -> TableScanResponse {
-        let module_name = match self.selected_module_name(&table_scan_request.module_selection) {
-            Ok(module_name) => module_name,
-            Err(err) => return TableScanResponse::Err(err),
-        };
-        if let Err(err) = self.ensure_current_frame_table_access(
+    /// The encoded `TableScanResponse`. Rows with no pending writes over
+    /// them are encoded straight from the table, without a copy.
+    pub(crate) fn table_scan_reply(&self, table_scan_request: TableScanRequest) -> Vec<u8> {
+        match self.table_scan_inner(table_scan_request) {
+            Ok(bytes) => bytes,
+            Err(err) => encode_reply(&TableScanResponse::Err(err)),
+        }
+    }
+
+    fn table_scan_inner(&self, table_scan_request: TableScanRequest) -> Result<Vec<u8>, String> {
+        let module_name = self.selected_module_name(&table_scan_request.module_selection)?;
+        self.ensure_current_frame_table_access(
             &table_scan_request.module_selection,
             &table_scan_request.table_name,
             TableAccessOp::Read,
-        ) {
-            return TableScanResponse::Err(err);
-        }
-
+        )?;
         // For Current module, use the cached module_arc from the call frame
-        let module_arc = match self.selected_module_arc(&table_scan_request.module_selection) {
-            Ok(m) => m,
-            Err(e) => return TableScanResponse::Err(e),
-        };
-        match self.published_read(&module_arc, &table_scan_request.table_name) {
-            Ok(Some(rows)) => return TableScanResponse::Ok { rows },
-            Ok(None) => {}
-            Err(err) => return TableScanResponse::Err(err),
+        let module_arc = self.selected_module_arc(&table_scan_request.module_selection)?;
+        if let Some(rows) = self.published_read(&module_arc, &table_scan_request.table_name)? {
+            return Ok(encode_reply(&TableScanResponse::Ok { rows }));
         }
 
         let tables = Self::read_tables(&module_arc);
-        let table = match tables.get(&table_scan_request.table_name) {
-            Some(table) => table,
-            None => return TableScanResponse::Err("Table not found".into()),
-        };
-
-        match Self::with_overlay(&module_name, &table_scan_request.table_name, |ov| {
-            table.ov_scan(ov)
-        }) {
-            Ok(rows) => TableScanResponse::Ok { rows },
-            Err(err) => TableScanResponse::Err(err.to_string()),
-        }
+        let table = tables.get(&table_scan_request.table_name).ok_or("Table not found")?;
+        Self::with_overlay(&module_name, &table_scan_request.table_name, |ov| match ov {
+            Some(ov) if !ov.is_empty() => table
+                .ov_scan(Some(ov))
+                .map(|rows| encode_reply(&TableScanResponse::Ok { rows }))
+                .map_err(|e| e.to_string()),
+            _ => Ok(encode_reply(&RowsReply::Ok { rows: table.scan() })),
+        })
     }
 
     pub(crate) fn handle_table_get_by_primary_key(
@@ -564,50 +556,76 @@ impl Runtime {
         TableGetByPrimaryKeyResponse::Ok(row)
     }
 
-    pub(crate) fn handle_table_index_scan(
-        &self,
-        request: TableIndexScanRequest,
-    ) -> TableIndexScanResponse {
-        let module_name = match self.selected_module_name(&request.module_selection) {
-            Ok(module_name) => module_name,
-            Err(err) => return TableIndexScanResponse::Err(err),
-        };
-        if let Err(err) = self.ensure_current_frame_table_access(
+    /// The encoded `TableIndexScanResponse`, without copying committed rows.
+    pub(crate) fn table_index_scan_reply(&self, request: TableIndexScanRequest) -> Vec<u8> {
+        match self.table_index_scan_inner(request) {
+            Ok(bytes) => bytes,
+            Err(err) => encode_reply(&TableIndexScanResponse::Err(err)),
+        }
+    }
+
+    fn table_index_scan_inner(&self, request: TableIndexScanRequest) -> Result<Vec<u8>, String> {
+        let module_name = self.selected_module_name(&request.module_selection)?;
+        self.ensure_current_frame_table_access(
             &request.module_selection,
             &request.table_name,
             TableAccessOp::Read,
-        ) {
-            return TableIndexScanResponse::Err(err);
-        }
-
-        let module_arc = match self.selected_module_arc(&request.module_selection) {
-            Ok(m) => m,
-            Err(e) => return TableIndexScanResponse::Err(e),
-        };
+        )?;
+        let module_arc = self.selected_module_arc(&request.module_selection)?;
         if module_arc.schema.view(&request.table_name).is_some() {
-            return TableIndexScanResponse::Err("views have no indexes; scan the view".into());
+            return Err("views have no indexes; scan the view".into());
         }
-        if let Err(err) = self.published_read(&module_arc, &request.table_name) {
-            return TableIndexScanResponse::Err(err);
-        }
+        self.published_read(&module_arc, &request.table_name)?;
 
-        let rows = {
-            let tables = Self::read_tables(&module_arc);
-            let table = match tables.get(&request.table_name) {
-                Some(table) => table,
-                None => return TableIndexScanResponse::Err("Table not found".into()),
-            };
+        let tables = Self::read_tables(&module_arc);
+        let table = tables.get(&request.table_name).ok_or("Table not found")?;
+        Self::with_overlay(&module_name, &request.table_name, |ov| match ov {
+            Some(ov) if !ov.is_empty() => table
+                .ov_index_scan(Some(ov), &request.field_name, &request.query)
+                .map(|rows| encode_reply(&TableIndexScanResponse::Ok { rows })),
+            _ => table
+                .get_by_index(&request.field_name, &request.query)
+                .map(|rows| encode_reply(&RowRefsReply::Ok { rows })),
+        })
+        .map_err(|err| err.to_string())
+    }
+}
 
-            Self::with_overlay(&module_name, &request.table_name, |ov| {
-                table.ov_index_scan(ov, &request.field_name, &request.query)
-            })
-            .map_err(|err| err.to_string())
-        };
+/// `TableScanResponse::Ok` over borrowed rows: the same postcard bytes.
+#[derive(serde::Serialize)]
+enum RowsReply<'a> {
+    Ok { rows: &'a [interstice_abi::Row] },
+}
 
-        match rows {
-            Ok(rows) => TableIndexScanResponse::Ok { rows },
-            Err(err) => TableIndexScanResponse::Err(err),
-        }
+/// `TableIndexScanResponse::Ok` over borrowed rows: the same postcard bytes.
+#[derive(serde::Serialize)]
+enum RowRefsReply<'a> {
+    Ok { rows: Vec<&'a interstice_abi::Row> },
+}
+
+fn encode_reply(reply: &impl serde::Serialize) -> Vec<u8> {
+    interstice_abi::encode(reply).expect("host replies encode")
+}
+
+#[cfg(test)]
+mod reply_tests {
+    use super::*;
+    use interstice_abi::{IntersticeValue, Row, encode};
+
+    #[test]
+    fn borrowed_replies_encode_like_owned_ones() {
+        let rows = vec![
+            Row { primary_key: IntersticeValue::U64(1), entries: vec![IntersticeValue::String("a".into())] },
+            Row { primary_key: IntersticeValue::U64(2), entries: vec![] },
+        ];
+        assert_eq!(
+            encode(&RowsReply::Ok { rows: &rows }).unwrap(),
+            encode(&TableScanResponse::Ok { rows: rows.clone() }).unwrap()
+        );
+        assert_eq!(
+            encode(&RowRefsReply::Ok { rows: rows.iter().collect() }).unwrap(),
+            encode(&TableIndexScanResponse::Ok { rows }).unwrap()
+        );
     }
 }
 

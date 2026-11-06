@@ -46,7 +46,7 @@ impl TableOverlay {
     }
 
     #[inline]
-    fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         !self.cleared && self.rows.is_empty()
     }
 }

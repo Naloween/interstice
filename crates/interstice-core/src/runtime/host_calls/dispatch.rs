@@ -77,9 +77,9 @@ impl Runtime {
                 Ok(Some(result))
             }
             HostCall::TableScan(table_scan_request) => {
-                let response = self.handle_table_scan(table_scan_request);
-                let result = self.send_data_to_module(response, memory, caller);
-                Ok(Some(result))
+                let bytes = self.table_scan_reply(table_scan_request);
+                let (ptr, len) = self.send_bytes_to_module(memory, caller, &bytes);
+                Ok(Some(pack_ptr_len(ptr, len)))
             }
             HostCall::TableGetByPrimaryKey(request) => {
                 let response = self.handle_table_get_by_primary_key(request);
@@ -92,9 +92,9 @@ impl Runtime {
                 Ok(Some(result))
             }
             HostCall::TableIndexScan(request) => {
-                let response = self.handle_table_index_scan(request);
-                let result = self.send_data_to_module(response, memory, caller);
-                Ok(Some(result))
+                let bytes = self.table_index_scan_reply(request);
+                let (ptr, len) = self.send_bytes_to_module(memory, caller, &bytes);
+                Ok(Some(pack_ptr_len(ptr, len)))
             }
             HostCall::Gpu(gpu_call) => {
                 let gpu_auth_module = {
