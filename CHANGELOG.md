@@ -66,12 +66,18 @@ after confirmation. A node skips stored modules of another ABI at boot.
   - `call_reducer` and `call_query` type their arguments from the schema and
     print the call's error message;
   - `interstice init` uses the matching SDK version;
-  - errors print as `error: …`.
+  - errors print as `error: …`;
+  - query results print with their struct, field and variant names;
+  - `interstice example` downloads an example's modules from the release
+    of its version the first time (they no longer fit in the crate); the
+    default modules stay built in.
+- **Repository**: built modules are no longer tracked in git;
+  `scripts/build_modules.sh` builds them.
 
 ### SDK
 - **Capability shorthands**: `CanAll<T>`, tuple rows, `caps!`.
 - **Reads return `Result`**, and reducers and queries may return `Result`;
-  the caller gets the `Err` message (ABI 16).
+  the caller gets the `Err` message.
 - **Compile-time types**: types are checked at compile time, and an
   unsupported type is an error at the type itself.
 - **Named-field enum variants** keep their field names.
