@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: System dependencies
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libfontconfig1-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -47,7 +47,7 @@ jobs:
       - name: System dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev pkg-config xvfb mesa-vulkan-drivers
+          sudo apt-get install -y libasound2-dev pkg-config xvfb mesa-vulkan-drivers libxcursor1 libxi6 libxrandr2 libxkbcommon-x11-0 libx11-xcb1
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown

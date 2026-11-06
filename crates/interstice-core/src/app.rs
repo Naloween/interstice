@@ -66,7 +66,11 @@ impl App {
 
     pub fn run(mut self) {
         // Create local window and event loop
-        let event_loop = EventLoop::new().unwrap();
+        let event_loop = EventLoop::new().unwrap_or_else(|e| {
+            // No display, or its client libraries are missing (libXcursor…).
+            eprintln!("error: can't open a window: {e}");
+            std::process::exit(1)
+        });
         event_loop.set_control_flow(ControlFlow::Wait);
 
         event_loop.run_app(&mut self).expect("Event loop error");

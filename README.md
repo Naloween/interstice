@@ -31,6 +31,9 @@ From crates.io:
 cargo install interstice-cli
 ```
 
+On Linux this needs the ALSA headers (`sudo apt install libasound2-dev
+pkg-config` on Debian and Ubuntu).
+
 Prebuilt binaries for Linux, macOS and Windows are attached to the
 [GitHub releases](https://github.com/Naloween/interstice/releases).
 
@@ -41,6 +44,9 @@ rustup target add wasm32-unknown-unknown
 scripts/build_modules.sh               # the default modules and the examples
 cargo build -p interstice-cli --release
 ```
+
+`cargo test --workspace` also builds the browser example natively, which
+needs `libfontconfig1-dev`.
 
 ## Try it
 

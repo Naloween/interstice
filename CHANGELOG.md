@@ -70,7 +70,9 @@ after confirmation. A node skips stored modules of another ABI at boot.
   - query results print with their struct, field and variant names;
   - `interstice example` downloads an example's modules from the release
     of its version the first time (they no longer fit in the crate); the
-    default modules stay built in.
+    default modules stay built in;
+  - downloads use rustls: installing the CLI no longer needs OpenSSL;
+  - a node that can't open a window says why instead of panicking.
 - **Repository**: built modules are no longer tracked in git;
   `scripts/build_modules.sh` builds them.
 
