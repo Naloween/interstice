@@ -307,38 +307,13 @@ pub fn plan(
     Ok(plan)
 }
 
-/// Plan for data whose schema is unknown (written before `schema.bin`):
-/// safe if every row already fits the new schema, otherwise those tables
-/// must be cleared.
-pub fn plan_unknown(
-    new: &ModuleSchema,
-    rows: &mut dyn FnMut(&TableSchema) -> Result<Vec<Row>, IntersticeError>,
-) -> Result<MigrationPlan, IntersticeError> {
-    let mut plan = MigrationPlan { module: new.name.clone(), ..Default::default() };
-    for t in &new.tables {
-        if t.persistence == PersistenceKind::Ephemeral {
-            continue;
-        }
-        // Rows that don't decode into the new layout surface as errors.
-        let current = match rows(t) {
-            Ok(r) => r,
-            Err(e) => {
-                plan.ask(Some(&t.name), format!("stored data can't be read with the new schema ({e}): the table is cleared"));
-                plan.actions.push(TableAction::Remove { table: t.name.clone() });
-                continue;
-            }
-        };
-        let bad = current.iter().filter(|r| t.validate_row(r, &new.type_definitions).is_err()).count();
-        if bad > 0 {
-            plan.ask(Some(&t.name), format!(
-                "the previous schema is unknown and {} of {} don't fit the new one: the table is cleared",
-                bad,
-                rows_text(current.len())
-            ));
-            plan.actions.push(TableAction::Remove { table: t.name.clone() });
-        }
-    }
-    Ok(plan)
+/// Plan for stored data that cannot be read (§3.3): no readable
+/// `schema.bin`, or written under another ABI. The only way on is to delete
+/// it, which needs a decision.
+pub fn plan_unreadable(module: &str, reason: &str) -> MigrationPlan {
+    let mut plan = MigrationPlan { module: module.to_string(), ..Default::default() };
+    plan.ask(None, format!("the stored data {reason} and can't be read: it is deleted"));
+    plan
 }
 
 /// Rewrite one row with a `Map` action.

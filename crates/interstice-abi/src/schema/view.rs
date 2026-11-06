@@ -166,20 +166,16 @@ impl ViewExpr {
     }
 }
 
-/// A function view's returned struct as a row: `primary_key` first, then
-/// the other fields in declaration order (the layout of a table row).
-pub fn struct_to_row(value: IntersticeValue, primary_key: &str) -> Option<Row> {
-    let IntersticeValue::Struct { fields, .. } = value else { return None };
-    let mut key = None;
-    let mut entries = Vec::with_capacity(fields.len().saturating_sub(1));
-    for field in fields {
-        if field.name == primary_key && key.is_none() {
-            key = Some(field.value);
-        } else {
-            entries.push(field.value);
-        }
+/// A function view's returned struct as a row: the field at `primary_key`
+/// (its position in the row type) first, then the others in declaration
+/// order (the layout of a table row).
+pub fn struct_to_row(value: IntersticeValue, primary_key: usize) -> Option<Row> {
+    let IntersticeValue::Struct(mut fields) = value else { return None };
+    if primary_key >= fields.len() {
+        return None;
     }
-    Some(Row { primary_key: key?, entries })
+    let key = fields.remove(primary_key);
+    Some(Row { primary_key: key, entries: fields })
 }
 
 /// The bindings' row type name of a view: `my_responses` → `MyResponses`.

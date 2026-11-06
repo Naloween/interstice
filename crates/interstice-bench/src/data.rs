@@ -1,6 +1,6 @@
 //! Schemas and generated rows, after SpacetimeDB's `crates/bench`.
 
-use interstice_core::interstice_abi::{Field, IntersticeValue};
+use interstice_core::interstice_abi::IntersticeValue;
 
 /// The two row shapes of the generic matrix.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -155,13 +155,12 @@ pub fn column_c(schema: Schema, row: &BenchRow) -> IntersticeValue {
 /// `row` as the bench module's struct value (the hidden id is 0, assigned
 /// by auto-increment).
 pub fn to_value(table: TableId, row: &BenchRow) -> IntersticeValue {
-    let (b, c) = columns(table.schema);
     let mut fields = Vec::with_capacity(4);
     if table.index == IndexStrategy::BtreeEachColumn {
-        fields.push(Field { name: "rid".into(), value: IntersticeValue::U64(0) });
+        fields.push(IntersticeValue::U64(0));
     }
-    fields.push(Field { name: "id".into(), value: IntersticeValue::U32(row.id) });
-    fields.push(Field { name: b.into(), value: IntersticeValue::U64(row.b) });
-    fields.push(Field { name: c.into(), value: column_c(table.schema, row) });
-    IntersticeValue::Struct { name: table.type_name(), fields }
+    fields.push(IntersticeValue::U32(row.id));
+    fields.push(IntersticeValue::U64(row.b));
+    fields.push(column_c(table.schema, row));
+    IntersticeValue::Struct(fields)
 }

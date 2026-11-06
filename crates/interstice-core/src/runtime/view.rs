@@ -116,6 +116,13 @@ impl Runtime {
                 let value = self
                     .call_query(&owner.schema.name, query, args, self.node_id, "")
                     .map_err(|e| e.to_string())?;
+                let key = match owner.schema.type_definitions.get(&view.row_type) {
+                    Some(interstice_abi::IntersticeTypeDef::Struct { fields, .. }) => fields
+                        .iter()
+                        .position(|f| f.name == view.primary_key)
+                        .ok_or_else(|| format!("view '{}': `{}` has no field `{}`", view.name, view.row_type, view.primary_key))?,
+                    _ => return Err(format!("view '{}': `{}` is not a struct", view.name, view.row_type)),
+                };
                 let items = match value {
                     IntersticeValue::Vec(items) => items,
                     other => return Err(format!("view '{}' returned {other:?}, not rows", view.name)),
@@ -123,7 +130,7 @@ impl Runtime {
                 items
                     .into_iter()
                     .map(|item| {
-                        interstice_abi::struct_to_row(item, &view.primary_key)
+                        interstice_abi::struct_to_row(item, key)
                             .ok_or_else(|| format!("view '{}' returned a row without its key", view.name))
                     })
                     .collect()

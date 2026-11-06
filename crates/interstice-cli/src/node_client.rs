@@ -3,9 +3,10 @@
 
 use crate::data_directory::{cli_known_peers, load_cli_identity};
 use interstice_client::Client;
+use std::collections::HashMap;
 use interstice_core::{
     IntersticeError,
-    interstice_abi::{IntersticeValue, NodeSchema},
+    interstice_abi::{IntersticeType, IntersticeTypeDef, IntersticeValue, NodeSchema},
 };
 
 pub struct HandshakeInfo {
@@ -56,6 +57,21 @@ pub async fn fetch_node_schema(
     Ok((schema, info))
 }
 
+/// A call's arguments, typed by the function's signature, and what its
+/// result is shown with.
+pub struct TypedCall {
+    pub args: IntersticeValue,
+    pub returns: IntersticeType,
+    pub definitions: HashMap<String, IntersticeTypeDef>,
+}
+
+impl TypedCall {
+    /// `value` with the names of the result type (DESIGN §10.2).
+    pub fn render(&self, value: &IntersticeValue) -> String {
+        interstice_core::interstice_abi::render(value, &self.returns, &self.definitions)
+    }
+}
+
 /// Type `raw` by the signature of `module.function` from the node's schema.
 pub async fn typed_args(
     client: &Client,
@@ -63,17 +79,24 @@ pub async fn typed_args(
     function: &str,
     query: bool,
     raw: &[String],
-) -> Result<IntersticeValue, IntersticeError> {
+) -> Result<TypedCall, IntersticeError> {
     let schema = client.schema("").await?;
     let what = if query { "query" } else { "reducer" };
     let module_schema = schema
         .modules
-        .iter()
+        .into_iter()
         .find(|m| m.name == module)
         .ok_or_else(|| IntersticeError::Internal(format!("the node has no module '{module}' you may call")))?;
-    let params = crate::args::params(module_schema, function, query)
+    let params = crate::args::params(&module_schema, function, query)
         .ok_or_else(|| IntersticeError::Internal(format!("module '{module}' has no {what} '{function}' you may call")))?;
-    crate::args::parse(function, raw, params, &module_schema.type_definitions)
+    let args = crate::args::parse(function, raw, params, &module_schema.type_definitions)
         .map(IntersticeValue::Vec)
-        .map_err(IntersticeError::Internal)
+        .map_err(IntersticeError::Internal)?;
+    let returns = module_schema
+        .queries
+        .iter()
+        .find(|q| query && q.name == function)
+        .map(|q| q.return_type.clone())
+        .unwrap_or(IntersticeType::Void);
+    Ok(TypedCall { args, returns, definitions: module_schema.type_definitions })
 }

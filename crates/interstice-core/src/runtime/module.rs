@@ -117,7 +117,7 @@ impl Module {
         };
 
         let schema = Arc::new(factory.instantiate(None)?.load_schema()?);
-        if !interstice_abi::abi_supported(schema.abi_version) {
+        if schema.abi_version != ABI_VERSION {
             return Err(IntersticeError::AbiVersionMismatch {
                 expected: ABI_VERSION,
                 found: schema.abi_version,
@@ -235,37 +235,35 @@ impl Module {
 }
 
 impl Runtime {
-    /// The schema a module's data was written in: `schema.bin`, else the
-    /// stored `module.wasm` described (same bytes as `new_wasm` → `None`
-    /// is never needed there), else unknown.
-    async fn stored_schema(runtime: &Arc<Self>, name: &str, new_wasm: &[u8]) -> Option<ModuleSchema> {
-        let dir = runtime.modules_path.as_ref()?.join(name);
-        if let Ok(bytes) = std::fs::read(dir.join("schema.bin")) {
-            if let Ok(schema) = interstice_abi::decode::<ModuleSchema>(&bytes) {
-                return Some(schema);
-            }
+    /// The schema a module's data was written in (`schema.bin`), or why
+    /// that data can't be read (§3.3).
+    fn stored_schema(runtime: &Arc<Self>, name: &str) -> Result<ModuleSchema, String> {
+        let path = runtime.modules_path.as_ref().ok_or("has no directory")?.join(name).join("schema.bin");
+        let bytes = std::fs::read(&path).map_err(|_| "has no schema.bin".to_string())?;
+        // The ABI version is the schema's first field: read it alone, since
+        // the rest may not decode under another ABI.
+        let abi = interstice_abi::decode::<u16>(&bytes).map_err(|_| "has an unreadable schema.bin".to_string())?;
+        if abi != ABI_VERSION {
+            return Err(format!("was written under ABI {abi}, this node runs ABI {ABI_VERSION},"));
         }
-        let old_wasm = std::fs::read(dir.join("module.wasm")).ok()?;
-        if old_wasm == new_wasm {
-            return None; // same module: validated by `plan_unknown`
-        }
-        Module::build(runtime.clone(), &old_wasm).ok().map(|m| m.schema.as_ref().clone())
+        interstice_abi::decode::<ModuleSchema>(&bytes).map_err(|_| "has an unreadable schema.bin".to_string())
     }
 
-    /// The migration plan from the module's stored data to `module`.
-    async fn plan_for(
+    /// The migration plan from the module's stored data to `module`, and
+    /// the schema that data was written in (`None` if it can't be read).
+    fn plan_for(
         runtime: &Arc<Self>,
         module: &Module,
     ) -> Result<(Option<ModuleSchema>, migration::MigrationPlan), IntersticeError> {
         let name = module.schema.name.clone();
-        let old = Self::stored_schema(runtime, &name, &module.wasm_bytes).await;
+        let old = match Self::stored_schema(runtime, &name) {
+            Ok(old) => old,
+            Err(reason) => return Ok((None, migration::plan_unreadable(&name, &reason))),
+        };
         let persistence = runtime.persistence.clone();
         let mut rows = |t: &interstice_abi::TableSchema| persistence.read_rows(&name, t);
-        let plan = match &old {
-            Some(old) => migration::plan(old, &module.schema, &mut rows)?,
-            None => migration::plan_unknown(&module.schema, &mut rows)?,
-        };
-        Ok((old, plan))
+        let plan = migration::plan(&old, &module.schema, &mut rows)?;
+        Ok((Some(old), plan))
     }
 
     /// `Some(rendered plan)` when loading `module` over its stored data
@@ -278,7 +276,7 @@ impl Runtime {
             return Ok(None);
         }
         runtime.persistence.recover_migration(&module.schema.name)?;
-        let (_, plan) = Self::plan_for(runtime, module).await?;
+        let (_, plan) = Self::plan_for(runtime, module)?;
         Ok(plan.needs_decision().then(|| plan.render()))
     }
 
@@ -345,13 +343,19 @@ impl Runtime {
                 is_reload = false;
                 plan_text = format!("Module '{name}': previous data deleted, loaded as new.");
             } else {
-                let (old, plan) = Self::plan_for(&runtime, &module).await?;
+                let (old, plan) = Self::plan_for(&runtime, &module)?;
                 plan_text = plan.render();
                 if plan.needs_decision() && policy == MigrationPolicy::Safe {
                     return Err(IntersticeError::MigrationRequired(plan_text));
                 }
-                if !plan.actions.is_empty() {
-                    migration = Some((plan, old.map(|o| o.tables).unwrap_or_default()));
+                match old {
+                    // Unreadable data: deleting it is the plan.
+                    None => {
+                        runtime.persistence.delete_module_data(&name)?;
+                        is_reload = false;
+                    }
+                    Some(old) if !plan.actions.is_empty() => migration = Some((plan, old.tables)),
+                    Some(_) => {}
                 }
             }
         }

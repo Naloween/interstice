@@ -162,10 +162,10 @@ fn check_modules(bundle: &mut Bundle) -> Result<(), IntersticeError> {
     let mut schemas = Vec::new();
     for module in &mut bundle.modules {
         let schema = bundle::describe_wasm(&module.wasm)?;
-        if !interstice_core::interstice_abi::abi_supported(schema.abi_version) {
+        if schema.abi_version != ABI_VERSION {
             return Err(err(format!(
-                "module '{}' was built for ABI {}, this interstice runs ABI {}..={ABI_VERSION}; rebuild it",
-                schema.name, schema.abi_version, interstice_core::interstice_abi::MIN_ABI_VERSION
+                "module '{}' was built for ABI {}, this interstice runs ABI {ABI_VERSION}; rebuild it",
+                schema.name, schema.abi_version
             )));
         }
         if let Some(name) = &module.name {
@@ -205,7 +205,7 @@ fn inspect(path: &Path) -> Result<(), IntersticeError> {
     println!(
         "  ABI {}{}, port {}",
         m.abi_version,
-        if interstice_core::interstice_abi::abi_supported(m.abi_version) { "" } else { " (this interstice runs another ABI)" },
+        if m.abi_version == ABI_VERSION { "" } else { " (this interstice runs another ABI)" },
         m.port.map(|p| p.to_string()).unwrap_or_else(|| "any".into())
     );
     for module in &bundle.modules {

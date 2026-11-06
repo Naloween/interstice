@@ -1,400 +1,176 @@
-use quote::quote;
-use syn::{DeriveInput, Fields, Ident, Variant};
+//! `#[derive(IntersticeType)]`: conversions between a Rust struct or enum
+//! and its positional `IntersticeValue` (DESIGN §10.2): a struct is its
+//! fields in declaration order, an enum its variant index and payload.
+
+use proc_macro2::TokenStream;
+use quote::{format_ident, quote};
+use syn::{DeriveInput, Fields};
 
 use crate::abi_path;
 
-pub fn derive_interstice_type_macro(input: DeriveInput) -> proc_macro2::TokenStream {
-    let struct_name = input.ident.clone();
-
-    return match input.data.clone() {
-        syn::Data::Struct(s) => derive_interstice_type_macro_struct(struct_name, s.fields),
-        syn::Data::Enum(s) => {
-            let variants: Vec<Variant> = s.variants.into_iter().map(|f| f).collect();
-            derive_interstice_type_macro_enum(struct_name, variants)
-        }
-        _ => syn::Error::new_spanned(
-            struct_name,
-            "IntersticeType can only be derived for struct or enum",
-        )
-        .to_compile_error()
-        .into(),
-    };
+pub fn derive_interstice_type_macro(input: DeriveInput) -> TokenStream {
+    let name = input.ident.clone();
+    match &input.data {
+        syn::Data::Struct(s) => match &s.fields {
+            Fields::Named(_) => derive_struct(&name, &s.fields),
+            _ => syn::Error::new_spanned(&name, "IntersticeType structs need named fields").to_compile_error(),
+        },
+        syn::Data::Enum(e) => derive_enum(&name, e.variants.iter().collect()),
+        _ => syn::Error::new_spanned(&name, "IntersticeType can only be derived for a struct or an enum").to_compile_error(),
+    }
 }
 
-fn derive_interstice_type_macro_struct(
-    struct_name: Ident,
-    fields: Fields,
-) -> proc_macro2::TokenStream {
+/// `let a = ..; let b = ..;` from the values of `fields` (an iterator
+/// named `items`), with errors that name the field.
+fn take_fields(context: &str, idents: &[syn::Ident], types: &[&syn::Type]) -> TokenStream {
     let abi = abi_path();
-
-    let struct_name_str = struct_name.to_string();
-
-    let named_fields = match fields {
-        syn::Fields::Named(f) => f.named,
-        _ => panic!("IntersticeType requires named fields"),
-    };
-
-    let mut field_names = Vec::new();
-    let mut field_types = Vec::new();
-
-    for field in named_fields {
-        let ident = field.ident.unwrap();
-        let ty = field.ty;
-
-        field_names.push(ident);
-        field_types.push(ty);
-    }
-
-    let field_name_strings: Vec<String> = field_names.iter().map(|f| f.to_string()).collect();
-    let field_assignments = field_names
-        .iter()
-        .zip(field_types.iter())
-        .zip(field_name_strings.iter())
-        .map(|((field_ident, field_ty), field_name_str)| {
-            if let Some(inner_ty) = extract_option_inner_type(field_ty) {
-                quote! {
-                    #field_ident: {
-                        let value = map
-                            .remove(#field_name_str)
-                            .ok_or_else(|| #abi::IntersticeAbiError::ConversionError(
-                                format!("Missing field {}", #field_name_str)
-                            ))?;
-                        match value {
-                            #abi::IntersticeValue::Option(opt) => match opt {
-                                Some(inner) => Some(<#inner_ty as TryFrom<#abi::IntersticeValue>>::try_from(*inner)?),
-                                None => None,
-                            },
-                            #abi::IntersticeValue::Void => None,
-                            other => {
-                                return Err(#abi::IntersticeAbiError::ConversionError(format!(
-                                    "Expected option for field {}, got {:?}", #field_name_str, other
-                                )));
-                            }
-                        }
-                    }
-                }
-            } else {
-                quote! {
-                    #field_ident: {
-                        let value = map
-                            .remove(#field_name_str)
-                            .ok_or_else(|| #abi::IntersticeAbiError::ConversionError(
-                                format!("Missing field {}", #field_name_str)
-                            ))?;
-                        <#field_ty as TryFrom<#abi::IntersticeValue>>::try_from(value)?
-                    }
-                }
-            }
-        })
-        .collect::<Vec<_>>();
-
+    let names: Vec<String> = idents.iter().map(|i| i.to_string()).collect();
     quote! {
-        impl Into<#abi::IntersticeValue> for #struct_name {
-            fn into(self) -> #abi::IntersticeValue {
-                #abi::IntersticeValue::Struct {
-                    name: #struct_name_str.to_string(),
-                    fields: vec![
-                        #(
-                            #abi::Field {
-                                name: #field_name_strings.to_string(),
-                                value: self.#field_names.into(),
-                            }
-                        ),*
-                    ],
-                }
+        #(
+            let #idents = <#types as TryFrom<#abi::IntersticeValue>>::try_from(items.next().unwrap())
+                .map_err(|e| #abi::IntersticeAbiError::ConversionError(format!("{}.{}: {}", #context, #names, e)))?;
+        )*
+    }
+}
+
+fn derive_struct(name: &syn::Ident, fields: &Fields) -> TokenStream {
+    let abi = abi_path();
+    let idents: Vec<syn::Ident> = fields.iter().map(|f| f.ident.clone().unwrap()).collect();
+    let types: Vec<&syn::Type> = fields.iter().map(|f| &f.ty).collect();
+    let count = idents.len();
+    let context = name.to_string();
+    let take = take_fields(&context, &idents, &types);
+    quote! {
+        impl From<#name> for #abi::IntersticeValue {
+            fn from(value: #name) -> Self {
+                #abi::IntersticeValue::Struct(vec![#(value.#idents.into()),*])
             }
         }
 
-        impl TryFrom<#abi::IntersticeValue> for #struct_name {
+        impl TryFrom<#abi::IntersticeValue> for #name {
             type Error = #abi::IntersticeAbiError;
 
             fn try_from(value: #abi::IntersticeValue) -> Result<Self, Self::Error> {
                 match value {
-                    #abi::IntersticeValue::Struct { name, fields } if name == #struct_name_str => {
-                        let mut map = std::collections::HashMap::new();
-                        for field in fields {
-                            map.insert(field.name, field.value);
-                        }
-
-                        Ok(Self {
-                            #(#field_assignments,)*
-                        })
+                    #abi::IntersticeValue::Struct(fields) if fields.len() == #count => {
+                        #[allow(unused_mut, unused_variables)]
+                        let mut items = fields.into_iter();
+                        #take
+                        Ok(Self { #(#idents),* })
                     }
-                    _ => Err(Self::Error::ConversionError("Expected struct".to_string())),
-                }
-            }
-        }
-    }
-}
-
-fn extract_option_inner_type(ty: &syn::Type) -> Option<syn::Type> {
-    if let syn::Type::Path(type_path) = ty {
-        if type_path.qself.is_none() {
-            if let Some(segment) = type_path.path.segments.last() {
-                if segment.ident == "Option" {
-                    if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                        if let Some(syn::GenericArgument::Type(inner_ty)) = args.args.first() {
-                            return Some(inner_ty.clone());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
-fn derive_interstice_type_macro_enum(
-    enum_name: Ident,
-    variants: Vec<Variant>,
-) -> proc_macro2::TokenStream {
-    let abi = abi_path();
-
-    let enum_name_str = enum_name.to_string();
-
-    let match_arms = variants.clone().into_iter().map(|variant| {
-        let variant_ident = variant.ident;
-        let variant_name_str = variant_ident.to_string();
-
-        match variant.fields {
-            // ---------------- UNIT ----------------
-            Fields::Unit => {
-                quote! {
-                    #enum_name::#variant_ident => #abi::IntersticeValue::Enum {
-                        name: #enum_name_str.to_string(),
-                        variant: #variant_name_str.to_string(),
-                        value: Box::new(#abi::IntersticeValue::Void),
-                    }
-                }
-            }
-
-            // ---------------- TUPLE VARIANT ----------------
-            Fields::Unnamed(fields) => {
-                let bindings: Vec<_> = (0..fields.unnamed.len())
-                    .map(|i| syn::Ident::new(&format!("v{i}"), variant_ident.span()))
-                    .collect();
-
-                if bindings.len() == 1 {
-                    let v0 = &bindings[0];
-                    quote! {
-                        #enum_name::#variant_ident(#v0) => #abi::IntersticeValue::Enum {
-                            name: #enum_name_str.to_string(),
-                            variant: #variant_name_str.to_string(),
-                            value: Box::new(#v0.into()),
-                        }
-                    }
-                } else {
-                    quote! {
-                        #enum_name::#variant_ident(#(#bindings),*) => #abi::IntersticeValue::Enum {
-                            name: #enum_name_str.to_string(),
-                            variant: #variant_name_str.to_string(),
-                            value: Box::new(#abi::IntersticeValue::Tuple(vec![
-                                #(#bindings.into()),*
-                            ])),
-                        }
-                    }
-                }
-            }
-
-            // ---------------- STRUCT VARIANT ----------------
-            Fields::Named(fields) => {
-                let field_idents: Vec<_> = fields
-                    .named
-                    .iter()
-                    .map(|f| f.ident.clone().unwrap())
-                    .collect();
-
-                let field_names: Vec<String> =
-                    field_idents.iter().map(|id| id.to_string()).collect();
-
-                quote! {
-                    #enum_name::#variant_ident { #(#field_idents),* } => #abi::IntersticeValue::Enum {
-                        name: #enum_name_str.to_string(),
-                        variant: #variant_name_str.to_string(),
-                        // The payload is the struct type `Enum::Variant` (§10.1).
-                        value: Box::new(#abi::IntersticeValue::Struct {
-                            name: format!("{}::{}", #enum_name_str, #variant_name_str),
-                            fields: vec![
-                                #(
-                                    #abi::Field {
-                                        name: #field_names.to_string(),
-                                        value: #field_idents.into(),
-                                    }
-                                ),*
-                            ],
-                        }),
-                    }
-                }
-            }
-        }
-    });
-
-    let reverse_match_arms = variants.iter().map(|variant| {
-        let variant_ident = &variant.ident;
-        let variant_name_str = variant_ident.to_string();
-
-        match &variant.fields {
-            // -------- UNIT --------
-            Fields::Unit => {
-                quote! {
-                    #variant_name_str => {
-                        match *value {
-                            #abi::IntersticeValue::Void => Ok(#enum_name::#variant_ident),
-                            other => Err(#abi::IntersticeAbiError::ConversionError(format!(
-                                "Expected Void for variant {}::{}, got {:?}",
-                                #enum_name_str,
-                                #variant_name_str,
-                                other
-                            ))),
-                        }
-                    }
-                }
-            }
-
-            // -------- TUPLE --------
-            Fields::Unnamed(fields) => {
-                let arity = fields.unnamed.len();
-
-                if arity == 1 {
-                    let ty = &fields.unnamed.first().unwrap().ty;
-                    quote! {
-                        #variant_name_str => {
-                            let inner: #ty = (*value).try_into().map_err(|_| {
-                                #abi::IntersticeAbiError::ConversionError(format!(
-                                    "Failed to convert payload for {}::{}",
-                                    #enum_name_str,
-                                    #variant_name_str
-                                ))
-                            })?;
-                            Ok(#enum_name::#variant_ident(inner))
-                        }
-                    }
-                } else {
-                    let indices: Vec<syn::Index> = (0..arity).map(|i| syn::Index::from(i)).collect();
-                    let types: Vec<_> = fields.unnamed.iter().map(|f| &f.ty).collect();
-
-                    quote! {
-                        #variant_name_str => {
-                            match *value {
-                                #abi::IntersticeValue::Tuple(vec) => {
-                                    if vec.len() != #arity {
-                                        return Err(#abi::IntersticeAbiError::ConversionError(format!(
-                                            "Wrong tuple arity for {}::{}",
-                                            #enum_name_str,
-                                            #variant_name_str
-                                        )));
-                                    }
-                                    Ok(#enum_name::#variant_ident(
-                                        #(
-                                            <#types as TryFrom<#abi::IntersticeValue>>::try_from(vec[#indices].clone())
-                                                .map_err(|_| #abi::IntersticeAbiError::ConversionError(format!(
-                                                    "Failed to convert tuple element for {}::{}",
-                                                    #enum_name_str,
-                                                    #variant_name_str
-                                                )))?
-                                        ),*
-                                    ))
-                                }
-                                other => Err(#abi::IntersticeAbiError::ConversionError(format!(
-                                    "Expected Tuple for {}::{}, got {:?}",
-                                    #enum_name_str,
-                                    #variant_name_str,
-                                    other
-                                ))),
-                            }
-                        }
-                    }
-                }
-            }
-
-            // -------- STRUCT --------
-            Fields::Named(fields) => {
-                let field_idents: Vec<_> = fields.named.iter().map(|f| f.ident.clone().unwrap()).collect();
-                let field_names: Vec<String> = field_idents.iter().map(|id| id.to_string()).collect();
-                let field_types: Vec<_> = fields.named.iter().map(|f| &f.ty).collect();
-
-                quote! {
-                    #variant_name_str => {
-                        match *value {
-                            #abi::IntersticeValue::Struct { name: struct_name, fields } => {
-                                // `Variant` is the name before ABI 16's `Enum::Variant`.
-                                if struct_name != #variant_name_str
-                                    && struct_name != format!("{}::{}", #enum_name_str, #variant_name_str)
-                                {
-                                    return Err(#abi::IntersticeAbiError::ConversionError(format!(
-                                        "Struct name mismatch for {}::{}",
-                                        #enum_name_str,
-                                        #variant_name_str
-                                    )));
-                                }
-                                let mut map = std::collections::HashMap::new();
-                                for field in fields {
-                                    map.insert(field.name, field.value);
-                                }
-
-                                Ok(#enum_name::#variant_ident {
-                                    #(
-                                        #field_idents: <#field_types as TryFrom<#abi::IntersticeValue>>::try_from(
-                                            map.remove(#field_names)
-                                                .ok_or_else(|| #abi::IntersticeAbiError::ConversionError(format!(
-                                                    "Missing field {} in {}::{}",
-                                                    #field_names,
-                                                    #enum_name_str,
-                                                    #variant_name_str
-                                                )))?
-                                        ).map_err(|_| #abi::IntersticeAbiError::ConversionError(format!(
-                                            "Failed to convert field {} in {}::{}",
-                                            #field_names,
-                                            #enum_name_str,
-                                            #variant_name_str
-                                        )))?
-                                    ),*
-                                })
-                            }
-                            other => Err(#abi::IntersticeAbiError::ConversionError(format!(
-                                "Expected Struct for {}::{}, got {:?}",
-                                #enum_name_str,
-                                #variant_name_str,
-                                other
-                            ))),
-                        }
-                    }
-                }
-            }
-        }
-    });
-
-    quote! {
-        impl Into<#abi::IntersticeValue> for #enum_name {
-            fn into(self) -> #abi::IntersticeValue {
-                match self {
-                    #(#match_arms,)*
-                }
-            }
-        }
-
-        impl TryFrom<#abi::IntersticeValue> for #enum_name {
-            type Error = #abi::IntersticeAbiError;
-
-            fn try_from(value: #abi::IntersticeValue) -> Result<Self, Self::Error> {
-                match value {
-                    #abi::IntersticeValue::Enum { name, variant, value } if name == #enum_name_str => {
-                        match variant.as_str() {
-                            #(#reverse_match_arms,)*
-                            _ => Err(#abi::IntersticeAbiError::ConversionError(format!(
-                                "Unknown variant '{}' for enum {}",
-                                variant,
-                                #enum_name_str
-                            ))),
-                        }
-                    }
-                    _ => Err(#abi::IntersticeAbiError::ConversionError(format!(
-                        "Expected IntersticeValue::Enum for {}",
-                        #enum_name_str
+                    other => Err(#abi::IntersticeAbiError::ConversionError(format!(
+                        "expected {} ({} fields), got {}", #context, #count, other
                     ))),
                 }
             }
         }
+    }
+}
 
+fn derive_enum(name: &syn::Ident, variants: Vec<&syn::Variant>) -> TokenStream {
+    let abi = abi_path();
+    let mut to_value = Vec::new();
+    let mut from_value = Vec::new();
+    for (index, variant) in variants.iter().enumerate() {
+        let index = index as u32;
+        let v = &variant.ident;
+        let context = format!("{name}::{v}");
+        let wrong = quote! {
+            other => Err(#abi::IntersticeAbiError::ConversionError(format!("{}: unexpected payload {}", #context, other)))
+        };
+        match &variant.fields {
+            Fields::Unit => {
+                to_value.push(quote! {
+                    #name::#v => #abi::IntersticeValue::Enum { variant: #index, value: Box::new(#abi::IntersticeValue::Void) }
+                });
+                from_value.push(quote! {
+                    #index => match *value {
+                        #abi::IntersticeValue::Void => Ok(#name::#v),
+                        #wrong,
+                    }
+                });
+            }
+            Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+                let ty = &fields.unnamed[0].ty;
+                to_value.push(quote! {
+                    #name::#v(x) => #abi::IntersticeValue::Enum { variant: #index, value: Box::new(x.into()) }
+                });
+                from_value.push(quote! {
+                    #index => <#ty as TryFrom<#abi::IntersticeValue>>::try_from(*value)
+                        .map(#name::#v)
+                        .map_err(|e| #abi::IntersticeAbiError::ConversionError(format!("{}: {}", #context, e)))
+                });
+            }
+            Fields::Unnamed(fields) => {
+                let idents: Vec<syn::Ident> = (0..fields.unnamed.len()).map(|i| format_ident!("v{i}")).collect();
+                let types: Vec<&syn::Type> = fields.unnamed.iter().map(|f| &f.ty).collect();
+                let count = idents.len();
+                let take = take_fields(&context, &idents, &types);
+                to_value.push(quote! {
+                    #name::#v(#(#idents),*) => #abi::IntersticeValue::Enum {
+                        variant: #index,
+                        value: Box::new(#abi::IntersticeValue::Tuple(vec![#(#idents.into()),*])),
+                    }
+                });
+                from_value.push(quote! {
+                    #index => match *value {
+                        #abi::IntersticeValue::Tuple(fields) if fields.len() == #count => {
+                            let mut items = fields.into_iter();
+                            #take
+                            Ok(#name::#v(#(#idents),*))
+                        }
+                        #wrong,
+                    }
+                });
+            }
+            Fields::Named(fields) => {
+                // The payload is the struct `Enum::Variant` (DESIGN §10.1).
+                let idents: Vec<syn::Ident> = fields.named.iter().map(|f| f.ident.clone().unwrap()).collect();
+                let types: Vec<&syn::Type> = fields.named.iter().map(|f| &f.ty).collect();
+                let count = idents.len();
+                let take = take_fields(&context, &idents, &types);
+                to_value.push(quote! {
+                    #name::#v { #(#idents),* } => #abi::IntersticeValue::Enum {
+                        variant: #index,
+                        value: Box::new(#abi::IntersticeValue::Struct(vec![#(#idents.into()),*])),
+                    }
+                });
+                from_value.push(quote! {
+                    #index => match *value {
+                        #abi::IntersticeValue::Struct(fields) if fields.len() == #count => {
+                            #[allow(unused_mut)]
+                            let mut items = fields.into_iter();
+                            #take
+                            Ok(#name::#v { #(#idents),* })
+                        }
+                        #wrong,
+                    }
+                });
+            }
+        }
+    }
+    let context = name.to_string();
+    quote! {
+        impl From<#name> for #abi::IntersticeValue {
+            fn from(value: #name) -> Self {
+                match value {
+                    #(#to_value,)*
+                }
+            }
+        }
+
+        impl TryFrom<#abi::IntersticeValue> for #name {
+            type Error = #abi::IntersticeAbiError;
+
+            fn try_from(value: #abi::IntersticeValue) -> Result<Self, Self::Error> {
+                let #abi::IntersticeValue::Enum { variant, value } = value else {
+                    return Err(#abi::IntersticeAbiError::ConversionError(format!("expected {}, got {}", #context, value)));
+                };
+                match variant {
+                    #(#from_value,)*
+                    other => Err(#abi::IntersticeAbiError::ConversionError(format!("{} has no variant #{}", #context, other))),
+                }
+            }
+        }
     }
 }

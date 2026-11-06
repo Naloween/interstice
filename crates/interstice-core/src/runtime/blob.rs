@@ -84,13 +84,10 @@ pub fn inline_blobs(value: &mut IntersticeValue) -> Result<(), String> {
             *value = IntersticeValue::Bytes(data.to_vec());
             Ok(())
         }
-        IntersticeValue::Vec(items) | IntersticeValue::Tuple(items) => {
+        IntersticeValue::Vec(items) | IntersticeValue::Tuple(items) | IntersticeValue::Struct(items) => {
             items.iter_mut().try_for_each(inline_blobs)
         }
         IntersticeValue::Option(Some(inner)) => inline_blobs(inner),
-        IntersticeValue::Struct { fields, .. } => {
-            fields.iter_mut().try_for_each(|f| inline_blobs(&mut f.value))
-        }
         IntersticeValue::Enum { value, .. } => inline_blobs(value),
         _ => Ok(()),
     }

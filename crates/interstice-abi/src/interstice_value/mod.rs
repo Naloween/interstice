@@ -1,18 +1,24 @@
 mod convert;
 mod index_key;
+mod render;
 mod row;
 mod validate;
 
-use std::fmt::{Display, Write};
+use std::fmt::Display;
 
 pub use index_key::IndexKey;
+pub use render::render;
 pub use validate::{validate_value, validate_value_detailed};
 
 use serde::{Deserialize, Serialize};
 
+/// A value as it crosses the boundary, is stored, logged and sent between
+/// nodes. Values are typed by the schema: structs and enums carry no names,
+/// only positions (DESIGN §10.2).
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub enum IntersticeValue {
     Void,
+    Bool(bool),
     U8(u8),
     U32(u32),
     U64(u64),
@@ -20,37 +26,25 @@ pub enum IntersticeValue {
     I64(i64),
     F32(f32),
     F64(f64),
-    Bool(bool),
     String(String),
+    /// A `Vec<u8>`, stored contiguously: one length and the raw bytes
+    /// instead of one tagged value per byte. Validates as `Vec(U8)`.
+    Bytes(#[serde(with = "raw_bytes")] Vec<u8>),
+    /// Handle to an immutable byte buffer held by the host for the call that
+    /// created or received it (DESIGN §7.1). Validates as `Blob`.
+    Blob(u64),
 
     Vec(Vec<IntersticeValue>),
     Option(Option<Box<IntersticeValue>>),
     Tuple(Vec<IntersticeValue>),
-
-    Struct {
-        name: String,
-        fields: Vec<Field>,
-    },
-
+    /// A struct's fields, in declaration order.
+    Struct(Vec<IntersticeValue>),
+    /// An enum variant, by its index in declaration order, and its payload:
+    /// `Void`, a `Tuple`, one value, or the struct `Enum::Variant`.
     Enum {
-        name: String,
-        variant: String,
+        variant: u32,
         value: Box<IntersticeValue>,
     },
-
-    /// A `Vec<u8>`, stored contiguously. Semantically identical to a `Vec` of
-    /// `U8` (it validates against `IntersticeType::Vec(U8)`), but encodes as
-    /// one length + raw bytes instead of one tagged value per byte — the
-    /// difference between ~1 ms and ~250 ms for a 4 MB texture upload.
-    /// Appended last so existing encoded values keep their variant indices.
-    Bytes(#[serde(with = "raw_bytes")] Vec<u8>),
-
-    /// Handle to an immutable byte buffer held by the host for the duration of
-    /// the call that created (or received) it. Moving bulk data between modules
-    /// this way costs one copy into the host instead of an encode/decode per
-    /// hop; the GPU authority can consume it without copying it into its own
-    /// memory. Validates against `IntersticeType::Blob`.
-    Blob(u64),
 }
 
 /// (De)serialize a `Vec<u8>` as one byte string instead of a sequence of
@@ -88,84 +82,42 @@ mod raw_bytes {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-pub struct Field {
-    pub name: String,
-    pub value: IntersticeValue,
-}
-
+/// One line, without names (they live in the schema): `{1, "a"}` for a
+/// struct, `#2(..)` for an enum variant. `render` adds the names.
 impl Display for IntersticeValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.fmt_with_indent(f, 0)
-    }
-}
-
-impl IntersticeValue {
-    fn fmt_with_indent(&self, f: &mut std::fmt::Formatter<'_>, indent: usize) -> std::fmt::Result {
-        let indent_str = "  ".repeat(indent);
-        let next_indent_str = "  ".repeat(indent + 1);
-
+        let list = |f: &mut std::fmt::Formatter<'_>, items: &[IntersticeValue], open: &str, close: &str| {
+            f.write_str(open)?;
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    f.write_str(", ")?;
+                }
+                write!(f, "{item}")?;
+            }
+            f.write_str(close)
+        };
         match self {
-            IntersticeValue::Void => write!(f, "void"),
-            IntersticeValue::U8(value) => write!(f, "{value}"),
-            IntersticeValue::U32(value) => write!(f, "{value}"),
-            IntersticeValue::U64(value) => write!(f, "{value}"),
-            IntersticeValue::I32(value) => write!(f, "{value}"),
-            IntersticeValue::I64(value) => write!(f, "{value}"),
-            IntersticeValue::F32(value) => write!(f, "{value}"),
-            IntersticeValue::F64(value) => write!(f, "{value}"),
-            IntersticeValue::Bool(value) => write!(f, "{value}"),
-            IntersticeValue::String(value) => write!(f, "\"{value}\""),
+            IntersticeValue::Void => write!(f, "()"),
+            IntersticeValue::Bool(v) => write!(f, "{v}"),
+            IntersticeValue::U8(v) => write!(f, "{v}"),
+            IntersticeValue::U32(v) => write!(f, "{v}"),
+            IntersticeValue::U64(v) => write!(f, "{v}"),
+            IntersticeValue::I32(v) => write!(f, "{v}"),
+            IntersticeValue::I64(v) => write!(f, "{v}"),
+            IntersticeValue::F32(v) => write!(f, "{v}"),
+            IntersticeValue::F64(v) => write!(f, "{v}"),
+            IntersticeValue::String(v) => write!(f, "{v:?}"),
             IntersticeValue::Bytes(bytes) => write!(f, "<{} bytes>", bytes.len()),
             IntersticeValue::Blob(id) => write!(f, "<blob #{id}>"),
-            IntersticeValue::Vec(values) => {
-                write!(f, "[\n")?;
-                for value in values {
-                    write!(f, "{next_indent_str}")?;
-                    value.fmt_with_indent(f, indent + 1)?;
-                    write!(f, ",\n")?;
-                }
-                write!(f, "{indent_str}]")
-            }
-            IntersticeValue::Option(opt) => {
-                if let Some(inner) = opt {
-                    write!(f, "Some(")?;
-                    inner.fmt_with_indent(f, indent)?;
-                    write!(f, ")")
-                } else {
-                    write!(f, "None")
-                }
-            }
-            IntersticeValue::Tuple(values) => {
-                let values_str = values
-                    .iter()
-                    .map(|v| {
-                        let mut buf = String::new();
-                        let _ = write!(buf, "{}", v);
-                        buf
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "({values_str})")
-            }
-            IntersticeValue::Struct { name, fields } => {
-                write!(f, "{} {{\n", name)?;
-                for field in fields {
-                    write!(f, "{next_indent_str}{}: ", field.name)?;
-                    field.value.fmt_with_indent(f, indent + 1)?;
-                    write!(f, ",\n")?;
-                }
-                write!(f, "{indent_str}}}")
-            }
-            IntersticeValue::Enum {
-                name,
-                variant,
-                value,
-            } => {
-                write!(f, "{}::{}(", name, variant)?;
-                value.fmt_with_indent(f, indent)?;
-                write!(f, ")")
-            }
+            IntersticeValue::Vec(items) => list(f, items, "[", "]"),
+            IntersticeValue::Option(None) => write!(f, "None"),
+            IntersticeValue::Option(Some(v)) => write!(f, "Some({v})"),
+            IntersticeValue::Tuple(items) => list(f, items, "(", ")"),
+            IntersticeValue::Struct(fields) => list(f, fields, "{", "}"),
+            IntersticeValue::Enum { variant, value } => match value.as_ref() {
+                IntersticeValue::Void => write!(f, "#{variant}"),
+                value => write!(f, "#{variant}({value})"),
+            },
         }
     }
 }

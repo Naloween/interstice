@@ -14,14 +14,14 @@ pub async fn call_reducer(
         .resolve_address(&node_ref)
         .ok_or_else(|| IntersticeError::Internal("Unknown node".into()))?;
     let client = connect(&node_address).await?;
-    let input = match typed_args(&client, &module_name, &reducer_name, false, &args).await {
-        Ok(input) => input,
+    let call = match typed_args(&client, &module_name, &reducer_name, false, &args).await {
+        Ok(call) => call,
         Err(err) => {
             client.close().await;
             return Err(err);
         }
     };
-    let outcome = client.call_reducer(&module_name, &reducer_name, input).await;
+    let outcome = client.call_reducer(&module_name, &reducer_name, call.args).await;
     client.close().await;
     match outcome {
         Ok(()) => {

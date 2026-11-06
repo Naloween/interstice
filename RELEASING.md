@@ -34,9 +34,9 @@ All published crates share one version (`[workspace.package]` in the root
 
 ## Module ABI
 
-`interstice_abi::ABI_VERSION` is the format modules are built for. A host loads
-any module in `MIN_ABI_VERSION..=ABI_VERSION` (DESIGN §10):
-- **Adding a host import, or an optional field**: raise `ABI_VERSION` and keep
-  `MIN_ABI_VERSION`. Old modules keep loading.
-- **A breaking change** (an import's signature, the encoding): raise both.
-  Every module must then be rebuilt; note it in the changelog.
+`interstice_abi::ABI_VERSION` is the format modules are built for and data is
+written in. A host loads only modules of its own ABI and reads only data
+written under it (DESIGN §10, §10.2); there are no compatibility paths. Any
+change to a host import or to the encoding raises it: every module is rebuilt
+(`scripts/build_modules.sh`), stored data is deleted on the next load after
+confirmation, and the changelog says so.

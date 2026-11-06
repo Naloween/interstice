@@ -4,7 +4,7 @@
 //! `null`).
 
 use interstice_core::interstice_abi::{
-    Field, FieldDef, IntersticeType, IntersticeTypeDef, IntersticeValue, ModuleSchema,
+    FieldDef, IntersticeType, IntersticeTypeDef, IntersticeValue, ModuleSchema,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -97,9 +97,9 @@ fn from_json(json: &Value, ty: &IntersticeType, defs: &Defs) -> Result<Interstic
                 let mut out = Vec::with_capacity(fields.len());
                 for f in fields {
                     let v = obj.get(&f.name).ok_or_else(|| format!("{name} needs field '{}'", f.name))?;
-                    out.push(Field { name: f.name.clone(), value: from_json(v, &f.field_type, defs)? });
+                    out.push(from_json(v, &f.field_type, defs)?);
                 }
-                IntersticeValue::Struct { name: name.clone(), fields: out }
+                IntersticeValue::Struct(out)
             }
             Some(IntersticeTypeDef::Enum { name, variants }) => {
                 let (variant, payload) = match json {
@@ -110,14 +110,13 @@ fn from_json(json: &Value, ty: &IntersticeType, defs: &Defs) -> Result<Interstic
                     }
                     _ => return Err(format!("expected a variant of {name}, as \"Variant\" or {{\"Variant\": value}}")),
                 };
-                let def = variants
+                let index = variants
                     .iter()
-                    .find(|v| v.name == variant)
+                    .position(|v| v.name == variant)
                     .ok_or_else(|| format!("{name} has no variant {variant}"))?;
                 IntersticeValue::Enum {
-                    name: name.clone(),
-                    variant,
-                    value: Box::new(from_json(&payload, &def.field_type, defs)?),
+                    variant: index as u32,
+                    value: Box::new(from_json(&payload, &variants[index].field_type, defs)?),
                 }
             }
             None => return Err(format!("unknown type {name}")),

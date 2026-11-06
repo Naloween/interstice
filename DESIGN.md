@@ -157,11 +157,10 @@ change the row layout that other modules are compiled against, is refused
 until someone decides.
 
 **Old schema.** Each successful load writes `schema.bin` (postcard
-`ModuleSchema`) next to the data. On a reload the old schema is that file.
-For data written before `schema.bin` existed, the old `module.wasm` is
-described if it still instantiates. Otherwise the old schema is unknown: the
-plan is safe only if every restored row passes `validate_row` against the new
-schema.
+`ModuleSchema`, whose first field is the ABI version) next to the data. On a
+reload the old schema is that file. Data with no readable `schema.bin`, or
+written under another ABI (§10.2), cannot be read: the plan clears every
+persisted table, and asks first if any holds rows.
 
 **Rows are positional** (`Row.entries` follows `TableSchema.fields`), and
 dependents decode them positionally from their bindings, ignoring extra
@@ -1518,21 +1517,19 @@ bundle appended, which runs that node when started.
 
 ## 10. ABI, SDK and CLI
 
-**ABI** (`crates/interstice-abi`, `ABI_VERSION = 16`, loads `MIN_ABI_VERSION = 15` and up):
-- **Compatibility.** A host loads any module whose ABI is in
-  `MIN_ABI_VERSION..=ABI_VERSION`. A version that only adds host imports or
-  optional fields keeps the minimum, so existing modules keep running. Only
-  a breaking change raises the minimum and forces a rebuild.
-- **Call failures (v16).** The SDK's panic hook passes the message to
+**ABI** (`crates/interstice-abi`, `ABI_VERSION = 17`):
+- **One version.** A host loads only modules built for its own ABI, and
+  reads only data written under it (§10.2). There are no compatibility
+  paths: a breaking change bumps the version and modules are rebuilt.
+- **Call failures.** The SDK's panic hook passes the message to
   `interstice_fail` before the trap, and a reducer's `Err` panics with its
   message. The caller gets `CallFailed(message)` instead of the trap and its
-  backtrace. A v15 module still reports the trap.
-- Everything is postcard-encoded.
-- Byte vectors travel as `IntersticeValue::Bytes(Vec<u8>)` (v8), a single
+  backtrace.
+- Everything is postcard-encoded; values as described in §10.2.
+- Byte vectors travel as `IntersticeValue::Bytes(Vec<u8>)`, a single
   length + raw bytes, not one `U8` value per byte. It validates as
-  `Vec(U8)`, and `Vec<u8>` converts to and from both forms, so old stored
-  values still load. A 4 MB texture upload took ~250 ms before and ~12 ms after.
-- Bulk data between modules travels as a **blob** (v9): `IntersticeValue::Blob(id)`
+  `Vec(U8)`. A 4 MB texture upload took ~250 ms as `U8`s and ~12 ms as bytes.
+- Bulk data between modules travels as a **blob**: `IntersticeValue::Blob(id)`
   / `IntersticeType::Blob`, a handle to an immutable host-side buffer (§7.1).
 - Pointer and length are packed into an `i64` (ptr high, len low).
 
@@ -1540,7 +1537,7 @@ bundle appended, which runs that node when started.
 |---|---|
 | Guest exports | `interstice_describe() -> i64`, `alloc`, `dealloc`, `__interstice_reducer_wrapper_<name>(ptr, len)`, `__interstice_query_wrapper_<name>(ptr, len) -> i64` |
 | Host import `interstice_host_call` | One generic import carrying a `HostCall` enum: CallReducer, Schedule, CallQuery, TableScan, TableGetByPrimaryKey, TableIndexScan, Gpu, Audio, File, Module, Network, CurrentNodeId |
-| Host imports, fast path | `interstice_log`, `interstice_fail` (v16), `interstice_time`, `interstice_random`, `interstice_insert_row`, `interstice_update_row`, `interstice_delete_row`, `interstice_clear_table`, `interstice_get_by_pk`, `interstice_blob_create`, `interstice_blob_len`, `interstice_blob_read` |
+| Host imports, fast path | `interstice_log`, `interstice_fail`, `interstice_time`, `interstice_random`, `interstice_insert_row`, `interstice_update_row`, `interstice_delete_row`, `interstice_clear_table`, `interstice_get_by_pk`, `interstice_blob_create`, `interstice_blob_len`, `interstice_blob_read` |
 | Arguments in | `(RawReducerContext or RawQueryContext, IntersticeValue::Vec(args))` |
 | Types | `IntersticeType`: Void, U8, U32, U64, I32, I64, F32, F64, Bool, String, Vec, Option, Tuple, Named, Blob. Structs and enums appear as `Named` with type definitions in the schema. |
 
@@ -1626,12 +1623,61 @@ All three known SDK bugs are fixed.
   type strings when the module describes itself, which turned `u16` into
   `Named("u16")` and panicked on paths.
 - **Named-field enum variants** keep their names. The payload is a struct type
-  `Enum::Variant` in the schema, values use that name (the old bare `Variant`
-  still decodes), and bindings rebuild `Variant { field: T }`. Such enums can
-  now be stored in tables; their values used to fail validation, because the
-  schema said tuple while values were structs.
+  `Enum::Variant` in the schema, and bindings rebuild `Variant { field: T }`.
+  Such enums can be stored in tables.
 - **`[node].[module].[table].sync` subscriptions compile.** The arm called
   `to_string` on a `ModuleSelection`.
+
+### 10.2 Values (ABI 17)
+
+A value crossing the boundary, stored in a table, logged or sent to another
+node is an `IntersticeValue`. Before ABI 17 a struct carried its type name
+and every field name as strings, and an enum its type and variant names. A
+row of three fields passed as a reducer argument cost five string
+allocations to build, five to decode, a name comparison per field to
+validate, and a `HashMap` to convert back into the Rust struct. That was
+most of the ~3.5 µs per row of the module path (benchmarks/README.md).
+
+**Names live in the schema only.** As in SpacetimeDB's BSATN, a value is
+typed by the schema, and names are not repeated in it:
+- `Struct(Vec<IntersticeValue>)`: the fields in declaration order.
+- `Enum { variant: u32, value }`: the variant's index in declaration order,
+  and its payload (`Void`, a `Tuple`, or the `Struct` of `Enum::Variant`).
+- Validation is positional: a struct must have exactly the definition's
+  field count, each field valid for its type; an enum's index must exist.
+  A field or variant reordered in a type definition is a type change, which
+  migrations already treat as one (§3.3: definitions compare by name and
+  position).
+- Names are added back only to show a value to a person:
+  `interstice_abi::render(value, type, definitions)` prints
+  `Point { x: 1, y: 2 }`, and the CLI's JSON arguments go the other way
+  (`cli/src/args.rs`). `Display` without a schema prints `{1, 2}` and
+  `#0(..)`.
+
+**Tags stay.** BSATN drops type tags too: a reader needs the schema to
+decode. Interstice keeps postcard's one-byte variant tag per value, because
+the host decodes values without the schema in logs, snapshots, network
+packets and replies, and a tag-driven decode is cheaper than one that looks
+up type definitions by name. The tag costs one byte and one branch.
+
+**The guest skips the tree.** Converting a Rust value to an
+`IntersticeValue` and then encoding it allocates the whole tree for nothing.
+The SDK's `Value` trait (`interstice-abi/src/value_codec.rs`) writes and
+reads the encoded bytes of a Rust value directly:
+- `encode(&self, out: &mut Vec<u8>)` and `decode(input: &mut &[u8])`;
+- implemented for the primitives, `String`, `Vec<T>` (`Vec<u8>` as
+  `Bytes`), `Option<T>`, tuples, `Blob`, `IntersticeValue` itself, and
+  derived for `#[interstice_type]` structs and enums and `#[table]` rows;
+- the bytes are exactly postcard's encoding of the equivalent
+  `IntersticeValue`, so the host is unchanged; a test checks it for every
+  shape.
+
+Reducer and query arguments, query results, rows written and rows read go
+through `Value`. The host keeps `IntersticeValue` trees: it stores, indexes
+and validates them.
+
+**Data.** Stored data from an earlier ABI is not converted: §3.3's plan
+clears it. Modules are rebuilt, and the CLI's embedded modules with them.
 
 ---
 

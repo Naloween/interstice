@@ -217,11 +217,7 @@ impl fmt::Display for IntersticeError {
             MigrationRequired(plan) => write!(f, "{}", plan),
             PermissionDenied(why) => write!(f, "Permission denied: {}", why),
             AbiVersionMismatch { expected, found } => {
-                write!(
-                    f,
-                    "module built for ABI {found}; this interstice loads ABI {}..={expected}, rebuild it",
-                    interstice_abi::MIN_ABI_VERSION
-                )
+                write!(f, "module built for ABI {found}; this interstice runs ABI {expected}, rebuild it")
             }
             WasmTrap(msg) => {
                 write!(f, "wasm trapped: {}", msg)

@@ -90,73 +90,39 @@ pub fn validate_value_detailed(
                 Err(format!("expected Tuple, got {:?}", ty))
             }
         }
-        IntersticeValue::Struct { name, fields } => {
-            if let IntersticeType::Named(type_name) = ty {
-                if type_name != name {
-                    return Err(format!("struct name mismatch: expected '{}', got '{}'", type_name, name));
-                }
-                if let Some(IntersticeTypeDef::Struct {
-                    name: _name_def,
-                    fields: fields_def,
-                }) = type_definitions.get(type_name)
-                {
-                    // TODO: here the order of the field definition matter, make it not
-                    for (field, field_def) in fields.iter().zip(fields_def) {
-                        if field.name != field_def.name {
-                            return Err(format!(
-                                "struct '{}' field name mismatch: expected '{}', got '{}'",
-                                type_name, field_def.name, field.name
-                            ));
-                        }
-                        validate_value_detailed(&field.value, &field_def.field_type, type_definitions)
-                            .map_err(|e| format!("struct '{}' field '{}': {}", type_name, field.name, e))?;
+        IntersticeValue::Struct(fields) => {
+            let IntersticeType::Named(type_name) = ty else {
+                return Err(format!("expected {ty}, got a struct"));
+            };
+            match type_definitions.get(type_name) {
+                Some(IntersticeTypeDef::Struct { fields: defs, .. }) => {
+                    if fields.len() != defs.len() {
+                        return Err(format!("struct '{type_name}' has {} fields, got {}", defs.len(), fields.len()));
+                    }
+                    for (field, def) in fields.iter().zip(defs) {
+                        validate_value_detailed(field, &def.field_type, type_definitions)
+                            .map_err(|e| format!("{type_name}.{}: {e}", def.name))?;
                     }
                     Ok(())
-                } else {
-                    Err(format!(
-                        "type '{}' not found in type_definitions (available: [{}])",
-                        type_name,
-                        type_definitions.keys().cloned().collect::<Vec<_>>().join(", ")
-                    ))
                 }
-            } else {
-                Err(format!("expected Named type for struct '{}', got {:?}", name, ty))
+                Some(_) => Err(format!("'{type_name}' is an enum, got a struct")),
+                None => Err(format!("type '{type_name}' is not defined")),
             }
         }
-        IntersticeValue::Enum {
-            name,
-            variant,
-            value,
-        } => {
-            if let IntersticeType::Named(type_name) = ty {
-                if type_name != name {
-                    return Err(format!("enum name mismatch: expected '{}', got '{}'", type_name, name));
+        IntersticeValue::Enum { variant, value } => {
+            let IntersticeType::Named(type_name) = ty else {
+                return Err(format!("expected {ty}, got an enum"));
+            };
+            match type_definitions.get(type_name) {
+                Some(IntersticeTypeDef::Enum { variants, .. }) => {
+                    let def = variants
+                        .get(*variant as usize)
+                        .ok_or_else(|| format!("enum '{type_name}' has no variant #{variant}"))?;
+                    validate_value_detailed(value, &def.field_type, type_definitions)
+                        .map_err(|e| format!("{type_name}::{}: {e}", def.name))
                 }
-                if let Some(IntersticeTypeDef::Enum {
-                    name: _name_def,
-                    variants,
-                }) = type_definitions.get(type_name)
-                {
-                    for variant_def in variants {
-                        if &variant_def.name == variant {
-                            return validate_value_detailed(
-                                value,
-                                &variant_def.field_type,
-                                type_definitions,
-                            )
-                            .map_err(|e| format!("enum '{}' variant '{}': {}", type_name, variant, e));
-                        }
-                    }
-                    Err(format!("enum '{}' has no variant '{}'", type_name, variant))
-                } else {
-                    Err(format!(
-                        "type '{}' not found in type_definitions (available: [{}])",
-                        type_name,
-                        type_definitions.keys().cloned().collect::<Vec<_>>().join(", ")
-                    ))
-                }
-            } else {
-                Err(format!("expected Named type for enum '{}', got {:?}", name, ty))
+                Some(_) => Err(format!("'{type_name}' is a struct, got an enum")),
+                None => Err(format!("type '{type_name}' is not defined")),
             }
         }
     }

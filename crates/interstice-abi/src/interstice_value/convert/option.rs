@@ -24,11 +24,7 @@ where
                 Some(inner) => T::try_from(*inner).map(Some),
                 None => Ok(None),
             },
-            IntersticeValue::Void => Ok(None),
-            other => Err(IntersticeAbiError::ConversionError(format!(
-                "Expected IntersticeValue::Option or IntersticeValue::Void, got {:?}",
-                other
-            ))),
+            other => Err(IntersticeAbiError::ConversionError(format!("expected an option, got {other}"))),
         }
     }
 }
