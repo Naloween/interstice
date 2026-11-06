@@ -1,6 +1,5 @@
 use interstice_abi::ReducerTableRef;
-use std::cmp::Ordering;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -35,121 +34,152 @@ pub struct ScheduledJob<T> {
     pub accesses: Arc<[TableAccess]>,
 }
 
+/// The operations one job performs on one key, as a bit set.
+type OpSet = u8;
+
+fn op_bit(op: TableOp) -> OpSet {
+    match op {
+        TableOp::Read => 1,
+        TableOp::Insert => 2,
+        TableOp::Update => 4,
+        TableOp::Delete => 8,
+    }
+}
+
+/// Only `{Read}`/`{Read}` and `{Insert}`/`{Insert}` may run together (§6.2).
+fn sets_compatible(a: OpSet, b: OpSet) -> bool {
+    a == b && (a == 1 || a == 2)
+}
+
+#[derive(Debug)]
+struct Entry {
+    job: u64,
+    ops: OpSet,
+    /// No earlier entry of this queue conflicts with it.
+    clear: bool,
+}
+
+#[derive(Debug)]
+struct Waiting<T> {
+    job: ScheduledJob<T>,
+    /// Keys on which the job is not yet clear.
+    blocked: usize,
+}
+
+/// Admits jobs by their access sets with one FIFO queue per key (DESIGN §6.2).
+/// Conflicting jobs run in arrival order; others run in parallel. Enqueue is
+/// O(keys); completion walks only the clear prefix of each released queue.
 #[derive(Debug)]
 pub struct ReducerScheduler<T> {
     next_id: u64,
-    running: Vec<(u64, Arc<[TableAccess]>)>,
-    waiting: VecDeque<ScheduledJob<T>>,
+    queues: BTreeMap<AccessKey, VecDeque<Entry>>,
+    /// Keys and op sets of every running or waiting job.
+    keys: HashMap<u64, Vec<(AccessKey, OpSet)>>,
+    waiting: HashMap<u64, Waiting<T>>,
+}
+
+impl<T> Default for ReducerScheduler<T> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<T> ReducerScheduler<T> {
     pub fn new() -> Self {
         Self {
             next_id: 0,
-            running: Vec::new(),
-            waiting: VecDeque::new(),
+            queues: BTreeMap::new(),
+            keys: HashMap::new(),
+            waiting: HashMap::new(),
         }
+    }
+
+    /// Jobs that are waiting.
+    pub fn waiting_len(&self) -> usize {
+        self.waiting.len()
+    }
+
+    /// Jobs that are running.
+    pub fn running_len(&self) -> usize {
+        self.keys.len() - self.waiting.len()
     }
 
     pub fn enqueue(&mut self, payload: T, accesses: Arc<[TableAccess]>) -> Option<ScheduledJob<T>> {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1);
-        let job = ScheduledJob {
-            id,
-            payload,
-            accesses,
-        };
-        if self.can_run_now(&job) {
-            self.running.push((job.id, job.accesses.clone()));
+
+        let mut sets: Vec<(AccessKey, OpSet)> = Vec::new();
+        for access in accesses.iter() {
+            match sets.iter_mut().find(|(key, _)| *key == access.key) {
+                Some((_, ops)) => *ops |= op_bit(access.op),
+                None => sets.push((access.key.clone(), op_bit(access.op))),
+            }
+        }
+
+        let mut blocked = 0;
+        for (key, ops) in &sets {
+            let queue = self.queues.entry(key.clone()).or_default();
+            // Clear entries form a prefix, so the last entry decides.
+            let clear = queue
+                .back()
+                .is_none_or(|last| last.clear && sets_compatible(last.ops, *ops));
+            if !clear {
+                blocked += 1;
+            }
+            queue.push_back(Entry { job: id, ops: *ops, clear });
+        }
+        self.keys.insert(id, sets);
+
+        let job = ScheduledJob { id, payload, accesses };
+        if blocked == 0 {
             Some(job)
         } else {
-            self.waiting.push_back(job);
+            self.waiting.insert(id, Waiting { job, blocked });
             None
         }
     }
 
+    /// Mark a running job done; returns the jobs it releases, in arrival order.
     pub fn complete(&mut self, completed_id: u64) -> Vec<ScheduledJob<T>> {
-        if let Some(idx) = self.running.iter().position(|j| j.0 == completed_id) {
-            self.running.remove(idx);
-        }
-        self.promote_waiting()
-    }
-
-    fn can_run_now(&self, job: &ScheduledJob<T>) -> bool {
-        if self
-            .running
-            .iter()
-            .any(|(_, accesses)| conflicts_sorted(job.accesses.as_ref(), accesses.as_ref()))
-        {
-            return false;
-        }
-        for waiting in &self.waiting {
-            if conflicts_sorted(job.accesses.as_ref(), waiting.accesses.as_ref()) {
-                return false;
+        let Some(sets) = self.keys.remove(&completed_id) else {
+            return Vec::new();
+        };
+        let mut released = Vec::new();
+        for (key, _) in sets {
+            let Some(queue) = self.queues.get_mut(&key) else { continue };
+            if let Some(pos) = queue.iter().position(|e| e.job == completed_id) {
+                queue.remove(pos);
             }
-        }
-        true
-    }
-
-    fn promote_waiting(&mut self) -> Vec<ScheduledJob<T>> {
-        let mut promoted = Vec::new();
-        let mut new_waiting = VecDeque::new();
-        let mut blockers: Vec<Arc<[TableAccess]>> = Vec::new();
-
-        while let Some(job) = self.waiting.pop_front() {
-            let blocked_by_running = self.running.iter().any(|(_, accesses)| {
-                conflicts_sorted(job.accesses.as_ref(), accesses.as_ref())
-            });
-            let blocked_by_earlier_waiting = blockers.iter().any(|access| {
-                conflicts_sorted(job.accesses.as_ref(), access.as_ref())
-            });
-            if blocked_by_running || blocked_by_earlier_waiting {
-                blockers.push(job.accesses.clone());
-                new_waiting.push_back(job);
-            } else {
-                self.running.push((job.id, job.accesses.clone()));
-                promoted.push(job);
+            if queue.is_empty() {
+                self.queues.remove(&key);
+                continue;
             }
-        }
-
-        self.waiting = new_waiting;
-        promoted
-    }
-}
-
-/// `a` and `b` must be sorted by `(key, op)` (see [`sort_table_accesses`]).
-fn conflicts_sorted(a: &[TableAccess], b: &[TableAccess]) -> bool {
-    let mut i = 0usize;
-    let mut j = 0usize;
-    while i < a.len() && j < b.len() {
-        match a[i].key.cmp(&b[j].key) {
-            Ordering::Less => i += 1,
-            Ordering::Greater => j += 1,
-            Ordering::Equal => {
-                let tr = &a[i].key;
-                let i1 = scan_same_table(a, i, tr);
-                let j1 = scan_same_table(b, j, tr);
-                for x in &a[i..i1] {
-                    for y in &b[j..j1] {
-                        if op_conflicts(x.op, y.op) {
-                            return true;
+            // Re-derive the clear prefix; stop at the first conflict.
+            let mut prefix: Option<OpSet> = None;
+            for entry in queue.iter_mut() {
+                if let Some(ops) = prefix {
+                    if !sets_compatible(ops, entry.ops) {
+                        break;
+                    }
+                }
+                prefix = Some(entry.ops);
+                if !entry.clear {
+                    entry.clear = true;
+                    if let Some(w) = self.waiting.get_mut(&entry.job) {
+                        w.blocked -= 1;
+                        if w.blocked == 0 {
+                            released.push(entry.job);
                         }
                     }
                 }
-                i = i1;
-                j = j1;
             }
         }
+        released.sort_unstable();
+        released
+            .into_iter()
+            .filter_map(|id| self.waiting.remove(&id).map(|w| w.job))
+            .collect()
     }
-    false
-}
-
-fn scan_same_table(slice: &[TableAccess], start: usize, tr: &AccessKey) -> usize {
-    let mut k = start;
-    while k < slice.len() && slice[k].key == *tr {
-        k += 1;
-    }
-    k
 }
 
 pub(crate) fn sort_table_accesses(accesses: &mut [TableAccess]) {
@@ -158,20 +188,6 @@ pub(crate) fn sort_table_accesses(accesses: &mut [TableAccess]) {
             .cmp(&y.key)
             .then_with(|| x.op.cmp(&y.op))
     });
-}
-
-fn op_conflicts(a: TableOp, b: TableOp) -> bool {
-    use TableOp::*;
-    match (a, b) {
-        (Read, Read) => false,
-        (Read, _) | (_, Read) => true,
-        (Insert, Insert) => false,
-        (Insert, Update) | (Update, Insert) => true,
-        (Insert, Delete) | (Delete, Insert) => true,
-        (Update, Update) => true,
-        (Update, Delete) | (Delete, Update) => true,
-        (Delete, Delete) => true,
-    }
 }
 
 #[cfg(test)]
@@ -268,5 +284,156 @@ mod tests {
         let promoted = s.complete(first[0].id);
         assert_eq!(promoted.len(), 1);
         assert_eq!(promoted[0].payload, "writer");
+    }
+
+    // ---- Reference model: the previous O(n) scheduler, kept as the oracle.
+    use super::{AccessKey as Key, TableAccess as Access, TableOp as Op};
+    use std::cmp::Ordering;
+
+/// `a` and `b` must be sorted by `(key, op)` (see [`sort_table_accesses`]).
+pub(super) fn conflicts_sorted(a: &[Access], b: &[Access]) -> bool {
+    let mut i = 0usize;
+    let mut j = 0usize;
+    while i < a.len() && j < b.len() {
+        match a[i].key.cmp(&b[j].key) {
+            Ordering::Less => i += 1,
+            Ordering::Greater => j += 1,
+            Ordering::Equal => {
+                let tr = &a[i].key;
+                let i1 = scan_same_table(a, i, tr);
+                let j1 = scan_same_table(b, j, tr);
+                for x in &a[i..i1] {
+                    for y in &b[j..j1] {
+                        if op_conflicts(x.op, y.op) {
+                            return true;
+                        }
+                    }
+                }
+                i = i1;
+                j = j1;
+            }
+        }
+    }
+    false
+}
+
+fn scan_same_table(slice: &[Access], start: usize, tr: &Key) -> usize {
+    let mut k = start;
+    while k < slice.len() && slice[k].key == *tr {
+        k += 1;
+    }
+    k
+}
+
+fn op_conflicts(a: Op, b: Op) -> bool {
+    use Op::*;
+    match (a, b) {
+        (Read, Read) => false,
+        (Read, _) | (_, Read) => true,
+        (Insert, Insert) => false,
+        (Insert, Update) | (Update, Insert) => true,
+        (Insert, Delete) | (Delete, Insert) => true,
+        (Update, Update) => true,
+        (Update, Delete) | (Delete, Update) => true,
+        (Delete, Delete) => true,
+    }
+}
+
+
+    struct Model {
+        next: u64,
+        running: Vec<(u64, Arc<[Access]>)>,
+        waiting: Vec<(u64, Arc<[Access]>)>,
+    }
+
+    impl Model {
+        fn enqueue(&mut self, a: Arc<[Access]>) -> Option<u64> {
+            let id = self.next;
+            self.next += 1;
+            let free = !self.running.iter().chain(&self.waiting).any(|(_, b)| conflicts_sorted(&a, b));
+            if free {
+                self.running.push((id, a));
+                Some(id)
+            } else {
+                self.waiting.push((id, a));
+                None
+            }
+        }
+        fn complete(&mut self, id: u64) -> Vec<u64> {
+            self.running.retain(|(j, _)| *j != id);
+            let mut out = Vec::new();
+            let mut blockers: Vec<Arc<[Access]>> = Vec::new();
+            let mut still = Vec::new();
+            for (j, a) in std::mem::take(&mut self.waiting) {
+                let blocked = self.running.iter().any(|(_, b)| conflicts_sorted(&a, b))
+                    || blockers.iter().any(|b| conflicts_sorted(&a, b));
+                if blocked {
+                    blockers.push(a.clone());
+                    still.push((j, a));
+                } else {
+                    self.running.push((j, a));
+                    out.push(j);
+                }
+            }
+            self.waiting = still;
+            out
+        }
+    }
+
+    #[test]
+    fn matches_the_reference_model() {
+        let ops = [Op::Read, Op::Insert, Op::Update, Op::Delete];
+        let mut seed: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut rand = move |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        for _round in 0..200 {
+            let mut s = ReducerScheduler::new();
+            let mut m = Model { next: 0, running: Vec::new(), waiting: Vec::new() };
+            let mut running: Vec<u64> = Vec::new();
+            for _step in 0..300 {
+                if running.is_empty() || rand(3) != 0 {
+                    let mut v = Vec::new();
+                    for _ in 0..=rand(3) {
+                        let t = ["a", "b", "c"][rand(3) as usize];
+                        v.push(acc("m", t, ops[rand(4) as usize]));
+                    }
+                    let a = arc_accesses(v);
+                    let got = s.enqueue((), a.clone()).map(|j| j.id);
+                    assert_eq!(got, m.enqueue(a));
+                    running.extend(got);
+                } else {
+                    let id = running.swap_remove(rand(running.len() as u64) as usize);
+                    let got: Vec<u64> = s.complete(id).into_iter().map(|j| j.id).collect();
+                    assert_eq!(got, m.complete(id));
+                    running.extend(got);
+                }
+                assert_eq!(s.running_len(), m.running.len());
+                assert_eq!(s.waiting_len(), m.waiting.len());
+            }
+        }
+    }
+
+    #[test]
+    fn contention_is_linear() {
+        // 20 000 conflicting jobs: the old scheduler took ~18 s here.
+        let n = 20_000;
+        let mut s = ReducerScheduler::new();
+        let t = std::time::Instant::now();
+        let mut running = Vec::new();
+        for i in 0..n {
+            let a = arc_accesses(vec![acc("m", "run", TableOp::Read), acc("m", "t", TableOp::Update)]);
+            running.extend(s.enqueue(i, a).map(|j| j.id));
+        }
+        let mut done = 0;
+        while let Some(id) = running.pop() {
+            done += 1;
+            running.extend(s.complete(id).into_iter().map(|j| j.id));
+        }
+        assert_eq!(done, n);
+        assert!(t.elapsed() < std::time::Duration::from_secs(1), "took {:?}", t.elapsed());
     }
 }
