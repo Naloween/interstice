@@ -2052,6 +2052,14 @@ but explicitly out of scope for now.
       (§6.8), results recorded.
 - [x] Reducer results for network callers (§7.1); `interstice-client` for
       programs that are not modules; headless embedding (`NodeHandle`).
+- [x] CI (`.github/workflows/ci.yml`), on every push and pull request:
+  - every module built for WASM;
+  - all workspace tests, including the SDK compile-error tests;
+  - a benchmark smoke run;
+  - the browser tests on a virtual display (informational).
+- [x] Benchmark comparison (`.github/workflows/bench.yml`): the base commit and
+      the head on the same runner, compared by Criterion and summarised in
+      the job. Run by hand, or by labelling a PR `bench`.
 - [ ] Optimise from the breakdown: per-host-call and per-row boundary cost,
       one log append per transaction, row-level conflicts.
 - [x] Bulk data between modules: call-scoped `Blob` handles (§7.1). The

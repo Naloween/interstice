@@ -1,0 +1,70 @@
+name: bench
+
+# The micro matrix of benchmarks/README.md for a base commit and the head,
+# on the same runner, so the comparison is fair on shared machines. Run it
+# by hand, or label a pull request `bench`.
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Commit or branch to compare against"
+        default: main
+  pull_request:
+    types: [labeled, synchronize]
+
+jobs:
+  compare:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'bench')
+    runs-on: ubuntu-latest
+    env:
+      BASE: ${{ github.event.pull_request.base.sha || inputs.base }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: System dependencies
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Base
+        run: |
+          HEAD_SHA=$(git rev-parse HEAD)
+          echo "HEAD_SHA=$HEAD_SHA" >> "$GITHUB_ENV"
+          git checkout --quiet "$BASE"
+          cargo build -p bench --target wasm32-unknown-unknown --release
+          cargo bench -p interstice-bench --bench generic -- --save-baseline base
+          cargo run --release -p interstice-bench -- transfer --seconds 15 > transfer-base.txt
+      - name: Head
+        run: |
+          git checkout --quiet "$HEAD_SHA"
+          cargo build -p bench --target wasm32-unknown-unknown --release
+          cargo bench -p interstice-bench --bench generic -- --baseline base | tee compare.txt
+          cargo run --release -p interstice-bench -- transfer --seconds 15 > transfer-head.txt
+      - name: Summary
+        run: |
+          {
+            echo "## Micro matrix, head (median)"
+            python3 scripts/bench_table.py
+            echo
+            echo "## Micro matrix, base (median)"
+            python3 scripts/bench_table.py target/criterion --baseline base
+            echo
+            echo "## Changes reported by Criterion"
+            echo '```'
+            grep -E "^(raw|module|sqlite)/|change:|Performance has" compare.txt || true
+            echo '```'
+            echo "## Transfer"
+            echo '```'
+            echo "base:"; grep -v '^\[' transfer-base.txt
+            echo "head:"; grep -v '^\[' transfer-head.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-results
+          path: |
+            compare.txt
+            transfer-*.txt
+            target/criterion

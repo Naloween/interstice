@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: System dependencies
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Build every module for WASM
+        run: cargo build --release --target wasm32-unknown-unknown $(scripts/module_packages.sh)
+      - name: Workspace tests (incl. SDK compile-error tests)
+        run: cargo test --release --workspace
+      - name: Benchmark harness smoke run
+        run: >
+          cargo run --release -p interstice-bench --
+          transfer --accounts 1000 --clients 4 --inflight 8 --warmup 1 --seconds 2
+
+  browser:
+    name: Browser example (virtual display)
+    runs-on: ubuntu-latest
+    # The windowed tests need a GPU stack; they run on Mesa's software
+    # Vulkan here. Informational until that is proven stable on runners.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config xvfb mesa-vulkan-drivers
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the CLI
+        run: cargo build --release -p interstice-cli
+      - name: Browser regression tests
+        run: TIMEOUT=60 modules/examples/browser/tests/headless.sh
