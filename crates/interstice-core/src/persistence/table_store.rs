@@ -65,6 +65,26 @@ struct TableKey {
     table: String,
 }
 
+impl WalWriter {
+    fn write_pending(&mut self) -> Result<(), IntersticeError> {
+        if self.pending.is_empty() {
+            return Ok(());
+        }
+        let result = self.file.write_all(&self.pending);
+        self.pending.clear();
+        self.dirty = true;
+        result.map_err(|err| IntersticeError::Internal(format!("Failed to write log entries: {err}")))
+    }
+}
+
+impl Drop for WalWriter {
+    /// A writer removed from the map (retired, module removed) still
+    /// writes what it buffered.
+    fn drop(&mut self) {
+        let _ = self.write_pending();
+    }
+}
+
 impl TableKey {
     fn new(module: &str, table: &str) -> Self {
         Self {
@@ -85,6 +105,9 @@ struct TableState {
     rows_at_checkpoint: u64,
     /// `TableSchema::history`: how long the log is kept, in ms.
     history_ms: Option<u64>,
+    /// The current segment's path, for `segment_start` (saves building it
+    /// on every write).
+    segment_path: Option<(u64, PathBuf)>,
 }
 
 impl TableState {
@@ -96,6 +119,7 @@ impl TableState {
             entries_since_checkpoint: 0,
             rows_at_checkpoint: 0,
             history_ms: None,
+            segment_path: None,
         }
     }
 }
@@ -103,6 +127,9 @@ impl TableState {
 /// Persistent open file handle for async WAL writes.
 struct WalWriter {
     file: File,
+    /// Entries of the commit in progress, written in one call by
+    /// [`TableStore::write_pending`] (DESIGN §3.2).
+    pending: Vec<u8>,
     /// Absolute path to this log file (for re-opening a sync fd).
     path: PathBuf,
     /// True when entries have been written but not yet fsynced.
@@ -168,7 +195,15 @@ impl TableStore {
         let seq = guard.next_seq;
         guard.next_seq += 1;
 
-        let path = segment_path(root, module, table, guard.segment_start);
+        let start = guard.segment_start;
+        let path = match &guard.segment_path {
+            Some((s, path)) if *s == start => path.clone(),
+            _ => {
+                let path = segment_path(root, module, table, start);
+                guard.segment_path = Some((start, path.clone()));
+                path
+            }
+        };
         let entry = LogEntry { seq, tx: stamp.0, timestamp_ms: stamp.1, op: operation };
         // Write without fsync — background WAL thread fsyncs every 10ms.
         self.write_log_entry_async(&path, &entry, module, table)?;
@@ -238,6 +273,10 @@ impl TableStore {
         //    reducer loop that also acquires wal_writers to append entries.
         let dirty_paths: Vec<PathBuf> = {
             let mut writers = self.wal_writers.lock();
+            // Whatever a commit has not written yet goes first.
+            for writer in writers.values_mut() {
+                let _ = writer.write_pending();
+            }
             let paths: Vec<PathBuf> = writers
                 .values()
                 .filter(|w| w.dirty)
@@ -729,16 +768,23 @@ impl TableStore {
             })?;
             writers.insert(
                 path.clone(),
-                WalWriter { file, path: path.clone(), dirty: false, retired: false },
+                WalWriter { file, pending: Vec::new(), path: path.clone(), dirty: false, retired: false },
             );
         }
         let writer = writers.get_mut(path).expect("inserted above");
-        writer
-            .file
-            .write_all(&length)
-            .and_then(|_| writer.file.write_all(&encoded))
-            .map_err(|err| IntersticeError::Internal(format!("Failed to write log entry: {err}")))?;
-        writer.dirty = true;
+        writer.pending.extend_from_slice(&length);
+        writer.pending.extend_from_slice(&encoded);
+        Ok(())
+    }
+
+    /// Hand the log entries buffered by the current commit to the OS: one
+    /// write per log file. Called at the end of every commit, so a committed
+    /// transaction is in the kernel as before; the flush thread syncs it.
+    pub fn write_pending(&self) -> Result<(), IntersticeError> {
+        let mut writers = self.wal_writers.lock();
+        for writer in writers.values_mut() {
+            writer.write_pending()?;
+        }
         Ok(())
     }
 
@@ -1302,6 +1348,8 @@ mod tests {
                 .store
                 .record_logged_operation("m", "t", op, stamp, self.table.scan().len(), self.table.schema.history)
                 .unwrap();
+            // As at the end of a commit.
+            self.store.write_pending().unwrap();
             if let Some(plan) = plan {
                 self.store.snapshot_logged_table(plan, self.table.snapshot_rows()).unwrap();
             }

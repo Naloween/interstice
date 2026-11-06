@@ -10,6 +10,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 const USAGE: &str = "\
+usage: interstice-bench breakdown [--iters n]
+  runs each micro operation through the bench module with the profiler on
+  and prints its phase breakdown (DESIGN §6.8)
 usage: interstice-bench transfer [options]
   --node <addr>    a running node with the bench module (host:port);
                    without it, a headless node runs in process
@@ -76,10 +79,23 @@ fn parse(args: &[String]) -> Result<(TransferConfig, Options), String> {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (Some("transfer"), rest) = (args.first().map(String::as_str), &args[1.min(args.len())..]) else {
-        eprintln!("{USAGE}");
-        std::process::exit(2);
-    };
+    let rest = &args[1.min(args.len())..];
+    match args.first().map(String::as_str) {
+        Some("transfer") => {}
+        Some("breakdown") => {
+            let iters = rest
+                .iter()
+                .position(|a| a == "--iters")
+                .and_then(|i| rest.get(i + 1))
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(200);
+            return breakdown(iters);
+        }
+        _ => {
+            eprintln!("{USAGE}");
+            std::process::exit(2);
+        }
+    }
     let (config, options) = parse(rest).unwrap_or_else(|e| {
         eprintln!("{e}\n{USAGE}");
         std::process::exit(2);
@@ -142,4 +158,36 @@ fn over_network(config: TransferConfig, address: &str) {
         let after = probe.call_query(MODULE, "total_balance", IntersticeValue::Vec(vec![])).await.expect("total");
         check(before, after);
     });
+}
+
+/// The phase breakdown of each micro operation, through the module.
+fn breakdown(iters: u32) {
+    use interstice_bench::data::{self, IndexStrategy, Schema, TableId, XorShift};
+    use interstice_bench::targets::{BenchDatabase, ModuleTarget};
+    let mut target = ModuleTarget::new();
+    let unique = TableId { schema: Schema::U32U64Str, index: IndexStrategy::Unique0, disk: false };
+    let btree = TableId { schema: Schema::U32U64Str, index: IndexStrategy::BtreeEachColumn, disk: false };
+    let mut rng = XorShift::new();
+    let rows = data::rows(&mut rng, 0, 256, 8);
+
+    let mut run = |name: &str, target: &mut ModuleTarget, f: &mut dyn FnMut(&mut ModuleTarget)| {
+        interstice_core::profile::enable();
+        let start = std::time::Instant::now();
+        for _ in 0..iters {
+            f(target);
+        }
+        let per = start.elapsed() / iters;
+        println!("== {name}: {per:?} per call ({iters} calls)");
+        println!("{}", interstice_core::profile::report());
+    };
+    run("empty", &mut target, &mut |t| t.empty());
+    run("insert_bulk 256 rows (unique_0, includes a clear call)", &mut target, &mut |t| {
+        t.clear(unique);
+        t.insert_bulk(unique, &rows);
+    });
+    run("update_bulk 256 rows", &mut target, &mut |t| t.update_bulk(unique, 256));
+    run("iterate 256 rows", &mut target, &mut |t| t.iterate(unique));
+    target.clear(btree);
+    target.insert_bulk(btree, &data::rows(&mut rng, 0, 2048, 8));
+    run("filter ~256 of 2048 rows", &mut target, &mut |t| t.filter(btree, 3));
 }

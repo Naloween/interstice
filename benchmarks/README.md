@@ -136,9 +136,12 @@ the queue length. The phase breakdown of the in-process run, per transfer:
 | persistence (logged writes) | 4.2 µs |
 | reply | 1.0 µs |
 
+**Since then:**
+- One log write per commit (§3.2): in process, 83 000 ± 3 100/s
+  (alpha 0), p50 29 ms; the commit fell from 4.8 to 2.2 µs.
+
 The leads, in order:
-1. persistence is 2.1 µs per logged write, so one log append per
-   transaction would cut it;
+1. ~~one log append per transaction~~ (done);
 2. row-level conflicts would let uniform transfers run in parallel;
 3. the per-host-call cost (see the micro matrix).
 

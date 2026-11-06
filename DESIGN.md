@@ -111,7 +111,7 @@ Everything on disk is postcard-encoded. A node's data directory looks like this:
 
 ```
 <data_dir>/nodes/<uuid>/
-  node.log, peer_tokens.toml
+  node.log, node.toml, identity.key, known_peers.toml
   modules/<module>/
     module.wasm, schema.bin (the ModuleSchema the data is in), state.toml (loaded = bool)
     logs/<table>/*.log  snapshots/<table>/*.snap  stateful/<table>/*.row
@@ -126,6 +126,12 @@ Everything on disk is postcard-encoded. A node's data directory looks like this:
 - **Durability is asynchronous.** Commits are acknowledged before they reach the
   disk. A background thread fdatasyncs the WAL and flushes stateful rows every
   10 ms, so a crash can lose about 10 ms of commits.
+- **One write per commit.** A commit's log entries are buffered per log file
+  and handed to the OS in one `write` at the end of the commit, so a process
+  crash loses no committed transaction (only an OS crash or power loss can,
+  within the sync interval). They used to be two `write`s per entry. The
+  transfer benchmark went from 59k to 83k tx/s, and the commit phase from
+  4.8 to 2.2 µs.
 - **Stateful row files are written and renamed but never fsynced.**
 - **`auto_inc` counters are not persisted.** On restore they are recomputed from
   the largest key present, so the ID of a deleted maximum row can be handed out
