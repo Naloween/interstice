@@ -255,12 +255,9 @@ pub fn get_register_subscription_function(
                                         let msg = "Replica sync event must use '[node].[module].[table].sync'";
                                         return Some(syn::Error::new(litstr.span(), msg).into_compile_error());
                                     }
+                                    // Four segments: node, module and table are all named.
                                     let node_name = &segments[0];
-                                    let module_name = if let Some(module_name) = segments.get(1) {
-                                        quote! {interstice_sdk::ModuleSelection::Other(#module_name.to_string())}
-                                    } else {
-                                        quote! {interstice_sdk::ModuleSelection::Current}
-                                    };
+                                    let module_name = &segments[1];
                                     return Some(
                                         quote! {
                                             interstice_sdk::SubscriptionSchema {

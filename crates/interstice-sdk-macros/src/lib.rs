@@ -7,6 +7,7 @@ mod path_segments;
 mod query;
 mod reducer;
 mod table;
+mod types;
 mod view;
 mod visibility;
 

@@ -50,13 +50,16 @@ pub fn get_module_code(module_schema: ModuleSchema, node_selection: NodeSelectio
     let type_definition_items: Vec<TokenStream> = module_schema
         .type_definitions
         .values()
-        .map(get_type_definition_code)
+        .map(|def| get_type_definition_code(def, &module_schema.type_definitions))
         .collect();
 
     let module_tables_name = module_tables_ident.to_string();
     let module_views_name = module_views_ident.to_string();
     let module_name_lit = LitStr::new(&module_name, span);
-    let view_type_items: Vec<TokenStream> = view_shapes.iter().map(|(_, def)| get_type_definition_code(def)).collect();
+    let view_type_items: Vec<TokenStream> = view_shapes
+        .iter()
+        .map(|(_, def)| get_type_definition_code(def, &module_schema.type_definitions))
+        .collect();
     let view_items: Vec<TokenStream> = view_shapes
         .into_iter()
         .map(|(shape, _)| {

@@ -190,8 +190,10 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     for field in fields.iter() {
         let field_name = field.ident.as_ref().unwrap().to_string();
         let field_ty_ident = field.ty.clone();
-        let field_ty_str = field_ty_ident.to_token_stream().to_string();
-        let field_ty = quote! { interstice_sdk::IntersticeType::from_str(&#field_ty_str).unwrap()};
+        let field_ty = match crate::types::type_expr(&field_ty_ident) {
+            Ok(expr) => expr,
+            Err(err) => return err.to_compile_error().into(),
+        };
         let field_ident = field.ident.as_ref().unwrap();
 
         let is_pk = field

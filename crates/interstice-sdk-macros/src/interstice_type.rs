@@ -1,5 +1,5 @@
 use proc_macro::TokenStream;
-use quote::{ToTokens, quote};
+use quote::quote;
 use syn::parse_macro_input;
 
 pub fn derive_interstice_type_macro(input: TokenStream) -> TokenStream {
@@ -16,86 +16,86 @@ pub fn derive_interstice_type_macro(input: TokenStream) -> TokenStream {
         struct_name.span(),
     );
 
+    // A named-field enum variant's payload is its own struct type,
+    // `Enum::Variant`, so its field names survive into the schema (§10.1).
+    let mut variant_structs: Vec<proc_macro2::TokenStream> = Vec::new();
+    let fields_of = |fields: &syn::FieldsNamed| -> Result<proc_macro2::TokenStream, syn::Error> {
+        let mut defs = Vec::new();
+        for field in &fields.named {
+            let name = field.ident.as_ref().expect("named field").to_string();
+            let ty = crate::types::type_expr(&field.ty)?;
+            defs.push(quote! { interstice_sdk::FieldDef { name: #name.to_string(), field_type: #ty } });
+        }
+        Ok(quote! { vec![#(#defs),*] })
+    };
+
     let type_def = match input.data.clone() {
         syn::Data::Struct(s) => {
-            let named_fields = match s.fields {
-                syn::Fields::Named(f) => f.named,
-                _ => {
-                    return syn::Error::new_spanned(
-                        input.ident,
-                        "interstice_type on structs requires named fields",
-                    )
+            let syn::Fields::Named(named) = &s.fields else {
+                return syn::Error::new_spanned(input.ident, "interstice_type on structs requires named fields")
                     .to_compile_error()
                     .into();
-                }
             };
-            let mut field_names = Vec::new();
-            let mut field_types = Vec::new();
-            for field in named_fields {
-                let ident = match field.ident {
-                    Some(id) => id,
-                    None => {
-                        return syn::Error::new_spanned(
-                            input.ident,
-                            "interstice_type struct field must be named",
-                        )
-                        .to_compile_error()
-                        .into();
-                    }
-                };
-                field_names.push(ident.to_string());
-                field_types.push(field.ty.to_token_stream().to_string());
+            let fields = match fields_of(named) {
+                Ok(f) => f,
+                Err(e) => return e.to_compile_error().into(),
+            };
+            quote! {
+                interstice_sdk::IntersticeTypeDef::Struct { name: #struct_name_str.to_string(), fields: #fields }
             }
-            get_struct_type_def(struct_name_str, field_names, field_types)
         }
         syn::Data::Enum(en) => {
             let mut variants = Vec::new();
-            for variant in en.variants {
+            for variant in &en.variants {
                 let variant_name = variant.ident.to_string();
-                let variant_ty = match variant.fields {
-                    syn::Fields::Unit => "()".to_string(),
-                    syn::Fields::Unnamed(fields) => {
-                        if fields.unnamed.len() == 1 {
-                            fields
-                                .unnamed
-                                .first()
-                                .expect("single unnamed field must exist")
-                                .ty
-                                .to_token_stream()
-                                .to_string()
-                        } else {
-                            let parts: Vec<String> = fields
-                                .unnamed
-                                .iter()
-                                .map(|f| f.ty.to_token_stream().to_string())
-                                .collect();
-                            format!("({})", parts.join(", "))
-                        }
+                let ty = match &variant.fields {
+                    syn::Fields::Unit => Ok(quote!(interstice_sdk::IntersticeType::Void)),
+                    syn::Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+                        crate::types::type_expr(&fields.unnamed[0].ty)
                     }
+                    syn::Fields::Unnamed(fields) => fields
+                        .unnamed
+                        .iter()
+                        .map(|f| crate::types::type_expr(&f.ty))
+                        .collect::<syn::Result<Vec<_>>>()
+                        .map(|items| quote!(interstice_sdk::IntersticeType::Tuple(vec![#(#items),*]))),
                     syn::Fields::Named(fields) => {
-                        // IntersticeTypeDef stores one IntersticeType per variant.
-                        // Represent named variants as tuple payloads to preserve field order/types.
-                        let parts: Vec<String> = fields
-                            .named
-                            .iter()
-                            .map(|f| f.ty.to_token_stream().to_string())
-                            .collect();
-                        format!("({})", parts.join(", "))
+                        let payload = format!("{struct_name_str}::{variant_name}");
+                        fields_of(fields).map(|fields| {
+                            variant_structs.push(quote! {
+                                interstice_sdk::IntersticeTypeDef::Struct { name: #payload.to_string(), fields: #fields }
+                            });
+                            quote!(interstice_sdk::IntersticeType::Named(#payload.to_string()))
+                        })
                     }
                 };
-                variants.push((variant_name, variant_ty));
+                let ty = match ty {
+                    Ok(ty) => ty,
+                    Err(e) => return e.to_compile_error().into(),
+                };
+                variants.push(quote! { interstice_sdk::FieldDef { name: #variant_name.to_string(), field_type: #ty } });
             }
-            get_enum_type_def(struct_name_str, variants)
+            quote! {
+                interstice_sdk::IntersticeTypeDef::Enum { name: #struct_name_str.to_string(), variants: vec![#(#variants),*] }
+            }
         }
         _ => {
-            return syn::Error::new_spanned(
-                input.ident,
-                "interstice_type can only be used on structs or enums",
-            )
-            .to_compile_error()
-            .into();
+            return syn::Error::new_spanned(input.ident, "interstice_type can only be used on structs or enums")
+                .to_compile_error()
+                .into();
         }
     };
+    let register_variant_structs = variant_structs.iter().enumerate().map(|(i, def)| {
+        let get = syn::Ident::new(&format!("{type_def_fn}_variant_{i}"), struct_name.span());
+        let register = syn::Ident::new(&format!("{register_type_def_fn}_variant_{i}"), struct_name.span());
+        quote! {
+            fn #get() -> interstice_sdk::IntersticeTypeDef { #def }
+            #[interstice_sdk::init]
+            fn #register() {
+                interstice_sdk::registry::register_type_def(#get);
+            }
+        }
+    });
 
     quote! {
         #[derive(interstice_sdk::interstice_abi_macros::IntersticeType, Clone)]
@@ -109,47 +109,8 @@ pub fn derive_interstice_type_macro(input: TokenStream) -> TokenStream {
         fn #register_type_def_fn() {
             interstice_sdk::registry::register_type_def(#type_def_fn);
         }
+
+        #(#register_variant_structs)*
     }
     .into()
-}
-
-fn get_struct_type_def(
-    struct_name_str: String,
-    field_name_strings: Vec<String>,
-    interstice_type_exprs: Vec<String>,
-) -> proc_macro2::TokenStream {
-    quote! {
-        interstice_sdk::IntersticeTypeDef::Struct {
-            name: #struct_name_str.to_string(),
-            fields: vec![
-                #(
-                    FieldDef {
-                        name: #field_name_strings.to_string(),
-                        field_type: interstice_sdk::IntersticeType::from_str(#interstice_type_exprs).expect("Couldn't convert field type string to IntersticeType"),
-                    }
-                ),*
-            ],
-        }
-    }
-}
-
-fn get_enum_type_def(
-    enum_name_str: String,
-    variants: Vec<(String, String)>,
-) -> proc_macro2::TokenStream {
-    let variant_names: Vec<String> = variants.iter().map(|(name, _)| name.clone()).collect();
-    let variant_types: Vec<String> = variants.iter().map(|(_, ty)| ty.clone()).collect();
-    quote! {
-        interstice_sdk::IntersticeTypeDef::Enum {
-            name: #enum_name_str.to_string(),
-            variants: vec![
-                #(
-                    FieldDef {
-                        name: #variant_names.to_string(),
-                        field_type: interstice_sdk::IntersticeType::from_str(#variant_types).expect("Couldn't convert enum variant type string to IntersticeType"),
-                    }
-                ),*
-            ],
-        }
-    }
 }

@@ -1,4 +1,4 @@
-use quote::{ToTokens, quote};
+use quote::quote;
 use syn::{Ident, ItemFn, Pat, Type};
 
 pub fn get_register_schema_function(
@@ -26,11 +26,11 @@ pub fn get_register_schema_function(
                 Pat::Ident(pat_ident) => pat_ident.ident.to_string(),
                 other => quote! { #other }.to_string(),
             };
-            let arg_type_str = quote! { #arg_type }.to_string();
+            let field_type = crate::types::type_expr(arg_type).unwrap_or_else(|e| e.to_compile_error());
             quote! {
                 interstice_sdk::FieldDef {
                     name: #arg_name_str.to_string(),
-                    field_type: interstice_sdk::IntersticeType::from_str(#arg_type_str).unwrap(),
+                    field_type: #field_type,
                 }
             }
         },
@@ -41,10 +41,7 @@ pub fn get_register_schema_function(
         syn::ReturnType::Type(_, ty) => {
             // `Result<T, E>` queries expose `T`; an `Err` aborts the call.
             let ty = crate::query::result_ok_type(ty).unwrap_or(ty);
-            let ty = ty.to_token_stream().to_string();
-            quote! {
-               interstice_sdk::IntersticeType::from_str(#ty).unwrap()
-            }
+            crate::types::type_expr(ty).unwrap_or_else(|e| e.to_compile_error())
         }
     };
 

@@ -1,0 +1,31 @@
+error: `u16` cannot cross the module boundary; use u8, u32 or u64
+ --> tests/ui/unsupported_types.rs:4:39
+  |
+4 | pub fn small(_ctx: ReducerContext, n: u16) {}
+  |                                       ^^^
+
+error: references cannot cross the module boundary; take an owned value (String for &str, Vec<T> for &[T])
+ --> tests/ui/unsupported_types.rs:7:42
+  |
+7 | pub fn borrowed(_ctx: ReducerContext, s: &str) {}
+  |                                          ^^^^
+
+error: `HashMap` cannot cross the module boundary; use Vec (of tuples for a map) or the value itself
+  --> tests/ui/unsupported_types.rs:11:18
+   |
+11 |     pub entries: std::collections::HashMap<String, u32>,
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `n`
+ --> tests/ui/unsupported_types.rs:4:36
+  |
+4 | pub fn small(_ctx: ReducerContext, n: u16) {}
+  |                                    ^ help: if this is intentional, prefix it with an underscore: `_n`
+  |
+  = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `s`
+ --> tests/ui/unsupported_types.rs:7:39
+  |
+7 | pub fn borrowed(_ctx: ReducerContext, s: &str) {}
+  |                                       ^ help: if this is intentional, prefix it with an underscore: `_s`

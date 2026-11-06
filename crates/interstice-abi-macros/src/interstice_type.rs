@@ -211,8 +211,9 @@ fn derive_interstice_type_macro_enum(
                     #enum_name::#variant_ident { #(#field_idents),* } => #abi::IntersticeValue::Enum {
                         name: #enum_name_str.to_string(),
                         variant: #variant_name_str.to_string(),
+                        // The payload is the struct type `Enum::Variant` (§10.1).
                         value: Box::new(#abi::IntersticeValue::Struct {
-                            name: #variant_name_str.to_string(),
+                            name: format!("{}::{}", #enum_name_str, #variant_name_str),
                             fields: vec![
                                 #(
                                     #abi::Field {
@@ -316,7 +317,10 @@ fn derive_interstice_type_macro_enum(
                     #variant_name_str => {
                         match *value {
                             #abi::IntersticeValue::Struct { name: struct_name, fields } => {
-                                if struct_name != #variant_name_str {
+                                // `Variant` is the name before ABI 16's `Enum::Variant`.
+                                if struct_name != #variant_name_str
+                                    && struct_name != format!("{}::{}", #enum_name_str, #variant_name_str)
+                                {
                                     return Err(#abi::IntersticeAbiError::ConversionError(format!(
                                         "Struct name mismatch for {}::{}",
                                         #enum_name_str,

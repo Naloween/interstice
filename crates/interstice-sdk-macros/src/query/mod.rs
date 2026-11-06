@@ -39,6 +39,10 @@ pub fn query_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut input_fn = parse_macro_input!(item as ItemFn);
     let query_ident = input_fn.sig.ident.clone();
 
+    if let Some(errors) = crate::types::signature_type_errors(&input_fn, true) {
+        return errors.into();
+    }
+
     let arg_count = input_fn.sig.inputs.len();
     if arg_count == 0 {
         return quote! {compile_error!("The query should have at least a `QueryContext` first argument");}.into();

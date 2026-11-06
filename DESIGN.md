@@ -1608,17 +1608,30 @@ first, so generated tables and reducers type-check like hand-written ones.
   flight. Only committed calls count, at the client, per second, with p50, p95
   and p99 latency, and the total balance is checked afterwards.
 
-### 10.1 SDK bugs to fix
+### 10.1 SDK types and errors
 
-- **Unsupported argument types fail late.** Argument and return types are parsed
-  from strings at describe time:
-  - `u16`, `usize` and `i8` silently become `Named(..)`;
-  - paths and references panic.
-- **Enum field names are lost.** Enum variants with named fields lose their
-  field names in bindings.
-- **`sync` arm likely fails to compile.** The `sync` subscription arm in
-  `reducer/subscription.rs` calls `to_string` on a token stream of a type with
-  no `Display`.
+All three known SDK bugs are fixed.
+- **Types are converted at compile time** (`sdk-macros/src/types.rs`). Table
+  fields, reducer and query parameters, query results, and struct and enum
+  fields map straight to `IntersticeType`. A type that cannot cross the
+  boundary is a compile error at the type, with what to use instead:
+  - `u16`, `usize`, `i8`… → the supported integer sizes;
+  - `&str` or `&[T]` → owned values;
+  - arrays → `Vec`;
+  - maps → `Vec` of tuples;
+  - other generics.
+
+  The macros then emit only those errors, without glue code that would add
+  errors of its own (`crates/interstice-sdk/tests/ui`). This replaces parsing
+  type strings when the module describes itself, which turned `u16` into
+  `Named("u16")` and panicked on paths.
+- **Named-field enum variants** keep their names. The payload is a struct type
+  `Enum::Variant` in the schema, values use that name (the old bare `Variant`
+  still decodes), and bindings rebuild `Variant { field: T }`. Such enums can
+  now be stored in tables; their values used to fail validation, because the
+  schema said tuple while values were structs.
+- **`[node].[module].[table].sync` subscriptions compile.** The arm called
+  `to_string` on a `ModuleSelection`.
 
 ---
 
@@ -2025,7 +2038,7 @@ but explicitly out of scope for now.
       a program; install and update go through the §3.3 migration plan.
 
 ### 13.4 SDK / tooling
-- [ ] The remaining SDK bugs in §10.1.
+- [x] The SDK bugs of §10.1, and compile errors at the offending type.
 - [x] Generated read methods return `Result` instead of panicking: `scan`,
       `get`, `scan_by_*`, `get_by_*` (local and bindings) go through
       `sdk-core/reads.rs`; row decode is `TryFrom<Row>`; the panicking

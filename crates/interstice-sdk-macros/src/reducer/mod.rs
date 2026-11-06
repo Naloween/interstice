@@ -32,6 +32,10 @@ pub fn reducer_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut input_fn = parse_macro_input!(item as ItemFn);
     let reducer_ident = input_fn.sig.ident.clone();
 
+    if let Some(errors) = crate::types::signature_type_errors(&input_fn, false) {
+        return errors.into();
+    }
+
     let arg_count = input_fn.sig.inputs.len();
     if arg_count == 0 {
         return quote! {compile_error!("The reducer should have at least a `ReducerContext` first argument");}.into();
