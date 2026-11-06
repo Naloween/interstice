@@ -6,6 +6,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 use interstice_cli::{
     benchmark::handle_benchmark_command,
     bindings::handle_bindings_command,
+    bundle::{RunOptions, handle_bundle_command, print_bundle_help, run_bundle},
     call_query::call_query,
     call_reducer::call_reducer,
     example::example,
@@ -20,6 +21,22 @@ use std::path::Path;
 #[tokio::main]
 async fn main() -> Result<(), IntersticeError> {
     let args: Vec<String> = std::env::args().collect();
+
+    // A program made by `bundle exe` carries its bundle after the binary
+    // (DESIGN §9.1): run it instead of the CLI.
+    if let Ok(me) = std::env::current_exe() {
+        if let Some(bundle) = interstice_core::bundle::read_from_exe(&me)? {
+            if args.iter().any(|a| a == "-h" || a == "--help") {
+                println!("{} {}", bundle.manifest.name, bundle.manifest.version);
+                println!("Runs the node '{}' (an Interstice bundle).", bundle.manifest.name);
+                println!("  [--port p]          port for the first install");
+                println!("  [--allow-data-loss] apply updates that drop data without asking");
+                println!("  [--delete-data]     start fresh: delete the node and its data");
+                return Ok(());
+            }
+            return run_bundle(bundle, RunOptions::from_args(&args[1..])?).await;
+        }
+    }
 
     if args.len() < 2 {
         print_help();
@@ -38,6 +55,7 @@ async fn main() -> Result<(), IntersticeError> {
             }
             example(&args[2]).await
         }
+        "bundle" => handle_bundle_command(&args).await,
         "init" => init(),
         "load" => {
             if args.len() < 4 {
@@ -139,6 +157,7 @@ fn print_help() {
     println!(
         "  example <hello|caller|graphics|audio|agar-server|agar-client|ui|notes|desktop|http-get|browser>  Start a named example (ports: hello=8080, caller=8081, graphics=8082, audio=8083, agar-server=8086, agar-client=8084, ui=8088, desktop=8089, http-get=8090, browser=8091, notes=8092)"
     );
+    print_bundle_help();
     println!(
         "  init                                   Initialize a new interstice module project in the current directory"
     );

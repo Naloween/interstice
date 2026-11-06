@@ -1,5 +1,7 @@
 use crate::{
+    MigrationPolicy,
     app::App,
+    bundle::{Bundle, BundleManifest},
     audio::AudioEngine,
     error::IntersticeError,
     logger::{LogLevel, LogSource, Logger},
@@ -24,6 +26,10 @@ use tokio::sync::{
 use uuid::Uuid;
 
 pub type NodeId = Uuid;
+
+/// Answers a migration plan that asks: `(module, rendered plan) -> policy`;
+/// `Safe` means abort (keep the old version). DESIGN §3.3, §9.1.
+pub type Decide = Box<dyn Fn(&str, &str) -> MigrationPolicy + Send + Sync>;
 
 /// Bounded reducer queue capacity. When full, producers **block** (see
 /// `send` on the ingress channel) so TCP / event paths apply backpressure
@@ -215,6 +221,38 @@ impl Node {
     }
 
     pub async fn start(self, initial_modules: &[&[u8]]) -> Result<(), IntersticeError> {
+        let given = initial_modules.iter().map(|b| b.to_vec()).collect();
+        self.start_inner(given, None, None).await
+    }
+
+    /// Install or update `bundle` on this node, then run it (DESIGN §9.1).
+    /// `decide(module, plan)` answers a migration plan that asks; returning
+    /// `Safe` keeps the module's old version. Without `decide` such a plan
+    /// fails the start.
+    pub async fn start_bundle(self, bundle: Bundle, decide: Option<Decide>) -> Result<(), IntersticeError> {
+        if let Some(modules_path) = self.runtime.modules_path.clone() {
+            // Seed data only for modules this node does not have yet.
+            for module in &bundle.modules {
+                let (Some(name), false) = (&module.name, module.data.is_empty()) else { continue };
+                let dir = modules_path.join(name);
+                if dir.join("state.toml").exists() {
+                    continue;
+                }
+                crate::bundle::write_seed(&dir, &module.data)?;
+                std::fs::write(dir.join("module.wasm"), &module.wasm)
+                    .map_err(|e| IntersticeError::Internal(format!("seed {name}: {e}")))?;
+            }
+        }
+        let given = bundle.modules.into_iter().map(|m| m.wasm).collect();
+        self.start_inner(given, decide, Some(bundle.manifest)).await
+    }
+
+    async fn start_inner(
+        self,
+        given: Vec<Vec<u8>>,
+        decide: Option<Decide>,
+        bundle: Option<BundleManifest>,
+    ) -> Result<(), IntersticeError> {
         let Node {
             id,
             runtime,
@@ -255,17 +293,43 @@ impl Node {
             });
         });
 
-        // Load persisted modules only after runtime loop is running so async schema
-        // responses required during module loading can be processed.
-        Node::load_modules_from_disk(runtime.clone()).await?;
-
-        // Load any modules supplied for this run (e.g. by the `example` command).
-        // Loading goes through the normal path, which persists each module to its
-        // canonical name-based directory — so a later restart picks them up from
-        // disk and no separate seed directory is ever created.
-        for bytes in initial_modules {
-            let module = Module::from_bytes(runtime.clone(), bytes).await?;
-            Runtime::load_module(runtime.clone(), module).await?;
+        // Load modules only after the runtime loop is running, so async schema
+        // responses required during module loading can be processed. The
+        // persisted modules and the given ones (an example's, a bundle's)
+        // load together in dependency order; a given wasm replaces the
+        // persisted one through the migration plan (DESIGN §3.3, §9.1).
+        let node_dir = runtime.modules_path.as_ref().and_then(|p| p.parent()).map(|p| p.to_path_buf());
+        let previous = match (&bundle, &node_dir) {
+            (Some(_), Some(dir)) => crate::bundle::read_record(dir),
+            _ => None,
+        };
+        let previous_modules = previous.as_ref().map(|r| r.modules.clone()).unwrap_or_default();
+        let (names, kept_old) =
+            Node::load_modules(runtime.clone(), given, decide.as_ref(), &previous_modules).await?;
+        if let (Some(manifest), Some(dir)) = (bundle, node_dir) {
+            // A module that kept its old version means the node is not at
+            // the new version yet: keep the old version in the record.
+            let version = match (&previous, kept_old.is_empty()) {
+                (Some(previous), false) => {
+                    logger.log(
+                        &format!(
+                            "Bundle '{}' {} not fully applied (old versions kept: {}); the node stays at {}",
+                            manifest.name,
+                            manifest.version,
+                            kept_old.join(", "),
+                            previous.version
+                        ),
+                        LogSource::Node,
+                        LogLevel::Warning,
+                    );
+                    previous.version.clone()
+                }
+                _ => manifest.version,
+            };
+            crate::bundle::write_record(
+                &dir,
+                &crate::bundle::InstallRecord { name: manifest.name, version, modules: names },
+            )?;
         }
 
         run_app_notify.notified().await;
@@ -318,45 +382,69 @@ impl Node {
             .unwrap()
     }
 
-    async fn load_modules_from_disk(runtime: Arc<Runtime>) -> Result<(), IntersticeError> {
-        let Some(modules_path) = runtime.modules_path.clone() else {
-            return Ok(());
-        };
-
-        let mut modules_to_load = Vec::new();
-        for entry in std::fs::read_dir(&modules_path).unwrap() {
-            let entry = entry.unwrap();
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-
-            std::fs::create_dir_all(path.join("logs")).unwrap();
-            std::fs::create_dir_all(path.join("snapshots")).unwrap();
-
-            let wasm_path = path.join("module.wasm");
-            if !wasm_path.exists() {
-                continue;
-            }
-
-            // Skip modules explicitly marked as unloaded — their data stays on
-            // disk and they can be loaded again later.
-            if !crate::runtime::module::module_should_load(&path) {
-                continue;
-            }
-
-            let module = Module::from_file(runtime.clone(), &wasm_path).await?;
-            modules_to_load.push((module.schema.name.clone(), module));
+    /// Load the persisted modules and `given` in dependency order; returns
+    /// the names of the given modules. A given module replaces the persisted
+    /// one of the same name. Persisted modules named in `previous` (the last
+    /// bundle install) but not given are unloaded, their data kept.
+    async fn load_modules(
+        runtime: Arc<Runtime>,
+        given: Vec<Vec<u8>>,
+        decide: Option<&Decide>,
+        previous: &[String],
+    ) -> Result<(Vec<String>, Vec<String>), IntersticeError> {
+        let mut kept_old = Vec::new();
+        let mut candidates: Vec<(String, Module, Option<Vec<u8>>)> = Vec::new();
+        let mut given_names = Vec::new();
+        for bytes in given {
+            let module = Module::from_bytes(runtime.clone(), &bytes).await?;
+            let name = module.schema.name.clone();
+            given_names.push(name.clone());
+            candidates.push((name, module, Some(bytes)));
         }
 
-        let mut remaining = modules_to_load;
+        if let Some(modules_path) = runtime.modules_path.clone() {
+            let mut dirs: Vec<_> = std::fs::read_dir(&modules_path)
+                .map_err(|e| IntersticeError::Internal(format!("{}: {e}", modules_path.display())))?
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| p.is_dir())
+                .collect();
+            dirs.sort();
+            for path in dirs {
+                std::fs::create_dir_all(path.join("logs")).ok();
+                std::fs::create_dir_all(path.join("snapshots")).ok();
+                let wasm_path = path.join("module.wasm");
+                let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                if !wasm_path.exists() || given_names.contains(&name) {
+                    continue;
+                }
+                if previous.contains(&name) {
+                    // The bundle dropped it: unload, keep the data.
+                    crate::runtime::module::write_module_state(&path, false);
+                    runtime.logger.log(
+                        &format!("Module '{name}' is no longer in the bundle: unloaded, its data kept"),
+                        LogSource::Node,
+                        LogLevel::Info,
+                    );
+                    continue;
+                }
+                // Skip modules explicitly marked as unloaded — their data stays on
+                // disk and they can be loaded again later.
+                if !crate::runtime::module::module_should_load(&path) {
+                    continue;
+                }
+                let module = Module::from_file(runtime.clone(), &wasm_path).await?;
+                candidates.push((module.schema.name.clone(), module, None));
+            }
+        }
+
+        let mut remaining = candidates;
         let mut loaded = HashSet::new();
-        let all_names: HashSet<_> = remaining.iter().map(|(name, _)| name.clone()).collect();
+        let all_names: HashSet<_> = remaining.iter().map(|(name, _, _)| name.clone()).collect();
         while !remaining.is_empty() {
             let mut progressed = false;
             let mut next_remaining = Vec::new();
 
-            for (name, module) in remaining.into_iter() {
+            for (name, module, bytes) in remaining.into_iter() {
                 let deps = module
                     .schema
                     .module_dependencies
@@ -372,11 +460,20 @@ impl Node {
                 }
 
                 if deps.iter().all(|d| loaded.contains(d)) {
-                    Runtime::load_module(runtime.clone(), module).await?;
+                    match bytes {
+                        None => {
+                            Runtime::load_module(runtime.clone(), module).await?;
+                        }
+                        Some(bytes) => {
+                            if !Node::load_given(&runtime, &name, module, bytes, decide).await? {
+                                kept_old.push(name.clone());
+                            }
+                        }
+                    }
                     loaded.insert(name);
                     progressed = true;
                 } else {
-                    next_remaining.push((name, module));
+                    next_remaining.push((name, module, bytes));
                 }
             }
 
@@ -392,6 +489,46 @@ impl Node {
         // No separate replay() pass: `load_module` restores each module's tables
         // from disk in-load (it detects a reload), so state is already rebuilt.
 
-        Ok(())
+        Ok((given_names, kept_old))
+    }
+
+    /// Load a given module over the node's data, asking `decide` when the
+    /// migration plan needs a decision. `Ok(false)`: the old version was
+    /// kept. The runtime logs the plan it applies.
+    async fn load_given(
+        runtime: &Arc<Runtime>,
+        name: &str,
+        module: Module,
+        bytes: Vec<u8>,
+        decide: Option<&Decide>,
+    ) -> Result<bool, IntersticeError> {
+        match Runtime::load_module_with(runtime.clone(), module, MigrationPolicy::Safe).await {
+            Ok(_) => Ok(true),
+            Err(IntersticeError::MigrationRequired(plan)) => {
+                let Some(decide) = decide else {
+                    return Err(IntersticeError::MigrationRequired(plan));
+                };
+                let policy = decide(name, &plan);
+                if policy == MigrationPolicy::Safe {
+                    // Abort: keep the old version.
+                    let old = runtime.modules_path.as_ref().map(|p| p.join(name).join("module.wasm"));
+                    let Some(old) = old.filter(|p| p.exists()) else {
+                        return Err(IntersticeError::MigrationRequired(plan));
+                    };
+                    runtime.logger.log(
+                        &format!("Module '{name}': update aborted, the old version is kept"),
+                        LogSource::Node,
+                        LogLevel::Warning,
+                    );
+                    let module = Module::from_file(runtime.clone(), &old).await?;
+                    Runtime::load_module(runtime.clone(), module).await?;
+                    return Ok(false);
+                }
+                let module = Module::from_bytes(runtime.clone(), &bytes).await?;
+                Runtime::load_module_with(runtime.clone(), module, policy).await?;
+                Ok(true)
+            }
+            Err(err) => Err(err),
+        }
     }
 }

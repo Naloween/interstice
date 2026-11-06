@@ -1012,6 +1012,110 @@ stage, so colours stay right and only blending shifts to linear light.
 5. **Node start.** Loads every persisted module with `loaded = true`, in
    dependency order.
 
+### 9.1 Bundles: a whole node in one file
+
+A bundle is a node you can hand to someone: a set of modules, and
+optionally their data, in one file (`.itb`). It might hold the default
+modules plus a game, the whole desktop, or a node captured as it is. It
+can also become a **program**: a copy of the `interstice` binary with the
+bundle appended, which runs that node when started.
+
+**What a bundle holds:**
+- A manifest: `name` (the node's name in the registry), `version` and
+  `description` (informational), an optional default `port`, and the
+  `abi_version` it was built for.
+- Modules, each with its wasm, its name, and optionally its **seed data**:
+  the files of its module directory (`state.toml`, `schema.bin`,
+  `stateful/`, `logs/`, `snapshots/`). The history of logged tables comes
+  with it, so time travel works on the shipped data.
+- Never the node's identity: no node id, `peer_tokens.toml` or
+  `node.log`. Every install is a new node with its own id.
+
+**File format.**
+- An `.itb` file is the magic `ITBUNDLE`, a `u32` format version (1),
+  then a zstd-compressed, postcard-encoded `Bundle`. zstd is already
+  built for wasmtime's cache.
+- A program is the `interstice` binary, then the `.itb` bytes, then a
+  trailer: the bundle's length as a `u64`, and the magic `ITBEXE01`. At
+  start the binary reads its own last 16 bytes. If it finds the trailer it
+  runs the bundle; otherwise it behaves as the normal CLI. Making a program
+  out of a program replaces the old bundle.
+
+**Making one** (`interstice bundle create <out.itb> ...`):
+- `<bundle.toml>`: a manifest whose `modules` list entries like
+  `builtin:input` (the default modules shipped in the CLI), a `.wasm` file,
+  or a module project directory (built with cargo, like `load`).
+- `--node <node> [--with-data]`: the node's loaded modules, as they are
+  now. This includes apps the desktop installed at run time. With
+  `--with-data` their data comes too. The node must be stopped: its files
+  are read directly, and a running node may be in the middle of writing
+  them.
+- `--example <name>`: the modules an example runs.
+- Every module is described at creation time. A module whose ABI differs
+  from the CLI's, or a dependency that is missing from the bundle, is an
+  error then, not at install.
+
+`interstice bundle inspect <file>` lists the manifest and the modules.
+`interstice bundle exe <file.itb> <out>` makes a program.
+
+**Running one** (`interstice bundle run <file> [--name n] [--port p]
+[--allow-data-loss|--delete-data]`, or running the program):
+- **Fresh install** (no node with that name in the registry): a new node
+  is created on `--port`, else the manifest's port, else a free port. The
+  modules are installed with their seed data, and the node starts.
+  - A module with seed data has a `state.toml`, so it loads as a reload:
+    its tables are restored and `init` does not run again.
+  - A module without seed data runs `init`.
+- **Update** (the node exists): every module in the bundle is loaded over
+  the node's data through the §3.3 migration plan, with the same rules and
+  the same prompt as `load`.
+  - Seed data is used only for modules that the node does not have yet. A
+    module the node already has keeps its own data, and is migrated rather
+    than overwritten.
+  - **Abort** keeps the module's old version, from its `module.wasm` on
+    disk.
+  - Modules the node has that are not in the bundle stay as they are
+    (apps the user installed, for example).
+  - A module that the previous install of this bundle had and the new one
+    drops is **unloaded, not removed**: its data stays, and `interstice
+    remove` deletes it.
+- Bundle modules are always loaded, even if one was unloaded by hand
+  before: the bundle defines the node.
+- `--delete-data` removes the node and its data, then installs fresh,
+  seed data included.
+- The node is then an ordinary node: `interstice node start`, `load` and
+  `call_reducer` all work on it by name. `interstice node remove <name>`
+  uninstalls it.
+- The install records `bundle.toml` in the node directory: the bundle's
+  name and version, and the modules it installed. An update reads it to
+  find the modules that were dropped.
+- The run refuses if the node is already running.
+
+**In core:**
+- `interstice_core::bundle` holds the format, and reading modules and
+  data from a node directory.
+- `describe_wasm` reads a module's schema without a node: every import is
+  stubbed as a trap, since `interstice_describe` calls no host function.
+- `Node::start_with(modules, decide)` is the one start path:
+  - it merges the persisted modules with the given ones (the given wasm
+    wins) and loads them all in dependency order;
+  - each given module goes through `load_module_with(Safe)`;
+  - on `MigrationRequired(plan)` it calls `decide(module, plan)` and
+    retries with the policy returned, or keeps the old version on
+    `Safe`.
+- `Node::start(&[..])` and `example` use the same path with no decision
+  (a plan that asks fails the start). An example is an in-memory bundle
+  that is always installed fresh.
+
+**Status:**
+- No signing or checksums: a bundle is trusted like a module you `load`.
+- Modules of the bundle are not checked against modules already on the
+  node that depend on them (§3.3).
+- A program carries the whole CLI, with every example embedded: about
+  185 MB in a release build, before the bundle. The desktop as a program is
+  209 MB; its bundle alone is 24 MB, zstd-compressed from 71 MB. A smaller
+  runtime-only binary is future work.
+
 ---
 
 ## 10. ABI, SDK and CLI
@@ -1050,7 +1154,9 @@ stage, so colours stay right and only blending shifts to linear light.
 - Calls: `call_reducer` and `call_query`.
 - `bindings add module|node`.
 - `example <name>` starts a fresh node with embedded default and example WASM
-  files; `build_modules.bash` refreshes those.
+  files; `build_modules.bash` refreshes those. An example is an in-memory
+  bundle (§9.1).
+- `bundle create|inspect|run|exe`: whole nodes as files or programs (§9.1).
 
 ### 10.1 SDK bugs to fix
 
@@ -1452,7 +1558,8 @@ but explicitly out of scope for now.
 - [ ] Replica writes and remote queries through the scheduler (§6.3).
 - [ ] Row-level visibility (e.g. per-app filtering of `network` results,
       which today rely on an `owner` column filtered client-side).
-- [ ] Bundles: ship a node (modules + data) as one program.
+- [x] Bundles (§9.1): a node's modules and data in one `.itb` file, or as
+      a program; install and update go through the §3.3 migration plan.
 
 ### 13.4 SDK / tooling
 - [ ] The remaining SDK bugs in §10.1.

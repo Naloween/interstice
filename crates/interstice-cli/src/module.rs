@@ -23,32 +23,7 @@ pub async fn load(
         .ok_or_else(|| IntersticeError::Internal("Unknown node".into()))?;
     let (mut stream, _handshake) = handshake_with_node(&node_address).await?;
 
-    // Build module using cargo
-    println!(
-        "Building module from {} using cargo...",
-        module_project_path.display()
-    );
-    let manifest_path = module_project_path.join("Cargo.toml");
-    let output = std::process::Command::new("cargo")
-        .args([
-            "build",
-            "--release",
-            "--target",
-            "wasm32-unknown-unknown",
-            "--manifest-path",
-            manifest_path.to_string_lossy().as_ref(),
-        ])
-        .output()
-        .expect("Failed to execute cargo build command");
-    if !output.status.success() {
-        return Err(IntersticeError::Internal(format!(
-            "Cargo build failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )));
-    }
-    // Read generated wasm file
-    let wasm_path = resolve_wasm_path(&manifest_path)?;
-    let wasm_binary = std::fs::read(wasm_path).expect("Failed to read generated wasm file");
+    let wasm_binary = build_module_project(module_project_path)?;
 
     // Load with the safe policy first; if the migration plan needs a
     // decision, ask (or use the flag) and send again (DESIGN §3.3).
@@ -96,6 +71,40 @@ pub async fn load(
     result
 }
 
+/// Build the module project at `module_project_path` with cargo and return
+/// its wasm.
+pub(crate) fn build_module_project(module_project_path: &Path) -> Result<Vec<u8>, IntersticeError> {
+    // Build module using cargo
+    println!(
+        "Building module from {} using cargo...",
+        module_project_path.display()
+    );
+    let manifest_path = module_project_path.join("Cargo.toml");
+    let output = std::process::Command::new("cargo")
+        .args([
+            "build",
+            "--release",
+            "--target",
+            "wasm32-unknown-unknown",
+            "--manifest-path",
+            manifest_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("Failed to execute cargo build command");
+    if !output.status.success() {
+        return Err(IntersticeError::Internal(format!(
+            "Cargo build failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )));
+    }
+    // Read generated wasm file
+    let wasm_path = resolve_wasm_path(&manifest_path)?;
+    std::fs::read(&wasm_path).map_err(|e| {
+        IntersticeError::Internal(format!("Failed to read {}: {e}", wasm_path.display()))
+    })
+
+}
+
 async fn send_load(
     stream: &mut tokio::net::TcpStream,
     wasm_binary: &[u8],
@@ -123,7 +132,7 @@ async fn send_load(
 
 /// Ask how to proceed with a plan that needs a decision; `None` aborts.
 /// Without a terminal it aborts.
-fn ask_decision() -> Option<MigrationPolicy> {
+pub(crate) fn ask_decision() -> Option<MigrationPolicy> {
     if !std::io::stdin().is_terminal() {
         println!("No terminal to ask: pass --allow-data-loss or --delete-data to decide.");
         return None;

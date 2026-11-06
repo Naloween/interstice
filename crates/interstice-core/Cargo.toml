@@ -16,6 +16,7 @@ wasmtime = { version = "41.0.2", features = ["component-model"] }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.9"
+zstd = "0.13"
 wgpu = "28.0"
 winit = "0.30.12"
 pollster = "0.4.0"

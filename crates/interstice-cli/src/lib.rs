@@ -1,5 +1,6 @@
 pub mod benchmark;
 pub mod bindings;
+pub mod bundle;
 pub mod call_query;
 pub mod call_reducer;
 pub mod data_directory;

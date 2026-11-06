@@ -1206,7 +1206,7 @@ struct ModuleState {
 }
 
 /// Write `state.toml` into the given module directory.
-fn write_module_state(module_dir: &Path, loaded: bool) {
+pub(crate) fn write_module_state(module_dir: &Path, loaded: bool) {
     if let Ok(contents) = toml::to_string(&ModuleState { loaded }) {
         let _ = std::fs::write(module_dir.join("state.toml"), contents);
     }

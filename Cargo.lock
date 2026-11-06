@@ -2824,6 +2824,7 @@ dependencies = [
  "webpki-roots 0.26.11",
  "wgpu",
  "winit",
+ "zstd",
 ]
 
 [[package]]
