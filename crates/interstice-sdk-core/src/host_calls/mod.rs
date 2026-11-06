@@ -20,6 +20,7 @@ use serde::Deserialize;
 unsafe extern "C" {
     fn interstice_host_call(ptr: i32, len: i32) -> i64;
     pub fn interstice_log(msg_ptr: i32, msg_len: i32);
+    pub fn interstice_fail(msg_ptr: i32, msg_len: i32);
     pub fn interstice_time() -> i64;
     pub fn interstice_random() -> i64;
     pub fn interstice_blob_create(ptr: i32, len: i32) -> i64;
@@ -56,6 +57,9 @@ unsafe extern "C" fn interstice_host_call(_ptr: i32, _len: i32) -> i64 {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub unsafe extern "C" fn interstice_log(_msg_ptr: i32, _msg_len: i32) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe extern "C" fn interstice_fail(_msg_ptr: i32, _msg_len: i32) {}
 
 #[cfg(not(target_arch = "wasm32"))]
 pub unsafe extern "C" fn interstice_time() -> i64 {

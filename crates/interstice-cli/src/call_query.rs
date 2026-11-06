@@ -1,55 +1,28 @@
-use crate::node_client::handshake_with_node;
+use crate::node_client::{connect, typed_args};
 use crate::node_registry::NodeRegistry;
-use interstice_core::{
-    IntersticeError, NetworkPacket,
-    interstice_abi::IntersticeValue,
-    packet::{read_packet, write_packet},
-};
+use interstice_core::IntersticeError;
 
 pub async fn call_query(
     node_ref: String,
     module_name: String,
     query_name: String,
-    input: IntersticeValue,
+    args: Vec<String>,
 ) -> Result<(), IntersticeError> {
     let registry = NodeRegistry::load()?;
     let node_address = registry
         .resolve_address(&node_ref)
         .ok_or_else(|| IntersticeError::Internal("Unknown node".into()))?;
-    // connect to node
-    let (mut stream, _handshake) = handshake_with_node(&node_address).await?;
-
-    // Send call query packet to node
-    let request_id = uuid::Uuid::new_v4().to_string();
-    let packet = NetworkPacket::QueryCall {
-        module_name,
-        query_name,
-        input,
-        request_id: request_id.clone(),
-    };
-    write_packet(&mut stream, &packet).await?;
-
-    // Wait receiving query response packet from node
-    let response_packet = read_packet(&mut stream).await?;
-    match response_packet {
-        NetworkPacket::QueryResponse {
-            request_id: _response_request_id,
-            result,
-        } => match result {
-            Ok(value) => println!("Query response: {}", value),
-            Err(err) => {
-                let _ = write_packet(&mut stream, &NetworkPacket::Close).await;
-                return Err(IntersticeError::Internal(format!("query failed: {err}")));
-            }
-        },
-        _ => {
-            println!("Unexpected packet received: {:?}", response_packet);
+    let client = connect(&node_address).await?;
+    let input = match typed_args(&client, &module_name, &query_name, true, &args).await {
+        Ok(input) => input,
+        Err(err) => {
+            client.close().await;
+            return Err(err);
         }
-    }
-
-    // Close connection properly
-    let packet = NetworkPacket::Close;
-    write_packet(&mut stream, &packet).await?;
-
+    };
+    let result = client.call_query(&module_name, &query_name, input).await;
+    client.close().await;
+    let value = result.map_err(|e| IntersticeError::Internal(format!("query failed: {e}")))?;
+    println!("Query response: {}", value);
     Ok(())
 }

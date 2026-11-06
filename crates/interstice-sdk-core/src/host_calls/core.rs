@@ -53,6 +53,13 @@ fn encode_scratch<T: serde::Serialize>(value: &T) -> Result<EncodedBuf<'static>,
 
 pub type NodeId = String;
 
+/// Tell the host why the current call fails (ABI 16); it reports this
+/// message to the caller instead of the trap that follows.
+pub fn fail(message: &str) {
+    let msg = message.as_bytes();
+    unsafe { crate::host_calls::interstice_fail(msg.as_ptr() as i32, msg.len() as i32) };
+}
+
 pub fn log(message: &str) {
     let msg = message.as_bytes();
     unsafe { crate::host_calls::interstice_log(msg.as_ptr() as i32, msg.len() as i32) };

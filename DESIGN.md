@@ -1495,7 +1495,15 @@ bundle appended, which runs that node when started.
 
 ## 10. ABI, SDK and CLI
 
-**ABI** (`crates/interstice-abi`, `ABI_VERSION = 15`):
+**ABI** (`crates/interstice-abi`, `ABI_VERSION = 16`, loads `MIN_ABI_VERSION = 15` and up):
+- **Compatibility.** A host loads any module whose ABI is in
+  `MIN_ABI_VERSION..=ABI_VERSION`. A version that only adds host imports or
+  optional fields keeps the minimum, so existing modules keep running. Only
+  a breaking change raises the minimum and forces a rebuild.
+- **Call failures (v16).** The SDK's panic hook passes the message to
+  `interstice_fail` before the trap, and a reducer's `Err` panics with its
+  message. The caller gets `CallFailed(message)` instead of the trap and its
+  backtrace. A v15 module still reports the trap.
 - Everything is postcard-encoded.
 - Byte vectors travel as `IntersticeValue::Bytes(Vec<u8>)` (v8), a single
   length + raw bytes, not one `U8` value per byte. It validates as
@@ -1509,7 +1517,7 @@ bundle appended, which runs that node when started.
 |---|---|
 | Guest exports | `interstice_describe() -> i64`, `alloc`, `dealloc`, `__interstice_reducer_wrapper_<name>(ptr, len)`, `__interstice_query_wrapper_<name>(ptr, len) -> i64` |
 | Host import `interstice_host_call` | One generic import carrying a `HostCall` enum: CallReducer, Schedule, CallQuery, TableScan, TableGetByPrimaryKey, TableIndexScan, Gpu, Audio, File, Module, Network, CurrentNodeId |
-| Host imports, fast path | `interstice_log`, `interstice_time`, `interstice_random`, `interstice_insert_row`, `interstice_update_row`, `interstice_delete_row`, `interstice_clear_table`, `interstice_get_by_pk`, `interstice_blob_create`, `interstice_blob_len`, `interstice_blob_read` |
+| Host imports, fast path | `interstice_log`, `interstice_fail` (v16), `interstice_time`, `interstice_random`, `interstice_insert_row`, `interstice_update_row`, `interstice_delete_row`, `interstice_clear_table`, `interstice_get_by_pk`, `interstice_blob_create`, `interstice_blob_len`, `interstice_blob_read` |
 | Arguments in | `(RawReducerContext or RawQueryContext, IntersticeValue::Vec(args))` |
 | Types | `IntersticeType`: Void, U8, U32, U64, I32, I64, F32, F64, Bool, String, Vec, Option, Tuple, Named, Blob. Structs and enums appear as `Named` with type definitions in the schema. |
 
@@ -1536,6 +1544,11 @@ bundle appended, which runs that node when started.
 - `bundle create|inspect|run|exe`: whole nodes as files or programs (§9.1).
 - `call_reducer` waits for the `ReducerResult` (§7.1) and reports
   "committed" or the error.
+- `call_reducer` and `call_query` type their arguments from the node's schema
+  (`cli/src/args.rs`): plain text for numbers, booleans and strings, JSON for
+  structs, enums, lists, options and tuples. A wrong count or type is
+  reported against the signature.
+- The CLI talks to nodes only through `interstice-client`.
 
 **Embedding** (`interstice_core::NodeHandle`): `Node::start_headless(modules)`
 boots everything but the window (config, network, runtime loop, modules) and

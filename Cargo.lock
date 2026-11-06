@@ -2993,6 +2993,7 @@ name = "interstice-cli"
 version = "0.5.0"
 dependencies = [
  "directories",
+ "interstice-client",
  "interstice-core",
  "mimalloc",
  "self_update",

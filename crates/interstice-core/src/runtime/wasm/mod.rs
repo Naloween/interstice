@@ -15,6 +15,9 @@ pub struct StoreState {
     /// re-running the side-effecting insert, so the transaction is applied
     /// exactly once.  See `linker.rs` `interstice_insert_row`.
     pub pending_insert_response: Option<Vec<u8>>,
+    /// Why the running call is failing, from `interstice_fail` (ABI 16):
+    /// the guest's `Err` or panic message, reported instead of the trap.
+    pub failure: Option<String>,
 }
 
 impl StoreState {
@@ -23,6 +26,7 @@ impl StoreState {
             runtime,
             module_schema: Arc::new(ModuleSchema::empty()),
             pending_insert_response: None,
+            failure: None,
         }
     }
 }

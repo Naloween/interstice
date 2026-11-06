@@ -21,7 +21,10 @@
 
 use interstice_core::interstice_abi::{IntersticeValue, NodeSchema};
 use interstice_core::packet::{read_packet, write_packet_unflushed};
-use interstice_core::{IntersticeError, KnownPeers, LocalIdentity, NetworkPacket};
+use interstice_core::{
+    IntersticeError, KnownPeers, LoadOutcome, LocalIdentity, MigrationPolicy, ModuleEventInstance,
+    NetworkPacket,
+};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::future::Future;
@@ -33,12 +36,14 @@ use tokio::sync::{mpsc, oneshot};
 type ReducerReply = oneshot::Sender<Result<(), String>>;
 type QueryReply = oneshot::Sender<Result<IntersticeValue, String>>;
 type SchemaReply = oneshot::Sender<NodeSchema>;
+type LoadReply = oneshot::Sender<LoadOutcome>;
 
 #[derive(Default)]
 struct Pending {
     reducers: HashMap<u64, ReducerReply>,
     queries: HashMap<String, QueryReply>,
     schemas: HashMap<String, SchemaReply>,
+    loads: HashMap<String, LoadReply>,
 }
 
 /// A connection to one node. Cheap to share behind an `Arc`; every method
@@ -49,6 +54,7 @@ pub struct Client {
     outgoing: mpsc::UnboundedSender<NetworkPacket>,
     pending: Arc<Mutex<Pending>>,
     next_id: AtomicU64,
+    writer: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 fn closed() -> IntersticeError {
@@ -84,19 +90,22 @@ impl Client {
         let pending = Arc::new(Mutex::new(Pending::default()));
         let (outgoing, mut queue) = mpsc::unbounded_channel::<NetworkPacket>();
 
-        tokio::spawn(async move {
+        let writer = tokio::spawn(async move {
             while let Some(packet) = queue.recv().await {
+                let mut last = matches!(packet, NetworkPacket::Close);
                 if write_packet_unflushed(&mut writer, &packet).await.is_err() {
                     return;
                 }
                 // Drain what is already queued before one flush.
-                while let Ok(packet) = queue.try_recv() {
+                while !last {
+                    let Ok(packet) = queue.try_recv() else { break };
+                    last = matches!(packet, NetworkPacket::Close);
                     if write_packet_unflushed(&mut writer, &packet).await.is_err() {
                         return;
                     }
                 }
-                if writer.flush().await.is_err() {
-                    return;
+                if writer.flush().await.is_err() || last {
+                    break;
                 }
             }
             let _ = writer.shutdown().await;
@@ -122,6 +131,11 @@ impl Client {
                             let _ = tx.send(schema);
                         }
                     }
+                    NetworkPacket::ModuleLoadResult { request_id, outcome } => {
+                        if let Some(tx) = p.loads.remove(&request_id) {
+                            let _ = tx.send(outcome);
+                        }
+                    }
                     NetworkPacket::Close => break,
                     _ => {}
                 }
@@ -135,9 +149,19 @@ impl Client {
                 let _ = tx.send(Err("connection closed".into()));
             }
             p.schemas.clear();
+            for (_, tx) in p.loads.drain() {
+                let _ = tx.send(LoadOutcome::Failed("connection closed".into()));
+            }
         });
 
-        Ok(Self { node_id, node_address, outgoing, pending, next_id: AtomicU64::new(1) })
+        Ok(Self {
+            node_id,
+            node_address,
+            outgoing,
+            pending,
+            next_id: AtomicU64::new(1),
+            writer: Mutex::new(Some(writer)),
+        })
     }
 
     /// The node's id (its key's).
@@ -159,7 +183,7 @@ impl Client {
     ) -> Result<(), IntersticeError> {
         self.submit_reducer(module, reducer, args)
             .await
-            .map_err(IntersticeError::Internal)
+            .map_err(IntersticeError::CallFailed)
     }
 
     /// Queue a reducer call now; the returned future resolves to its
@@ -215,7 +239,7 @@ impl Client {
                 input: args,
             })
             .map_err(|_| closed())?;
-        rx.await.map_err(|_| closed())?.map_err(IntersticeError::Internal)
+        rx.await.map_err(|_| closed())?.map_err(IntersticeError::CallFailed)
     }
 
     /// The node's schema as this client may see it.
@@ -229,14 +253,55 @@ impl Client {
         rx.await.map_err(|_| closed())
     }
 
-    /// Say goodbye; pending calls fail once the node closes the connection.
-    pub fn close(&self) {
+    /// Load or update a module (DESIGN §3.3, §7.4). `policy` answers a
+    /// migration that loses data; `grant` grants the authorities it asks for.
+    pub async fn load_module(
+        &self,
+        wasm: Vec<u8>,
+        policy: MigrationPolicy,
+        grant: bool,
+    ) -> Result<LoadOutcome, IntersticeError> {
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+        self.pending.lock().loads.insert(request_id.clone(), tx);
+        self.outgoing
+            .send(NetworkPacket::ModuleEvent(ModuleEventInstance::Load {
+                wasm_binary: wasm,
+                policy,
+                request_id,
+                grant,
+            }))
+            .map_err(|_| closed())?;
+        rx.await.map_err(|_| closed())
+    }
+
+    /// Unload a module, keeping its data.
+    pub fn unload_module(&self, module: &str) -> Result<(), IntersticeError> {
+        self.outgoing
+            .send(NetworkPacket::ModuleEvent(ModuleEventInstance::Unload { module_name: module.into() }))
+            .map_err(|_| closed())
+    }
+
+    /// Remove a module and delete its data.
+    pub fn remove_module(&self, module: &str) -> Result<(), IntersticeError> {
+        self.outgoing
+            .send(NetworkPacket::ModuleEvent(ModuleEventInstance::Remove { module_name: module.into() }))
+            .map_err(|_| closed())
+    }
+
+    /// Send `Close` after everything queued, and wait until it is written.
+    pub async fn close(&self) {
         let _ = self.outgoing.send(NetworkPacket::Close);
+        let writer = self.writer.lock().take();
+        if let Some(writer) = writer {
+            let _ = writer.await;
+        }
     }
 }
 
 impl Drop for Client {
+    /// Best effort: the writer task sends `Close` if the runtime lives on.
     fn drop(&mut self) {
-        self.close();
+        let _ = self.outgoing.send(NetworkPacket::Close);
     }
 }

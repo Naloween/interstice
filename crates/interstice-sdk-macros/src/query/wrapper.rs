@@ -21,7 +21,7 @@ pub fn get_wrapper_function(
         quote! {
             match #query_ident(query_context, #(#args),*) {
                 Ok(value) => value.into(),
-                Err(err) => panic!("query `{}` failed: {}", stringify!(#query_ident), err),
+                Err(err) => panic!("{}", err),
             }
         }
     } else {

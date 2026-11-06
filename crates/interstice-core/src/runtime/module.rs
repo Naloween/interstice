@@ -117,7 +117,7 @@ impl Module {
         };
 
         let schema = Arc::new(factory.instantiate(None)?.load_schema()?);
-        if schema.abi_version != ABI_VERSION {
+        if !interstice_abi::abi_supported(schema.abi_version) {
             return Err(IntersticeError::AbiVersionMismatch {
                 expected: ABI_VERSION,
                 found: schema.abi_version,

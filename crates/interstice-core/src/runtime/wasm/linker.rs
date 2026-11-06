@@ -52,6 +52,20 @@ pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> 
         },
     )?;
 
+    // ── Direct: fail (ABI 16) ─────────────────────────────────────────────────
+    // The guest says why the current call fails, just before it traps.
+    linker.func_wrap(
+        "interstice",
+        "interstice_fail",
+        |mut caller: Caller<'_, StoreState>, ptr: i32, len: i32| {
+            let Some(wasmtime::Extern::Memory(memory)) = caller.get_export("memory") else { return };
+            let mut buf = vec![0u8; len.clamp(0, 64 * 1024) as usize];
+            if memory.read(&caller, ptr.max(0) as usize, &mut buf).is_ok() {
+                caller.data_mut().failure = Some(String::from_utf8_lossy(&buf).into_owned());
+            }
+        },
+    )?;
+
     // ── Direct: log ───────────────────────────────────────────────────────────
     linker.func_wrap(
         "interstice",

@@ -1,3 +1,4 @@
+pub mod args;
 pub mod bindings;
 pub mod bundle;
 pub mod call_query;

@@ -180,7 +180,8 @@ pub async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError>
             let address = registry
                 .resolve_address(&args[3])
                 .ok_or_else(|| IntersticeError::Internal("Unknown node".into()))?;
-            let (_stream, handshake) = handshake_with_node(&address).await?;
+            let (client, handshake) = handshake_with_node(&address).await?;
+            client.close().await;
             registry.set_last_seen(&args[3]);
             registry.set_node_id(&args[3], handshake.node_id);
             registry.save()?;

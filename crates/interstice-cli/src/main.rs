@@ -14,11 +14,22 @@ use interstice_cli::{
     node_utils::handle_node_command,
     update::update,
 };
-use interstice_core::{IntersticeError, interstice_abi::IntersticeValue};
+use interstice_core::IntersticeError;
 use std::path::Path;
 
 #[tokio::main]
-async fn main() -> Result<(), IntersticeError> {
+async fn main() {
+    if let Err(err) = run().await {
+        // The CLI's own messages travel as `Internal`; print them as they are.
+        match err {
+            IntersticeError::Internal(message) => eprintln!("error: {message}"),
+            other => eprintln!("error: {other}"),
+        }
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> Result<(), IntersticeError> {
     let args: Vec<String> = std::env::args().collect();
 
     // A program made by `bundle exe` carries its bundle after the binary
@@ -107,12 +118,7 @@ async fn main() -> Result<(), IntersticeError> {
             let node_ref = args[2].clone();
             let module_name = args[3].clone();
             let reducer_name = args[4].clone();
-            let mut input_vec: Vec<IntersticeValue> = Vec::new();
-            for arg in &args[5..] {
-                input_vec.push(arg.clone().into());
-            }
-            let input = IntersticeValue::Vec(input_vec);
-            call_reducer(node_ref, module_name, reducer_name, input.into()).await
+            call_reducer(node_ref, module_name, reducer_name, args[5..].to_vec()).await
         }
         "call_query" => {
             if args.len() < 5 {
@@ -122,12 +128,7 @@ async fn main() -> Result<(), IntersticeError> {
             let node_ref = args[2].clone();
             let module_name = args[3].clone();
             let query_name = args[4].clone();
-            let mut input_vec: Vec<IntersticeValue> = Vec::new();
-            for arg in &args[5..] {
-                input_vec.push(arg.clone().into());
-            }
-            let input = IntersticeValue::Vec(input_vec);
-            call_query(node_ref, module_name, query_name, input.into()).await
+            call_query(node_ref, module_name, query_name, args[5..].to_vec()).await
         }
         "help" | "-h" | "--help" => {
             print_help();

@@ -1,9 +1,6 @@
-use crate::node_client::handshake_with_node;
+use crate::node_client::connect;
 use crate::node_registry::NodeRegistry;
-use interstice_core::{
-    IntersticeError, LoadOutcome, MigrationPolicy, ModuleEventInstance, NetworkPacket,
-    packet::{read_packet, write_packet},
-};
+use interstice_core::{IntersticeError, LoadOutcome, MigrationPolicy};
 use std::io::{BufRead, IsTerminal, Write};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -22,7 +19,7 @@ pub async fn load(
     let node_address = registry
         .resolve_address(&node_ref)
         .ok_or_else(|| IntersticeError::Internal("Unknown node".into()))?;
-    let (mut stream, _handshake) = handshake_with_node(&node_address).await?;
+    let client = connect(&node_address).await?;
 
     let wasm_binary = build_module_project(module_project_path)?;
 
@@ -35,7 +32,7 @@ pub async fn load(
         _ => MigrationPolicy::Safe,
     };
     let result = loop {
-        let outcome = send_load(&mut stream, &wasm_binary, policy, grant).await?;
+        let outcome = client.load_module(wasm_binary.clone(), policy, grant).await?;
         match outcome {
             LoadOutcome::Loaded { plan } => {
                 if !plan.is_empty() {
@@ -77,10 +74,7 @@ pub async fn load(
         }
     };
 
-    // Close connection properly
-    let packet = NetworkPacket::Close;
-    write_packet(&mut stream, &packet).await?;
-
+    client.close().await;
     result
 }
 
@@ -116,33 +110,6 @@ pub(crate) fn build_module_project(module_project_path: &Path) -> Result<Vec<u8>
         IntersticeError::Internal(format!("Failed to read {}: {e}", wasm_path.display()))
     })
 
-}
-
-async fn send_load(
-    stream: &mut interstice_core::SecureStream,
-    wasm_binary: &[u8],
-    policy: MigrationPolicy,
-    grant: bool,
-) -> Result<LoadOutcome, IntersticeError> {
-    let request_id = uuid::Uuid::new_v4().to_string();
-    let packet = NetworkPacket::ModuleEvent(ModuleEventInstance::Load {
-        wasm_binary: wasm_binary.to_vec(),
-        policy,
-        request_id: request_id.clone(),
-        grant,
-    });
-    write_packet(stream, &packet).await?;
-    loop {
-        match read_packet(stream).await? {
-            NetworkPacket::ModuleLoadResult { request_id: id, outcome } if id == request_id => {
-                return Ok(outcome);
-            }
-            NetworkPacket::Close => {
-                return Err(IntersticeError::Internal("The node closed the connection".into()));
-            }
-            _ => {}
-        }
-    }
 }
 
 /// Ask whether to grant `authorities` to `module`; no terminal means no.
@@ -193,17 +160,9 @@ pub async fn unload(node_ref: String, module_name: &str) -> Result<(), Interstic
     let node_address = registry
         .resolve_address(&node_ref)
         .ok_or_else(|| IntersticeError::Internal("Unknown node".into()))?;
-    let (mut stream, _handshake) = handshake_with_node(&node_address).await?;
-
-    // Send unload request to node
-    let packet = NetworkPacket::ModuleEvent(ModuleEventInstance::Unload {
-        module_name: module_name.into(),
-    });
-    write_packet(&mut stream, &packet).await?;
-
-    // Close connection properly
-    let packet = NetworkPacket::Close;
-    write_packet(&mut stream, &packet).await?;
+    let client = connect(&node_address).await?;
+    client.unload_module(module_name)?;
+    client.close().await;
 
     Ok(())
 }
@@ -216,17 +175,9 @@ pub async fn remove(node_ref: String, module_name: &str) -> Result<(), Interstic
     let node_address = registry
         .resolve_address(&node_ref)
         .ok_or_else(|| IntersticeError::Internal("Unknown node".into()))?;
-    let (mut stream, _handshake) = handshake_with_node(&node_address).await?;
-
-    // Send wasm binary to node
-    let packet = NetworkPacket::ModuleEvent(ModuleEventInstance::Remove {
-        module_name: module_name.into(),
-    });
-    write_packet(&mut stream, &packet).await?;
-
-    // Close connection properly
-    let packet = NetworkPacket::Close;
-    write_packet(&mut stream, &packet).await?;
+    let client = connect(&node_address).await?;
+    client.remove_module(module_name)?;
+    client.close().await;
 
     Ok(())
 }

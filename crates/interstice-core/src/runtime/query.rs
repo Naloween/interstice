@@ -36,9 +36,9 @@ impl Runtime {
             .queries
             .iter()
             .find(|q| q.name == query_name)
-            .ok_or_else(|| IntersticeError::ReducerNotFound {
+            .ok_or_else(|| IntersticeError::QueryNotFound {
                 module: module_name.into(),
-                reducer: query_name.into(),
+                query: query_name.into(),
             })?;
         self.security
             .check_call(&module.schema, query_name, true, caller_node_id, caller_module_name)?;

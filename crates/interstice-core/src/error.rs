@@ -24,6 +24,12 @@ pub enum IntersticeError {
         module: String,
         reducer: String,
     },
+    QueryNotFound {
+        module: String,
+        query: String,
+    },
+    /// A reducer or query returned `Err`, or panicked, with this message.
+    CallFailed(String),
     RowNotFound {
         primary_key_value: interstice_abi::IndexKey,
     },
@@ -178,6 +184,10 @@ impl fmt::Display for IntersticeError {
             ReducerNotFound { module, reducer } => {
                 write!(f, "reducer '{}' not found in module '{}'", reducer, module)
             }
+            CallFailed(message) => write!(f, "{message}"),
+            QueryNotFound { module, query } => {
+                write!(f, "query '{}' not found in module '{}'", query, module)
+            }
             InvalidRow { module, table } => {
                 write!(
                     f,
@@ -209,8 +219,8 @@ impl fmt::Display for IntersticeError {
             AbiVersionMismatch { expected, found } => {
                 write!(
                     f,
-                    "ABI version mismatch: expected {}, found {}",
-                    expected, found
+                    "module built for ABI {found}; this interstice loads ABI {}..={expected}, rebuild it",
+                    interstice_abi::MIN_ABI_VERSION
                 )
             }
             WasmTrap(msg) => {

@@ -175,12 +175,13 @@ impl WasmInstance {
             .typed::<(i32, i32), ()>(&self.store)
             .map_err(|_| IntersticeError::BadSignature(func_name.into()))?;
 
+        self.store.data_mut().failure = None;
         reducer
             .call(
                 &mut self.store,
                 (self.scratch_ptr, args_bytes.len() as i32),
             )
-            .map_err(|e| IntersticeError::WasmTrap(e.to_string()))?;
+            .map_err(|e| self.trap(e))?;
 
         Ok(())
     }
@@ -217,12 +218,13 @@ impl WasmInstance {
             .typed::<(i32, i32), i64>(&self.store)
             .map_err(|_| IntersticeError::BadSignature(func_name.into()))?;
 
+        self.store.data_mut().failure = None;
         let packed = query
             .call(
                 &mut self.store,
                 (self.scratch_ptr, args_bytes.len() as i32),
             )
-            .map_err(|e| IntersticeError::WasmTrap(e.to_string()))?;
+            .map_err(|e| self.trap(e))?;
 
         let res_ptr = (packed >> 32) as i32;
         let res_len = (packed & 0xffffffff) as i32;
@@ -248,5 +250,13 @@ impl WasmInstance {
         })?;
 
         Ok(out)
+    }
+
+    /// A trapped call: the message the guest reported, else the trap.
+    fn trap(&mut self, err: wasmtime::Error) -> IntersticeError {
+        match self.store.data_mut().failure.take() {
+            Some(message) => IntersticeError::CallFailed(message),
+            None => IntersticeError::WasmTrap(err.to_string()),
+        }
     }
 }

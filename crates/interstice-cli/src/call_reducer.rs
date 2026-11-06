@@ -1,44 +1,28 @@
-use crate::node_client::handshake_with_node;
+use crate::node_client::{connect, typed_args};
 use crate::node_registry::NodeRegistry;
-use interstice_core::{
-    IntersticeError, NetworkPacket,
-    interstice_abi::IntersticeValue,
-    packet::{read_packet, write_packet},
-};
+use interstice_core::IntersticeError;
 
+/// Call a reducer and wait for its commit or its error (DESIGN §7.1).
 pub async fn call_reducer(
     node_ref: String,
     module_name: String,
     reducer_name: String,
-    input: IntersticeValue,
+    args: Vec<String>,
 ) -> Result<(), IntersticeError> {
     let registry = NodeRegistry::load()?;
     let node_address = registry
         .resolve_address(&node_ref)
         .ok_or_else(|| IntersticeError::Internal("Unknown node".into()))?;
-    // connect to node
-    let (mut stream, _handshake) = handshake_with_node(&node_address).await?;
-
-    // Call, and wait for the commit or the error.
-    let packet = NetworkPacket::ReducerCall {
-        request_id: Some(1),
-        module_name,
-        reducer_name,
-        input,
-    };
-    write_packet(&mut stream, &packet).await?;
-    let outcome = loop {
-        match read_packet(&mut stream).await? {
-            NetworkPacket::ReducerResult { request_id: 1, outcome } => break outcome,
-            NetworkPacket::Error(err) => break Err(err),
-            _ => {}
+    let client = connect(&node_address).await?;
+    let input = match typed_args(&client, &module_name, &reducer_name, false, &args).await {
+        Ok(input) => input,
+        Err(err) => {
+            client.close().await;
+            return Err(err);
         }
     };
-
-    // Close connection properly
-    let packet = NetworkPacket::Close;
-    write_packet(&mut stream, &packet).await?;
-
+    let outcome = client.call_reducer(&module_name, &reducer_name, input).await;
+    client.close().await;
     match outcome {
         Ok(()) => {
             println!("committed");

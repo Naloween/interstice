@@ -66,7 +66,8 @@ pub fn install_panic_hook() {
                 "panic occurred"
             };
 
-            crate::host_calls::log(&format!("Panic Error: {}", msg));
+            // The caller gets the message (a reducer's `Err` panics with it).
+            crate::host_calls::fail(msg);
         }));
     });
 }
