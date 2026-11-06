@@ -219,41 +219,28 @@ impl Runtime {
     pub async fn run(runtime: Arc<Runtime>, mut event_receiver: UnboundedReceiver<(EventInstance, Option<CompletionToken>)>) {
         let (ready_tx, ready_rx) =
             crossbeam_channel::unbounded::<(u64, Job, Option<std::time::Instant>)>();
-        let (done_tx, done_rx) = crossbeam_channel::unbounded::<u64>();
+        // The scheduler is shared (DESIGN §6.1): this thread admits incoming
+        // jobs, and a worker that finishes a job completes it itself, keeps
+        // the first job it releases and runs it without a thread hop.
+        let scheduler = Arc::new(parking_lot::Mutex::new(
+            crate::runtime::scheduler::ReducerScheduler::<Job>::new(),
+        ));
 
         {
             let incoming_rx = runtime.reducer_receiver.clone();
             let rt = runtime.clone();
+            let scheduler = scheduler.clone();
+            let ready_tx = ready_tx.clone();
             std::thread::Builder::new()
                 .name("reducer-scheduler".to_string())
                 .spawn(move || {
-                    let mut scheduler = crate::runtime::scheduler::ReducerScheduler::<Job>::new();
-                    loop {
-                        crossbeam_channel::select! {
-                            recv(incoming_rx) -> msg => {
-                                let job = match msg {
-                                    Ok(job) => job,
-                                    Err(_) => break,
-                                };
-                                let accesses = job_accesses(&rt, &job);
-                                if let Some(runnable) = scheduler.enqueue(job, accesses) {
-                                    profile::since(profile::Phase::Blocked, runnable.born);
-                                    if ready_tx.send((runnable.id, runnable.payload, profile::now())).is_err() {
-                                        return;
-                                    }
-                                }
-                            }
-                            recv(done_rx) -> msg => {
-                                let done_id = match msg {
-                                    Ok(id) => id,
-                                    Err(_) => break,
-                                };
-                                for runnable in scheduler.complete(done_id) {
-                                    profile::since(profile::Phase::Blocked, runnable.born);
-                                    if ready_tx.send((runnable.id, runnable.payload, profile::now())).is_err() {
-                                        return;
-                                    }
-                                }
+                    while let Ok(job) = incoming_rx.recv() {
+                        let accesses = job_accesses(&rt, &job);
+                        let runnable = scheduler.lock().enqueue(job, accesses);
+                        if let Some(runnable) = runnable {
+                            profile::since(profile::Phase::Blocked, runnable.born);
+                            if ready_tx.send((runnable.id, runnable.payload, profile::now())).is_err() {
+                                return;
                             }
                         }
                     }
@@ -293,7 +280,8 @@ impl Runtime {
             .min(8);
         for i in 0..num_reducer_threads {
             let receiver = ready_rx.clone();
-            let done = done_tx.clone();
+            let ready_tx = ready_tx.clone();
+            let scheduler = scheduler.clone();
             let rt = runtime.clone();
             std::thread::Builder::new()
                 .name(format!("wasm-reducer-{}", i))
@@ -301,10 +289,14 @@ impl Runtime {
                 // trampolines and re-entrant wasm→host→wasm reducer calls.
                 .stack_size(WASM_STACK_SIZE + 8 * 1024 * 1024)
                 .spawn(move || {
+                    let mut next = None;
                     loop {
-                        let (job_id, job, ready_at) = match receiver.recv() {
-                            Ok(j) => j,
-                            Err(_) => break,
+                        let (job_id, job, ready_at) = match next.take() {
+                            Some(j) => j,
+                            None => match receiver.recv() {
+                                Ok(j) => j,
+                                Err(_) => break,
+                            },
                         };
                         profile::since(profile::Phase::Ready, ready_at);
                         // Fork the token into TLS so that everything this job
@@ -382,7 +374,16 @@ impl Runtime {
                         // Clear TLS so any forks made during the job are counted
                         // and the guard's drop (above) or this one is the last.
                         ACTIVE_COMPLETION.with(|c| *c.borrow_mut() = None);
-                        let _ = done.send(job_id);
+                        let released = scheduler.lock().complete(job_id);
+                        for runnable in released {
+                            profile::since(profile::Phase::Blocked, runnable.born);
+                            let job = (runnable.id, runnable.payload, profile::now());
+                            if next.is_none() {
+                                next = Some(job);
+                            } else if ready_tx.send(job).is_err() {
+                                return;
+                            }
+                        }
                     }
                 })
                 .expect("Failed to spawn wasm-reducer thread");

@@ -139,6 +139,14 @@ the queue length. The phase breakdown of the in-process run, per transfer:
 **Since then:**
 - One log write per commit (§3.2): in process, 83 000 ± 3 100/s
   (alpha 0), p50 29 ms; the commit fell from 4.8 to 2.2 µs.
+- Workers complete their own jobs and run the job that releases (§6.1):
+
+  | Mode | alpha | committed/s | p50 | p99 |
+  |---|---:|---:|---:|---:|
+  | in process | 0 | 140 000 ± 2 300 | 17 ms | 28 ms |
+  | in process | 1.5 | 147 400 ± 2 100 | 17 ms | 26 ms |
+  | TLS, 64 connections | 0 | 96 300 ± 7 500 | 24 ms | 50 ms |
+  | TLS, 64 connections | 1.5 | 100 700 ± 7 900 | 23 ms | 45 ms |
 
 The leads, in order:
 1. ~~one log append per transaction~~ (done);

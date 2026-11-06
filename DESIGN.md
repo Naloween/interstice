@@ -397,13 +397,21 @@ targets the module's own reducers; time and random are not checked.
                                                                            ▼ ▼
                                           bounded reducer queue (8192)
                                                        │
-                                               reducer-scheduler
-                                       (conflict check on access sets)
+                                    scheduler (shared, behind a lock):
+                               the ingress thread admits new jobs; a
+                               worker completes its own job and keeps
+                               the first job that releases
                                                        │ ready
                                      worker pool: min(cores, 8) threads
                                        each takes an instance from the
                                        module's pool of 8 WASM instances
 ```
+
+Workers complete their own jobs under the scheduler lock. A conflicting job
+released by a completion therefore runs on the same worker at once, instead of
+going through a scheduler thread, a channel and another worker's wake-up. The
+admission rules are unchanged. Serial (conflicting) work went from 83k to
+140k transfers/s in process, and from 44.5k to ~98k over TLS.
 
 ### 6.2 Conflict rules
 
