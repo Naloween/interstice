@@ -10,6 +10,23 @@ permissions:
   contents: write
 
 jobs:
+  # `interstice example` downloads the example modules from the release of
+  # its version (DESIGN §10).
+  examples:
+    name: Example modules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Build the examples
+        run: scripts/build_modules.sh
+      - name: Attach them to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/examples/*.wasm
+
   build:
     name: Build & release (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -41,7 +58,12 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.target }}, wasm32-unknown-unknown
+
+      # The CLI embeds the default modules, which are built, not tracked.
+      - name: Build the default modules
+        shell: bash
+        run: scripts/build_modules.sh --defaults
 
       - name: Build CLI
         run: cargo build -p interstice-cli --bin interstice --release --target ${{ matrix.target }}

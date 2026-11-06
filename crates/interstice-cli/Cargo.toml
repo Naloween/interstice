@@ -7,6 +7,8 @@ description = "Command-line tools to run and manage Interstice nodes and modules
 readme = "../../README.md"
 repository.workspace = true
 keywords = ["interstice", "cli", "wasm", "runtime"]
+# The default modules are built, not tracked; the package carries them.
+include = ["src/**", "build.rs", "module_defaults/*.wasm", "Cargo.toml"]
 [package.metadata.docs.rs]
 all-features = true
 
@@ -19,6 +21,7 @@ directories = "6.0.0"
 interstice-core = { workspace = true }
 interstice-client = { workspace = true }
 mimalloc = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["default-tls"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 self_update = { version = "0.41.0", features = [

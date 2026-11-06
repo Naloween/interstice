@@ -14,9 +14,12 @@ All published crates share one version (`[workspace.package]` in the root
 ## Steps
 
 1. **CI is green** on `main`, including the browser job.
-2. **The embedded modules are current.** Run `scripts/build_modules.sh` and
-   commit the refreshed `.wasm` files under `crates/interstice-cli/module_*`.
-   The CLI ships them, so they should be built with the SDK being released.
+2. **The modules are built** with the SDK being released:
+   `scripts/build_modules.sh`. Built modules are not in git (DESIGN §10):
+   `cargo publish` packages the default modules from
+   `crates/interstice-cli/module_defaults/`, and the release workflow builds
+   the examples itself and attaches them to the GitHub release, where
+   `interstice example` downloads them.
 3. **The changelog is ready.** Rename "Unreleased" in `CHANGELOG.md` to the
    new version.
 4. **Bump, commit and tag:**
@@ -25,8 +28,8 @@ All published crates share one version (`[workspace.package]` in the root
    ```
    This updates `[workspace.package]` and `[workspace.dependencies]` (the
    modules follow through `workspace = true`), commits, tags `vX.Y.Z` and
-   pushes. The tag triggers `release-cli.yml`, which attaches CLI binaries to
-   a GitHub release.
+   pushes. The tag triggers `release-cli.yml`, which attaches the CLI
+   binaries and the example modules to a GitHub release.
 5. **Publish**, in dependency order:
    ```bash
    cargo ws publish --from-git

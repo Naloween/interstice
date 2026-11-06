@@ -9,74 +9,22 @@ use interstice_core::{
     interstice_abi::ABI_VERSION,
 };
 
-const HELLO_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/module_examples/hello_example.wasm"
-));
-const CALLER_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/module_examples/caller_example.wasm"
-));
-const GRAPHICS_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/module_examples/graphics_example.wasm"
-));
-const AUDIO_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/module_examples/audio_example.wasm"
-));
-const AGAR_SERVER_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/module_examples/agar_server.wasm"
-));
-const AGAR_CLIENT_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/module_examples/agar_client.wasm"
-));
-const DEFAULT_GRAPHICS_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/module_defaults/graphics.wasm"
-));
-const DEFAULT_INPUT_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/module_defaults/input.wasm"
-));
-const DEFAULT_MODULE_MANAGER_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/module_defaults/module_manager.wasm"
-));
-const DEFAULT_AUDIO_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/module_defaults/audio.wasm"
-));
-const DEFAULT_NETWORK_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/module_defaults/network.wasm"
-));
-const UI_EXAMPLE_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/module_examples/ui_example.wasm"
-));
-const DESKTOP_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/module_examples/desktop_example.wasm"
-));
-const HTTP_GET_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/module_examples/http_get_example.wasm"
-));
-const BROWSER_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/module_examples/browser_example.wasm"
-));
+// The default modules, embedded (DESIGN §10).
+const DEFAULT_GRAPHICS_BYTES: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/module_defaults/graphics.wasm"));
+const DEFAULT_INPUT_BYTES: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/module_defaults/input.wasm"));
+const DEFAULT_MODULE_MANAGER_BYTES: &[u8] =
+    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/module_defaults/module_manager.wasm"));
+const DEFAULT_AUDIO_BYTES: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/module_defaults/audio.wasm"));
+const DEFAULT_NETWORK_BYTES: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/module_defaults/network.wasm"));
 
-const NOTES_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/module_examples/notes.wasm"
-));
+/// Where releases keep the example modules (`release-cli.yml`).
+const RELEASES: &str = "https://github.com/Naloween/interstice/releases/download";
 
-struct ExampleModule {
-    bytes: &'static [u8],
+/// A module of an example: a default module (embedded), or an example's
+/// wasm file, fetched (DESIGN §10).
+enum ExampleModule {
+    Builtin(&'static [u8]),
+    Fetched(&'static str),
 }
 
 struct ExampleConfig {
@@ -90,112 +38,84 @@ fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> 
         "hello" => Ok(ExampleConfig {
             name: "hello-example",
             port: 8080,
-            modules: vec![ExampleModule { bytes: HELLO_BYTES }],
+            modules: vec![ExampleModule::Fetched("hello_example.wasm")],
         }),
         "caller" => Ok(ExampleConfig {
             name: "caller-example",
             port: 8081,
-            modules: vec![ExampleModule {
-                bytes: CALLER_BYTES,
-            }],
+            modules: vec![ExampleModule::Fetched("caller_example.wasm")],
         }),
         "graphics" => Ok(ExampleConfig {
             name: "graphics-example",
             port: 8082,
-            modules: vec![ExampleModule {
-                bytes: GRAPHICS_BYTES,
-            }],
+            modules: vec![ExampleModule::Fetched("graphics_example.wasm")],
         }),
         "audio" => Ok(ExampleConfig {
             name: "audio-example",
             port: 8083,
-            modules: vec![ExampleModule { bytes: AUDIO_BYTES }],
+            modules: vec![ExampleModule::Fetched("audio_example.wasm")],
         }),
         "agar-server" => Ok(ExampleConfig {
             name: "agar-server-example",
             // Dedicated port: 8080 is used by hello-example; sharing it caused bind failures.
             port: 8086,
-            modules: vec![ExampleModule {
-                bytes: AGAR_SERVER_BYTES,
-            }],
+            modules: vec![ExampleModule::Fetched("agar_server.wasm")],
         }),
         "agar-client" => Ok(ExampleConfig {
             name: "agar-client-example",
             port: 8084,
             modules: vec![
-                ExampleModule { bytes: DEFAULT_INPUT_BYTES },
-                ExampleModule { bytes: DEFAULT_GRAPHICS_BYTES },
-                ExampleModule { bytes: AGAR_CLIENT_BYTES },
+                ExampleModule::Builtin(DEFAULT_INPUT_BYTES),
+                ExampleModule::Builtin(DEFAULT_GRAPHICS_BYTES),
+                ExampleModule::Fetched("agar_client.wasm"),
             ],
         }),
         "ui" => Ok(ExampleConfig {
             name: "ui-example",
             port: 8088,
             modules: vec![
-                ExampleModule { bytes: DEFAULT_INPUT_BYTES },
-                ExampleModule { bytes: DEFAULT_GRAPHICS_BYTES },
-                ExampleModule { bytes: UI_EXAMPLE_BYTES },
+                ExampleModule::Builtin(DEFAULT_INPUT_BYTES),
+                ExampleModule::Builtin(DEFAULT_GRAPHICS_BYTES),
+                ExampleModule::Fetched("ui_example.wasm"),
             ],
         }),
         "desktop" => Ok(ExampleConfig {
             name: "desktop-example",
             port: 8089,
             modules: vec![
-                ExampleModule {
-                    bytes: DEFAULT_INPUT_BYTES,
-                },
-                ExampleModule {
-                    bytes: DEFAULT_GRAPHICS_BYTES,
-                },
-                ExampleModule {
-                    bytes: DEFAULT_MODULE_MANAGER_BYTES,
-                },
-                ExampleModule {
-                    bytes: DEFAULT_NETWORK_BYTES,
-                },
-                ExampleModule {
-                    bytes: DESKTOP_BYTES,
-                },
+                ExampleModule::Builtin(DEFAULT_INPUT_BYTES),
+                ExampleModule::Builtin(DEFAULT_GRAPHICS_BYTES),
+                ExampleModule::Builtin(DEFAULT_MODULE_MANAGER_BYTES),
+                ExampleModule::Builtin(DEFAULT_NETWORK_BYTES),
+                ExampleModule::Fetched("desktop_example.wasm"),
             ],
         }),
         "http-get" => Ok(ExampleConfig {
             name: "http-get-example",
             port: 8090,
             modules: vec![
-                ExampleModule {
-                    bytes: DEFAULT_NETWORK_BYTES,
-                },
-                ExampleModule {
-                    bytes: HTTP_GET_BYTES,
-                },
+                ExampleModule::Builtin(DEFAULT_NETWORK_BYTES),
+                ExampleModule::Fetched("http_get_example.wasm"),
             ],
         }),
         "browser" => Ok(ExampleConfig {
             name: "browser-example",
             port: 8091,
             modules: vec![
-                ExampleModule {
-                    bytes: DEFAULT_INPUT_BYTES,
-                },
-                ExampleModule {
-                    bytes: DEFAULT_GRAPHICS_BYTES,
-                },
-                ExampleModule {
-                    bytes: DEFAULT_NETWORK_BYTES,
-                },
-                ExampleModule {
-                    bytes: BROWSER_BYTES,
-                },
+                ExampleModule::Builtin(DEFAULT_INPUT_BYTES),
+                ExampleModule::Builtin(DEFAULT_GRAPHICS_BYTES),
+                ExampleModule::Builtin(DEFAULT_NETWORK_BYTES),
+                ExampleModule::Fetched("browser_example.wasm"),
             ],
         }),
         "notes" => Ok(ExampleConfig {
             name: "notes-example",
             port: 8092,
             modules: vec![
-                ExampleModule { bytes: DEFAULT_INPUT_BYTES },
-                ExampleModule { bytes: DEFAULT_GRAPHICS_BYTES },
-                ExampleModule { bytes: HELLO_BYTES },
-                ExampleModule { bytes: NOTES_BYTES },
+                ExampleModule::Builtin(DEFAULT_INPUT_BYTES),
+                ExampleModule::Builtin(DEFAULT_GRAPHICS_BYTES),
+                ExampleModule::Fetched("hello_example.wasm"),
+                ExampleModule::Fetched("notes.wasm"),
             ],
         }),
         _ => Err(IntersticeError::Internal(format!(
@@ -219,9 +139,55 @@ pub fn builtin_module(name: &str) -> Option<&'static [u8]> {
 
 pub const BUILTIN_NAMES: &str = "input, graphics, audio, module_manager, network";
 
+/// The bytes of an example's wasm `file`: from `INTERSTICE_EXAMPLES_DIR`,
+/// the checkout's `dist/examples/`, or the cache, else downloaded from the
+/// release of this CLI's version and cached (DESIGN §10).
+async fn fetch_example(file: &str) -> Result<Vec<u8>, IntersticeError> {
+    let version = env!("CARGO_PKG_VERSION");
+    let cache = crate::data_directory::data_file().join("examples").join(version);
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(dir) = std::env::var_os("INTERSTICE_EXAMPLES_DIR") {
+        dirs.push(dir.into());
+    }
+    // A CLI built from a checkout uses the examples built next to it.
+    dirs.push(concat!(env!("CARGO_MANIFEST_DIR"), "/../../dist/examples").into());
+    dirs.push(cache.clone());
+    for dir in &dirs {
+        if let Ok(bytes) = std::fs::read(dir.join(file)) {
+            return Ok(bytes);
+        }
+    }
+    let url = format!("{RELEASES}/v{version}/{file}");
+    println!("Downloading {file} ({version})...");
+    let failed = |e: String| {
+        IntersticeError::Internal(format!(
+            "couldn't download {url}: {e}. From a checkout, build the examples with scripts/build_modules.sh"
+        ))
+    };
+    let response = reqwest::get(&url).await.map_err(|e| failed(e.to_string()))?;
+    if !response.status().is_success() {
+        return Err(failed(response.status().to_string()));
+    }
+    let bytes = response.bytes().await.map_err(|e| failed(e.to_string()))?.to_vec();
+    std::fs::create_dir_all(&cache).map_err(|e| IntersticeError::Internal(format!("{}: {e}", cache.display())))?;
+    let tmp = cache.join(format!("{file}.part"));
+    std::fs::write(&tmp, &bytes).and_then(|_| std::fs::rename(&tmp, cache.join(file))).map_err(|e| {
+        IntersticeError::Internal(format!("{}: {e}", cache.display()))
+    })?;
+    Ok(bytes)
+}
+
 /// An example as an in-memory bundle. Module names are left to the runtime.
-pub fn example_bundle(example_name: &str) -> Result<Bundle, IntersticeError> {
+pub async fn example_bundle(example_name: &str) -> Result<Bundle, IntersticeError> {
     let config = example_config(example_name)?;
+    let mut modules = Vec::with_capacity(config.modules.len());
+    for module in &config.modules {
+        let wasm = match module {
+            ExampleModule::Builtin(bytes) => bytes.to_vec(),
+            ExampleModule::Fetched(file) => fetch_example(file).await?,
+        };
+        modules.push(BundleModule { name: None, wasm, data: Vec::new() });
+    }
     Ok(Bundle {
         manifest: BundleManifest {
             name: config.name.to_string(),
@@ -230,16 +196,12 @@ pub fn example_bundle(example_name: &str) -> Result<Bundle, IntersticeError> {
             port: Some(config.port),
             abi_version: ABI_VERSION,
         },
-        modules: config
-            .modules
-            .iter()
-            .map(|m| BundleModule { name: None, wasm: m.bytes.to_vec(), data: Vec::new() })
-            .collect(),
+        modules,
     })
 }
 
 pub async fn example(example_name: &str) -> Result<(), IntersticeError> {
-    let bundle = example_bundle(example_name)?;
+    let bundle = example_bundle(example_name).await?;
     let mut registry = NodeRegistry::load()?;
     let name = bundle.manifest.name.clone();
     let port = bundle.manifest.port.unwrap_or(8080);

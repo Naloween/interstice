@@ -71,7 +71,10 @@ interstice call_query   <node> <module> <query>   [args...]
 ## Examples
 
 `interstice example <name>` recreates and starts a node with an example's
-modules:
+modules. The default modules are part of the CLI; an example's own modules
+are downloaded from the GitHub release of the CLI's version the first time
+(and cached), or taken from `dist/examples/` when the CLI is built from a
+checkout after `scripts/build_modules.sh`:
 
 | Example | Port | What it shows |
 |---|---:|---|

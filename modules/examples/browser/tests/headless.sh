@@ -5,9 +5,9 @@
 # `browser-test` lines the `dump` / `js` commands log.
 #
 # Usage: modules/examples/browser/tests/headless.sh [scenario…]
-# Needs a release CLI with the current module embedded:
-#   cargo build -p browser-example --target wasm32-unknown-unknown --release
-#   cp target/wasm32-unknown-unknown/release/browser_example.wasm crates/interstice-cli/module_examples/
+# Needs the current modules and a release CLI built from this checkout (it
+# runs the example from dist/examples):
+#   scripts/build_modules.sh
 #   cargo build -p interstice-cli --release
 # The window is 1280x900; the content area starts at y = 85. With `xvfb-run`
 # installed (`sudo apt install xvfb`) it opens on a virtual display, so the

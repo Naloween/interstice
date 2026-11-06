@@ -73,7 +73,7 @@ async fn create(args: &[String]) -> Result<(), IntersticeError> {
     let mut bundle = if let Some(node_ref) = flag_value(args, "--node") {
         from_node(&node_ref, has_flag(args, "--with-data")).await?
     } else if let Some(example) = flag_value(args, "--example") {
-        example_bundle(&example)?
+        example_bundle(&example).await?
     } else {
         from_manifest(Path::new(&args[1]))?
     };

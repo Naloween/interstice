@@ -34,6 +34,14 @@ cargo install interstice-cli
 Prebuilt binaries for Linux, macOS and Windows are attached to the
 [GitHub releases](https://github.com/Naloween/interstice/releases).
 
+From a checkout (built modules are not in git):
+
+```bash
+rustup target add wasm32-unknown-unknown
+scripts/build_modules.sh               # the default modules and the examples
+cargo build -p interstice-cli --release
+```
+
 ## Try it
 
 ```bash
@@ -41,6 +49,8 @@ interstice example desktop     # a desktop made of modules; click Apps
 interstice example hello       # a minimal module
 interstice example caller      # with hello running: calls across nodes
 ```
+
+An example's modules are downloaded from the release the first time.
 
 ## Write a module
 

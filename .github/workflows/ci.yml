@@ -25,7 +25,9 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      - name: Build every module for WASM
+      - name: Build the modules the CLI uses (defaults, examples)
+        run: scripts/build_modules.sh
+      - name: Build every other module for WASM
         run: cargo build --release --target wasm32-unknown-unknown $(scripts/module_packages.sh)
       - name: Workspace tests (incl. SDK compile-error tests)
         run: cargo test --release --workspace
@@ -47,7 +49,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libasound2-dev pkg-config xvfb mesa-vulkan-drivers
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+      - name: Build the modules (defaults, examples)
+        run: scripts/build_modules.sh
       - name: Build the CLI
         run: cargo build --release -p interstice-cli
       - name: Browser regression tests

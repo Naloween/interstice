@@ -2996,6 +2996,7 @@ dependencies = [
  "interstice-client",
  "interstice-core",
  "mimalloc",
+ "reqwest",
  "self_update",
  "serde",
  "serde_json",

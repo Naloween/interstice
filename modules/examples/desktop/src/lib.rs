@@ -18,11 +18,11 @@ interstice_module!(visibility: Public);
 // and no blur.
 //
 // The example wasms are baked in because bytes can't ride a CLI string
-// argument. `scripts/build_modules.sh` builds them before this module.
+// argument. `scripts/build_modules.sh` builds them into dist/examples first.
 
 macro_rules! example_wasm {
     ($file:literal) => {
-        include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../crates/interstice-cli/module_examples/", $file))
+        include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../dist/examples/", $file))
     };
 }
 

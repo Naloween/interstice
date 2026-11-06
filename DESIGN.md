@@ -1581,9 +1581,21 @@ bundle appended, which runs that node when started.
   `remove`.
 - Calls: `call_reducer` and `call_query`.
 - `bindings add module|node`.
-- `example <name>` starts a fresh node with embedded default and example WASM
-  files; `scripts/build_modules.sh` refreshes those. An example is an in-memory
-  bundle (§9.1).
+- `example <name>` starts a fresh node from an in-memory bundle (§9.1) of
+  default and example modules.
+- **Built modules are not in git.** `scripts/build_modules.sh` builds them:
+  the default modules into `crates/interstice-cli/module_defaults/`, the
+  examples into `dist/examples/` (both ignored).
+  - **The default modules are embedded** in the CLI (3.5 MB compressed):
+    bundles name them as `builtin:<name>`, and the published crate
+    includes them. Building the CLI without them stops with what to run.
+  - **The examples are fetched**, since the desktop alone is 25 MB
+    compressed and crates.io takes 10 MB per crate. `example` looks for
+    each example's wasm in `INTERSTICE_EXAMPLES_DIR`, then in the
+    repository's `dist/examples/` (a CLI built from a checkout), then in
+    the cache (`<data dir>/examples/<version>/`). Otherwise it downloads
+    it from the GitHub release of the CLI's version, where
+    `release-cli.yml` attaches every example wasm, and caches it.
 - `bundle create|inspect|run|exe`: whole nodes as files or programs (§9.1).
 - `call_reducer` waits for the `ReducerResult` (§7.1) and reports
   "committed" or the error.

@@ -1,2 +1,6 @@
 /target
 target/
+# Built modules (scripts/build_modules.sh, DESIGN §10)
+/crates/interstice-cli/module_defaults/
+/crates/interstice-cli/module_examples/
+/dist/
