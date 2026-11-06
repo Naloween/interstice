@@ -113,7 +113,8 @@ Everything on disk is postcard-encoded. A node's data directory looks like this:
 <data_dir>/nodes/<uuid>/
   node.log, node.toml, identity.key, known_peers.toml
   modules/<module>/
-    module.wasm, schema.bin (the ModuleSchema the data is in), state.toml (loaded = bool)
+    module.wasm, schema.bin (the ModuleSchema the data is in), state.toml (loaded = bool),
+    sequences.toml (auto-increment ceilings)
     logs/<table>/*.log  snapshots/<table>/*.snap  stateful/<table>/*.row
 ```
 
@@ -132,11 +133,19 @@ Everything on disk is postcard-encoded. A node's data directory looks like this:
   within the sync interval). They used to be two `write`s per entry. The
   transfer benchmark went from 59k to 83k tx/s, and the commit phase from
   4.8 to 2.2 µs.
-- **Stateful row files are written and renamed but never fsynced.**
-- **`auto_inc` counters are not persisted.** On restore they are recomputed from
-  the largest key present, so the ID of a deleted maximum row can be handed out
-  again after a restart.
-- **Dead code.** `PersistenceConfig` and `LogRotator` are never used.
+- **Stateful rows** are flushed by the same thread: each row file is synced
+  before it is renamed over the old one, and each directory is synced once after
+  its renames and removals. A crash can lose the last ~10 ms of row changes, but
+  never leaves a torn row.
+- **`auto_inc` counters persist** (after SpacetimeDB's sequences). A counter of a
+  stateful or logged table reserves blocks of 4 096 ids. Before handing out the
+  first id of a block, it saves the block's ceiling in
+  `modules/<module>/sequences.toml` (`table.field = ceiling`, written
+  atomically and synced). On load the counter continues from the saved ceiling,
+  so ids of deleted rows are never handed out again, even after a crash. The
+  price is a gap of up to one block per restart. A restore (time travel,
+  replica sync) keeps the table's counters. Counters of ephemeral tables stay in
+  memory.
 
 ### 3.3 Schema versioning and migrations
 
@@ -1988,12 +1997,12 @@ but explicitly out of scope for now.
       time would need the typed value encoding (§10, proposal).
 
 ### 13.2 Storage
-- [ ] Persist `auto_inc` counters (ids of deleted maximum rows are reused
-      after a restart, §3.2).
-- [ ] fsync stateful row files; document the ~10 ms durability window or make
-      it configurable.
+- [x] Persist `auto_inc` counters: blocks of ids with a saved ceiling (§3.2).
+- [x] Sync stateful row files and their directories; the ~10 ms durability
+      window is documented (§3.2).
 - [x] Schema versioning and automatic migrations (§3.3), SpacetimeDB-style.
-- [ ] Remove dead `PersistenceConfig` / `LogRotator`.
+- [x] Remove dead `PersistenceConfig` / `LogRotator` (and the other dead code
+      the compiler warned about).
 
 ### 13.3 Security and distribution
 - [x] Visibility checks on reducer/query calls, subscriptions, table sync and
@@ -2008,7 +2017,8 @@ but explicitly out of scope for now.
 - [ ] Key rotation; views with arguments.
 - [ ] Authority model for the "OS" use case: which module may grant which
       authority to whom; per-user identities.
-- [ ] Replica writes and remote queries through the scheduler (§6.3).
+- [x] Replica writes and remote queries through the scheduler (§6.3: replica
+      jobs; queries pin a snapshot).
 - [x] Row-level visibility (e.g. per-app filtering of `network` results,
       which today rely on an `owner` column filtered client-side).
 - [x] Bundles (§9.1): a node's modules and data in one `.itb` file, or as

@@ -74,12 +74,6 @@ pub enum EventInstance {
         table_name: String,
         rows: Vec<Row>,
     },
-    RemoteReducerCall {
-        requesting_node_id: NodeId,
-        module_name: String,
-        reducer_name: String,
-        input: IntersticeValue,
-    },
     RemoteQueryCall {
         requesting_node_id: NodeId,
         request_id: String,

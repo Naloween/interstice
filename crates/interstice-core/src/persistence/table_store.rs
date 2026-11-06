@@ -156,12 +156,55 @@ pub struct TableStore {
     /// `None` value means the row was deleted.
     /// Bounded by the number of unique rows touched (not by operation count).
     dirty_stateful: Arc<Mutex<HashMap<StatefulRowKey, Option<Row>>>>,
+    /// Serialises read-modify-write of `sequences.toml` files.
+    sequences: Mutex<()>,
+}
+
+/// `modules/<module>/sequences.toml`: the highest id each auto-increment
+/// counter may have handed out (DESIGN §3.2).
+#[derive(Default, Serialize, Deserialize)]
+struct Sequences {
+    #[serde(default)]
+    ceilings: std::collections::BTreeMap<String, u64>,
 }
 
 impl TableStore {
+    fn sequences_path(&self, module: &str) -> Option<PathBuf> {
+        self.modules_root.as_ref().map(|root| root.join(module).join("sequences.toml"))
+    }
+
+    /// The saved ceilings of `module`'s counters, by `table.field`.
+    pub fn sequence_ceilings(&self, module: &str) -> HashMap<String, u64> {
+        let Some(path) = self.sequences_path(module) else { return HashMap::new() };
+        fs::read_to_string(path)
+            .ok()
+            .and_then(|text| toml::from_str::<Sequences>(&text).ok())
+            .map(|s| s.ceilings.into_iter().collect())
+            .unwrap_or_default()
+    }
+
+    /// Save that `module`'s counter `key` may hand out ids below `ceiling`,
+    /// durably, before any of them is used.
+    pub fn save_sequence_ceiling(&self, module: &str, key: &str, ceiling: u64) -> Result<(), IntersticeError> {
+        let Some(path) = self.sequences_path(module) else { return Ok(()) };
+        let _guard = self.sequences.lock();
+        let mut sequences = fs::read_to_string(&path)
+            .ok()
+            .and_then(|text| toml::from_str::<Sequences>(&text).ok())
+            .unwrap_or_default();
+        sequences.ceilings.insert(key.to_string(), ceiling);
+        let text = toml::to_string(&sequences)
+            .map_err(|e| IntersticeError::Internal(format!("Failed to encode sequences: {e}")))?;
+        if let Some(dir) = path.parent() {
+            create_dir(dir)?;
+        }
+        write_atomically(&path, text.as_bytes())
+    }
+
     pub fn new(root: Option<PathBuf>) -> Self {
         Self {
             modules_root: root,
+            sequences: Mutex::new(()),
             tables: Mutex::new(HashMap::new()),
             wal_writers: Arc::new(Mutex::new(HashMap::new())),
             dirty_stateful: Arc::new(Mutex::new(HashMap::new())),
@@ -400,6 +443,9 @@ impl TableStore {
             std::mem::take(&mut *guard)
         };
 
+        // Each row file is synced before it replaces the old one, and each
+        // directory once after its renames and removals (DESIGN §3.2).
+        let mut dirs = std::collections::HashSet::new();
         for (key, row_opt) in batch {
             let dir = Self::stateful_dir(root, &key.module, &key.table);
             let _ = fs::create_dir_all(&dir);
@@ -409,14 +455,21 @@ impl TableStore {
                     if let Ok(encoded) = encode(&row) {
                         let tmp = path.with_extension("row.tmp");
                         if let Ok(mut f) = File::create(&tmp) {
-                            let _ = f.write_all(&encoded);
-                            let _ = fs::rename(&tmp, &path);
+                            if f.write_all(&encoded).and_then(|_| f.sync_data()).is_ok() {
+                                let _ = fs::rename(&tmp, &path);
+                            }
                         }
                     }
                 }
                 None => {
                     let _ = fs::remove_file(&path);
                 }
+            }
+            dirs.insert(dir);
+        }
+        for dir in dirs {
+            if let Ok(dir) = File::open(&dir) {
+                let _ = dir.sync_all();
             }
         }
     }
@@ -1576,5 +1629,38 @@ mod tests {
         assert_eq!(rows.len(), 3);
         assert!(rows.iter().all(|r| r.entries[1] == IntersticeValue::Option(None)));
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn auto_inc_ids_are_never_reused_across_restarts() {
+        use crate::runtime::table::auto_inc::SEQUENCE_BLOCK;
+        let root = temp_root("sequences");
+        let store = Arc::new(TableStore::new(Some(root.clone())));
+        let mut schema = schema(None);
+        schema.primary_key_auto_inc = true;
+        let next = |table: &Table| match table.auto_inc_snapshot().primary.unwrap().next_value().unwrap() {
+            IntersticeValue::U64(id) => id,
+            other => panic!("{other:?}"),
+        };
+
+        let first = Table::new(schema.clone());
+        first.persist_sequences(&store, "m", &store.sequence_ceilings("m"));
+        let ids: Vec<u64> = (0..10).map(|_| next(&first)).collect();
+        assert_eq!(ids, (0..10).collect::<Vec<_>>());
+        // The block was saved before the first id was handed out.
+        assert_eq!(store.sequence_ceilings("m").get("t.id"), Some(&SEQUENCE_BLOCK));
+
+        // A restart where the rows holding ids 0..10 were all deleted.
+        let second = Table::new(schema.clone());
+        second.persist_sequences(&store, "m", &store.sequence_ceilings("m"));
+        assert!(next(&second) >= 10, "an id was reused");
+
+        // A restored table keeps its counter too.
+        let mut third = Table::new(schema);
+        third.persist_sequences(&store, "m", &store.sequence_ceilings("m"));
+        let before = next(&third);
+        third.restore_from_rows(Vec::new()).unwrap();
+        assert!(next(&third) > before);
+        let _ = fs::remove_dir_all(root);
     }
 }

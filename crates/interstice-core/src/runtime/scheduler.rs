@@ -97,11 +97,13 @@ impl<T> ReducerScheduler<T> {
     }
 
     /// Jobs that are waiting.
+    #[cfg(test)]
     pub fn waiting_len(&self) -> usize {
         self.waiting.len()
     }
 
     /// Jobs that are running.
+    #[cfg(test)]
     pub fn running_len(&self) -> usize {
         self.keys.len() - self.waiting.len()
     }

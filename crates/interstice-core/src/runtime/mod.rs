@@ -501,24 +501,6 @@ impl Runtime {
                         .log("App initialized", LogSource::Runtime, LogLevel::Info);
                 }
             }
-            EventInstance::RemoteReducerCall {
-                module_name,
-                reducer_name,
-                input,
-                requesting_node_id,
-            } => {
-                let job = ReducerJob {
-                    module_name,
-                    reducer_name,
-                    input,
-                    caller_node_id: requesting_node_id,
-                    caller_module_name: String::new(),
-                    admission: None,
-                    completion: None,
-                    reply: None,
-                };
-                let _ = runtime.reducer_ingress.send(job.into());
-            }
             EventInstance::RemoteQueryCall {
                 requesting_node_id,
                 request_id,

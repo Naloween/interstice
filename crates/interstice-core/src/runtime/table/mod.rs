@@ -1,4 +1,4 @@
-mod auto_inc;
+pub(crate) mod auto_inc;
 mod index;
 mod overlay;
 
@@ -10,6 +10,7 @@ use crate::IntersticeError;
 use index::*;
 use interstice_abi::{IndexKey, IndexQuery, Row, TableSchema};
 use std::collections::VecDeque;
+use std::sync::Arc;
 use wgpu::naga::FastHashMap;
 
 #[derive(Clone)]
@@ -248,6 +249,33 @@ impl Table {
             .collect())
     }
 
+    /// Make this table's auto-increment counters persistent (§3.2): ceilings
+    /// saved in `modules/<module>/sequences.toml`, keyed `table.field`.
+    /// Ephemeral tables keep in-memory counters.
+    pub(crate) fn persist_sequences(
+        &self,
+        store: &Arc<crate::persistence::TableStore>,
+        module: &str,
+        saved: &std::collections::HashMap<String, u64>,
+    ) {
+        if self.schema.persistence == interstice_abi::PersistenceKind::Ephemeral {
+            return;
+        }
+        let attach = |field: &str, counter: &AutoIncCounter| {
+            let key = format!("{}.{field}", self.schema.name);
+            let at = saved.get(&key).copied().unwrap_or(0);
+            counter.persist(store.clone(), module, key, at);
+        };
+        if let Some(counter) = &self.primary_key_auto_inc_counter {
+            attach(&self.schema.primary_key.name, counter);
+        }
+        for index in &self.indexes {
+            if let Some(counter) = &index.auto_inc_counter {
+                attach(&index.field_name, counter);
+            }
+        }
+    }
+
     pub fn snapshot_rows(&self) -> Vec<Row> {
         self.rows.clone()
     }
@@ -255,8 +283,19 @@ impl Table {
     pub fn restore_from_rows(&mut self, rows: Vec<Row>) -> Result<(), IntersticeError> {
         let schema = self.schema.clone();
         let version = self.version.wrapping_add(1);
+        // Keep the counters: ids already handed out stay used (§3.2).
+        let primary = self.primary_key_auto_inc_counter.take();
+        let counters: Vec<_> = self.indexes.iter_mut().map(|i| i.auto_inc_counter.take()).collect();
         *self = Table::new(schema);
         self.version = version;
+        if primary.is_some() {
+            self.primary_key_auto_inc_counter = primary;
+        }
+        for (index, counter) in self.indexes.iter_mut().zip(counters) {
+            if counter.is_some() {
+                index.auto_inc_counter = counter;
+            }
+        }
         for row in rows {
             self.insert(row)?;
         }

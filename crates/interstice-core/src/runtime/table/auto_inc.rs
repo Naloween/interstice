@@ -20,10 +20,32 @@ pub enum AutoIncKind {
 /// Lock-free auto-increment counter.
 /// Cloning is cheap — the Arc inside means all clones share the same underlying counter,
 /// so concurrent threads calling `next_value()` each receive a unique ID.
+/// How many ids a counter reserves at a time (DESIGN §3.2).
+pub(crate) const SEQUENCE_BLOCK: u64 = 4096;
+
+/// Where a persistent counter saves its ceiling.
+pub(crate) struct SequenceSink {
+    pub store: Arc<crate::persistence::TableStore>,
+    pub module: String,
+    /// `table.field`.
+    pub key: String,
+    lock: parking_lot::Mutex<()>,
+}
+
+impl std::fmt::Debug for SequenceSink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SequenceSink({}.{})", self.module, self.key)
+    }
+}
+
+/// Clones share the counter, its ceiling and its sink.
 #[derive(Clone, Debug)]
 pub(crate) struct AutoIncCounter {
     pub(crate) raw: Arc<AtomicU64>,
     pub(crate) kind: AutoIncKind,
+    /// Ids below it are reserved on disk; `u64::MAX` when not persistent.
+    ceiling: Arc<AtomicU64>,
+    sink: Arc<std::sync::OnceLock<SequenceSink>>,
 }
 
 impl AutoIncCounter {
@@ -39,13 +61,43 @@ impl AutoIncCounter {
         Some(Self {
             raw: Arc::new(AtomicU64::new(0)),
             kind,
+            ceiling: Arc::new(AtomicU64::new(u64::MAX)),
+            sink: Arc::new(std::sync::OnceLock::new()),
         })
+    }
+
+    /// Make the counter persistent: continue past `saved` (the ceiling saved
+    /// by a previous run, so ids are never reused) and save a new ceiling
+    /// before handing out ids beyond it.
+    pub(crate) fn persist(&self, store: Arc<crate::persistence::TableStore>, module: &str, key: String, saved: u64) {
+        let start = self.raw.fetch_max(saved, Ordering::AcqRel).max(saved);
+        let sink = SequenceSink { store, module: module.to_string(), key, lock: parking_lot::Mutex::new(()) };
+        if self.sink.set(sink).is_ok() {
+            // Nothing reserved in this run yet: the next id reserves a block.
+            self.ceiling.store(start, Ordering::Release);
+        }
+    }
+
+    /// `id` reached the ceiling: save a new one first.
+    fn reserve(&self, id: u64) -> Result<(), IntersticeError> {
+        let Some(sink) = self.sink.get() else { return Ok(()) };
+        let _guard = sink.lock.lock();
+        if id < self.ceiling.load(Ordering::Acquire) {
+            return Ok(()); // another thread reserved it meanwhile
+        }
+        let ceiling = id.saturating_add(SEQUENCE_BLOCK);
+        sink.store.save_sequence_ceiling(&sink.module, &sink.key, ceiling)?;
+        self.ceiling.store(ceiling, Ordering::Release);
+        Ok(())
     }
 
     /// Atomically reserve the next ID.  Each call on any clone of the same counter
     /// returns a distinct value, making concurrent inserts collision-free.
     pub fn next_value(&self) -> Result<IntersticeValue, IntersticeError> {
         let id = self.raw.fetch_add(1, Ordering::Relaxed);
+        if id >= self.ceiling.load(Ordering::Acquire) {
+            self.reserve(id)?;
+        }
         match self.kind {
             AutoIncKind::U8 => {
                 if id > u8::MAX as u64 {

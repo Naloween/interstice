@@ -65,13 +65,6 @@ impl TableIndex {
         counter.sync_from_value(value)
     }
 
-    pub fn contains_key(&self, key: &IndexKey) -> bool {
-        match &self.index {
-            IndexImpl::Hash(map) => map.contains_key(key),
-            IndexImpl::BTree(map) => map.contains_key(key),
-        }
-    }
-
     pub fn positions(&self, key: &IndexKey) -> Option<&Vec<usize>> {
         match &self.index {
             IndexImpl::Hash(map) => map.get(key),

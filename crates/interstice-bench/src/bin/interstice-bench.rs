@@ -170,7 +170,7 @@ fn breakdown(iters: u32) {
     let mut rng = XorShift::new();
     let rows = data::rows(&mut rng, 0, 256, 8);
 
-    let mut run = |name: &str, target: &mut ModuleTarget, f: &mut dyn FnMut(&mut ModuleTarget)| {
+    let run = |name: &str, target: &mut ModuleTarget, f: &mut dyn FnMut(&mut ModuleTarget)| {
         interstice_core::profile::enable();
         let start = std::time::Instant::now();
         for _ in 0..iters {

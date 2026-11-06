@@ -4,16 +4,8 @@ use interstice_abi::{
     MetadataResponse, ReadFileResponse, RemoveDirResponse, RemoveFileResponse, RenameResponse,
     WriteFileResponse,
 };
-use notify::RecommendedWatcher;
-use std::{
-    io::Write,
-    sync::{Arc, Mutex},
-};
+use std::io::Write;
 use wasmtime::{Caller, Memory};
-pub struct Filestate {
-    pub(crate) file_watchers: Arc<Mutex<Vec<RecommendedWatcher>>>,
-}
-
 impl Runtime {
     pub fn handle_file_call(
         &self,

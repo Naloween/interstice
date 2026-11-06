@@ -709,14 +709,19 @@ impl Runtime {
         runtime.clear_reducer_access_cache();
 
         // On a reload, repopulate the module's tables from their persisted data.
-        if is_reload {
-            if let Some(module) = runtime.modules.lock().get(&module_schema.name) {
-                let mut tables = module.tables.write();
+        if let Some(module) = runtime.modules.lock().get(&module_schema.name) {
+            let mut tables = module.tables.write();
+            if is_reload {
                 for table in tables.values_mut() {
                     let stamp = runtime.persistence.restore_table(&module_schema.name, table)?;
                     // Keep transaction ids growing along the log (§6.7).
                     runtime.tx_clock.advance_past(stamp);
                 }
+            }
+            // Counters continue past every id handed out before (§3.2).
+            let saved = runtime.persistence.sequence_ceilings(&module_schema.name);
+            for table in tables.values() {
+                table.persist_sequences(&runtime.persistence, &module_schema.name, &saved);
             }
         }
 
