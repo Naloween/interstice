@@ -137,6 +137,12 @@ pub fn host_call(call: HostCall) -> i64 {
     return unsafe { interstice_host_call(bytes.as_ptr() as i32, bytes.len() as i32) };
 }
 
+/// The bytes of a host call's response.
+fn unpack_bytes(pack: i64) -> &'static [u8] {
+    let (ptr, len) = unpack_ptr_len(pack);
+    unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) }
+}
+
 fn unpack<T>(pack: i64) -> T
 where
     T: for<'a> Deserialize<'a>,

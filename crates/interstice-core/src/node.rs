@@ -505,13 +505,23 @@ impl Node {
                 if !crate::runtime::module::module_should_load(&path) {
                     continue;
                 }
-                let module = Module::from_file(runtime.clone(), &wasm_path).await?;
-                candidates.push((module.schema.name.clone(), module, None));
+                // A stored module that no longer loads (built for another
+                // ABI, say) is skipped: the node runs, and loading the module
+                // again replaces it.
+                match Module::from_file(runtime.clone(), &wasm_path).await {
+                    Ok(module) => candidates.push((module.schema.name.clone(), module, None)),
+                    Err(e) => runtime.logger.log(
+                        &format!("Module '{name}' was not loaded: {e}"),
+                        LogSource::Node,
+                        LogLevel::Error,
+                    ),
+                }
             }
         }
 
         let mut remaining = candidates;
         let mut loaded = HashSet::new();
+        let mut failed = HashSet::new();
         let all_names: HashSet<_> = remaining.iter().map(|(name, _, _)| name.clone()).collect();
         while !remaining.is_empty() {
             let mut progressed = false;
@@ -525,17 +535,36 @@ impl Node {
                     .map(|d| d.module_name.clone())
                     .collect::<Vec<_>>();
 
-                if let Some(missing) = deps.iter().find(|d| !all_names.contains(*d)) {
-                    return Err(IntersticeError::ModuleNotFound(
-                        missing.clone(),
-                        format!("Required by '{}' on node startup", name),
-                    ));
+                if let Some(missing) = deps.iter().find(|d| !all_names.contains(*d) || failed.contains(*d)) {
+                    if bytes.is_some() {
+                        return Err(IntersticeError::ModuleNotFound(
+                            missing.clone(),
+                            format!("Required by '{}' on node startup", name),
+                        ));
+                    }
+                    runtime.logger.log(
+                        &format!("Module '{name}' was not loaded: it needs '{missing}', which is not loaded"),
+                        LogSource::Node,
+                        LogLevel::Error,
+                    );
+                    failed.insert(name);
+                    progressed = true;
+                    continue;
                 }
 
                 if deps.iter().all(|d| loaded.contains(d)) {
                     match bytes {
                         None => {
-                            Runtime::load_module(runtime.clone(), module).await?;
+                            if let Err(e) = Runtime::load_module(runtime.clone(), module).await {
+                                runtime.logger.log(
+                                    &format!("Module '{name}' was not loaded: {e}"),
+                                    LogSource::Node,
+                                    LogLevel::Error,
+                                );
+                                failed.insert(name);
+                                progressed = true;
+                                continue;
+                            }
                         }
                         Some(bytes) => {
                             if !Node::load_given(&runtime, &name, module, bytes, decide).await? {

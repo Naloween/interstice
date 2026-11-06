@@ -6,7 +6,8 @@
 //! return `Result<(), E>` and propagate with `?`; an `Err` aborts the reducer
 //! (its transaction is discarded), exactly like a panic but with a clean message.
 
-use interstice_abi::{IndexKey, IndexQuery, IntersticeValue, ModuleSelection, Row};
+use crate::table_row::RowCodec;
+use interstice_abi::{IndexKey, IndexQuery, IntersticeValue, ModuleSelection};
 
 /// Convert any key-like value into an [`IndexKey`].
 pub fn to_index_key<K: Into<IntersticeValue>>(value: K) -> Result<IndexKey, String> {
@@ -14,55 +15,30 @@ pub fn to_index_key<K: Into<IntersticeValue>>(value: K) -> Result<IndexKey, Stri
         .map_err(|e| format!("value is not a valid index key: {e}"))
 }
 
-fn decode_rows<T>(table: &str, rows: Vec<Row>) -> Result<Vec<T>, String>
-where
-    T: TryFrom<Row>,
-    T::Error: std::fmt::Display,
-{
-    rows.into_iter()
-        .map(|row| T::try_from(row).map_err(|e| format!("{table}: row decode failed: {e}")))
-        .collect()
-}
-
 /// All rows of `table`.
-pub fn read_scan<T>(module: ModuleSelection, table: &str) -> Result<Vec<T>, String>
-where
-    T: TryFrom<Row>,
-    T::Error: std::fmt::Display,
-{
-    let rows = crate::host_calls::scan(module, table.to_string())
-        .map_err(|e| format!("{table}: scan failed: {e}"))?;
-    decode_rows(table, rows)
+pub fn read_scan<T: RowCodec>(module: ModuleSelection, table: &str) -> Result<Vec<T>, String> {
+    crate::host_calls::scan(module, table.to_string()).map_err(|e| format!("{table}: scan failed: {e}"))
 }
 
 /// The row of `table` with primary key `key`, if any.
-pub fn read_get<T, K>(module: ModuleSelection, table: &str, key: K) -> Result<Option<T>, String>
-where
-    T: TryFrom<Row>,
-    T::Error: std::fmt::Display,
-    K: Into<IntersticeValue>,
-{
-    let row = crate::host_calls::get_by_primary_key(module, table, to_index_key(key)?)
-        .map_err(|e| format!("{table}: get failed: {e}"))?;
-    row.map(|r| T::try_from(r).map_err(|e| format!("{table}: row decode failed: {e}")))
-        .transpose()
+pub fn read_get<T: RowCodec, K: Into<IntersticeValue>>(
+    module: ModuleSelection,
+    table: &str,
+    key: K,
+) -> Result<Option<T>, String> {
+    crate::host_calls::get_by_primary_key(module, table, to_index_key(key)?)
+        .map_err(|e| format!("{table}: get failed: {e}"))
 }
 
 /// Rows of `table` matching `query` on `index`.
-pub fn read_index<T>(
+pub fn read_index<T: RowCodec>(
     module: ModuleSelection,
     table: &str,
     index: &str,
     query: IndexQuery,
-) -> Result<Vec<T>, String>
-where
-    T: TryFrom<Row>,
-    T::Error: std::fmt::Display,
-{
-    let rows =
-        crate::host_calls::scan_index(module, table.to_string(), index.to_string(), query)
-            .map_err(|e| format!("{table}.{index}: index scan failed: {e}"))?;
-    decode_rows(table, rows)
+) -> Result<Vec<T>, String> {
+    crate::host_calls::scan_index(module, table.to_string(), index.to_string(), query)
+        .map_err(|e| format!("{table}.{index}: index scan failed: {e}"))
 }
 
 /// What a reducer body may return: `()` or `Result<(), E: Display>`.

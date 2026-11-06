@@ -1,7 +1,9 @@
 use interstice_abi::get_query_wrapper_name;
 use quote::quote;
-use syn::{Ident, LitInt, Type};
+use syn::{Ident, Type};
 
+/// The exported wrapper of a query: decode the context and the arguments,
+/// call it, and return its encoded result (DESIGN §10.2).
 pub fn get_wrapper_function(
     query_ident: Ident,
     caps_ty: Type,
@@ -12,20 +14,18 @@ pub fn get_wrapper_function(
         &get_query_wrapper_name(&query_ident.to_string()),
         query_ident.span(),
     );
-    let args = (0..arg_count - 1).map(|i| {
-        let index = LitInt::new(&i.to_string(), proc_macro2::Span::call_site());
-        quote! { interstice_args_vec[#index].clone().try_into().unwrap() }
-    });
-
-    let call_result = if returns_result {
+    let count = arg_count - 1;
+    let names: Vec<String> = (1..=count).map(|i| format!("#{i}")).collect();
+    let call = quote! { #query_ident(query_context, #(interstice_sdk::wrapper::arg(&mut input, #names)),*) };
+    let value = if returns_result {
         quote! {
-            match #query_ident(query_context, #(#args),*) {
-                Ok(value) => value.into(),
+            match #call {
+                Ok(value) => value,
                 Err(err) => panic!("{}", err),
             }
         }
     } else {
-        quote! { #query_ident(query_context, #(#args),*).into() }
+        call
     };
 
     quote! {
@@ -33,22 +33,12 @@ pub fn get_wrapper_function(
         pub extern "C" fn #wrapper_name(ptr: i32, len: i32) -> i64 {
             interstice_sdk::macros::install_panic_hook();
             let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
-            let (raw_context, interstice_args): (interstice_sdk::RawQueryContext, interstice_sdk::IntersticeValue) = interstice_sdk::decode(bytes).unwrap();
+            #[allow(unused_mut)]
+            let (raw_context, mut input) =
+                interstice_sdk::wrapper::split_input::<interstice_sdk::RawQueryContext>(bytes, #count);
             let query_context: interstice_sdk::QueryContext<#caps_ty> = raw_context.into();
-            let interstice_args_vec = match interstice_args {
-                interstice_sdk::IntersticeValue::Vec(v) => v,
-                _ => panic!("Expected Vec<IntersticeValue> as query_wrapper input, got {:?}", interstice_args),
-            };
-            if interstice_args_vec.len() != #arg_count - 1 { panic!("Expected {} query arguments, got {}", #arg_count-1, interstice_args_vec.len()) }
-
-            let res: interstice_sdk::IntersticeValue = #call_result;
-
-            let bytes = interstice_sdk::encode(&res).unwrap();
-            let out_ptr = crate::alloc(bytes.len() as i32);
-            unsafe {
-                std::slice::from_raw_parts_mut(out_ptr as *mut u8, bytes.len()).copy_from_slice(&bytes);
-            }
-            return interstice_sdk::pack_ptr_len(out_ptr, bytes.len() as i32);
+            let value = #value;
+            interstice_sdk::wrapper::return_value(&value, crate::alloc)
         }
     }
 }

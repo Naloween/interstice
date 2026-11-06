@@ -112,6 +112,22 @@ in memory. The module column is where the time goes:
 So each host call and each row crossing the WASM boundary is the bottleneck,
 not the tables. That is what to optimise first.
 
+**ABI 17 (values without names, direct encoding, §10.2)**, module/mem, same
+machine but busy (load 3), so ±20%:
+
+| benchmark | before | after |
+|---|---:|---:|
+| `insert_bulk/u32_u64_str/unique_0` | 930 µs | 501 µs |
+| `insert_bulk/u32_u64_u64/btree_each_column` | 991 µs | 650 µs |
+| `update_bulk/u32_u64_str/unique_0` | 1.59 ms | 777 µs |
+| `iterate/u32_u64_str/unique_0` | 159 µs | 61 µs |
+| `iterate/u32_u64_u64/unique_0` | 119 µs | 37 µs |
+| `filter/u32_u64_str/btree_each_column` | 135 µs | 58 µs |
+| `filter/u32_u64_u64/btree_each_column` | 130 µs | 44 µs |
+
+Writes now cost ~2 µs per row, mostly the host call per row (validation,
+the overlay, the index updates); reads ~0.15–0.25 µs per row.
+
 ### Transfer (2026-11-06)
 
 | Mode | alpha | committed/s | p50 | p99 |
@@ -150,6 +166,7 @@ the queue length. The phase breakdown of the in-process run, per transfer:
 
 The leads, in order:
 1. ~~one log append per transaction~~ (done);
-2. row-level conflicts would let uniform transfers run in parallel;
-3. the per-host-call cost (see the micro matrix).
+2. ~~values with names~~ (done, ABI 17);
+3. row-level conflicts would let uniform transfers run in parallel;
+4. the per-host-call cost of writes (see the micro matrix).
 

@@ -92,3 +92,24 @@ impl TryFrom<IntersticeValue> for Blob {
         }
     }
 }
+
+impl interstice_abi::ValueCodec for Blob {
+    fn encode(&self, out: &mut Vec<u8>) {
+        interstice_abi::wire::put_tag(out, interstice_abi::wire::BLOB);
+        interstice_abi::wire::put_varint(out, self.id);
+    }
+
+    /// A handle, or inline bytes (a call from another node), registered as
+    /// a new blob of the current call.
+    fn decode(input: &mut &[u8]) -> Result<Self, IntersticeAbiError> {
+        use interstice_abi::wire;
+        match wire::take_byte(input)? {
+            wire::BLOB => Ok(Blob { id: wire::take_varint(input)? }),
+            wire::BYTES => {
+                let len = wire::take_len(input)?;
+                Ok(Blob::new(wire::take_bytes(input, len)?))
+            }
+            tag => Err(wire::error(format_args!("expected a blob, found tag {tag}"))),
+        }
+    }
+}

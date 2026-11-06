@@ -8,6 +8,7 @@ mod interstice_type_def;
 mod interstice_value;
 mod row;
 mod schema;
+mod value_codec;
 
 pub use authority::*;
 pub use codec::*;
@@ -20,6 +21,7 @@ pub use interstice_type_def::*;
 pub use interstice_value::*;
 pub use row::*;
 pub use schema::*;
+pub use value_codec::*;
 
 /// The ABI this build speaks (DESIGN §10). A host loads only modules built
 /// for it and reads only data written under it.

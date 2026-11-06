@@ -178,6 +178,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut schema_fields = Vec::new();
     let mut default_values = Vec::new();
     let mut entry_fields = Vec::new();
+    let mut entry_types = Vec::new();
     let mut index_schemas = Vec::new();
     let mut indexed_fields: Vec<(
         syn::Ident,
@@ -346,6 +347,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
                 });
             }
             entry_fields.push(field_ident.clone());
+            entry_types.push(field_ty_ident.clone());
             schema_fields.push(quote! {
                 interstice_sdk::FieldDef {
                     name: #field_name.to_string(),
@@ -354,6 +356,7 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             });
         }
     }
+    let entry_count = entry_fields.len();
     let (pk_ident, pk_name, pk_type, pk_type_ident, pk_auto_inc) = match primary_key {
         Some(pk) => pk,
         None => {
@@ -619,6 +622,26 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
+        impl interstice_sdk::RowCodec for #struct_ident {
+            fn encode_row(&self, out: &mut Vec<u8>) {
+                interstice_sdk::ValueCodec::encode(&self.#pk_ident, out);
+                interstice_sdk::wire::put_len(out, #entry_count);
+                #(interstice_sdk::ValueCodec::encode(&self.#entry_fields, out);)*
+            }
+
+            fn decode_row(input: &mut &[u8]) -> Result<Self, interstice_sdk::IntersticeAbiError> {
+                let #pk_ident = <#pk_type_ident as interstice_sdk::ValueCodec>::decode(input)?;
+                let count = interstice_sdk::table_row::row_wire::take_columns(input, #entry_count, #table_name)?;
+                #(
+                    let #entry_fields = <#entry_types as interstice_sdk::ValueCodec>::decode(input).map_err(|e| {
+                        interstice_sdk::IntersticeAbiError::ConversionError(format!("{}.{}: {}", #struct_name, stringify!(#entry_fields), e))
+                    })?;
+                )*
+                interstice_sdk::table_row::row_wire::skip_columns(input, count - #entry_count)?;
+                Ok(Self { #pk_ident, #(#entry_fields),* })
+            }
+        }
+
         impl Into<interstice_sdk::Row> for #struct_ident {
             fn into(self) -> interstice_sdk::Row{
                 Row {
@@ -678,21 +701,14 @@ pub fn table_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
             where
                 Caps: interstice_sdk::CanInsert<#struct_ident>,
             {
-                interstice_sdk::host_calls::insert_row(
-                    #table_name,
-                    row.into(),
-                )
-                .and_then(|row| row.try_into())
+                interstice_sdk::host_calls::insert_row(#table_name, row)
             }
 
             pub fn update(&self, row: #struct_ident) -> Result<(), String>
             where
                 Caps: interstice_sdk::CanUpdate<#struct_ident>,
             {
-                interstice_sdk::host_calls::update_row(
-                    #table_name,
-                    row.into(),
-                )
+                interstice_sdk::host_calls::update_row(#table_name, &row)
             }
 
             pub fn delete(&self, primary_key: #pk_type_ident) -> Result<(), String>

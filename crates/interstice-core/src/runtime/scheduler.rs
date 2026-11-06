@@ -1,5 +1,5 @@
 use interstice_abi::ReducerTableRef;
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -53,12 +53,14 @@ fn sets_compatible(a: OpSet, b: OpSet) -> bool {
     a == b && (a == 1 || a == 2)
 }
 
-#[derive(Debug)]
-struct Entry {
-    job: u64,
-    ops: OpSet,
-    /// No earlier entry of this queue conflicts with it.
-    clear: bool,
+/// One key's jobs. The clear ones run (or may run) together: they are
+/// mutually compatible, so only their common op set matters. The others wait
+/// in arrival order; the first of them conflicts with the clear set.
+#[derive(Debug, Default)]
+struct KeyQueue {
+    clear: HashSet<u64>,
+    clear_ops: OpSet,
+    pending: VecDeque<(u64, OpSet)>,
 }
 
 #[derive(Debug)]
@@ -70,11 +72,12 @@ struct Waiting<T> {
 
 /// Admits jobs by their access sets with one FIFO queue per key (DESIGN §6.2).
 /// Conflicting jobs run in arrival order; others run in parallel. Enqueue is
-/// O(keys); completion walks only the clear prefix of each released queue.
+/// O(keys), and each entry is promoted once, so completion is amortized
+/// O(keys) too.
 #[derive(Debug)]
 pub struct ReducerScheduler<T> {
     next_id: u64,
-    queues: BTreeMap<AccessKey, VecDeque<Entry>>,
+    queues: BTreeMap<AccessKey, KeyQueue>,
     /// Keys and op sets of every running or waiting job.
     keys: HashMap<u64, Vec<(AccessKey, OpSet)>>,
     waiting: HashMap<u64, Waiting<T>>,
@@ -123,14 +126,15 @@ impl<T> ReducerScheduler<T> {
         let mut blocked = 0;
         for (key, ops) in &sets {
             let queue = self.queues.entry(key.clone()).or_default();
-            // Clear entries form a prefix, so the last entry decides.
-            let clear = queue
-                .back()
-                .is_none_or(|last| last.clear && sets_compatible(last.ops, *ops));
-            if !clear {
+            let clear = queue.pending.is_empty()
+                && (queue.clear.is_empty() || sets_compatible(queue.clear_ops, *ops));
+            if clear {
+                queue.clear.insert(id);
+                queue.clear_ops = *ops;
+            } else {
                 blocked += 1;
+                queue.pending.push_back((id, *ops));
             }
-            queue.push_back(Entry { job: id, ops: *ops, clear });
         }
         self.keys.insert(id, sets);
 
@@ -151,31 +155,30 @@ impl<T> ReducerScheduler<T> {
         let mut released = Vec::new();
         for (key, _) in sets {
             let Some(queue) = self.queues.get_mut(&key) else { continue };
-            if let Some(pos) = queue.iter().position(|e| e.job == completed_id) {
-                queue.remove(pos);
-            }
-            if queue.is_empty() {
-                self.queues.remove(&key);
+            queue.clear.remove(&completed_id);
+            if !queue.clear.is_empty() {
                 continue;
             }
-            // Re-derive the clear prefix; stop at the first conflict.
-            let mut prefix: Option<OpSet> = None;
-            for entry in queue.iter_mut() {
-                if let Some(ops) = prefix {
-                    if !sets_compatible(ops, entry.ops) {
+            // The clear set is empty: the first waiting entry and every
+            // compatible one after it become clear.
+            if let Some(&(_, first)) = queue.pending.front() {
+                queue.clear_ops = first;
+                while let Some(&(job, ops)) = queue.pending.front() {
+                    if !queue.clear.is_empty() && !sets_compatible(first, ops) {
                         break;
                     }
-                }
-                prefix = Some(entry.ops);
-                if !entry.clear {
-                    entry.clear = true;
-                    if let Some(w) = self.waiting.get_mut(&entry.job) {
+                    queue.pending.pop_front();
+                    queue.clear.insert(job);
+                    if let Some(w) = self.waiting.get_mut(&job) {
                         w.blocked -= 1;
                         if w.blocked == 0 {
-                            released.push(entry.job);
+                            released.push(job);
                         }
                     }
                 }
+            }
+            if queue.clear.is_empty() && queue.pending.is_empty() {
+                self.queues.remove(&key);
             }
         }
         released.sort_unstable();
@@ -423,21 +426,28 @@ fn op_conflicts(a: Op, b: Op) -> bool {
 
     #[test]
     fn contention_is_linear() {
-        // 20 000 conflicting jobs: the old scheduler took ~18 s here.
-        let n = 20_000;
-        let mut s = ReducerScheduler::new();
-        let t = std::time::Instant::now();
-        let mut running = Vec::new();
-        for i in 0..n {
-            let a = arc_accesses(vec![acc("m", "run", TableOp::Read), acc("m", "t", TableOp::Update)]);
-            running.extend(s.enqueue(i, a).map(|j| j.id));
+        // Conflicting jobs queued at once: the old scheduler was quadratic
+        // (~18 s for 20 000). Compare sizes rather than wall time, so a busy
+        // machine doesn't fail it: 4× the jobs must take well under 16×.
+        fn run(n: u64) -> std::time::Duration {
+            let mut s = ReducerScheduler::new();
+            let t = std::time::Instant::now();
+            let mut running = Vec::new();
+            for i in 0..n {
+                let a = arc_accesses(vec![acc("m", "run", TableOp::Read), acc("m", "t", TableOp::Update)]);
+                running.extend(s.enqueue(i, a).map(|j| j.id));
+            }
+            let mut done = 0;
+            while let Some(id) = running.pop() {
+                done += 1;
+                running.extend(s.complete(id).into_iter().map(|j| j.id));
+            }
+            assert_eq!(done, n);
+            t.elapsed()
         }
-        let mut done = 0;
-        while let Some(id) = running.pop() {
-            done += 1;
-            running.extend(s.complete(id).into_iter().map(|j| j.id));
-        }
-        assert_eq!(done, n);
-        assert!(t.elapsed() < std::time::Duration::from_secs(1), "took {:?}", t.elapsed());
+        run(1_000); // warm up
+        let small = (0..3).map(|_| run(5_000)).min().unwrap();
+        let large = (0..3).map(|_| run(20_000)).min().unwrap();
+        assert!(large < small * 8, "5 000 jobs: {small:?}, 20 000 jobs: {large:?}");
     }
 }

@@ -7,6 +7,8 @@ pub mod module_toml;
 pub mod reads;
 pub mod registry;
 pub mod table_row;
+#[doc(hidden)]
+pub mod wrapper;
 
 pub use blob::Blob;
 pub use cache::InstanceCache;
@@ -14,4 +16,4 @@ pub use caps::*;
 pub use context::*;
 pub use host_calls::*;
 pub use reads::ReducerOutcome;
-pub use table_row::TableRow;
+pub use table_row::{RowCodec, TableRow};

@@ -2,8 +2,18 @@
 
 ## Unreleased (0.6.0)
 
-Everything since 0.5.0 (2026-06-05). Module ABI 16, loads modules built for
-ABI 15 and up.
+Everything since 0.5.0 (2026-06-05). Module ABI 17: **every module must be
+rebuilt**, and data stored by earlier versions is deleted on the next load,
+after confirmation. A node skips stored modules of another ABI at boot.
+
+### Values (ABI 17, DESIGN §10.2)
+- **Values carry no names**: a struct is its fields in order, an enum its
+  variant index. Names live in the schema; the CLI prints results with them.
+- **Modules encode and decode values directly**, without building a value
+  tree (`ValueCodec`, `RowCodec`).
+- Module calls in the micro benchmarks: iterate and filter 2–3× faster,
+  insert and update 20–47% faster.
+- One ABI: no compatibility range, no legacy decoding paths.
 
 ### Engine
 - **Isolation and ordering** (DESIGN §6.6):
@@ -19,7 +29,8 @@ ABI 15 and up.
 - **Views**: filter and function views, per viewer or anonymous. Private tables
   are closed to other modules.
 - **Scheduler**:
-  - per-key wait queues, instead of O(n²) admission;
+  - per-key wait queues, instead of O(n²) admission, with amortized O(1)
+    completion even when thousands of jobs share a key;
   - workers complete their own jobs and run the job that releases.
 - **Persistence**:
   - one log write per commit;

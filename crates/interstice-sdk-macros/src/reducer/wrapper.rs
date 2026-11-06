@@ -1,7 +1,10 @@
 use interstice_abi::get_reducer_wrapper_name;
 use quote::quote;
-use syn::{Ident, LitInt, Type};
+use syn::{Ident, Type};
 
+/// The exported wrapper of a reducer: decode the context and the arguments
+/// (straight into their types, DESIGN §10.2), call it, and turn an `Err`
+/// into a failure with its message.
 pub fn get_wrapper_function(
     reducer_ident: Ident,
     caps_ty: Type,
@@ -12,29 +15,34 @@ pub fn get_wrapper_function(
         &get_reducer_wrapper_name(&reducer_ident.to_string()),
         reducer_ident.span(),
     );
-    let args = (0..arg_count - 1).map(|i| {
-        let index = LitInt::new(&i.to_string(), proc_macro2::Span::call_site());
-        if table_subscription {
-            quote! { {let row: interstice_sdk::Row = interstice_args_vec[#index].clone().try_into().unwrap(); row.try_into().unwrap()} }
-        } else {
-            quote! { interstice_args_vec[#index].clone().try_into().unwrap() }
+    let count = arg_count - 1;
+    let names: Vec<String> = (1..=count).map(|i| format!("#{i}")).collect();
+    // A table event passes rows (`Row` values, not structs).
+    let args = if table_subscription {
+        quote! {
+            #(
+                {
+                    let value: interstice_sdk::IntersticeValue = interstice_sdk::wrapper::arg(&mut input, #names);
+                    let row: interstice_sdk::Row = value.into();
+                    row.try_into().unwrap_or_else(|e| panic!("argument {}: {}", #names, e))
+                }
+            ),*
         }
-    });
+    } else {
+        quote! { #(interstice_sdk::wrapper::arg(&mut input, #names)),* }
+    };
 
     quote! {
         #[unsafe(no_mangle)]
         pub extern "C" fn #wrapper_name(ptr: i32, len: i32) {
             interstice_sdk::macros::install_panic_hook();
             let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
-            let (raw_context, interstice_args): (interstice_sdk::RawReducerContext, interstice_sdk::IntersticeValue) = interstice_sdk::decode(bytes).unwrap();
+            #[allow(unused_mut)]
+            let (raw_context, mut input) =
+                interstice_sdk::wrapper::split_input::<interstice_sdk::RawReducerContext>(bytes, #count);
             let reducer_context: interstice_sdk::ReducerContext<#caps_ty> = raw_context.into();
-            let interstice_args_vec = match interstice_args {
-                interstice_sdk::IntersticeValue::Vec(v) => v,
-                _ => panic!("Expected Vec<IntersticeValue> as reducer_wrapper input, got {:?}", interstice_args),
-            };
-            if interstice_args_vec.len() != #arg_count - 1 { panic!("Expected {} reducer arguments, got {}", #arg_count-1, interstice_args_vec.len()) }
-
-            if let Err(err) = interstice_sdk::ReducerOutcome::into_outcome(#reducer_ident(reducer_context, #(#args),*)) {
+            // Arguments are evaluated left to right, each taking its bytes.
+            if let Err(err) = interstice_sdk::ReducerOutcome::into_outcome(#reducer_ident(reducer_context, #args)) {
                 panic!("{}", err);
             }
         }

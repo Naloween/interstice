@@ -1,10 +1,11 @@
 use interstice_abi::{
     CallQueryRequest, CallQueryResponse, CallReducerRequest, CallReducerResponse, HostCall,
-    IndexKey, IndexQuery, InsertRowResponse, IntersticeValue, ModuleSelection, NodeSelection, Row,
-    ScheduleRequest, ScheduleResponse, TableGetByPrimaryKeyRequest, TableGetByPrimaryKeyResponse,
-    TableIndexScanRequest, TableIndexScanResponse, TableScanRequest, TableScanResponse, decode,
-    encode,
+    IndexKey, IndexQuery, IntersticeValue, ModuleSelection, NodeSelection, ScheduleRequest,
+    ScheduleResponse, TableGetByPrimaryKeyRequest, TableIndexScanRequest, TableScanRequest, Row,
+    encode, wire,
 };
+
+use crate::table_row::RowCodec;
 
 // Pre-allocated scratch buffer for serialising rows/keys before a direct host call.
 // WASM is single-threaded so a module-level static is safe to use as a reusable scratch area.
@@ -145,79 +146,112 @@ pub fn time_now_ms() -> Result<u64, String> {
     Ok(v as u64)
 }
 
-pub fn insert_row(table_name: &str, row: Row) -> Result<Row, String> {
-    let table_bytes = table_name.as_bytes();
-    let row_buf = encode_scratch(&row)?;
-    let (row_ptr, row_len) = row_buf.ptr_len();
+/// A reusable buffer for the encoded row of a direct host call (WASM is
+/// single-threaded, and no host call re-enters the code that holds it).
+static mut ROW_BUF: Vec<u8> = Vec::new();
 
-    // Fast path: try the static response buffer first.
-    let written = unsafe {
-        let resp_ptr = std::ptr::addr_of_mut!(crate::host_calls::DIRECT_RESP_BUF) as *mut u8 as i32;
-        crate::host_calls::interstice_insert_row(
-            table_bytes.as_ptr() as i32,
-            table_bytes.len() as i32,
-            row_ptr,
-            row_len,
-            resp_ptr,
-            8192i32,
-        )
-    };
-    if written >= 0 {
-        let resp: InsertRowResponse = unsafe {
-            let buf = std::slice::from_raw_parts(
-                std::ptr::addr_of!(crate::host_calls::DIRECT_RESP_BUF) as *const u8,
-                written as usize,
-            );
-            decode(buf).map_err(|e| e.to_string())?
-        };
-        return match resp {
-            InsertRowResponse::Ok(None) => Ok(row),
-            InsertRowResponse::Ok(Some(modified)) => Ok(modified),
-            InsertRowResponse::Err(err) => Err(err),
-        };
-    }
-    // Slow path: host returned -(needed_size). Allocate a heap buffer and retry.
-    let needed = (-written) as usize;
-    let mut heap_buf: Vec<u8> = vec![0u8; needed];
-    let written2 = unsafe {
-        crate::host_calls::interstice_insert_row(
-            table_bytes.as_ptr() as i32,
-            table_bytes.len() as i32,
-            row_ptr,
-            row_len,
-            heap_buf.as_mut_ptr() as i32,
-            needed as i32,
-        )
-    };
-    if written2 < 0 {
-        return Err("insert_row: response buffer too small".into());
-    }
-    let resp: InsertRowResponse =
-        decode(&heap_buf[..written2 as usize]).map_err(|e| e.to_string())?;
-    return match resp {
-        InsertRowResponse::Ok(None) => Ok(row),
-        InsertRowResponse::Ok(Some(modified)) => Ok(modified),
-        InsertRowResponse::Err(err) => Err(err),
-    };
+fn with_row_buf<R>(f: impl FnOnce(&mut Vec<u8>) -> R) -> R {
+    // SAFETY: single-threaded, and not re-entered (see `ROW_BUF`).
+    let buf = unsafe { &mut *std::ptr::addr_of_mut!(ROW_BUF) };
+    buf.clear();
+    f(buf)
 }
 
-pub fn update_row(table_name: &str, row: Row) -> Result<(), String> {
-    let table_bytes = table_name.as_bytes();
-    let row_buf = encode_scratch(&row)?;
-    let (row_ptr, row_len) = row_buf.ptr_len();
-    let result = unsafe {
-        crate::host_calls::interstice_update_row(
-            table_bytes.as_ptr() as i32,
-            table_bytes.len() as i32,
-            row_ptr,
-            row_len,
-        )
-    };
-    if result < 0 {
-        Err("update_row failed".into())
-    } else {
-        Ok(())
+/// A plain postcard string (no value tag).
+fn take_string(input: &mut &[u8]) -> Result<String, String> {
+    let len = wire::take_len(input).map_err(|e| e.to_string())?;
+    let bytes = wire::take_bytes(input, len).map_err(|e| e.to_string())?;
+    Ok(String::from_utf8_lossy(bytes).into_owned())
+}
+
+/// `Ok(Option<Row>) | Err(String)` (insert and get responses), with the
+/// row decoded as `T`.
+fn decode_option_row<T: RowCodec>(mut input: &[u8]) -> Result<Option<T>, String> {
+    let input = &mut input;
+    match wire::take_varint(input).map_err(|e| e.to_string())? {
+        0 => match wire::take_byte(input).map_err(|e| e.to_string())? {
+            0 => Ok(None),
+            _ => T::decode_row(input).map(Some).map_err(|e| e.to_string()),
+        },
+        _ => Err(take_string(input)?),
     }
+}
+
+/// `Ok { rows: Vec<Row> } | Err(String)` (scan responses), with the rows
+/// decoded as `T`.
+fn decode_rows<T: RowCodec>(mut input: &[u8]) -> Result<Vec<T>, String> {
+    let input = &mut input;
+    match wire::take_varint(input).map_err(|e| e.to_string())? {
+        0 => {
+            let len = wire::take_len(input).map_err(|e| e.to_string())?;
+            let mut rows = Vec::with_capacity(len.min(input.len()));
+            for _ in 0..len {
+                rows.push(T::decode_row(input).map_err(|e| e.to_string())?);
+            }
+            Ok(rows)
+        }
+        _ => Err(take_string(input)?),
+    }
+}
+
+fn direct_resp() -> (i32, i32) {
+    let ptr = std::ptr::addr_of_mut!(crate::host_calls::DIRECT_RESP_BUF) as *mut u8 as i32;
+    (ptr, crate::host_calls::DIRECT_RESP_BUF_CAP as i32)
+}
+
+fn direct_resp_bytes(written: i32) -> &'static [u8] {
+    // SAFETY: the host wrote `written` bytes there; read before the next call.
+    unsafe {
+        std::slice::from_raw_parts(std::ptr::addr_of!(crate::host_calls::DIRECT_RESP_BUF) as *const u8, written as usize)
+    }
+}
+
+/// Insert `row`; returns it, with its auto-increment key if it has one.
+pub fn insert_row<T: RowCodec>(table_name: &str, row: T) -> Result<T, String> {
+    let table = table_name.as_bytes();
+    let modified = with_row_buf(|buf| {
+        row.encode_row(buf);
+        let call = |out_ptr: i32, out_cap: i32| unsafe {
+            crate::host_calls::interstice_insert_row(
+                table.as_ptr() as i32,
+                table.len() as i32,
+                buf.as_ptr() as i32,
+                buf.len() as i32,
+                out_ptr,
+                out_cap,
+            )
+        };
+        let (ptr, cap) = direct_resp();
+        let written = call(ptr, cap);
+        if written >= 0 {
+            return decode_option_row::<T>(direct_resp_bytes(written));
+        }
+        // The response is larger than the direct buffer: the host returned
+        // -(needed size).
+        let mut heap = vec![0u8; (-written) as usize];
+        let written = call(heap.as_mut_ptr() as i32, heap.len() as i32);
+        if written < 0 {
+            return Err("insert_row: response buffer too small".into());
+        }
+        decode_option_row::<T>(&heap[..written as usize])
+    })?;
+    Ok(modified.unwrap_or(row))
+}
+
+pub fn update_row<T: RowCodec>(table_name: &str, row: &T) -> Result<(), String> {
+    let table = table_name.as_bytes();
+    let result = with_row_buf(|buf| {
+        row.encode_row(buf);
+        unsafe {
+            crate::host_calls::interstice_update_row(
+                table.as_ptr() as i32,
+                table.len() as i32,
+                buf.as_ptr() as i32,
+                buf.len() as i32,
+            )
+        }
+    });
+    if result < 0 { Err("update_row failed".into()) } else { Ok(()) }
 }
 
 pub fn delete_row(table_name: &str, primary_key: IndexKey) -> Result<(), String> {
@@ -261,36 +295,28 @@ pub fn clear_table(module_selection: ModuleSelection, table_name: &str) -> Resul
     }
 }
 
-pub fn scan(module_selection: ModuleSelection, table_name: String) -> Result<Vec<Row>, String> {
+pub fn scan<T: RowCodec>(module_selection: ModuleSelection, table_name: String) -> Result<Vec<T>, String> {
     let call = HostCall::TableScan(TableScanRequest {
         module_selection,
         table_name,
     });
-
-    let pack = host_call(call);
-    let response: TableScanResponse = unpack(pack);
-    match response {
-        TableScanResponse::Ok { rows } => Ok(rows),
-        TableScanResponse::Err(err) => Err(err),
-    }
+    decode_rows(unpack_bytes(host_call(call)))
 }
 
-pub fn get_by_primary_key(
+pub fn get_by_primary_key<T: RowCodec>(
     module_selection: ModuleSelection,
     table_name: &str,
     primary_key: IndexKey,
-) -> Result<Option<Row>, String> {
-    // Fast path for the current module: write straight into the fixed direct
-    // buffer to avoid an allocation. If the row doesn't fit, fall through to the
-    // general host-call path below, which is dynamically sized.
+) -> Result<Option<T>, String> {
+    // Fast path for the current module: the response goes straight into the
+    // fixed direct buffer. A row too large for it takes the general,
+    // dynamically sized path below.
     if let ModuleSelection::Current = module_selection {
         let table_bytes = table_name.as_bytes();
         let pk_buf = encode_scratch(&primary_key)?;
         let (pk_ptr, pk_len) = pk_buf.ptr_len();
+        let (resp_ptr, resp_cap) = direct_resp();
         let written = unsafe {
-            let resp_ptr =
-                std::ptr::addr_of_mut!(crate::host_calls::DIRECT_RESP_BUF) as *mut u8 as i32;
-            let resp_cap = crate::host_calls::DIRECT_RESP_BUF_CAP as i32;
             crate::host_calls::interstice_get_by_pk(
                 table_bytes.as_ptr() as i32,
                 table_bytes.len() as i32,
@@ -300,20 +326,8 @@ pub fn get_by_primary_key(
                 resp_cap,
             )
         };
-        // `written < 0` means the row was larger than the direct buffer; rather
-        // than failing, retry through the general (allocating) path below.
         if written >= 0 {
-            let resp: TableGetByPrimaryKeyResponse = unsafe {
-                let buf = std::slice::from_raw_parts(
-                    std::ptr::addr_of!(crate::host_calls::DIRECT_RESP_BUF) as *const u8,
-                    written as usize,
-                );
-                decode(buf).map_err(|e| e.to_string())?
-            };
-            return match resp {
-                TableGetByPrimaryKeyResponse::Ok(row) => Ok(row),
-                TableGetByPrimaryKeyResponse::Err(err) => Err(err),
-            };
+            return decode_option_row(direct_resp_bytes(written));
         }
     }
 
@@ -322,38 +336,27 @@ pub fn get_by_primary_key(
         table_name: table_name.to_string(),
         primary_key,
     });
-    let pack = host_call(call);
-    let response: TableGetByPrimaryKeyResponse = unpack(pack);
-    match response {
-        TableGetByPrimaryKeyResponse::Ok(row) => Ok(row),
-        TableGetByPrimaryKeyResponse::Err(err) => Err(err),
-    }
+    decode_option_row(unpack_bytes(host_call(call)))
 }
 
-pub fn scan_index(
+pub fn scan_index<T: RowCodec>(
     module_selection: ModuleSelection,
     table_name: String,
     field_name: String,
     query: IndexQuery,
-) -> Result<Vec<Row>, String> {
+) -> Result<Vec<T>, String> {
     let call = HostCall::TableIndexScan(TableIndexScanRequest {
         module_selection,
         table_name,
         field_name,
         query,
     });
-
-    let pack = host_call(call);
-    let response: TableIndexScanResponse = unpack(pack);
-    match response {
-        TableIndexScanResponse::Ok { rows } => Ok(rows),
-        TableIndexScanResponse::Err(err) => Err(err),
-    }
+    decode_rows(unpack_bytes(host_call(call)))
 }
 
 use crate::{QueryContext, ReducerContext};
 
-use crate::host_calls::{host_call, unpack};
+use crate::host_calls::{host_call, unpack, unpack_bytes};
 
 pub trait HostLog {
     fn log(&self, message: &str);

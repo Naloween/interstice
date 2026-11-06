@@ -1,5 +1,5 @@
-//! Schema of `#[interstice_type]` enums with named-field variants (§10.1):
-//! the payload is the struct `Enum::Variant`, and values validate.
+//! `#[interstice_type]`: the schema of enums with named-field variants
+//! (§10.1), and the direct encoding of structs and enums (§10.2).
 
 use interstice_sdk::*;
 
@@ -32,6 +32,33 @@ fn named_variant_fields_are_in_the_schema() {
         let back: Shape = value.try_into().unwrap();
         assert_eq!(back, shape);
     }
+}
+
+#[interstice_type]
+#[derive(Debug, PartialEq)]
+pub struct Drawing {
+    pub name: String,
+    pub shapes: Vec<Shape>,
+    pub pair: (u8, Option<i64>),
+    pub data: Vec<u8>,
+}
+
+#[test]
+fn direct_encoding_matches_the_tree() {
+    let drawing = Drawing {
+        name: "d".into(),
+        shapes: vec![Shape::Empty, Shape::Circle(1.5), Shape::Rect { width: 2, height: 3 }],
+        pair: (7, Some(-9)),
+        data: vec![1, 2, 3],
+    };
+    let direct = encode_value(&drawing);
+    let tree: IntersticeValue = drawing.clone().into();
+    assert_eq!(direct, encode(&tree).unwrap());
+    assert_eq!(decode_value::<Drawing>(&direct).unwrap(), drawing);
+
+    let defs = interstice_sdk::registry::collect_type_definitions();
+    validate_value_detailed(&tree, &IntersticeType::Named("Drawing".into()), &defs).unwrap();
+    assert!(decode_value::<Shape>(&encode_value(&drawing)).is_err());
 }
 
 #[test]

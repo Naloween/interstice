@@ -448,15 +448,17 @@ is clear on every key, so it keeps a count of the keys it is still blocked on.
 
 Two operation sets are compatible only if both are `{Read}` or both are
 `{Insert}`, and compatibility is then an equivalence. So in every queue the
-clear entries form a **prefix**: an entry blocked by an earlier one blocks all
-later ones. That makes both steps local:
-- **enqueue**: per key, the new entry is clear iff the queue is empty or its
-  last entry is clear and compatible with it: O(keys).
-- **complete**: per key of the finished job, remove it and walk the queue from
-  the front, marking entries clear until the first one that conflicts with an
-  earlier entry; a job whose blocked count reaches zero is promoted. Promoted
-  jobs are returned in arrival order. The cost is the clear prefix, which is
-  bounded by the running jobs and the jobs it releases, not by the queue.
+clear entries form a **prefix** of mutually compatible jobs, and the first
+blocked entry conflicts with them. Each key therefore holds the clear jobs as
+a set with their common operation set, and the blocked ones in FIFO order:
+- **enqueue**: per key, the new entry is clear iff nothing is blocked there
+  and it is compatible with the clear set (or the set is empty): O(keys).
+- **complete**: per key of the finished job, remove it from the clear set.
+  When the set empties, the first blocked entry and every compatible one
+  after it become clear; a job whose blocked count reaches zero is promoted.
+  Promoted jobs are returned in arrival order. Each entry is promoted once,
+  so a completion costs amortized O(keys), however many jobs share a key
+  (20 000 readers of one key used to make each completion walk all of them).
 
 The previous scheduler rescanned the whole waiting queue on every enqueue and
 completion, which is O(n²) under contention: 20 000 queued updates cost
@@ -1662,22 +1664,28 @@ up type definitions by name. The tag costs one byte and one branch.
 
 **The guest skips the tree.** Converting a Rust value to an
 `IntersticeValue` and then encoding it allocates the whole tree for nothing.
-The SDK's `Value` trait (`interstice-abi/src/value_codec.rs`) writes and
+The `ValueCodec` trait (`interstice-abi/src/value_codec.rs`) writes and
 reads the encoded bytes of a Rust value directly:
 - `encode(&self, out: &mut Vec<u8>)` and `decode(input: &mut &[u8])`;
 - implemented for the primitives, `String`, `Vec<T>` (`Vec<u8>` as
   `Bytes`), `Option<T>`, tuples, `Blob`, `IntersticeValue` itself, and
   derived for `#[interstice_type]` structs and enums and `#[table]` rows;
 - the bytes are exactly postcard's encoding of the equivalent
-  `IntersticeValue`, so the host is unchanged; a test checks it for every
-  shape.
+  `IntersticeValue`, so the host is unchanged; tests check it for every
+  shape (`value_codec.rs`, `sdk/tests/types.rs`).
+- `RowCodec` (`sdk-core/src/table_row.rs`) does the same for whole rows: the
+  primary key, the column count, the columns. A row read through bindings
+  skips the columns a newer version of the table appended.
 
 Reducer and query arguments, query results, rows written and rows read go
-through `Value`. The host keeps `IntersticeValue` trees: it stores, indexes
+through these. The host keeps `IntersticeValue` trees: it stores, indexes
 and validates them.
 
 **Data.** Stored data from an earlier ABI is not converted: §3.3's plan
-clears it. Modules are rebuilt, and the CLI's embedded modules with them.
+asks, then deletes it. At boot, a stored module built for another ABI is
+skipped with an error in the node's log, and the node runs without it (and
+without the modules that depend on it) until it is loaded again. Modules
+are rebuilt, and the CLI's embedded modules with them.
 
 ---
 

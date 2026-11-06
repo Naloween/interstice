@@ -39,6 +39,15 @@ pub fn get_table_code(
     };
     let module_sel_ts = quote! { interstice_sdk::ModuleSelection::Other(#module_lit.to_string()) };
 
+    let entry_idents: Vec<syn::Ident> =
+        table_schema.fields.iter().map(|f| syn::Ident::new(&f.name, span)).collect();
+    let entry_types: Vec<Type> = table_schema
+        .fields
+        .iter()
+        .map(|f| syn::parse_str(&f.field_type.to_string()).expect("a field type parses"))
+        .collect();
+    let entry_count = entry_idents.len();
+
     let into_row_entries: Vec<TokenStream> = table_schema
         .fields
         .iter()
@@ -211,6 +220,25 @@ pub fn get_table_code(
 
         pub struct #table_handle_struct_name<Caps> {
             _caps: std::marker::PhantomData<Caps>,
+        }
+
+        impl interstice_sdk::RowCodec for #table_struct_name {
+            fn encode_row(&self, out: &mut Vec<u8>) {
+                interstice_sdk::ValueCodec::encode(&self.#primary_key, out);
+                interstice_sdk::wire::put_len(out, #entry_count);
+                #(interstice_sdk::ValueCodec::encode(&self.#entry_idents, out);)*
+            }
+
+            fn decode_row(input: &mut &[u8]) -> Result<Self, interstice_sdk::IntersticeAbiError> {
+                let #primary_key = <#primary_key_type as interstice_sdk::ValueCodec>::decode(input)?;
+                // A newer version of the table may have appended columns.
+                let count = interstice_sdk::table_row::row_wire::take_columns(input, #entry_count, #table_name_lit)?;
+                #(
+                    let #entry_idents = <#entry_types as interstice_sdk::ValueCodec>::decode(input)?;
+                )*
+                interstice_sdk::table_row::row_wire::skip_columns(input, count - #entry_count)?;
+                Ok(Self { #primary_key, #(#entry_idents),* })
+            }
         }
 
         impl Into<interstice_sdk::Row> for #table_struct_name {

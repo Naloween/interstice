@@ -244,7 +244,7 @@ impl Runtime {
         // the rest may not decode under another ABI.
         let abi = interstice_abi::decode::<u16>(&bytes).map_err(|_| "has an unreadable schema.bin".to_string())?;
         if abi != ABI_VERSION {
-            return Err(format!("was written under ABI {abi}, this node runs ABI {ABI_VERSION},"));
+            return Err(format!("was written under ABI {abi} (this node runs ABI {ABI_VERSION})"));
         }
         interstice_abi::decode::<ModuleSchema>(&bytes).map_err(|_| "has an unreadable schema.bin".to_string())
     }

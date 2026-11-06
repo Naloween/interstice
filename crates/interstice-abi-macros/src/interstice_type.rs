@@ -40,6 +40,7 @@ fn derive_struct(name: &syn::Ident, fields: &Fields) -> TokenStream {
     let count = idents.len();
     let context = name.to_string();
     let take = take_fields(&context, &idents, &types);
+    let decode_fields = decode_fields(&context, &idents, &types);
     quote! {
         impl From<#name> for #abi::IntersticeValue {
             fn from(value: #name) -> Self {
@@ -64,13 +65,44 @@ fn derive_struct(name: &syn::Ident, fields: &Fields) -> TokenStream {
                 }
             }
         }
+
+        impl #abi::ValueCodec for #name {
+            fn encode(&self, out: &mut Vec<u8>) {
+                #abi::wire::put_struct(out, #count);
+                #(#abi::ValueCodec::encode(&self.#idents, out);)*
+            }
+
+            fn decode(input: &mut &[u8]) -> Result<Self, #abi::IntersticeAbiError> {
+                #abi::wire::expect_struct(input, #count, #context)?;
+                #(#decode_fields)*
+                Ok(Self { #(#idents),* })
+            }
+        }
     }
+}
+
+/// `let a = ..;` for each field, decoded in order, with errors naming it.
+fn decode_fields(context: &str, idents: &[syn::Ident], types: &[&syn::Type]) -> Vec<TokenStream> {
+    let abi = abi_path();
+    idents
+        .iter()
+        .zip(types)
+        .map(|(ident, ty)| {
+            let name = ident.to_string();
+            quote! {
+                let #ident = <#ty as #abi::ValueCodec>::decode(input)
+                    .map_err(|e| #abi::IntersticeAbiError::ConversionError(format!("{}.{}: {}", #context, #name, e)))?;
+            }
+        })
+        .collect()
 }
 
 fn derive_enum(name: &syn::Ident, variants: Vec<&syn::Variant>) -> TokenStream {
     let abi = abi_path();
     let mut to_value = Vec::new();
     let mut from_value = Vec::new();
+    let mut encode = Vec::new();
+    let mut decode = Vec::new();
     for (index, variant) in variants.iter().enumerate() {
         let index = index as u32;
         let v = &variant.ident;
@@ -89,6 +121,15 @@ fn derive_enum(name: &syn::Ident, variants: Vec<&syn::Variant>) -> TokenStream {
                         #wrong,
                     }
                 });
+                encode.push(quote! {
+                    #name::#v => {
+                        #abi::wire::put_enum(out, #index);
+                        #abi::wire::put_tag(out, #abi::wire::VOID);
+                    }
+                });
+                decode.push(quote! {
+                    #index => #abi::wire::expect_void(input).map(|_| #name::#v)
+                });
             }
             Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
                 let ty = &fields.unnamed[0].ty;
@@ -97,6 +138,17 @@ fn derive_enum(name: &syn::Ident, variants: Vec<&syn::Variant>) -> TokenStream {
                 });
                 from_value.push(quote! {
                     #index => <#ty as TryFrom<#abi::IntersticeValue>>::try_from(*value)
+                        .map(#name::#v)
+                        .map_err(|e| #abi::IntersticeAbiError::ConversionError(format!("{}: {}", #context, e)))
+                });
+                encode.push(quote! {
+                    #name::#v(x) => {
+                        #abi::wire::put_enum(out, #index);
+                        #abi::ValueCodec::encode(x, out);
+                    }
+                });
+                decode.push(quote! {
+                    #index => <#ty as #abi::ValueCodec>::decode(input)
                         .map(#name::#v)
                         .map_err(|e| #abi::IntersticeAbiError::ConversionError(format!("{}: {}", #context, e)))
                 });
@@ -120,6 +172,21 @@ fn derive_enum(name: &syn::Ident, variants: Vec<&syn::Variant>) -> TokenStream {
                             Ok(#name::#v(#(#idents),*))
                         }
                         #wrong,
+                    }
+                });
+                let decode_fields = decode_fields(&context, &idents, &types);
+                encode.push(quote! {
+                    #name::#v(#(#idents),*) => {
+                        #abi::wire::put_enum(out, #index);
+                        #abi::wire::put_tuple(out, #count);
+                        #(#abi::ValueCodec::encode(#idents, out);)*
+                    }
+                });
+                decode.push(quote! {
+                    #index => {
+                        #abi::wire::expect_tuple(input, #count)?;
+                        #(#decode_fields)*
+                        Ok(#name::#v(#(#idents),*))
                     }
                 });
             }
@@ -146,6 +213,21 @@ fn derive_enum(name: &syn::Ident, variants: Vec<&syn::Variant>) -> TokenStream {
                         #wrong,
                     }
                 });
+                let decode_fields = decode_fields(&context, &idents, &types);
+                encode.push(quote! {
+                    #name::#v { #(#idents),* } => {
+                        #abi::wire::put_enum(out, #index);
+                        #abi::wire::put_struct(out, #count);
+                        #(#abi::ValueCodec::encode(#idents, out);)*
+                    }
+                });
+                decode.push(quote! {
+                    #index => {
+                        #abi::wire::expect_struct(input, #count, #context)?;
+                        #(#decode_fields)*
+                        Ok(#name::#v { #(#idents),* })
+                    }
+                });
             }
         }
     }
@@ -168,6 +250,21 @@ fn derive_enum(name: &syn::Ident, variants: Vec<&syn::Variant>) -> TokenStream {
                 };
                 match variant {
                     #(#from_value,)*
+                    other => Err(#abi::IntersticeAbiError::ConversionError(format!("{} has no variant #{}", #context, other))),
+                }
+            }
+        }
+
+        impl #abi::ValueCodec for #name {
+            fn encode(&self, out: &mut Vec<u8>) {
+                match self {
+                    #(#encode,)*
+                }
+            }
+
+            fn decode(input: &mut &[u8]) -> Result<Self, #abi::IntersticeAbiError> {
+                match #abi::wire::take_enum(input, #context)? {
+                    #(#decode,)*
                     other => Err(#abi::IntersticeAbiError::ConversionError(format!("{} has no variant #{}", #context, other))),
                 }
             }
