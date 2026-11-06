@@ -61,6 +61,8 @@ pub enum LoadOutcome {
     Loaded { plan: String },
     /// Nothing changed: the plan needs a decision (rendered).
     NeedsDecision { plan: String },
+    /// Nothing changed: the module asks for authorities not granted yet.
+    NeedsGrant { module: String, authorities: Vec<String> },
     Failed(String),
     /// Handed to the module holding the Module authority.
     Forwarded,
@@ -107,6 +109,9 @@ pub enum ModuleEventInstance {
         policy: crate::runtime::migration::MigrationPolicy,
         /// Answered with `ModuleLoadResult` when not empty.
         request_id: String,
+        /// The requester grants the authorities the module asks for
+        /// (DESIGN §7.4); otherwise new ones are answered `NeedsGrant`.
+        grant: bool,
     },
     Unload { module_name: String },
     Remove { module_name: String },

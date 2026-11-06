@@ -11,6 +11,8 @@ pub struct QuerySchema {
     pub return_type: IntersticeType,
     #[serde(default)]
     pub reads: Vec<ReducerTableRef>,
+    #[serde(default)]
+    pub visibility: super::reducer::CallVisibility,
 }
 
 impl QuerySchema {
@@ -33,6 +35,7 @@ impl QuerySchema {
             arguments,
             return_type,
             reads,
+            visibility: Default::default(),
         }
     }
 }

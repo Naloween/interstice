@@ -21,4 +21,4 @@ pub use interstice_value::*;
 pub use row::*;
 pub use schema::*;
 
-pub const ABI_VERSION: u16 = 13;
+pub const ABI_VERSION: u16 = 14;

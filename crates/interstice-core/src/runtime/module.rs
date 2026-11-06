@@ -665,6 +665,15 @@ impl Runtime {
             }
             // Mark the module as loaded so it is auto-loaded again on node startup.
             write_module_state(&module_dir, true);
+            // Reaching here means its authorities were granted (DESIGN §7.4).
+            let new = record_grants(&module_dir, &module_schema);
+            if !new.is_empty() {
+                runtime.logger.log(
+                    &format!("Module '{}' granted authorities: {:?}", module_schema.name, new),
+                    LogSource::Runtime,
+                    LogLevel::Info,
+                );
+            }
         }
 
         // Count table subscriptions (Insert/Update/Delete) and add to active_subscription_count
@@ -1199,17 +1208,59 @@ impl Runtime {
 }
 
 /// Persisted per-module state stored as `state.toml` in the module's data dir.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Default)]
 struct ModuleState {
     /// Whether the module should be auto-loaded when the node starts.
     loaded: bool,
+    /// Authorities granted to it (DESIGN §7.4). `None`: written before
+    /// grants existed, so whatever it holds counts as granted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    granted: Option<Vec<Authority>>,
 }
 
-/// Write `state.toml` into the given module directory.
-pub(crate) fn write_module_state(module_dir: &Path, loaded: bool) {
-    if let Ok(contents) = toml::to_string(&ModuleState { loaded }) {
+fn read_module_state(module_dir: &Path) -> Option<ModuleState> {
+    let text = std::fs::read_to_string(module_dir.join("state.toml")).ok()?;
+    toml::from_str(&text).ok()
+}
+
+fn save_module_state(module_dir: &Path, state: &ModuleState) {
+    if let Ok(contents) = toml::to_string(state) {
         let _ = std::fs::write(module_dir.join("state.toml"), contents);
     }
+}
+
+/// Write the `loaded` flag of `state.toml`, keeping its grants.
+pub(crate) fn write_module_state(module_dir: &Path, loaded: bool) {
+    let mut state = read_module_state(module_dir).unwrap_or_default();
+    state.loaded = loaded;
+    save_module_state(module_dir, &state);
+}
+
+/// The authorities `schema` asks for that were never granted to it.
+pub(crate) fn ungranted_authorities(runtime: &Runtime, schema: &ModuleSchema) -> Vec<Authority> {
+    let state = runtime
+        .modules_path
+        .as_ref()
+        .and_then(|p| read_module_state(&p.join(&schema.name)));
+    match state {
+        Some(ModuleState { granted: None, .. }) => Vec::new(),
+        Some(ModuleState { granted: Some(granted), .. }) => {
+            schema.authorities.iter().filter(|a| !granted.contains(a)).cloned().collect()
+        }
+        None => schema.authorities.clone(),
+    }
+}
+
+/// Record that `schema`'s authorities are granted; returns the new ones.
+fn record_grants(module_dir: &Path, schema: &ModuleSchema) -> Vec<Authority> {
+    let mut state = read_module_state(module_dir).unwrap_or_default();
+    let before = state.granted.clone().unwrap_or_default();
+    let new: Vec<Authority> = schema.authorities.iter().filter(|a| !before.contains(a)).cloned().collect();
+    let mut granted = before;
+    granted.extend(new.iter().cloned());
+    state.granted = Some(granted);
+    save_module_state(module_dir, &state);
+    new
 }
 
 /// Whether the module in `module_dir` should be auto-loaded on node startup.
@@ -1241,6 +1292,10 @@ fn setup_file_watches(
         if let SubscriptionEventSchema::File { path, recursive } = &sub.event {
             let event_sender = runtime.event_sender.clone();
             let logger = runtime.logger.clone();
+            // Watches are confined to the file root too, and report paths
+            // relative to it (DESIGN §7.4).
+            let watch_path = runtime.security.confine(path).map_err(IntersticeError::PermissionDenied)?;
+            let security = runtime.security.clone();
 
             let mut watcher =
                 notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
@@ -1251,29 +1306,29 @@ fn setup_file_watches(
                                 notify::EventKind::Create(_) => {
                                     for p in &event.paths {
                                         events.push(FileEvent::Created {
-                                            path: p.to_string_lossy().to_string(),
+                                            path: security.relative(p),
                                         });
                                     }
                                 }
                                 notify::EventKind::Modify(notify::event::ModifyKind::Name(_)) => {
                                     if event.paths.len() >= 2 {
                                         events.push(FileEvent::Renamed {
-                                            from: event.paths[0].to_string_lossy().to_string(),
-                                            to: event.paths[1].to_string_lossy().to_string(),
+                                            from: security.relative(&event.paths[0]),
+                                            to: security.relative(&event.paths[1]),
                                         });
                                     }
                                 }
                                 notify::EventKind::Modify(_) => {
                                     for p in &event.paths {
                                         events.push(FileEvent::Modified {
-                                            path: p.to_string_lossy().to_string(),
+                                            path: security.relative(p),
                                         });
                                     }
                                 }
                                 notify::EventKind::Remove(_) => {
                                     for p in &event.paths {
                                         events.push(FileEvent::Deleted {
-                                            path: p.to_string_lossy().to_string(),
+                                            path: security.relative(p),
                                         });
                                     }
                                 }
@@ -1303,7 +1358,7 @@ fn setup_file_watches(
                 RecursiveMode::NonRecursive
             };
 
-            watcher.watch(Path::new(path), mode).map_err(|err| {
+            watcher.watch(&watch_path, mode).map_err(|err| {
                 IntersticeError::Internal(format!("Failed to watch path: {}", err))
             })?;
 

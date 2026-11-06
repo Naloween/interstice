@@ -1,5 +1,6 @@
 use crate::{
     MigrationPolicy,
+    security::NodeConfig,
     app::App,
     bundle::{Bundle, BundleManifest},
     audio::AudioEngine,
@@ -45,6 +46,8 @@ pub struct Node {
     app: App,
     runtime: Arc<Runtime>,
     logger: Logger,
+    data_path: std::path::PathBuf,
+    peer_tokens: Arc<Mutex<PeerTokenStore>>,
 }
 
 impl Node {
@@ -89,7 +92,7 @@ impl Node {
             public_address.clone(),
             event_sender.clone(),
             reducer_sender.clone(),
-            peer_tokens,
+            peer_tokens.clone(),
             logger.clone(),
         );
         let network_handle = network.get_handle();
@@ -131,6 +134,8 @@ impl Node {
             event_receiver,
             run_app_notify,
             logger,
+            data_path,
+            peer_tokens,
         };
 
         Ok(node)
@@ -169,7 +174,7 @@ impl Node {
             public_address.clone(),
             event_sender.clone(),
             reducer_sender.clone(),
-            peer_tokens,
+            peer_tokens.clone(),
             logger.clone(),
         );
         let network_handle = network.get_handle();
@@ -211,9 +216,30 @@ impl Node {
             event_receiver,
             run_app_notify,
             logger,
+            data_path,
+            peer_tokens,
         };
 
         Ok(node)
+    }
+
+    /// This node's `node.toml` (DESIGN §7.4).
+    pub fn config(&self) -> Result<NodeConfig, IntersticeError> {
+        NodeConfig::load(&self.data_path)
+    }
+
+    pub fn save_config(&self, config: &NodeConfig) -> Result<(), IntersticeError> {
+        config.save(&self.data_path)
+    }
+
+    /// Make `id` an owner of this node and pin its token, so no other peer
+    /// can present that id first (DESIGN §7.4).
+    pub fn add_owner(&self, id: &str, token: &str) -> Result<(), IntersticeError> {
+        let mut config = self.config()?;
+        if config.add_owner(id, token) {
+            self.save_config(&config)?;
+        }
+        Ok(())
     }
 
     pub fn log(&self, message: &str, source: LogSource, level: LogLevel) {
@@ -262,7 +288,22 @@ impl Node {
             event_receiver,
             run_app_notify,
             logger,
+            data_path,
+            peer_tokens,
         } = self;
+
+        // Security config (DESIGN §7.4): owners, file root, listen host.
+        let config = NodeConfig::load(&data_path)?;
+        runtime.security.apply(&config, &data_path);
+        {
+            let mut tokens = peer_tokens.lock();
+            for owner in &config.owners {
+                if let Ok(id) = owner.id.parse::<NodeId>() {
+                    tokens.set_peer_token(&id, owner.token.clone())?;
+                }
+            }
+        }
+        network.set_bind_host(config.listen_host());
 
         logger.log(
             &format!("Starting node with ID: {}", id),

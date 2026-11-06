@@ -60,6 +60,8 @@ pub enum IntersticeError {
     /// A load whose migration plan needs a decision (DESIGN §3.3); the
     /// string is the rendered plan.
     MigrationRequired(String),
+    /// A call or request the caller may not make (DESIGN §7.4).
+    PermissionDenied(String),
     AbiVersionMismatch {
         expected: u16,
         found: u16,
@@ -203,6 +205,7 @@ impl fmt::Display for IntersticeError {
                 write!(f, "invalid module schema")
             }
             MigrationRequired(plan) => write!(f, "{}", plan),
+            PermissionDenied(why) => write!(f, "Permission denied: {}", why),
             AbiVersionMismatch { expected, found } => {
                 write!(
                     f,

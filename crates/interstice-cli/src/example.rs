@@ -261,6 +261,12 @@ pub async fn example(example_name: &str) -> Result<(), IntersticeError> {
     // Create new node
     let public_address = format!("127.0.0.1:{}", port);
     let node = Node::new(&nodes_dir(), port, public_address.clone())?;
+    node_utils::own_node(&node)?;
+    // An example's File authority works in the directory it runs from
+    // (the browser's headless test files live there, DESIGN §7.4).
+    let mut config = node.config()?;
+    config.files_root = std::env::current_dir().ok();
+    node.save_config(&config)?;
     registry.add(NodeRecord {
         name,
         address: public_address,

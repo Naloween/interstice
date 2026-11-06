@@ -10,6 +10,20 @@ pub struct NodeSchema {
 }
 
 impl NodeSchema {
+    /// Public modules as a non-owner peer may see them (DESIGN §7.4).
+    pub fn to_remote(self) -> Self {
+        Self {
+            name: self.name,
+            address: self.address,
+            modules: self
+                .modules
+                .into_iter()
+                .filter(|m| m.visibility == ModuleVisibility::Public)
+                .map(|m| m.to_remote())
+                .collect(),
+        }
+    }
+
     pub fn to_public(self) -> Self {
         let mut modules = Vec::new();
         for module in self.modules {

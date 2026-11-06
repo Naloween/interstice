@@ -63,6 +63,8 @@ struct ReducerTomlWire {
     updates: Vec<ReducerAccessWire>,
     #[serde(default)]
     deletes: Vec<ReducerAccessWire>,
+    #[serde(default)]
+    visibility: interstice_abi::CallVisibility,
 }
 
 fn wire_vec_to_refs(v: Vec<ReducerAccessWire>) -> Result<Vec<ReducerTableRef>, toml::de::Error> {
@@ -84,6 +86,7 @@ fn parse_reducer_toml_value(v: toml::Value) -> Result<ReducerSchema, toml::de::E
         inserts: wire_vec_to_refs(w.inserts)?,
         updates: wire_vec_to_refs(w.updates)?,
         deletes: wire_vec_to_refs(w.deletes)?,
+        visibility: w.visibility,
     })
 }
 

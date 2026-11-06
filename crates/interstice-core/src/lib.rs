@@ -6,6 +6,7 @@ mod logger;
 mod network;
 mod node;
 pub mod persistence;
+pub mod security;
 mod runtime;
 
 pub use crate::node::{Decide, Node, NodeId};

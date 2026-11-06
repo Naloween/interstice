@@ -29,7 +29,7 @@ impl Runtime {
         let entry = match call_reducer_request.node_selection {
             NodeSelection::Current => {
                 let known = self.modules.lock().get(module_name).map(|m| {
-                    m.reducer_names.contains(&call_reducer_request.reducer_name)
+                    m.reducer_names.contains(&call_reducer_request.reducer_name).then(|| m.schema.clone())
                 });
                 match known {
                     None => {
@@ -41,17 +41,28 @@ impl Runtime {
                             ),
                         ));
                     }
-                    Some(false) => {
+                    Some(None) => {
                         return Err(IntersticeError::ReducerNotFound {
                             module: module_name.clone(),
                             reducer: call_reducer_request.reducer_name,
                         });
                     }
-                    Some(true) => OutboxEntry::Local(PendingCall {
-                        module_name: module_name.clone(),
-                        reducer_name: call_reducer_request.reducer_name,
-                        input: call_reducer_request.input,
-                    }),
+                    // Refuse now rather than when the deferred call runs
+                    // (it is checked again there, DESIGN §7.4).
+                    Some(Some(schema)) => {
+                        self.security.check_call(
+                            &schema,
+                            &call_reducer_request.reducer_name,
+                            false,
+                            self.node_id,
+                            caller_module_name,
+                        )?;
+                        OutboxEntry::Local(PendingCall {
+                            module_name: module_name.clone(),
+                            reducer_name: call_reducer_request.reducer_name,
+                            input: call_reducer_request.input,
+                        })
+                    }
                 }
             }
             NodeSelection::Other(node_name) => {

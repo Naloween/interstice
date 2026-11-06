@@ -35,6 +35,7 @@ pub enum SubscriptionEventSchema {
         recursive: bool,
     },
     ModuleLoad,
+    ModuleUnload,
     ModuleRemove,
     ModuleLoadResult,
     Connect,

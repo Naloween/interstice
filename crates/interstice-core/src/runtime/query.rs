@@ -40,6 +40,8 @@ impl Runtime {
                 module: module_name.into(),
                 reducer: query_name.into(),
             })?;
+        self.security
+            .check_call(&module.schema, query_name, true, caller_node_id, caller_module_name)?;
         let table_access = crate::runtime::reducer::ReducerTableAccess::from_query_schema(query_schema);
 
         // Detect re-entrant query cycles — check the current thread's stack only.

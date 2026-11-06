@@ -13,6 +13,21 @@ pub struct ReducerTableRef {
     pub table_name: String,
 }
 
+/// Who may call a reducer or query (DESIGN §7.4). `Default` resolves from
+/// the module: an event handler is `Internal`, otherwise `Public` in a
+/// public module and `Local` in a private one.
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CallVisibility {
+    #[default]
+    Default,
+    /// Anyone connected, from any node.
+    Public,
+    /// Modules on the same node.
+    Local,
+    /// Its own module only.
+    Internal,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ReducerSchema {
     pub name: String,
@@ -21,6 +36,8 @@ pub struct ReducerSchema {
     pub inserts: Vec<ReducerTableRef>,
     pub updates: Vec<ReducerTableRef>,
     pub deletes: Vec<ReducerTableRef>,
+    #[serde(default)]
+    pub visibility: CallVisibility,
 }
 
 impl ReducerSchema {
@@ -39,6 +56,7 @@ impl ReducerSchema {
             inserts,
             updates,
             deletes,
+            visibility: CallVisibility::Default,
         }
     }
 }

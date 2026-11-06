@@ -24,9 +24,12 @@ pub(crate) fn result_ok_type(ty: &syn::Type) -> Option<&syn::Type> {
 
 fn validate_query_attrs(attributes: &syn::punctuated::Punctuated<Meta, syn::Token![,]>) -> syn::Result<()> {
     for meta in attributes {
+        if crate::visibility::visibility_option(meta).is_some() {
+            continue;
+        }
         return Err(syn::Error::new_spanned(
             meta,
-            "unsupported #[query] option; declare reads via `QueryContext<Caps>` and `where Caps: CanRead<Row>`",
+            "unsupported #[query] option; use `public` / `local` / `internal` for who may call it, and declare reads via `QueryContext<Caps>` and `where Caps: CanRead<Row>`",
         ));
     }
     Ok(())
@@ -107,6 +110,10 @@ pub fn query_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     if let Err(e) = validate_query_attrs(&attributes) {
         return e.into_compile_error().into();
     }
+    let visibility = match crate::visibility::declared_visibility(&attributes) {
+        Ok(v) => v,
+        Err(e) => return e.into_compile_error().into(),
+    };
 
     let arg_names: Vec<_> = input_fn
         .sig
@@ -140,6 +147,7 @@ pub fn query_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         arg_names,
         arg_types,
         caps_extend_body,
+        visibility,
     );
 
     quote! {

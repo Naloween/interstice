@@ -12,6 +12,7 @@ pub async fn load(
     node_ref: String,
     module_project_path: &Path,
     decision: Option<MigrationPolicy>,
+    mut grant: bool,
 ) -> Result<(), IntersticeError> {
     // This should take a path to a rust project that it will build and load. The module name is from Cargo.toml. It should build the project using cargo, then read the generated wasm file and send it to the node using the network module.
     // It should also be able to use saved servers nodes with their adress to easily load to known nodes.
@@ -34,7 +35,7 @@ pub async fn load(
         _ => MigrationPolicy::Safe,
     };
     let result = loop {
-        let outcome = send_load(&mut stream, &wasm_binary, policy).await?;
+        let outcome = send_load(&mut stream, &wasm_binary, policy, grant).await?;
         match outcome {
             LoadOutcome::Loaded { plan } => {
                 if !plan.is_empty() {
@@ -48,6 +49,18 @@ pub async fn load(
                 break Ok(());
             }
             LoadOutcome::Failed(err) => break Err(IntersticeError::Internal(format!("Load failed: {err}"))),
+            LoadOutcome::NeedsGrant { module, authorities } => {
+                // DESIGN §7.4: the requester grants authorities.
+                if grant {
+                    break Err(IntersticeError::Internal("The node still asks for a grant".into()));
+                }
+                if ask_grant(&module, &authorities) {
+                    grant = true;
+                } else {
+                    println!("Not granted: nothing changed on the node.");
+                    break Ok(());
+                }
+            }
             LoadOutcome::NeedsDecision { plan } => {
                 println!("{plan}");
                 if policy != MigrationPolicy::Safe {
@@ -109,12 +122,14 @@ async fn send_load(
     stream: &mut tokio::net::TcpStream,
     wasm_binary: &[u8],
     policy: MigrationPolicy,
+    grant: bool,
 ) -> Result<LoadOutcome, IntersticeError> {
     let request_id = uuid::Uuid::new_v4().to_string();
     let packet = NetworkPacket::ModuleEvent(ModuleEventInstance::Load {
         wasm_binary: wasm_binary.to_vec(),
         policy,
         request_id: request_id.clone(),
+        grant,
     });
     write_packet(stream, &packet).await?;
     loop {
@@ -128,6 +143,22 @@ async fn send_load(
             _ => {}
         }
     }
+}
+
+/// Ask whether to grant `authorities` to `module`; no terminal means no.
+fn ask_grant(module: &str, authorities: &[String]) -> bool {
+    println!("Module '{module}' asks for authorities: {}", authorities.join(", "));
+    if !std::io::stdin().is_terminal() {
+        println!("No terminal to ask: pass --grant to grant them.");
+        return false;
+    }
+    print!("Grant {} to '{module}'? [y/N] ", authorities.join(", "));
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    if std::io::stdin().lock().read_line(&mut line).is_err() {
+        return false;
+    }
+    matches!(line.trim().to_lowercase().as_str(), "y" | "yes")
 }
 
 /// Ask how to proceed with a plan that needs a decision; `None` aborts.

@@ -4,8 +4,26 @@ use crate::{
     node_registry::{NodeRecord, NodeRegistry},
     start::start,
 };
-use interstice_core::{IntersticeError, Node};
+use interstice_core::{IntersticeError, Node, security::NodeConfig};
 use std::path::Path;
+
+/// Make this CLI an owner of `node` (DESIGN §7.4): the CLI that creates or
+/// starts a local node administers it.
+pub fn own_node(node: &Node) -> Result<(), IntersticeError> {
+    let identity = crate::data_directory::load_cli_identity()?;
+    node.add_owner(&identity.cli_id, &identity.cli_token)
+}
+
+/// The data directory of the local node `name_or_id`.
+fn local_node_dir(registry: &NodeRegistry, name_or_id: &str) -> Result<std::path::PathBuf, IntersticeError> {
+    let record = registry
+        .get(name_or_id)
+        .ok_or_else(|| IntersticeError::Internal(format!("Unknown node '{name_or_id}'")))?;
+    match (&record.node_id, record.local) {
+        (Some(id), true) => Ok(nodes_dir().join(id)),
+        _ => Err(IntersticeError::Internal(format!("'{name_or_id}' is not a local node"))),
+    }
+}
 
 /// Remove a node from the registry and clean up its local data directory if it's a local node
 pub fn remove_node_with_data(
@@ -66,6 +84,12 @@ pub async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError>
                 .map_err(|err| IntersticeError::Internal(format!("Failed to parse port: {err}")))?;
             let public_address = format!("127.0.0.1:{}", port);
             let node = Node::new(&nodes_dir(), port, public_address.clone())?;
+            own_node(&node)?;
+            if args[5..].iter().any(|a| a == "--expose") {
+                let mut config = node.config()?;
+                config.listen = Some("0.0.0.0".into());
+                node.save_config(&config)?;
+            }
             registry.add(NodeRecord {
                 name,
                 address: public_address,
@@ -191,6 +215,44 @@ pub async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError>
             })?;
             println!("Schema written to {}", out_path.display());
         }
+        "expose" => {
+            // DESIGN §7.4: listen on every interface, or only on localhost.
+            if args.len() < 5 {
+                print_node_help();
+                return Ok(());
+            }
+            let dir = local_node_dir(&registry, &args[3])?;
+            let mut config = NodeConfig::load(&dir)?;
+            config.listen = match args[4].as_str() {
+                "on" => Some("0.0.0.0".into()),
+                "off" => None,
+                other => return Err(IntersticeError::Internal(format!("expected on or off, got '{other}'"))),
+            };
+            config.save(&dir)?;
+            println!("Node '{}' will listen on {} from its next start.", args[3], config.listen_host());
+        }
+        "owner" => {
+            // `node owner add <node> <id> <token>` / `node owner list <node>`
+            match (args.get(3).map(String::as_str), args.len()) {
+                (Some("add"), 7) => {
+                    let dir = local_node_dir(&registry, &args[4])?;
+                    let mut config = NodeConfig::load(&dir)?;
+                    args[5]
+                        .parse::<interstice_core::NodeId>()
+                        .map_err(|_| IntersticeError::Internal(format!("'{}' is not an id", args[5])))?;
+                    config.add_owner(&args[5], &args[6]);
+                    config.save(&dir)?;
+                    println!("Owner added; it takes effect at the node's next start.");
+                }
+                (Some("list"), 5) => {
+                    let dir = local_node_dir(&registry, &args[4])?;
+                    for owner in NodeConfig::load(&dir)?.owners {
+                        println!("{}", owner.id);
+                    }
+                }
+                _ => print_node_help(),
+            }
+        }
         _ => print_node_help(),
     }
 
@@ -200,7 +262,7 @@ pub async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError>
 fn print_node_help() {
     println!("USAGE:");
     println!("  interstice node add <name> <address>");
-    println!("  interstice node create <name> <port>");
+    println!("  interstice node create <name> <port> [--expose]");
     println!("  interstice node list");
     println!("  interstice node remove <name|id>");
     println!("  interstice node rename <old> <new>");
@@ -208,4 +270,7 @@ fn print_node_help() {
     println!("  interstice node start <name|id>");
     println!("  interstice node ping <name|id>");
     println!("  interstice node schema <name|id> [out]");
+    println!("  interstice node expose <name|id> on|off        listen on every interface, or on localhost only");
+    println!("  interstice node owner add <name|id> <id> <token>  let another CLI administer this node");
+    println!("  interstice node owner list <name|id>");
 }

@@ -16,10 +16,11 @@ fn validate_reducer_attrs(attributes: &syn::punctuated::Punctuated<Meta, syn::To
     for meta in attributes {
         match meta {
             Meta::NameValue(nv) if nv.path.is_ident("on") => {}
+            m if crate::visibility::visibility_option(m).is_some() => {}
             _ => {
                 return Err(syn::Error::new_spanned(
                     meta,
-                    "unsupported #[reducer] option; use only `on = \"…\"` for subscriptions (table access is declared via `ReducerContext<Caps>` and `where Caps: CanRead<Row> + …`)",
+                    "unsupported #[reducer] option; use `on = \"…\"` for subscriptions and `public` / `local` / `internal` for who may call it (table access is declared via `ReducerContext<Caps>` and `where Caps: CanRead<Row> + …`)",
                 ));
             }
         }
@@ -128,6 +129,10 @@ pub fn reducer_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
     if let Err(e) = validate_reducer_attrs(&attributes) {
         return e.into_compile_error().into();
     }
+    let visibility = match crate::visibility::declared_visibility(&attributes) {
+        Ok(v) => v,
+        Err(e) => return e.into_compile_error().into(),
+    };
 
     let (register_subscription, use_table_subscription) =
         get_register_subscription_function(reducer_ident.clone(), attributes);
@@ -164,6 +169,7 @@ pub fn reducer_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
         arg_names,
         arg_types,
         caps_extend_body,
+        visibility,
     );
 
     quote! {

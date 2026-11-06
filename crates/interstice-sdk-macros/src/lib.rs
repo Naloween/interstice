@@ -7,6 +7,7 @@ mod path_segments;
 mod query;
 mod reducer;
 mod table;
+mod visibility;
 
 use proc_macro::TokenStream;
 

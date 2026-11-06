@@ -301,6 +301,9 @@ impl Runtime {
                 module: module_name.into(),
                 reducer: reducer_name.into(),
             })?;
+        // Who may call what (DESIGN §7.4): checked before anything runs.
+        self.security
+            .check_call(&module.schema, reducer_name, false, caller_node_id, caller_module_name)?;
         debug_assert!(
             CALL_STACK.with(|s| s.borrow().is_empty()),
             "reducers only run at top level"

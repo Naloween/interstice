@@ -373,7 +373,8 @@ implied. That one declaration is used three ways:
 declarations and subscriptions refer to tables that exist and to dependencies it
 has declared. A violation panics, so the module fails to load.
 
-**Not capability-checked:** reducer calls, query calls, schedule, time and random.
+**Calls** are checked by visibility, not capabilities (§7.4). Schedule only
+targets the module's own reducers; time and random are not checked.
 
 ---
 
@@ -893,36 +894,160 @@ the bytes themselves.
   it transparently.
 - A `sync` event fires once, after the initial full sync.
 
-### 7.4 Visibility and security
+### 7.4 Security: the kernel and the module manager
 
-**Design:**
-- Private modules and private tables are invisible and inaccessible from other
-  nodes.
-- Peers authenticate with trust-on-first-use tokens.
+The node core is the **kernel** of an operating system made of modules.
+
+- **The kernel provides the mechanisms and enforces them:**
+  - who a peer is (authentication);
+  - what each call may reach (visibility);
+  - which module holds which authority;
+  - where the file authority may go.
+- **Decisions are policy, and policy belongs to the module that holds the
+  `Module` authority** (`module_manager` by default). Decisions here mean
+  loading, unloading or removing a module, granting an authority, and later
+  trusting a peer.
+- **Without such a module, the kernel decides on its own**, from the
+  owners list and a CLI prompt. That is the "simple command program" mode.
+
+**Identities.**
+- Every connection starts with a handshake of `(id, token)`. A node or a
+  CLI has a UUID and a random token.
+- Tokens are remembered on first use: a known id that presents another
+  token is refused.
+- A malformed id refuses the connection; it does not panic.
+- **Owners** are the identities allowed to administer a node. They are
+  listed in `node.toml` in the node directory, with their tokens.
+  - The CLI that creates or starts a local node adds itself, and pins
+    its token, so another peer can't claim the owner's id first.
+  - Remote owners are added with
+    `interstice node owner add <node> <id> <token>`;
+    `interstice identity` prints this CLI's id and token.
+
+**Listening.**
+- A node listens on `127.0.0.1` by default, so only this machine can
+  connect.
+- `listen = "0.0.0.0"` in `node.toml` (`interstice node expose <node>
+  on|off`, or `node create … --expose`) opens it to the network.
+
+**Who may call what.** Every reducer and query has an effective visibility:
+
+| Visibility | Callable by |
+|---|---|
+| `public` | anyone connected, from any node |
+| `local` | modules on the same node |
+| `internal` | its own module only |
+
+- **The default** depends on the module and the function:
+  - a reducer with `on = "…"` (an event handler) is `internal`;
+  - otherwise `public` in a `Public` module, and `local` in a `Private`
+    module.
+- **Override** a single function with `#[reducer(public|local|internal)]`
+  or `#[query(…)]`. Visibility travels in the schema; this bumped the ABI
+  to 14.
+- **The kernel itself is never limited.** Event handlers, `init`/`load`,
+  `render`, timers and schedules (a module schedules only its own
+  reducers) are not affected by visibility.
+- **Owners are never limited either**: an owner's CLI may call anything,
+  for administration and debugging.
+- **Where the check runs:** at the one entry each kind of call goes
+  through, `Runtime::call_reducer` and `Runtime::call_query`. It runs
+  before any transaction starts. The caller is classified from what every
+  job already carries:
+  - local node and no module: the kernel;
+  - local node and a module: that module;
+  - another id: a peer, owner or not.
+  A refused call fails with `PermissionDenied` and runs nothing. A call
+  from a module to another module on the same node is also checked when
+  it is made, so the caller's `call_reducer` returns the error at once
+  instead of the deferred call failing later.
+- **Remote reads of tables follow the same rule.**
+  - A subscription or table sync from a non-owner needs both the module
+    and the table to be `Public`.
+  - Until now subscriptions were not checked at all; only table sync
+    checked the table.
+- **Schema requests.** A non-owner gets `NodeSchema::to_remote()`: public
+  modules only, private tables removed, and only the reducers and queries
+  it may call. An owner gets everything, which bindings generation relies
+  on. (`to_public()`, used for bindings, keeps `local` functions, because
+  a module's bindings to a module on its own node need them.)
+
+**Administration.** `load`, `unload` and `remove` arrive from the network:
+- **With a `Module` holder:** the kernel forwards the request as a
+  `ModuleEvent`, with the authenticated `caller` and `owner: bool`, and
+  answers `Forwarded`. The holder decides.
+  - `module_manager` accepts requests from owners: it loads (and
+    registers the app), unloads or removes.
+  - A load through the holder (`ModuleCall::Load`) uses the same update
+    path as the CLI, with the safe policy. Loading the bytes that are
+    already running does nothing, so the desktop can call `load_app`
+    for an app that is already open.
+  - It refuses everyone else, and logs the refusal.
+  - Its own admin reducers are `local`, so a remote peer can't go around
+    it by calling `load` directly.
+- **Without a holder:** the kernel accepts owners and refuses everyone
+  else.
+
+**Authorities.**
+- Claiming an authority (§8) needs a grant.
+- **The grants already given** are stored with each module (`granted` in
+  `state.toml`):
+  - a reload or update that asks for nothing new needs no new grant;
+  - a module written before grants existed counts as granted.
+- **Who grants:**
+  - **A `load` from the CLI** with no holder: the kernel answers
+    `NeedsGrant { authorities }`, and the CLI asks
+    `Grant File, Network to 'x'? [y/N]`. `--grant` answers in advance,
+    and without a terminal the answer is no. Same flow as the migration
+    prompt (§3.3).
+  - **A bundle, an example, or a node start**: running it is the owner's
+    consent. The kernel logs every grant it gives.
+  - **A load by the `Module` holder** (`ModuleCall::Load`): the holder
+    decided, so the grant is given.
+- **The kernel bounds what any grant can reach.** The File authority is
+  confined to the node's file root:
+  - `<node>/files` by default, or `files_root` in `node.toml`;
+  - `interstice example` sets it to the directory the example runs in;
+  - relative paths are taken from the root;
+  - absolute paths outside it, `..`, and symlinks leading out of it are
+    refused.
+  - File watches are confined the same way, and report paths relative
+    to the root.
+- **Only the owner chooses who holds `Module`.** A module that claims the
+  Module authority can only be granted by an owner's load or a bundle,
+  never by a non-owner's request, and the holder can't be replaced
+  remotely.
 
 **Status:**
-- `to_public()` filtering is applied only when the CLI generates bindings.
-- A node's `SchemaRequest` reply contains every module, private ones included.
-- Remote reducer calls, queries and subscriptions perform **no visibility
-  check**; only table sync and replica setup require a public table.
-- Transport is plain TCP with length-prefixed postcard frames and no
-  encryption.
-- `connect_to_peer` unwraps, so loading a module whose node dependency is
-  offline panics. There is no reconnection.
+- **No encryption yet.** Transport is plain TCP: tokens travel in clear
+  and can be copied by anyone who sees the traffic. The next step is a
+  key pair per node with an encrypted channel (`tokio-rustls` is already a
+  dependency).
+- **Trusting new peers isn't delegated yet.** It stays trust-on-first-use;
+  delegating it to the module manager (pairing) is future work.
+- **Local modules trust each other.** Any module on the node may call the
+  module manager's `local` admin reducers. Per-caller rules (for example
+  "only the desktop may load apps") are the manager's business, through
+  `ctx.caller_module_name`.
+- **No per-user identities or roles beyond owners.**
+- **Loads forwarded to the manager lose the migration prompt.** The
+  manager loads with the safe policy: a load whose plan needs a decision
+  is refused, and the refusal is reported in its `LoadReport`.
 
 ---
 
 ## 8. Authorities and default modules
 
-Each authority is held by at most one module per node, claimed at load time.
+Each authority is held by at most one module per node, claimed at load time
+once it is granted (§7.4).
 
 | Authority | Grants | Default module | Surface exposed to other modules |
 |---|---|---|---|
 | Gpu | ~40 wgpu-like host calls, the `render` event and window creation | `graphics` | Layers, textures, meshes, pipelines and 2D drawing reducers (`draw_rect`, `draw_text`, `draw_image`, …); public `FrameTick` and `SurfaceInfo` tables |
 | Input | The `input` event | `input` | Public ephemeral tables `KeyState` (physical code + the layout's logical `key` and typed `text`), `MouseState`, `MouseButton`, `TextInputBuffer`; stateful `KeyboardLayout` (`system` default, `us`, `fr`; reducer `set_keyboard_layout`) |
 | Network | TCP, UDP, host-side TLS and system DNS | `network` | Reducers `connect`, `send`, `close`, `resolve`, `http_get`; result tables `Connection`, `Inbound`, `ConnClosed`, `Resolved`, `HttpResponse`, each stamped with an `owner` |
-| File | File-system host calls and file-watch events | – (claimed directly, e.g. by the browser) | – |
-| Module | Load, unload and remove of modules, and routing of remote load/remove requests | `module_manager` | `App` table and app lifecycle reducers |
+| File | File-system host calls and file-watch events, confined to the node's file root (§7.4) | – (claimed directly) | – |
+| Module | Load, unload and remove of modules; decides remote administration requests (§7.4) | `module_manager` | `App` table and `local` app lifecycle reducers |
 | Audio | Output and input streams | `audio` (stub) | – |
 
 `crates/interstice-ui` is a library that modules link against (`ui_subsystem!`);
@@ -941,13 +1066,13 @@ graphics keeps the texture formats and decodes draw colours in the vertex
 stage, so colours stay right and only blending shifts to linear light.
 
 **Status:**
-- **`module_manager` drops requests.** Its `module_load` and `module_remove`
-  hooks are no-ops, so remote load and remove requests are silently dropped
-  while it is loaded.
+- **The Module holder decides administration** (§7.4). Remote load,
+  unload and remove requests reach it as `ModuleEvent`s carrying the
+  caller and whether it is an owner. `module_manager` carries out owners'
+  requests and refuses the rest.
 - **Without a Module holder, `load` of an existing module updates it** with a
-  migration plan (§3.3). With a holder, the request is forwarded, and
-  `module_manager` drops it.
-- **Unload is never routed through the authority.**
+  migration plan (§3.3) and asks for new authority grants; only owners may
+  load, unload or remove.
 - **File watchers are never removed.**
 - **Keyboard layout comes from the host.** The engine forwards winit's
   `logical_key` and `text` with each `InputEvent::Key` (empty when it can't
@@ -1120,7 +1245,7 @@ bundle appended, which runs that node when started.
 
 ## 10. ABI, SDK and CLI
 
-**ABI** (`crates/interstice-abi`, `ABI_VERSION = 9`):
+**ABI** (`crates/interstice-abi`, `ABI_VERSION = 14`):
 - Everything is postcard-encoded.
 - Byte vectors travel as `IntersticeValue::Bytes(Vec<u8>)` (v8), a single
   length + raw bytes, not one `U8` value per byte. It validates as
@@ -1140,6 +1265,8 @@ bundle appended, which runs that node when started.
 
 **SDK** (`interstice-sdk`, `-sdk-core`, `-sdk-macros`):
 - Attribute macros: `#[table]`, `#[reducer]`, `#[query]`, `#[interstice_type]`, `#[init]`.
+  `#[reducer(public|local|internal)]` and `#[query(…)]` set who may call
+  a function (§7.4).
 - Module macro: `interstice_module!(visibility, authorities, replicated_tables)`.
 - Context helpers: `log`, `time_now_ms`, `deterministic_random_u64`,
   `current_node_id`, `schedule`, and authority accessors such as `ctx.gpu()`.
@@ -1551,8 +1678,11 @@ but explicitly out of scope for now.
 - [ ] Remove dead `PersistenceConfig` / `LogRotator`.
 
 ### 13.3 Security and distribution
-- [ ] Visibility and capability checks on reducer/query calls, schedule, and
-      remote access (§5, §7.4).
+- [x] Visibility checks on reducer/query calls, subscriptions, table sync and
+      schema requests; owners; localhost by default; administration and
+      authority grants decided by the Module holder, else by the kernel
+      (§7.4).
+- [ ] Encrypted transport with node key pairs; delegated peer trust (§7.4).
 - [ ] Authority model for the "OS" use case: which module may grant which
       authority to whom; per-user identities.
 - [ ] Replica writes and remote queries through the scheduler (§6.3).

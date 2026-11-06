@@ -56,6 +56,13 @@ async fn main() -> Result<(), IntersticeError> {
             example(&args[2]).await
         }
         "bundle" => handle_bundle_command(&args).await,
+        "identity" => {
+            let identity = interstice_cli::data_directory::load_cli_identity()?;
+            println!("id:    {}", identity.cli_id);
+            println!("token: {}", identity.cli_token);
+            println!("On another machine: interstice node owner add <node> {} {}", identity.cli_id, identity.cli_token);
+            Ok(())
+        }
         "init" => init(),
         "load" => {
             if args.len() < 4 {
@@ -72,7 +79,8 @@ async fn main() -> Result<(), IntersticeError> {
             } else {
                 None
             };
-            load(node_ref, module_project_path, decision).await
+            let grant = args[4..].iter().any(|a| a == "--grant");
+            load(node_ref, module_project_path, decision, grant).await
         }
         "update" => update(),
         "unload" => {
@@ -144,7 +152,9 @@ fn print_help() {
     println!();
     println!("COMMANDS:");
     println!("  node add <name> <address>            Add a node entry");
-    println!("  node create <name> <port> [--elusive]  Create a local node entry");
+    println!("  node create <name> <port> [--expose]  Create a local node (listens on localhost unless exposed)");
+    println!("  node expose <name|id> on|off         Listen on every interface, or on localhost only");
+    println!("  node owner add|list <name|id> ...    Owners may administer the node and call anything");
     println!("  node list                            List known nodes");
     println!("  node remove <name|id>                Remove a node entry");
     println!("  node rename <old> <new>              Rename a node entry");
@@ -161,8 +171,10 @@ fn print_help() {
     println!(
         "  init                                   Initialize a new interstice module project in the current directory"
     );
-    println!("  load <node> <module_path> [--allow-data-loss|--delete-data]");
+    println!("  load <node> <module_path> [--allow-data-loss|--delete-data] [--grant]");
     println!("                                 Load or update a module; asks before a migration that loses data");
+    println!("                                 and before granting authorities (--grant grants them)");
+    println!("  identity                       Show this CLI's id and token (to become an owner of a remote node)");
     println!("  unload <node> <module_name>    Unload a module but keep its data");
     println!("  remove <node> <module_name>    Remove a module and delete its data");
     println!("  update                          Update the interstice CLI");

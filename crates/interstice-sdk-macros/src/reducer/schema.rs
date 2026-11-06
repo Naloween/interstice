@@ -6,6 +6,7 @@ pub fn get_register_schema_function(
     arg_names: Vec<&Box<Pat>>,
     arg_types: Vec<&Box<Type>>,
     caps_extend_body: proc_macro2::TokenStream,
+    visibility: proc_macro2::TokenStream,
 ) -> proc_macro2::TokenStream {
     let reducer_schema_fn = syn::Ident::new(
         &format!("interstice_{}_schema", reducer_ident),
@@ -41,14 +42,16 @@ pub fn get_register_schema_function(
             let mut updates = Vec::new();
             let mut deletes = Vec::new();
             #caps_extend_body
-            interstice_sdk::ReducerSchema::new(
+            let mut schema = interstice_sdk::ReducerSchema::new(
                 stringify!(#reducer_ident),
                 vec![#(#schema_entries),*],
                 reads,
                 inserts,
                 updates,
                 deletes,
-            )
+            );
+            schema.visibility = #visibility;
+            schema
         }
 
         #[interstice_sdk::init]

@@ -329,6 +329,7 @@ pub async fn run_bundle(bundle: Bundle, options: RunOptions) -> Result<(), Inter
         }
     };
 
+    crate::node_utils::own_node(&node)?;
     let preset = options.decision;
     let decide: Decide = Box::new(move |module: &str, plan: &str| {
         println!("Module '{module}' needs a decision:\n{plan}");

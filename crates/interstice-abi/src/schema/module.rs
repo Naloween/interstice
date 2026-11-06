@@ -39,6 +39,23 @@ pub struct ModuleSchema {
 }
 
 impl ModuleSchema {
+    /// The effective visibility of reducer or query `name` (DESIGN §7.4);
+    /// `None` when there is no such function.
+    pub fn call_visibility(&self, name: &str, query: bool) -> Option<crate::CallVisibility> {
+        use crate::CallVisibility as V;
+        let declared = if query {
+            self.queries.iter().find(|q| q.name == name)?.visibility
+        } else {
+            self.reducers.iter().find(|r| r.name == name)?.visibility
+        };
+        Some(match declared {
+            V::Default if !query && self.subscriptions.iter().any(|s| s.reducer_name == name) => V::Internal,
+            V::Default if self.visibility == ModuleVisibility::Public => V::Public,
+            V::Default => V::Local,
+            other => other,
+        })
+    }
+
     /// Whether `ty` is or contains a `Blob` (through user-defined types too).
     pub fn type_contains_blob(&self, ty: &crate::IntersticeType) -> bool {
         fn walk(
@@ -137,6 +154,21 @@ impl ModuleSchema {
         }
     }
 
+    /// What a peer that is not an owner may see (DESIGN §7.4): public
+    /// tables, and only the reducers and queries it may call.
+    pub fn to_remote(mut self) -> Self {
+        let public = |s: &Self, name: &str, query: bool| {
+            s.call_visibility(name, query) == Some(crate::CallVisibility::Public)
+        };
+        let keep_reducers: Vec<bool> = self.reducers.iter().map(|r| public(&self, &r.name, false)).collect();
+        let keep_queries: Vec<bool> = self.queries.iter().map(|q| public(&self, &q.name, true)).collect();
+        let mut keep = keep_reducers.into_iter();
+        self.reducers.retain(|_| keep.next().unwrap_or(false));
+        let mut keep = keep_queries.into_iter();
+        self.queries.retain(|_| keep.next().unwrap_or(false));
+        self.to_public()
+    }
+
     pub fn to_public(self) -> Self {
         let mut type_definitions = HashMap::new();
 
@@ -220,13 +252,9 @@ impl ModuleSchema {
         // Collect types from public reducers
         let mut reducers = Vec::new();
         for reducer_schema in &self.reducers {
-            let mut add_reducer = true;
-            for subscription in &self.subscriptions {
-                if subscription.reducer_name == reducer_schema.name {
-                    add_reducer = false;
-                    break;
-                }
-            }
+            // Event handlers are not an API, unless marked `public` (§7.4).
+            let add_reducer = reducer_schema.visibility == crate::CallVisibility::Public
+                || !self.subscriptions.iter().any(|s| s.reducer_name == reducer_schema.name);
             if add_reducer {
                 reducers.push(reducer_schema.clone());
 

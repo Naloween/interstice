@@ -52,18 +52,83 @@ pub struct AppInfo {
     pub loaded: bool,
 }
 
-// ── Request hooks ──────────────────────────────────────────────────────────────
+// ── Request hooks (DESIGN §7.4) ────────────────────────────────────────────────
 //
-// When this module holds the Module authority, the runtime routes external
-// load/remove requests through these hooks. For now they are intentionally
-// minimal no-ops (the request payload is not yet passed in) — policy and
-// registry integration for routed requests will be wired later.
+// Holding the Module authority makes this module the node's policy for
+// administration: the kernel forwards every load / unload / remove asked
+// from the network here, with the authenticated caller and whether it is an
+// owner of the node. The default policy: owners are obeyed, everyone else
+// is refused (and the refusal logged and reported).
 
 #[reducer(on = "module_load")]
-fn on_module_load(_ctx: ReducerContext) {}
+fn on_module_load<Caps>(ctx: ReducerContext<Caps>, event: ModuleEvent) -> Result<(), String>
+where
+    Caps: CanAll<App> + CanAll<AppBinary> + CanInsert<LoadReport>,
+{
+    let ModuleEvent::LoadRequest { node_id, owner, module_name, wasm_binary } = event else {
+        return Ok(());
+    };
+    if !owner {
+        let message = format!("load of '{module_name}' refused: {node_id} is not an owner");
+        ctx.log(&format!("module_manager: {message}"));
+        ctx.current.tables.loadreport().insert(LoadReport { seq: 0, module: module_name, ok: false, message })?;
+        return Ok(());
+    }
+    if let Err(err) = ctx.module().load(NodeSelection::Current, wasm_binary.clone()) {
+        ctx.log(&format!("module_manager: failed to load '{module_name}': {err}"));
+        return Ok(());
+    }
+    let icon = find_app(&ctx, &module_name)?.and_then(|a| a.icon);
+    upsert_app(&ctx, module_name, wasm_binary, icon, true)
+}
+
+#[reducer(on = "module_unload")]
+fn on_module_unload<Caps>(ctx: ReducerContext<Caps>, event: ModuleEvent) -> Result<(), String>
+where
+    Caps: CanRead<App> + CanUpdate<App>,
+{
+    let ModuleEvent::UnloadRequest { node_id, owner, module_name } = event else {
+        return Ok(());
+    };
+    if !owner {
+        ctx.log(&format!("module_manager: unload of '{module_name}' refused: {node_id} is not an owner"));
+        return Ok(());
+    }
+    if let Err(err) = ctx.module().unload(NodeSelection::Current, module_name.clone()) {
+        ctx.log(&format!("module_manager: failed to unload '{module_name}': {err}"));
+        return Ok(());
+    }
+    if let Some(mut app) = find_app(&ctx, &module_name)? {
+        app.loaded = false;
+        ctx.current.tables.app().update(app)?;
+    }
+    Ok(())
+}
 
 #[reducer(on = "module_remove")]
-fn on_module_remove(_ctx: ReducerContext) {}
+fn on_module_remove<Caps>(ctx: ReducerContext<Caps>, event: ModuleEvent) -> Result<(), String>
+where
+    Caps: CanRead<App> + CanDelete<App> + CanRead<AppBinary> + CanDelete<AppBinary>,
+{
+    let ModuleEvent::RemoveRequest { node_id, owner, module_name } = event else {
+        return Ok(());
+    };
+    if !owner {
+        ctx.log(&format!("module_manager: removal of '{module_name}' refused: {node_id} is not an owner"));
+        return Ok(());
+    }
+    if let Err(err) = ctx.module().remove(NodeSelection::Current, module_name.clone()) {
+        ctx.log(&format!("module_manager: failed to remove '{module_name}': {err}"));
+        return Ok(());
+    }
+    if let Some(app) = find_app(&ctx, &module_name)? {
+        if ctx.current.tables.appbinary().get(app.id)?.is_some() {
+            ctx.current.tables.appbinary().delete(app.id)?;
+        }
+        ctx.current.tables.app().delete(app.id)?;
+    }
+    Ok(())
+}
 
 /// A load we requested finished. A failed app is no longer `loaded`.
 #[reducer(on = "module_load_result")]
@@ -88,9 +153,12 @@ where
 }
 
 // ── App lifecycle reducers ─────────────────────────────────────────────────────
+//
+// `local`: the desktop (or any module on this node) drives them; a remote
+// peer can't go around the request hooks above by calling them (§7.4).
 
 /// Register an app (upsert by name) and immediately load it onto this node.
-#[reducer]
+#[reducer(local)]
 fn load<Caps>(ctx: ReducerContext<Caps>, name: String, wasm: Blob, icon: Option<Vec<u8>>) -> Result<(), String>
 where
     Caps: CanAll<App> + CanAll<AppBinary>,
@@ -105,7 +173,7 @@ where
 
 /// Register an app without loading it (e.g. install for later launch). A
 /// loaded app keeps its `loaded` flag.
-#[reducer]
+#[reducer(local)]
 fn register_app<Caps>(ctx: ReducerContext<Caps>, name: String, wasm: Blob, icon: Option<Vec<u8>>) -> Result<(), String>
 where
     Caps: CanAll<App> + CanAll<AppBinary>,
@@ -115,7 +183,7 @@ where
 }
 
 /// Load an already-registered app onto this node by name.
-#[reducer]
+#[reducer(local)]
 fn load_app<Caps>(ctx: ReducerContext<Caps>, name: String) -> Result<(), String>
 where
     Caps: CanRead<App> + CanUpdate<App> + CanRead<AppBinary>,
@@ -136,7 +204,7 @@ where
 }
 
 /// Unload an app from this node (keeps it in the registry).
-#[reducer]
+#[reducer(local)]
 fn unload_app<Caps>(ctx: ReducerContext<Caps>, name: String) -> Result<(), String>
 where
     Caps: CanRead<App> + CanUpdate<App>,
@@ -155,7 +223,7 @@ where
 }
 
 /// Unload (if loaded) and forget an app entirely.
-#[reducer]
+#[reducer(local)]
 fn remove_app<Caps>(ctx: ReducerContext<Caps>, name: String) -> Result<(), String>
 where
     Caps: CanRead<App> + CanDelete<App> + CanRead<AppBinary> + CanDelete<AppBinary>,
@@ -177,7 +245,7 @@ where
 // ── Queries ────────────────────────────────────────────────────────────────────
 
 /// List all registered apps (without their wasm bytes).
-#[query]
+#[query(local)]
 fn list_apps<Caps>(ctx: QueryContext<Caps>) -> Result<Vec<AppInfo>, String>
 where
     Caps: CanRead<App>,

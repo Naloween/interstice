@@ -1,5 +1,5 @@
 use crate::{
-    error::IntersticeError, runtime::Runtime, runtime::module::Module, runtime::wasm::StoreState,
+    error::IntersticeError, runtime::Runtime, runtime::wasm::StoreState,
 };
 use interstice_abi::{ModuleCall, ModuleCallResponse, ModuleSchema, NodeSelection};
 use std::sync::Arc;
@@ -25,21 +25,29 @@ impl Runtime {
                     // `module_load_result` event (DESIGN §9).
                     let requester = caller_module_schema.name.clone();
                     self.tokio_handle.spawn(async move {
-                        let (module_name, result) =
-                            match Module::from_bytes(runtime.clone(), &wasm_binary).await {
-                                Ok(module) => {
-                                    let name = module.schema.name.clone();
-                                    let result = Runtime::load_module(runtime.clone(), module)
-                                        .await
-                                        .map(|_| ())
-                                        .map_err(|err| format!("Load of '{name}' failed: {err}"));
-                                    (name, result)
-                                }
-                                Err(err) => (
-                                    String::new(),
-                                    Err(format!("Load failed while compiling module bytes: {err}")),
-                                ),
-                            };
+                        // An update when it is loaded already, with the
+                        // safe policy: a plan that needs a decision is
+                        // refused (DESIGN §7.4). The holder decided, so the
+                        // authorities are granted.
+                        use crate::network::protocol::LoadOutcome;
+                        let (module_name, outcome) = Runtime::update_module_named(
+                            runtime.clone(),
+                            wasm_binary,
+                            crate::MigrationPolicy::Safe,
+                            true,
+                        )
+                        .await;
+                        let result = match outcome {
+                            LoadOutcome::Loaded { .. } | LoadOutcome::Forwarded => Ok(()),
+                            LoadOutcome::NeedsDecision { plan } => {
+                                Err(format!("Load of '{module_name}' refused: the migration needs a decision\n{plan}"))
+                            }
+                            LoadOutcome::NeedsGrant { .. } => Err(format!("Load of '{module_name}' needs a grant")),
+                            LoadOutcome::Failed(err) if module_name.is_empty() => {
+                                Err(format!("Load failed while compiling module bytes: {err}"))
+                            }
+                            LoadOutcome::Failed(err) => Err(format!("Load of '{module_name}' failed: {err}")),
+                        };
                         if let Err(message) = &result {
                             runtime.logger.log(
                                 message,
@@ -103,6 +111,7 @@ impl Runtime {
                                 wasm_binary,
                                 policy: Default::default(),
                                 request_id: String::new(),
+                                grant: false,
                             },
                         ),
                     );

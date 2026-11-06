@@ -101,9 +101,11 @@ pub enum EventInstance {
         policy: crate::runtime::migration::MigrationPolicy,
         /// Answered with `ModuleLoadResult` when not empty.
         request_id: String,
+        grant: bool,
     },
     UnloadModule {
         module_name: String,
+        source_node_id: NodeId,
     },
     RemoveModule {
         module_name: String,
@@ -256,6 +258,7 @@ impl EventInstance {
                     true
                 }
                 (ModuleEvent::RemoveRequest { .. }, SubscriptionEventSchema::ModuleRemove) => true,
+                (ModuleEvent::UnloadRequest { .. }, SubscriptionEventSchema::ModuleUnload) => true,
                 (ModuleEvent::LoadResult { .. }, SubscriptionEventSchema::ModuleLoadResult) => {
                     true
                 }

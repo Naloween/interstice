@@ -191,6 +191,12 @@ impl Network {
         }
     }
 
+    /// Listen on `host` instead of the host given at creation (DESIGN §7.4).
+    pub fn set_bind_host(&mut self, host: &str) {
+        let port = self.bind_address.rsplit(':').next().unwrap_or("0").to_string();
+        self.bind_address = format!("{host}:{port}");
+    }
+
     pub async fn listen(&mut self) -> Result<(), IntersticeError> {
         let peers = self.peers.clone();
         let sender = self.packet_sender.clone();
@@ -445,7 +451,7 @@ impl Network {
                     }
                     NetworkPacket::ModuleEvent(module_event_instance) => {
                         match module_event_instance {
-                            protocol::ModuleEventInstance::Load { wasm_binary, policy, request_id } => self
+                            protocol::ModuleEventInstance::Load { wasm_binary, policy, request_id, grant } => self
                                 .runtime_event_sender
                                 .send((
                                     EventInstance::LoadModule {
@@ -453,6 +459,7 @@ impl Network {
                                         source_node_id: node_id,
                                         policy,
                                         request_id,
+                                        grant,
                                     },
                                     None,
                                 ))
@@ -460,7 +467,7 @@ impl Network {
                             protocol::ModuleEventInstance::Unload { module_name } => self
                                 .runtime_event_sender
                                 .send((
-                                    EventInstance::UnloadModule { module_name },
+                                    EventInstance::UnloadModule { module_name, source_node_id: node_id },
                                     None,
                                 ))
                                 .unwrap(),
@@ -694,7 +701,10 @@ async fn handshake_incoming(
             ));
         }
     };
-    let peer_id = NodeId::parse_str(&peer_id_str).expect("Couldn't parse node id");
+    // A malformed id refuses the connection; it must not panic (DESIGN §7.4).
+    let peer_id = NodeId::parse_str(&peer_id_str).map_err(|_| {
+        IntersticeError::ProtocolError(format!("Invalid node id in handshake: {peer_id_str:?}"))
+    })?;
 
     {
         let mut store = peer_tokens.lock();

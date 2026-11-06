@@ -28,13 +28,22 @@ pub enum ModuleCallResponse {
 
 #[derive(Debug, Deserialize, Serialize, IntersticeType, Clone)]
 pub enum ModuleEvent {
+    /// A load asked from the network (DESIGN §7.4): `node_id` is the
+    /// authenticated caller, `owner` whether it is an owner of this node.
     LoadRequest {
         node_id: String,
+        owner: bool,
         module_name: String,
         wasm_binary: Vec<u8>,
     },
+    UnloadRequest {
+        node_id: String,
+        owner: bool,
+        module_name: String,
+    },
     RemoveRequest {
         node_id: String,
+        owner: bool,
         module_name: String,
     },
     /// Outcome of a local `Load` (DESIGN §9), sent only to `requester`.

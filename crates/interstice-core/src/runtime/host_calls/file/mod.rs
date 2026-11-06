@@ -21,6 +21,11 @@ impl Runtime {
         memory: &Memory,
         caller: &mut Caller<'_, StoreState>,
     ) -> Result<Option<i64>, IntersticeError> {
+        // The File authority is confined to the node's file root (DESIGN §7.4).
+        let call = match self.confine_file_call(call) {
+            Ok(call) => call,
+            Err((call, err)) => return Ok(Some(self.reject_file_call(&call, err, memory, caller))),
+        };
         let packed = match call {
             FileCall::ReadFile(req) => {
                 let response = match std::fs::read(&req.path) {
@@ -159,6 +164,53 @@ impl Runtime {
         };
 
         Ok(Some(packed))
+    }
+}
+
+impl Runtime {
+    /// Every path of `call` resolved inside the file root.
+    fn confine_file_call(&self, mut call: FileCall) -> Result<FileCall, (FileCall, String)> {
+        let sec = &self.security;
+        let fix = |p: &mut String| -> Result<(), String> {
+            *p = sec.confine(p)?.to_string_lossy().into_owned();
+            Ok(())
+        };
+        let result = match &mut call {
+            FileCall::ReadFile(r) => fix(&mut r.path),
+            FileCall::WriteFile(r) => fix(&mut r.path),
+            FileCall::ListDir(r) => fix(&mut r.path),
+            FileCall::Metadata(r) => fix(&mut r.path),
+            FileCall::CreateDir(r) => fix(&mut r.path),
+            FileCall::RemoveFile(r) => fix(&mut r.path),
+            FileCall::RemoveDir(r) => fix(&mut r.path),
+            FileCall::Rename(r) => fix(&mut r.from).and_then(|_| fix(&mut r.to)),
+            FileCall::Copy(r) => fix(&mut r.from).and_then(|_| fix(&mut r.to)),
+        };
+        match result {
+            Ok(()) => Ok(call),
+            Err(err) => Err((call, err)),
+        }
+    }
+
+    /// Answer `call` with an error, in the response type it expects.
+    pub(crate) fn reject_file_call(
+        &self,
+        call: &FileCall,
+        err: String,
+        memory: &Memory,
+        caller: &mut Caller<'_, StoreState>,
+    ) -> i64 {
+        match call {
+            FileCall::ReadFile(_) => self.send_data_to_module(ReadFileResponse::Err(err), memory, caller),
+            FileCall::WriteFile(_) => self.send_data_to_module(WriteFileResponse::Err(err), memory, caller),
+            FileCall::ListDir(_) => self.send_data_to_module(ListDirResponse::Err(err), memory, caller),
+            FileCall::Metadata(_) => self.send_data_to_module(MetadataResponse::Err(err), memory, caller),
+            FileCall::CreateDir(_) => self.send_data_to_module(CreateDirResponse::Err(err), memory, caller),
+            FileCall::RemoveFile(_) => self.send_data_to_module(RemoveFileResponse::Err(err), memory, caller),
+            FileCall::RemoveDir(_) => self.send_data_to_module(RemoveDirResponse::Err(err), memory, caller),
+            FileCall::Rename(_) => self.send_data_to_module(RenameResponse::Err(err), memory, caller),
+            FileCall::Copy(_) => self.send_data_to_module(CopyResponse::Err(err), memory, caller),
+        }
     }
 }
 

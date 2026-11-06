@@ -34,7 +34,7 @@ use crate::{
     },
 };
 use interstice_abi::{
-    Authority, IntersticeValue, ModuleEvent, NodeSchema, SubscriptionEventSchema, TableVisibility,
+    Authority, IntersticeValue, ModuleEvent, NodeSchema, SubscriptionEventSchema,
 };
 use notify::RecommendedWatcher;
 use std::sync::atomic::AtomicI32;
@@ -60,6 +60,8 @@ const WASM_STACK_SIZE: usize = 8 * 1024 * 1024;
 
 pub struct Runtime {
     pub(crate) node_id: NodeId,
+    /// Owners, call rules and the file root (DESIGN §7.4).
+    pub(crate) security: Arc<crate::security::Security>,
     pub(crate) gpu: Arc<Mutex<Option<GpuState>>>,
     pub(crate) audio_state: Arc<Mutex<AudioState>>,
     pub(crate) modules: Arc<Mutex<HashMap<String, Arc<Module>>>>,
@@ -153,7 +155,13 @@ impl Runtime {
             IntersticeError::Internal(format!("Couldn't add host calls to the linker: {}", err))
         })?;
         let (reducer_ingress, reducer_ingress_rx) = crossbeam_channel::unbounded::<Job>();
+        let files_root = modules_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.join("files"))
+            .unwrap_or_else(|| PathBuf::from("files"));
         Ok(Self {
+            security: Arc::new(crate::security::Security::new(node_id, files_root)),
             node_id,
             gpu,
             audio_state,
@@ -536,6 +544,33 @@ impl Runtime {
                 requesting_node_id,
                 event,
             } => {
+                // A remote subscription reads the table: same rule as table sync (DESIGN §7.4).
+                let target = match &event {
+                    SubscriptionEventSchema::Insert { module_name, table_name, .. }
+                    | SubscriptionEventSchema::Update { module_name, table_name, .. }
+                    | SubscriptionEventSchema::Delete { module_name, table_name, .. } => {
+                        Some((module_name.clone(), table_name.clone()))
+                    }
+                    _ => None,
+                };
+                let denied = match target {
+                    Some((module_name, table_name)) => match runtime.modules.lock().get(&module_name) {
+                        Some(module) => runtime
+                            .security
+                            .check_remote_table(&module.schema, &table_name, requesting_node_id)
+                            .err(),
+                        None => Some(IntersticeError::ModuleNotFound(module_name, "subscription".into())),
+                    },
+                    None => Some(IntersticeError::PermissionDenied("only table events can be subscribed to remotely".into())),
+                };
+                if let Some(err) = denied {
+                    runtime.logger.log(
+                        &format!("Subscription from {requesting_node_id} refused: {err}"),
+                        LogSource::Runtime,
+                        LogLevel::Warning,
+                    );
+                    return;
+                }
                 let mut subscriptions_by_node = runtime.node_subscriptions.lock();
                 let subscriptions = subscriptions_by_node
                     .entry(requesting_node_id)
@@ -577,7 +612,7 @@ impl Runtime {
                     });
 
                     module.and_then(|module| {
-                        let table_schema = module
+                        module
                             .schema
                             .tables
                             .iter()
@@ -586,13 +621,7 @@ impl Runtime {
                                 module_name: module_name.clone(),
                                 table_name: table_name.clone(),
                             })?;
-
-                        if table_schema.visibility != TableVisibility::Public {
-                            return Err(IntersticeError::Internal(format!(
-                                "Table sync denied for non-public table '{}.{}'",
-                                module_name, table_name
-                            )));
-                        }
+                        runtime.security.check_remote_table(&module.schema, &table_name, requesting_node_id)?;
 
                         let tables = module.tables.read_recursive();
                         let table = tables.get(&table_name).ok_or_else(|| {
@@ -649,6 +678,7 @@ impl Runtime {
                 source_node_id,
                 policy,
                 request_id,
+                grant,
             } => {
                 // Answer the requester (the CLI waits for it, DESIGN §3.3).
                 let reply = {
@@ -666,14 +696,16 @@ impl Runtime {
                     }
                 };
                 use crate::network::protocol::LoadOutcome;
+                // Administration (DESIGN §7.4): the Module holder decides;
+                // without one, only owners may load.
+                let owner = runtime.security.is_owner(&source_node_id);
                 if runtime
                     .authority_modules
                     .lock()
                     .contains_key(&Authority::Module)
                 {
-                    let module_name = match Module::from_bytes(runtime.clone(), &wasm_binary).await
-                    {
-                        Ok(module) => module.schema.name.clone(),
+                    let module_name = match crate::bundle::describe_wasm(&wasm_binary) {
+                        Ok(schema) => schema.name,
                         Err(err) => {
                             runtime.logger.log(
                                 &format!(
@@ -691,42 +723,73 @@ impl Runtime {
                     let _ = runtime.event_sender.send((EventInstance::Module(
                         ModuleEvent::LoadRequest {
                             node_id: source_node_id.to_string(),
+                            owner,
                             module_name,
                             wasm_binary,
                         },
                     ), None));
                     reply(LoadOutcome::Forwarded);
+                } else if !owner {
+                    runtime.logger.log(
+                        &format!("Load refused: {source_node_id} is not an owner of this node"),
+                        LogSource::Runtime,
+                        LogLevel::Warning,
+                    );
+                    reply(LoadOutcome::Failed("Permission denied: not an owner of this node".into()));
                 } else {
                     let runtime_cloned = runtime.clone();
                     tokio::task::spawn_local(async move {
-                        let outcome = Runtime::update_module(runtime_cloned, wasm_binary, policy).await;
+                        let outcome = Runtime::update_module(runtime_cloned, wasm_binary, policy, grant).await;
                         reply(outcome);
                     });
                 }
             }
-            EventInstance::UnloadModule { module_name } => {
-                // Unload keeps the module's data on disk; it is not routed through
-                // the Module authority (no UnloadRequest subscription event exists).
-                Runtime::unload_module(runtime.clone(), &module_name);
+            EventInstance::UnloadModule { module_name, source_node_id } => {
+                // Unload keeps the module's data on disk.
+                let owner = runtime.security.is_owner(&source_node_id);
+                if runtime.authority_modules.lock().contains_key(&Authority::Module) {
+                    let _ = runtime.event_sender.send((EventInstance::Module(
+                        ModuleEvent::UnloadRequest {
+                            node_id: source_node_id.to_string(),
+                            owner,
+                            module_name,
+                        },
+                    ), None));
+                } else if owner {
+                    Runtime::unload_module(runtime.clone(), &module_name);
+                } else {
+                    runtime.logger.log(
+                        &format!("Unload of '{module_name}' refused: {source_node_id} is not an owner"),
+                        LogSource::Runtime,
+                        LogLevel::Warning,
+                    );
+                }
             }
             EventInstance::RemoveModule {
                 module_name,
                 source_node_id,
             } => {
+                let owner = runtime.security.is_owner(&source_node_id);
                 if runtime
                     .authority_modules
                     .lock()
-
                     .contains_key(&Authority::Module)
                 {
                     let _ = runtime.event_sender.send((EventInstance::Module(
                         ModuleEvent::RemoveRequest {
                             node_id: source_node_id.to_string(),
+                            owner,
                             module_name,
                         },
                     ), None));
-                } else {
+                } else if owner {
                     Runtime::remove_module(runtime.clone(), &module_name);
+                } else {
+                    runtime.logger.log(
+                        &format!("Removal of '{module_name}' refused: {source_node_id} is not an owner"),
+                        LogSource::Runtime,
+                        LogLevel::Warning,
+                    );
                 }
             }
             EventInstance::SchemaRequest {
@@ -734,7 +797,9 @@ impl Runtime {
                 request_id,
                 node_name,
             } => {
+                // Non-owners see public modules only (DESIGN §7.4).
                 let schema = runtime.build_node_schema(node_name);
+                let schema = if runtime.security.is_owner(&requesting_node_id) { schema } else { schema.to_remote() };
                 runtime.network_handle.send_packet(
                     requesting_node_id,
                     crate::network::protocol::NetworkPacket::SchemaResponse { request_id, schema },
@@ -1029,6 +1094,30 @@ impl Runtime {
         runtime: Arc<Self>,
         wasm_binary: Vec<u8>,
         policy: MigrationPolicy,
+        grant: bool,
+    ) -> crate::network::protocol::LoadOutcome {
+        Self::update_module_named(runtime, wasm_binary, policy, grant).await.1
+    }
+
+    /// [`Self::update_module`], with the module's name (empty when the
+    /// bytes don't compile).
+    pub(crate) async fn update_module_named(
+        runtime: Arc<Self>,
+        wasm_binary: Vec<u8>,
+        policy: MigrationPolicy,
+        grant: bool,
+    ) -> (String, crate::network::protocol::LoadOutcome) {
+        let mut name = String::new();
+        let outcome = Self::update_module_inner(runtime, wasm_binary, policy, grant, &mut name).await;
+        (name, outcome)
+    }
+
+    async fn update_module_inner(
+        runtime: Arc<Self>,
+        wasm_binary: Vec<u8>,
+        policy: MigrationPolicy,
+        grant: bool,
+        out_name: &mut String,
     ) -> crate::network::protocol::LoadOutcome {
         use crate::network::protocol::LoadOutcome;
         let log_err = |runtime: &Arc<Self>, text: String| {
@@ -1042,7 +1131,22 @@ impl Runtime {
             }
         };
         let name = module.schema.name.clone();
+        *out_name = name.clone();
+        // Authorities not granted before need the requester's grant (DESIGN §7.4).
+        if !grant {
+            let missing = crate::runtime::module::ungranted_authorities(&runtime, &module.schema);
+            if !missing.is_empty() {
+                return LoadOutcome::NeedsGrant {
+                    module: name,
+                    authorities: missing.iter().map(|a| format!("{a:?}")).collect(),
+                };
+            }
+        }
         let running = runtime.modules.lock().get(&name).map(|m| m.wasm_bytes.clone());
+        if running.as_deref() == Some(wasm_binary.as_slice()) {
+            // The same bytes are running already: nothing to do.
+            return LoadOutcome::Loaded { plan: String::new() };
+        }
         if let Some(old_wasm) = running {
             // Check the plan while the old version still runs.
             if policy == MigrationPolicy::Safe {

@@ -91,6 +91,7 @@ async fn fetch_schema_with_local_fallback(
     );
 
     let node_instance = Node::load(&nodes_dir(), node_id, port, address.clone()).await?;
+    crate::node_utils::own_node(&node_instance)?;
     let node_task = tokio::spawn(async move { node_instance.start(&[]).await });
 
     // Retry until the node accepts connections (waits for module loading to complete).
