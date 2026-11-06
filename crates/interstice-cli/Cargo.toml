@@ -21,10 +21,11 @@ directories = "6.0.0"
 interstice-core = { workspace = true }
 interstice-client = { workspace = true }
 mimalloc = "0.1"
-reqwest = { version = "0.12", default-features = false, features = ["default-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-self_update = { version = "0.41.0", features = [
+self_update = { version = "0.41.0", default-features = false, features = [
+    "rustls",
     "archive-tar",
     "archive-zip",
     "compression-flate2",
