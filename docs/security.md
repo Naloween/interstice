@@ -17,7 +17,22 @@ can claim an id without the key.
   secret crosses the wire.
 - A reducer sees its caller as `ctx.caller_node_id`, and as
   `ctx.caller_module_name` when the caller is a module on the same node.
-- Losing a key file loses the identity. There is no key rotation yet.
+- Losing a key file loses the identity.
+
+## Rotating a key
+
+`interstice identity rotate` (this CLI) and `interstice node rotate-key
+<node>` (a local node, from its next start) move an identity to a new key
+**and keep its id**, so owners lists and everything that names it stay
+valid.
+- The current key signs a handover to the new one. The handovers are kept
+  next to the key (`*.chain`) and shown to every peer, which checks that
+  they lead from the id's first key to the key presented.
+- Peers remember the newest handover they have seen (`known_peers.toml`)
+  and refuse the older keys from then on.
+- Rotation retires a key you still control. It does not help once a key
+  is stolen: the thief can sign a handover too. Then create a new identity
+  and remove the old one from owners and admission lists.
 
 ## Who can connect
 
@@ -74,8 +89,8 @@ Authorities are privileged host functions: `Gpu`, `Input`, `Audio`, `File`,
 
 ## Not covered yet
 
-- **Key rotation and revocation:** refusing a stolen key is up to the
-  admission policy (`block_peer`).
+- **Revoking a stolen key:** up to the admission policy (`block_peer`);
+  pre-rotation would make rotation safe against it (DESIGN §13.3).
 - **Per-user identities and roles** beyond owners.
 - **Modules on one node trust each other.** Any of them may call the module
   manager's `local` reducers. Finer rules belong in the manager, through

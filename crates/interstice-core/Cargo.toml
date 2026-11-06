@@ -21,7 +21,7 @@ wgpu = "28.0"
 winit = "0.30.12"
 pollster = "0.4.0"
 cpal = "0.15.3"
-uuid = { version = "1.20", features = ["v4"] }
+uuid = { version = "1.20", features = ["v4", "serde"] }
 tokio = { version = "1.49", features = ["full"] }
 colored_text = "0.3.0"
 notify = "6.1"
@@ -30,6 +30,7 @@ crossbeam-channel = "0.5"
 tokio-rustls = "0.26"
 rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs", "pem", "crypto"] }
 sha2 = "0.10"
+aws-lc-rs = "1"
 webpki = { package = "rustls-webpki", version = "0.103" }
 webpki-roots = "0.26"
 image = { version = "0.25", default-features = false, features = ["png"] }

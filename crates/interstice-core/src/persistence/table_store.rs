@@ -502,13 +502,8 @@ impl TableStore {
             return Ok((0, 0));
         }
 
-        // Logged: the legacy single-file layout is migrated first.
         let table_name = table.schema.name.clone();
-        let (max_stamp, next_seq, entries_since_checkpoint) =
-            match self.restore_legacy(root, module, table)? {
-                Some(next_seq) => ((0, 0), next_seq, 0),
-                None => replay_table(root, module, table)?,
-            };
+        let (max_stamp, next_seq, entries_since_checkpoint) = replay_table(root, module, table)?;
 
         let state = self.get_or_create_state(module, &table_name, PersistenceKind::Logged)?;
         let mut guard = state.lock();
@@ -520,60 +515,6 @@ impl TableStore {
         guard.entries_since_checkpoint = entries_since_checkpoint;
         guard.rows_at_checkpoint = table.scan().len() as u64;
         Ok(max_stamp)
-    }
-
-    /// Restore from the pre-history layout (`logs/<t>.log`,
-    /// `snapshots/<t>.snap`), write the state as the first checkpoint of the
-    /// new layout and remove the legacy files. Returns the next seq, or
-    /// `None` when there is nothing legacy.
-    fn restore_legacy(
-        &self,
-        root: &Path,
-        module: &str,
-        table: &mut Table,
-    ) -> Result<Option<u64>, IntersticeError> {
-        let name = table.schema.name.clone();
-        let log_path = root.join(module).join("logs").join(format!("{name}.log"));
-        let snapshot_path = root.join(module).join("snapshots").join(format!("{name}.snap"));
-        if !log_path.is_file() && !snapshot_path.is_file() {
-            return Ok(None);
-        }
-        let mut last_seq = None;
-        if snapshot_path.is_file() {
-            let snapshot: LegacySnapshot = decode_internal(&read_file(&snapshot_path)?)?;
-            table.restore_from_rows(snapshot.rows)?;
-            last_seq = Some(snapshot.last_seq);
-        }
-        if log_path.is_file() {
-            read_entries::<LegacyLogEntry>(&log_path, |entry| {
-                if last_seq.is_none_or(|last| entry.seq > last) {
-                    apply_entry(table, &entry.operation)?;
-                    last_seq = Some(entry.seq);
-                }
-                Ok(true)
-            })?;
-        }
-        let next_seq = match last_seq {
-            Some(seq) => {
-                let dir = snapshot_dir(root, module, &name);
-                create_dir(&dir)?;
-                // Transaction 0: every point covers it, so it is the start.
-                let checkpoint = Checkpoint {
-                    version: SNAPSHOT_VERSION,
-                    seq,
-                    tx: 0,
-                    timestamp_ms: 0,
-                    rows: table.snapshot_rows(),
-                };
-                write_atomically(&dir.join(checkpoint_name(&checkpoint)), &encode_internal(&checkpoint)?)?;
-                seq + 1
-            }
-            None => 0,
-        };
-        let _ = fs::remove_file(&log_path);
-        let _ = fs::remove_file(&snapshot_path);
-        // `0` means "nothing restored": no entry and no snapshot.
-        Ok(Some(next_seq).filter(|n| *n > 0))
     }
 
     // ── History reads (DESIGN §6.7) ─────────────────────────────────────────
@@ -1123,21 +1064,6 @@ struct Checkpoint {
     rows: Vec<Row>,
 }
 
-/// Pre-history formats, read once to migrate.
-#[derive(Serialize, Deserialize)]
-struct LegacyLogEntry {
-    seq: u64,
-    timestamp_ms: u64,
-    operation: LogOperation,
-}
-
-#[derive(Serialize, Deserialize)]
-struct LegacySnapshot {
-    version: u16,
-    last_seq: u64,
-    rows: Vec<Row>,
-}
-
 fn segment_path(root: &Path, module: &str, table: &str, first_seq: u64) -> PathBuf {
     root.join(module).join("logs").join(table).join(format!("{first_seq:020}.log"))
 }
@@ -1511,47 +1437,6 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
-    #[test]
-    fn legacy_layout_is_migrated() {
-        let root = temp_root("legacy");
-        let logs = root.join("m").join("logs");
-        let snaps = root.join("m").join("snapshots");
-        fs::create_dir_all(&logs).unwrap();
-        fs::create_dir_all(&snaps).unwrap();
-        let snapshot = LegacySnapshot { version: 1, last_seq: 1, rows: vec![row(1, "a"), row(2, "b")] };
-        fs::write(snaps.join("t.snap"), encode(&snapshot).unwrap()).unwrap();
-        let mut log = Vec::new();
-        for entry in [
-            LegacyLogEntry { seq: 1, timestamp_ms: 5, operation: LogOperation::Clear },
-            LegacyLogEntry {
-                seq: 2,
-                timestamp_ms: 6,
-                operation: LogOperation::Insert { primary_key: IndexKey::U64(3), row: Some(row(3, "c")) },
-            },
-        ] {
-            let bytes = encode(&entry).unwrap();
-            log.extend((bytes.len() as u32).to_le_bytes());
-            log.extend(bytes);
-        }
-        fs::write(logs.join("t.log"), log).unwrap();
-
-        let store = TableStore::new(Some(root.clone()));
-        let mut table = Table::new(schema(None));
-        store.restore_table("m", &mut table).unwrap();
-        assert_eq!(table.scan().len(), 3);
-        assert!(!logs.join("t.log").exists() && !snaps.join("t.snap").exists());
-
-        let mut f = Fixture { store, table };
-        assert_eq!(f.rows_at(HistoryPoint::Start).unwrap().len(), 3);
-        f.insert(4, "d", (10, 10));
-        assert_eq!(f.rows_at(HistoryPoint::Back(1)).unwrap().len(), 3);
-        assert_eq!(f.rows_at(HistoryPoint::Back(0)).unwrap().len(), 4);
-        let _ = fs::remove_dir_all(&root);
-    }
-
-    /// A logged table with checkpoints gets a column appended: every log
-    /// entry and checkpoint is rewritten, history still answers, and an
-    /// interrupted migration is finished on recovery.
     #[test]
     fn migration_rewrites_log_and_checkpoints() {
         use crate::runtime::migration::{self, TableAction};

@@ -22,13 +22,18 @@ pub fn nodes_dir() -> PathBuf {
     dir
 }
 
-/// This CLI's identity: a key pair in `cli_identity.key`; its id is the
-/// key's (DESIGN §7.4). The token file of earlier versions is unused.
+/// This CLI's identity: a key pair in `cli_identity.key`, and its key
+/// handovers in `cli_identity.chain` (DESIGN §7.4).
 pub fn load_cli_identity() -> Result<interstice_core::LocalIdentity, IntersticeError> {
-    interstice_core::LocalIdentity::load_or_create(&data_file().join("cli_identity.key"), None)
+    interstice_core::LocalIdentity::load_or_create(&data_file().join("cli_identity.key"))
 }
 
-/// Keys this CLI remembers for nodes created before keys.
+/// Move this CLI to a new key, keeping its id.
+pub fn rotate_cli_identity() -> Result<interstice_core::LocalIdentity, IntersticeError> {
+    interstice_core::LocalIdentity::rotate(&data_file().join("cli_identity.key"))
+}
+
+/// The newest key handovers this CLI has seen from nodes.
 pub fn cli_known_peers() -> interstice_core::KnownPeers {
     interstice_core::KnownPeers::load(Some(data_file().join("known_peers.toml")))
 }

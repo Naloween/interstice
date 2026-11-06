@@ -4,12 +4,16 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum NetworkPacket {
-    /// Sent inside the TLS channel; `node_id` must be the key's (DESIGN §7.4).
+    /// Sent inside the TLS channel. `keys` must lead from `node_id`'s first
+    /// key to the TLS key (DESIGN §7.4).
     Handshake {
-        node_id: String,
+        node_id: crate::node::NodeId,
         address: String,
+        keys: crate::network::identity::KeyChain,
     },
     Close,
+    /// The handshake was refused, and why; the connection closes after it.
+    Refused(String),
     /// With a `request_id`, the node answers with a `ReducerResult` once the
     /// call has committed or failed (DESIGN §7.1).
     ReducerCall {

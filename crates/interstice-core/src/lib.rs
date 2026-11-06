@@ -10,11 +10,11 @@ pub mod persistence;
 pub mod security;
 mod runtime;
 
-pub use crate::node::{Decide, Node, NodeHandle, NodeId};
+pub use crate::node::{Decide, IDENTITY_FILE, Node, NodeHandle, NodeId};
 pub use error::*;
 pub use interstice_abi;
 pub use network::packet;
-pub use network::identity::{KnownPeers, LocalIdentity, SecureStream, derive_id};
+pub use network::identity::{KeyChain, KeyHandover, KnownPeers, LocalIdentity, SecureStream, derive_id};
 pub use network::protocol::*;
 pub use runtime::migration::MigrationPolicy;
 pub use runtime::profile;

@@ -100,7 +100,8 @@ impl NetworkHandle {
             &mut stream,
             &NetworkPacket::Handshake {
                 address: address.clone(),
-                node_id: my_node_id.to_string(),
+                node_id: my_node_id,
+                keys: self.trust.identity.chain.clone(),
             },
         )
         .await?;
@@ -302,9 +303,9 @@ impl Network {
         return tokio::spawn(async move {
             while let Some((node_id, packet)) = self.packet_receiver.recv().await {
                 match packet {
-                    NetworkPacket::Handshake { .. } => {
+                    NetworkPacket::Handshake { .. } | NetworkPacket::Refused(_) => {
                         self.logger.log(
-                            &format!("Received unexpected handshake from {}", node_id),
+                            &format!("Received an unexpected handshake packet from {}", node_id),
                             LogSource::Network,
                             LogLevel::Warning,
                         );
@@ -751,21 +752,24 @@ async fn handshake_incoming(
 ) -> Result<(), IntersticeError> {
     let packet = read_packet(&mut stream).await?;
 
-    let (peer_id_str, peer_address) = match packet {
-        NetworkPacket::Handshake { node_id, address } => (node_id, address),
+    let (peer_id, peer_address, keys) = match packet {
+        NetworkPacket::Handshake { node_id, address, keys } => (node_id, address, keys),
+        NetworkPacket::Refused(why) => return Err(IntersticeError::PermissionDenied(why)),
         _ => {
             return Err(IntersticeError::ProtocolError(
                 "Expected handshake packet".into(),
             ));
         }
     };
-    // A malformed id refuses the connection; it must not panic (DESIGN §7.4).
-    let peer_id = NodeId::parse_str(&peer_id_str).map_err(|_| {
-        IntersticeError::ProtocolError(format!("Invalid node id in handshake: {peer_id_str:?}"))
-    })?;
-
-    // The id must be the key's (DESIGN §7.4).
-    trust.known.bind(peer_id, &spki)?;
+    // The id must be the key's, directly or through its handovers (DESIGN §7.4).
+    if let Err(e) = trust.known.bind(peer_id, &keys, &spki) {
+        let why = match &e {
+            IntersticeError::PermissionDenied(why) => why.clone(),
+            other => other.to_string(),
+        };
+        let _ = write_packet(&mut stream, &NetworkPacket::Refused(why)).await;
+        return Err(e);
+    }
 
     if send_handshake_response {
         // Reply with our handshake immediately so the remote side won't block
@@ -774,8 +778,9 @@ async fn handshake_incoming(
         write_packet(
             &mut stream,
             &NetworkPacket::Handshake {
-                node_id: my_node_id.to_string(),
+                node_id: my_node_id,
                 address: my_address,
+                keys: trust.identity.chain.clone(),
             },
         )
         .await?;

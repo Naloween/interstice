@@ -54,7 +54,7 @@ fn encode_scratch<T: serde::Serialize>(value: &T) -> Result<EncodedBuf<'static>,
 
 pub type NodeId = String;
 
-/// Tell the host why the current call fails (ABI 16); it reports this
+/// Tell the host why the current call fails; it reports this
 /// message to the caller instead of the trap that follows.
 pub fn fail(message: &str) {
     let msg = message.as_bytes();
@@ -290,7 +290,7 @@ pub fn clear_table(module_selection: ModuleSelection, table_name: &str) -> Resul
             }
         }
         ModuleSelection::Other(_) => {
-            Err("clear_table with ModuleSelection::Other is not supported in ABI v2".into())
+            Err("clear_table: only the current module's tables can be cleared".into())
         }
     }
 }

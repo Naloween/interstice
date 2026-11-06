@@ -46,6 +46,13 @@ after confirmation. A node skips stored modules of another ABI at boot.
 - **Owners**, and nodes listen on localhost by default.
 - **Key identities and mutual TLS 1.3**; peers are admitted by the
   `connect` handler.
+- **Key rotation**: `interstice identity rotate` and `node rotate-key` move
+  an identity to a new key and keep its id, through handovers signed by the
+  previous key; peers refuse retired keys.
+- A refused connection now tells the other side why.
+- Removed: random (pre-key) node ids and their trust-on-first-use, the
+  pre-history log layout, and "granted by default" for modules loaded
+  before grants. Such nodes and data must be recreated.
 - **Bundles**: a whole node in one `.itb` file, or as a program.
 
 ### Protocol, clients and CLI

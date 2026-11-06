@@ -45,10 +45,84 @@ fn fingerprint(spki: &[u8]) -> String {
     Sha256::digest(spki).iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// This node's (or CLI's) key pair and the TLS configs built from it.
+/// One step of a key rotation (DESIGN §7.4): the key before it signs
+/// `next_key` as the identity's next key.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct KeyHandover {
+    pub next_key: Vec<u8>,
+    pub signature: Vec<u8>,
+}
+
+/// How an identity's current key descends from its first key, from which
+/// the id is made. Never rotated: no handovers.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct KeyChain {
+    pub first_key: Vec<u8>,
+    pub handovers: Vec<KeyHandover>,
+}
+
+/// What handover `seq` of `id` signs.
+fn handover_message(id: NodeId, seq: usize, next_key: &[u8]) -> Vec<u8> {
+    let mut msg = b"interstice key handover\0".to_vec();
+    msg.extend_from_slice(id.as_bytes());
+    msg.extend_from_slice(&(seq as u64).to_le_bytes());
+    msg.extend_from_slice(next_key);
+    msg
+}
+
+/// The SubjectPublicKeyInfo header of an ECDSA P-256 key, before its point.
+const P256_SPKI_HEADER: [u8; 26] = [
+    0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a, 0x86, 0x48,
+    0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00,
+];
+
+fn verify_p256(spki: &[u8], msg: &[u8], signature: &[u8]) -> bool {
+    use aws_lc_rs::signature::{ECDSA_P256_SHA256_ASN1, UnparsedPublicKey};
+    spki.len() == P256_SPKI_HEADER.len() + 65
+        && spki.starts_with(&P256_SPKI_HEADER)
+        && UnparsedPublicKey::new(&ECDSA_P256_SHA256_ASN1, &spki[P256_SPKI_HEADER.len()..])
+            .verify(msg, signature)
+            .is_ok()
+}
+
+impl KeyChain {
+    /// The id this chain belongs to.
+    pub fn id(&self) -> NodeId {
+        derive_id(&self.first_key)
+    }
+
+    /// The key it ends at.
+    pub fn current_key(&self) -> &[u8] {
+        self.handovers.last().map(|h| h.next_key.as_slice()).unwrap_or(&self.first_key)
+    }
+
+    /// Check that the chain is `claimed`'s and ends at `spki`; returns how
+    /// many handovers it has.
+    pub fn verify(&self, claimed: NodeId, spki: &[u8]) -> Result<usize, IntersticeError> {
+        let denied = |why: String| IntersticeError::PermissionDenied(why);
+        if self.id() != claimed {
+            return Err(denied(format!("{claimed} is not the identity of the key presented")));
+        }
+        let mut key = self.first_key.as_slice();
+        for (i, handover) in self.handovers.iter().enumerate() {
+            if !verify_p256(key, &handover_message(claimed, i + 1, &handover.next_key), &handover.signature) {
+                return Err(denied(format!("{claimed}: key handover {} is not signed by the key before it", i + 1)));
+            }
+            key = &handover.next_key;
+        }
+        if key != spki {
+            return Err(denied(format!("{claimed}: the key presented is not the identity's current key")));
+        }
+        Ok(self.handovers.len())
+    }
+}
+
+/// This node's (or CLI's) key pair, its rotation chain, and the TLS configs
+/// built from the key.
 pub struct LocalIdentity {
     pub id: NodeId,
     pub spki: Vec<u8>,
+    pub chain: KeyChain,
     client: Arc<ClientConfig>,
     server: Arc<ServerConfig>,
 }
@@ -64,14 +138,13 @@ impl LocalIdentity {
     pub fn generate() -> Result<(Self, String), IntersticeError> {
         let key = KeyPair::generate().map_err(|e| err(format!("key generation: {e}")))?;
         let pem = key.serialize_pem();
-        let id = derive_id(&key.subject_public_key_info());
-        Ok((Self::from_key(key, id)?, pem))
+        let chain = KeyChain { first_key: key.subject_public_key_info(), handovers: Vec::new() };
+        Ok((Self::from_key(key, chain)?, pem))
     }
 
-    /// The key at `path`, or a new one written there. `id` is the identity
-    /// to present: `None` for the id the key certifies (new nodes, CLIs),
-    /// `Some` for a node created before keys (DESIGN §7.4).
-    pub fn load_or_create(path: &Path, id: Option<NodeId>) -> Result<Self, IntersticeError> {
+    /// The key at `path` and its chain (`<path>.chain`, DESIGN §7.4), or a
+    /// new key written there.
+    pub fn load_or_create(path: &Path) -> Result<Self, IntersticeError> {
         let key = match std::fs::read_to_string(path) {
             Ok(pem) => KeyPair::from_pem(&pem).map_err(|e| err(format!("{}: {e}", path.display())))?,
             Err(_) => {
@@ -80,12 +153,55 @@ impl LocalIdentity {
                 key
             }
         };
-        let id = id.unwrap_or_else(|| derive_id(&key.subject_public_key_info()));
-        Self::from_key(key, id)
+        let chain = read_chain(path)?;
+        let spki = key.subject_public_key_info();
+        if chain.handovers.is_empty() {
+            return Self::from_key(key, KeyChain { first_key: spki, handovers: Vec::new() });
+        }
+        if chain.current_key() == spki {
+            return Self::from_key(key, chain);
+        }
+        // A rotation interrupted after the chain was written: finish it.
+        let pending = pending_path(path);
+        let pem = std::fs::read_to_string(&pending)
+            .map_err(|_| err(format!("{}: the key is not the chain's current key", path.display())))?;
+        let next = KeyPair::from_pem(&pem).map_err(|e| err(format!("{}: {e}", pending.display())))?;
+        if next.subject_public_key_info() != chain.current_key() {
+            return Err(err(format!("{}: the key is not the chain's current key", path.display())));
+        }
+        std::fs::rename(&pending, path).map_err(|e| err(format!("{}: {e}", path.display())))?;
+        Self::from_key(next, chain)
     }
 
-    fn from_key(key: KeyPair, id: NodeId) -> Result<Self, IntersticeError> {
+    /// Move the identity whose key is at `path` to a new key, keeping its id
+    /// (DESIGN §7.4): the current key signs the handover, the chain is
+    /// written, then the key file is replaced. Returns the new identity.
+    pub fn rotate(path: &Path) -> Result<Self, IntersticeError> {
+        let current = Self::load_or_create(path)?;
+        let pem = std::fs::read_to_string(path).map_err(|e| err(format!("{}: {e}", path.display())))?;
+        let key = KeyPair::from_pem(&pem).map_err(|e| err(format!("{}: {e}", path.display())))?;
+        let next = KeyPair::generate().map_err(|e| err(format!("key generation: {e}")))?;
+        let next_key = next.subject_public_key_info();
+        let seq = current.chain.handovers.len() + 1;
+        let signature = rcgen::SigningKey::sign(&key, &handover_message(current.id, seq, &next_key))
+            .map_err(|e| err(format!("signing the handover: {e}")))?;
+        let mut chain = current.chain.clone();
+        chain.handovers.push(KeyHandover { next_key, signature });
+        chain.verify(current.id, chain.current_key())?;
+        // Key first (aside), then the chain, then the swap: a crash in
+        // between is finished by `load_or_create`.
+        write_private(&pending_path(path), &next.serialize_pem())?;
+        let encoded = interstice_abi::encode(&chain).map_err(|e| err(e.to_string()))?;
+        let chain_tmp = chain_path(path).with_extension("chain.tmp");
+        std::fs::write(&chain_tmp, encoded).map_err(|e| err(e.to_string()))?;
+        std::fs::rename(&chain_tmp, chain_path(path)).map_err(|e| err(e.to_string()))?;
+        std::fs::rename(pending_path(path), path).map_err(|e| err(e.to_string()))?;
+        Self::from_key(next, chain)
+    }
+
+    fn from_key(key: KeyPair, chain: KeyChain) -> Result<Self, IntersticeError> {
         let spki = key.subject_public_key_info();
+        let id = chain.id();
         let cert = CertificateParams::new(vec!["interstice".to_string()])
             .and_then(|p| p.self_signed(&key))
             .map_err(|e| err(format!("certificate: {e}")))?;
@@ -106,7 +222,7 @@ impl LocalIdentity {
             .with_client_cert_verifier(verifier)
             .with_single_cert(vec![cert], private())
             .map_err(|e| err(format!("server TLS config: {e}")))?;
-        Ok(Self { id, spki, client: Arc::new(client), server: Arc::new(server) })
+        Ok(Self { id, spki, chain, client: Arc::new(client), server: Arc::new(server) })
     }
 
     /// Dial `address`; returns the stream and the peer's public key.
@@ -147,6 +263,23 @@ fn write_private(path: &Path, text: &str) -> Result<(), IntersticeError> {
         let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
     }
     Ok(())
+}
+
+/// `identity.key` → `identity.chain`.
+fn chain_path(key: &Path) -> PathBuf {
+    key.with_extension("chain")
+}
+
+/// The next key while a rotation is under way.
+fn pending_path(key: &Path) -> PathBuf {
+    key.with_extension("key.next")
+}
+
+fn read_chain(key: &Path) -> Result<KeyChain, IntersticeError> {
+    match std::fs::read(chain_path(key)) {
+        Ok(bytes) => interstice_abi::decode(&bytes).map_err(|e| err(format!("{}: {e}", chain_path(key).display()))),
+        Err(_) => Ok(KeyChain::default()),
+    }
 }
 
 /// Save a key generated with [`LocalIdentity::generate`].
@@ -238,11 +371,11 @@ impl ClientCertVerifier for AnyPeer {
     }
 }
 
-/// Keys remembered for ids that don't certify themselves (nodes created
-/// before keys), like SSH's `known_hosts` (DESIGN §7.4).
+/// The newest key handover seen for each identity that has rotated
+/// (DESIGN §7.4): id → `seq` and the fingerprint of the key it ends at.
 pub struct KnownPeers {
     path: Option<PathBuf>,
-    keys: Mutex<BTreeMap<String, String>>,
+    keys: Mutex<BTreeMap<String, (u64, String)>>,
 }
 
 impl KnownPeers {
@@ -255,28 +388,25 @@ impl KnownPeers {
         Self { path, keys: Mutex::new(keys) }
     }
 
-    /// Check that `spki` may present `claimed`: it certifies that id, or it
-    /// is the key remembered for it (remembered now if first seen).
-    pub fn bind(&self, claimed: NodeId, spki: &[u8]) -> Result<(), IntersticeError> {
-        if derive_id(spki) == claimed {
-            return Ok(());
-        }
-        // A key-derived id (UUID v8) is only ever presented by its key;
-        // only legacy ids (v4) are remembered on first use.
-        if claimed.get_version_num() == 8 {
-            return Err(IntersticeError::PermissionDenied(format!(
-                "{claimed} is not the identity of the key presented"
-            )));
-        }
+    /// Check that `spki`, with `chain`, may present `claimed`: the chain is
+    /// valid and not older than, nor a fork of, the newest one seen.
+    pub fn bind(&self, claimed: NodeId, chain: &KeyChain, spki: &[u8]) -> Result<(), IntersticeError> {
+        let seq = chain.verify(claimed, spki)? as u64;
         let print = fingerprint(spki);
         let mut keys = self.keys.lock();
         match keys.get(&claimed.to_string()) {
-            Some(known) if *known == print => Ok(()),
-            Some(_) => Err(IntersticeError::PermissionDenied(format!(
-                "{claimed} presented a different key than before"
+            Some((known, _)) if seq < *known => Err(IntersticeError::PermissionDenied(format!(
+                "{claimed} presented a key it has rotated away from"
             ))),
-            None => {
-                keys.insert(claimed.to_string(), print);
+            Some((known, known_print)) if seq == *known && *known_print != print => {
+                Err(IntersticeError::PermissionDenied(format!(
+                    "{claimed} presented a key handover that conflicts with one seen before"
+                )))
+            }
+            Some((known, _)) if seq == *known => Ok(()),
+            _ if seq == 0 => Ok(()),
+            _ => {
+                keys.insert(claimed.to_string(), (seq, print));
                 if let Some(path) = &self.path {
                     if let Ok(text) = toml::to_string_pretty(&*keys) {
                         let _ = std::fs::write(path, text);
@@ -319,19 +449,65 @@ mod tests {
         assert_eq!(derive_id(&server_spki), b.id);
         assert_eq!(derive_id(&client_spki), a.id);
 
-        // Binding: self-certified ids pass; a legacy id is pinned on first use.
+        // Binding: an id passes only with its own key.
         let known = KnownPeers::load(None);
-        known.bind(b.id, &server_spki).unwrap();
-        assert!(known.bind(a.id, &server_spki).is_err());
-        let legacy = uuid::Uuid::new_v4();
-        known.bind(legacy, &server_spki).unwrap();
-        known.bind(legacy, &server_spki).unwrap();
-        assert!(known.bind(legacy, &client_spki).is_err());
+        known.bind(b.id, &b.chain, &server_spki).unwrap();
+        assert!(known.bind(a.id, &b.chain, &server_spki).is_err());
+        assert!(known.bind(b.id, &b.chain, &client_spki).is_err());
+    }
+
+    #[test]
+    fn rotation_keeps_the_id_and_retires_the_old_key() {
+        let dir = std::env::temp_dir().join(format!("interstice-rotate-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("identity.key");
+        let first = LocalIdentity::load_or_create(&path).unwrap();
+        let second = LocalIdentity::rotate(&path).unwrap();
+        let third = LocalIdentity::rotate(&path).unwrap();
+        assert_eq!(first.id, second.id);
+        assert_eq!(first.id, third.id);
+        assert_ne!(first.spki, third.spki);
+        // Reloading gives the rotated key and its chain.
+        let again = LocalIdentity::load_or_create(&path).unwrap();
+        assert_eq!(again.spki, third.spki);
+        assert_eq!(again.chain.handovers.len(), 2);
+
+        let known = KnownPeers::load(None);
+        known.bind(first.id, &first.chain, &first.spki).unwrap();
+        known.bind(second.id, &second.chain, &second.spki).unwrap();
+        // Once seq 1 is seen, the first key is refused, even with its
+        // (valid) chain.
+        assert!(known.bind(first.id, &first.chain, &first.spki).is_err());
+        known.bind(third.id, &third.chain, &third.spki).unwrap();
+        assert!(known.bind(second.id, &second.chain, &second.spki).is_err());
+
+        // A fork: the first key signs another handover at seq 1.
+        let (other, _) = LocalIdentity::generate().unwrap();
+        let mut forged = second.chain.clone();
+        forged.handovers[0].next_key = other.spki.clone();
+        assert!(forged.verify(first.id, &other.spki).is_err(), "the signature covers the next key");
+
+        // A tampered chain or a key that is not the chain's end.
+        let mut bad = third.chain.clone();
+        bad.handovers[1].signature[10] ^= 1;
+        assert!(bad.verify(first.id, &third.spki).is_err());
+        assert!(third.chain.verify(first.id, &second.spki).is_err());
+
+        // An interrupted rotation (chain written, key not swapped yet)
+        // finishes on load.
+        let third_pem = std::fs::read_to_string(&path).unwrap();
+        let fourth = LocalIdentity::rotate(&path).unwrap();
+        let pending = super::pending_path(&path);
+        std::fs::rename(&path, &pending).unwrap();
+        std::fs::write(&path, third_pem).unwrap();
+        let resumed = LocalIdentity::load_or_create(&path).unwrap();
+        assert_eq!(resumed.spki, fourth.spki);
+        assert!(!pending.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
-/// What the network authenticates with: this node's identity and the keys
-/// it remembers for legacy peers.
+/// What the network authenticates with: this node's identity and the
+/// newest key handovers it has seen.
 pub struct Trust {
     pub identity: LocalIdentity,
     pub known: KnownPeers,

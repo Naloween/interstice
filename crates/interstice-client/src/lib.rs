@@ -13,7 +13,7 @@
 //! # async fn demo() -> Result<(), interstice_core::IntersticeError> {
 //! use interstice_client::Client;
 //! use interstice_core::{LocalIdentity, KnownPeers, interstice_abi::IntersticeValue};
-//! let identity = LocalIdentity::load_or_create("client.key".as_ref(), None)?;
+//! let identity = LocalIdentity::load_or_create("client.key".as_ref())?;
 //! let client = Client::connect("127.0.0.1:8080", &identity, &KnownPeers::load(None)).await?;
 //! client.call_reducer("hello", "hello", IntersticeValue::Vec(vec![IntersticeValue::String("world".into())])).await?;
 //! # Ok(()) }
@@ -49,7 +49,7 @@ struct Pending {
 /// A connection to one node. Cheap to share behind an `Arc`; every method
 /// takes `&self`.
 pub struct Client {
-    node_id: String,
+    node_id: uuid::Uuid,
     node_address: String,
     outgoing: mpsc::UnboundedSender<NetworkPacket>,
     pending: Arc<Mutex<Pending>>,
@@ -75,16 +75,15 @@ impl Client {
             std::env::var("INTERSTICE_CLI_ADDRESS").unwrap_or_else(|_| "127.0.0.1:0".to_string());
         interstice_core::packet::write_packet(
             &mut stream,
-            &NetworkPacket::Handshake { node_id: identity.id.to_string(), address: own_address },
+            &NetworkPacket::Handshake { node_id: identity.id, address: own_address, keys: identity.chain.clone() },
         )
         .await?;
-        let NetworkPacket::Handshake { node_id, address: node_address } = read_packet(&mut stream).await? else {
-            return Err(IntersticeError::ProtocolError("expected a handshake".into()));
+        let (id, node_address, keys) = match read_packet(&mut stream).await? {
+            NetworkPacket::Handshake { node_id, address, keys } => (node_id, address, keys),
+            NetworkPacket::Refused(why) => return Err(IntersticeError::PermissionDenied(why)),
+            _ => return Err(IntersticeError::ProtocolError("expected a handshake".into())),
         };
-        let id: uuid::Uuid = node_id
-            .parse()
-            .map_err(|_| IntersticeError::ProtocolError(format!("invalid node id {node_id:?}")))?;
-        known.bind(id, &spki)?;
+        known.bind(id, &keys, &spki)?;
 
         let (mut reader, mut writer) = tokio::io::split(stream);
         let pending = Arc::new(Mutex::new(Pending::default()));
@@ -155,7 +154,7 @@ impl Client {
         });
 
         Ok(Self {
-            node_id,
+            node_id: id,
             node_address,
             outgoing,
             pending,
@@ -165,8 +164,8 @@ impl Client {
     }
 
     /// The node's id (its key's).
-    pub fn node_id(&self) -> &str {
-        &self.node_id
+    pub fn node_id(&self) -> uuid::Uuid {
+        self.node_id
     }
 
     /// The address the node advertises.

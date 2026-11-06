@@ -111,7 +111,7 @@ Everything on disk is postcard-encoded. A node's data directory looks like this:
 
 ```
 <data_dir>/nodes/<uuid>/
-  node.log, node.toml, identity.key, known_peers.toml
+  node.log, node.toml, identity.key, identity.chain (key handovers), known_peers.toml
   modules/<module>/
     module.wasm, schema.bin (the ModuleSchema the data is in), state.toml (loaded = bool),
     sequences.toml (auto-increment ceilings)
@@ -504,7 +504,7 @@ The rows marked *closed* are closed by the isolation and ordering design (§6.6)
 - **Trap ⇒ fresh instance.** A trapped instance is discarded and replaced by a
   freshly instantiated one (its memory may be mid-update), so a trap never
   leaks corrupted module memory into later calls.
-- **`state_epoch` (ABI v7).** Every reducer context carries the module's state
+- **`state_epoch`.** Every reducer context carries the module's state
   epoch. It is bumped when a reducer ran to completion but its commit was
   rejected (§4.1): every instance may have cached writes that never happened.
   The SDK's `InstanceCache` drops any value built under an older epoch.
@@ -830,9 +830,6 @@ snapshots/<table>/<seq>-<tx>-<ts>.snap   checkpoints: {seq, tx, timestamp_ms, ro
   closed.
 - Restore on load: the newest checkpoint plus every later entry. This is the
   same as before, with the log split into segments.
-- Legacy layout (`logs/<t>.log`, `snapshots/<t>.snap`): the table is restored
-  the old way and a first checkpoint is written in the new layout. The legacy
-  files are then removed, so the history starts at that checkpoint.
 
 **Retention:**
 - `#[table(history = "7d")]` (units `s`, `m`, `h`, `d`), or
@@ -998,21 +995,47 @@ server to issue tokens and no proxy in front, so:
     SHA-256 over its public key (SubjectPublicKeyInfo), with the version
     bits of UUID v8. So an id is **self-certifying**: no one else can
     present it without the key.
-  - Nodes created before keys keep their random UUID and get a key at
-    their next start. Their peers remember that key on first use
-    (`known_peers.toml`, like SSH's `known_hosts`), and refuse another
-    key for that id afterwards.
+  - The key the id is made from is the identity's **first key**. The id
+    never changes; the key may (Key rotation below).
 - **Handshake.**
   1. TCP, then TLS 1.3 with client authentication. Both sides present a
      self-signed certificate for their key, generated at start. The
      verifiers check every handshake signature but no CA chain: trust is
      the identity, not a certificate authority, as in libp2p's TLS
      transport.
-  2. Inside the encrypted channel, a `Handshake { node_id, address }`.
-     The receiver checks that `node_id` matches the key: derived from it,
-     or remembered for it.
+  2. Inside the encrypted channel, a
+     `Handshake { node_id, address, keys }`. The receiver checks that
+     `node_id` is the TLS key's: derived from it, or reached from the first
+     key through the handovers in `keys`.
   3. The CLI also checks that the node answering is the one its
      registry names.
+- **Key rotation: a signed handover.** An identity can move to a new key
+  and keep its id, so owners lists, registries and rows that name it stay
+  valid.
+  - `interstice node rotate-key <node>` (a local node; it presents the new
+    key from its next start) and `interstice identity rotate` (this CLI)
+    generate a key and a **handover** signed by the current one:
+    `KeyHandover { seq, next_key, signature }`, where the signature (ECDSA
+    P-256, by the previous key) covers the id, `seq` and `next_key`.
+  - The handovers are kept next to the key (`identity.chain`,
+    `cli_identity.chain`) and sent in every handshake. The old key file is
+    replaced.
+  - **Checking a chain** is stateless: the id must derive from the first
+    key, each handover must be signed by the key before it with
+    `seq` = 1, 2, …, and the last key must be the TLS key.
+  - **Peers remember the newest handover they have seen**
+    (`known_peers.toml`: id → `seq` and key fingerprint). They refuse a
+    shorter chain (an old key, even with a valid chain) and a different
+    key at the same `seq` (a fork). A peer that never saw the identity
+    takes the first valid chain it sees.
+  - **What it protects against.** Rotation retires a key that is still
+    under the owner's control, so a later leak of the old key is useless
+    against peers that saw the handover. It does not recover from a key
+    that is already stolen: the thief can sign a handover too, and peers
+    keep whichever they see first. That needs pre-rotation (committing to
+    the next key in advance, as in KERI), on the roadmap (§13.3); until
+    then a stolen key means a new identity and removing the old one from
+    owners and admission lists.
 - **Owners** are the identities allowed to administer a node, listed
   by id in `node.toml` in the node directory.
   - The CLI that creates or starts a local node adds itself.
@@ -1098,8 +1121,7 @@ server to issue tokens and no proxy in front, so:
 - Claiming an authority (§8) needs a grant.
 - **The grants already given** are stored with each module (`granted` in
   `state.toml`):
-  - a reload or update that asks for nothing new needs no new grant;
-  - a module written before grants existed counts as granted.
+  - a reload or update that asks for nothing new needs no new grant.
 - **Who grants:**
   - **A `load` from the CLI** with no holder: the kernel answers
     `NeedsGrant { authorities }`, and the CLI asks
@@ -1130,16 +1152,15 @@ server to issue tokens and no proxy in front, so:
   holder's handler has decided (30 s at most, then it is dropped), so a
   refused peer's requests never run.
 - **Losing a key file loses the identity**, as in SpacetimeDB: a node
-  that regenerates its key gets a new id (a legacy id keeps its id, but
-  its peers will refuse the new key).
-- **No key rotation or revocation yet.** Refusing a stolen key is up to
-  the admission policy (`block_peer`).
+  that regenerates its key gets a new id.
+- **No revocation of a stolen key.** Rotation retires keys the owner
+  still controls (above); refusing a stolen one is up to the admission
+  policy (`block_peer`).
 - **A refused CLI sees "connection reset"**, not a reason, because the
   node closes the connection after its handshake reply.
 - **TLS costs about a third of the serial throughput**: ~98k transfers/s over
   64 TLS connections, against 140k in process (benchmarks/README.md).
-- **An `Err` from a reducer is reported as its message** (ABI 16, §10). A
-  module built for ABI 15 still shows the trap and its backtrace.
+- **An `Err` from a reducer is reported as its message** (§10).
 - **Local modules trust each other.** Any module on the node may call the
   module manager's `local` admin reducers. Per-caller rules (for example
   "only the desktop may load apps") are the manager's business, through
@@ -1268,7 +1289,7 @@ Reading is declared like a table (`CanRead<MyResponses>`).
 **Kernel.**
 - **Schema.** `ModuleSchema.views: Vec<ViewSchema { name, visibility,
   row_type, primary_key, per_viewer, kind: Filter { table, predicate } |
-  Function { query, reads } }>` (ABI 15).
+  Function { query, reads } }>`.
   `ModuleSchema::view_table_schema` gives a view the shape of a table,
   which bindings, replicas and table sync reuse.
 - **Names.** A view shares the module's table namespace, so the read host
@@ -2081,7 +2102,10 @@ but explicitly out of scope for now.
       after SpacetimeDB's identity model.
 - [x] Views (§7.5): filter and function views, per viewer or anonymous;
       private tables closed to other modules.
-- [ ] Key rotation; views with arguments.
+- [x] Key rotation: signed handovers, the id stays (§7.4).
+- [ ] Pre-rotation (commit to the next key in advance, as in KERI), so a
+      stolen key cannot rotate; revocation.
+- [ ] Views with arguments.
 - [ ] Authority model for the "OS" use case: which module may grant which
       authority to whom; per-user identities.
 - [x] Replica writes and remote queries through the scheduler (§6.3: replica

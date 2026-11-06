@@ -363,7 +363,7 @@ See [cli.md](cli.md) for every command.
 tool, a test). It connects to a node with its own key:
 
 ```rust
-let identity = LocalIdentity::load_or_create("client.key".as_ref(), None)?;
+let identity = LocalIdentity::load_or_create("client.key".as_ref())?;
 let client = Client::connect("127.0.0.1:8100", &identity, &KnownPeers::load(None)).await?;
 client.call_reducer("my-module", "post", IntersticeValue::Vec(vec![
     IntersticeValue::String("hi".into()),

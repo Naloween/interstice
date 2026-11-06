@@ -52,7 +52,7 @@ pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> 
         },
     )?;
 
-    // ── Direct: fail (ABI 16) ─────────────────────────────────────────────────
+    // ── Direct: fail ─────────────────────────────────────────────────────────
     // The guest says why the current call fails, just before it traps.
     linker.func_wrap(
         "interstice",

@@ -3019,6 +3019,7 @@ name = "interstice-core"
 version = "0.5.0"
 dependencies = [
  "anyhow",
+ "aws-lc-rs",
  "colored_text",
  "cpal",
  "crossbeam-channel",
@@ -6421,6 +6422,7 @@ checksum = "ee48d38b119b0cd71fe4141b30f5ba9c7c5d9f4e7a3a8b4a674e4b6ef789976f"
 dependencies = [
  "getrandom 0.3.4",
  "js-sys",
+ "serde_core",
  "wasm-bindgen",
 ]
 

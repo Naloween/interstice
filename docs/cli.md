@@ -7,8 +7,9 @@ directory (`~/.local/share/interstice` on Linux):
 ```
 nodes.toml                the registry: names, addresses, ids
 cli_identity.key          this CLI's key; its id is shown by `interstice identity`
-known_peers.toml          keys remembered for nodes created before key identities
-nodes/<id>/               a local node: node.toml, identity.key, node.log, modules/
+cli_identity.chain        its key handovers, once rotated
+known_peers.toml          the newest key handover seen from each node
+nodes/<id>/               a local node: node.toml, identity.key, identity.chain, node.log, modules/
 ```
 
 ## Nodes
@@ -25,7 +26,9 @@ nodes/<id>/               a local node: node.toml, identity.key, node.log, modul
 | `node schema <name> [out]` | Print or save the schema the node shows you. |
 | `node expose <name> on\|off` | Listen on every interface, or on localhost only. |
 | `node owner add <name> <id>`, `node owner list <name>` | Owners may administer the node and call anything. |
+| `node rotate-key <name>` | Move a local node to a new key; its id stays ([security](security.md#rotating-a-key)). |
 | `identity` | This CLI's id, to make it an owner of another node. |
+| `identity rotate` | Move this CLI to a new key; its id stays. |
 
 ## Modules
 

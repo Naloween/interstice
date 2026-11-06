@@ -29,7 +29,7 @@ use uuid::Uuid;
 
 pub type NodeId = Uuid;
 
-/// The node's key pair, and the keys remembered for legacy peers (§7.4).
+/// The node's key, and the newest key handovers seen from peers (§7.4).
 pub const IDENTITY_FILE: &str = "identity.key";
 pub const KNOWN_PEERS_FILE: &str = "known_peers.toml";
 
@@ -170,11 +170,15 @@ impl Node {
             .expect("Should be able to open log file");
         let logger = Logger::new(logger_file);
 
-        // Nodes created before keys keep their id and get a key now.
-        let trust = Arc::new(Trust {
-            identity: LocalIdentity::load_or_create(&data_path.join(IDENTITY_FILE), Some(id))?,
-            known: KnownPeers::load(Some(data_path.join(KNOWN_PEERS_FILE))),
-        });
+        let identity = LocalIdentity::load_or_create(&data_path.join(IDENTITY_FILE))?;
+        if identity.id != id {
+            return Err(IntersticeError::Internal(format!(
+                "node {id}: its key is the identity {}, not this node's; a node created before key \
+                 identities can't start, recreate it",
+                identity.id
+            )));
+        }
+        let trust = Arc::new(Trust { identity, known: KnownPeers::load(Some(data_path.join(KNOWN_PEERS_FILE))) });
 
         let (reducer_sender, reducer_receiver) =
             crossbeam_channel::bounded::<Job>(REDUCER_QUEUE_CAPACITY);

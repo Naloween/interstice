@@ -66,12 +66,23 @@ async fn run() -> Result<(), IntersticeError> {
             example(&args[2]).await
         }
         "bundle" => handle_bundle_command(&args).await,
-        "identity" => {
-            let identity = interstice_cli::data_directory::load_cli_identity()?;
-            println!("{}", identity.id);
-            println!("To make this CLI an owner of a node: interstice node owner add <node> {}", identity.id);
-            Ok(())
-        }
+        "identity" => match args.get(2).map(String::as_str) {
+            None => {
+                let identity = interstice_cli::data_directory::load_cli_identity()?;
+                println!("{}", identity.id);
+                println!("To make this CLI an owner of a node: interstice node owner add <node> {}", identity.id);
+                Ok(())
+            }
+            Some("rotate") => {
+                let identity = interstice_cli::data_directory::rotate_cli_identity()?;
+                println!("This CLI ({}) has a new key (handover {}).", identity.id, identity.chain.handovers.len());
+                Ok(())
+            }
+            Some(_) => {
+                print_help();
+                Ok(())
+            }
+        },
         "init" => init(args.get(2).map(String::as_str)),
         "load" => {
             if args.len() < 4 {
@@ -156,6 +167,7 @@ fn print_help() {
     println!("  node list                            List known nodes");
     println!("  node remove <name|id>                Remove a node entry");
     println!("  node rename <old> <new>              Rename a node entry");
+    println!("  node rotate-key <name|id>            Move a local node to a new key; its id stays");
     println!("  node show <name|id>                  Show node details");
     println!("  node start <name|id>                 Start a local node by name");
     println!("  node ping <name|id>                  Check node connectivity");
@@ -172,7 +184,8 @@ fn print_help() {
     println!("  load <node> <module_path> [--allow-data-loss|--delete-data] [--grant]");
     println!("                                 Load or update a module; asks before a migration that loses data");
     println!("                                 and before granting authorities (--grant grants them)");
-    println!("  identity                       Show this CLI's id (its key's), to become an owner of a node");
+    println!("  identity                       Show this CLI's id, to become an owner of a node");
+    println!("  identity rotate                Move this CLI to a new key; its id stays");
     println!("  unload <node> <module_name>    Unload a module but keep its data");
     println!("  remove <node> <module_name>    Remove a module and delete its data");
     println!("  update                          Update the interstice CLI");

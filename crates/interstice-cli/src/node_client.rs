@@ -26,7 +26,7 @@ pub async fn connect(address: &str) -> Result<Client, IntersticeError> {
             .find(|n| n.address == address)
             .and_then(|n| n.node_id.as_deref())
         {
-            if expected != client.node_id() {
+            if expected != client.node_id().to_string() {
                 return Err(IntersticeError::PermissionDenied(format!(
                     "the node at {address} is {}, not {expected} as registered",
                     client.node_id()

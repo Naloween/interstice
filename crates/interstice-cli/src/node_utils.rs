@@ -232,6 +232,21 @@ pub async fn handle_node_command(args: &[String]) -> Result<(), IntersticeError>
             config.save(&dir)?;
             println!("Node '{}' will listen on {} from its next start.", args[3], config.listen_host());
         }
+        "rotate-key" => {
+            // DESIGN §7.4: a new key, signed over by the current one; the id stays.
+            if args.len() < 4 {
+                print_node_help();
+                return Ok(());
+            }
+            let dir = local_node_dir(&registry, &args[3])?;
+            let identity = interstice_core::LocalIdentity::rotate(&dir.join(interstice_core::IDENTITY_FILE))?;
+            println!(
+                "Node '{}' ({}) has a new key (handover {}); it uses it from its next start.",
+                args[3],
+                identity.id,
+                identity.chain.handovers.len()
+            );
+        }
         "owner" => {
             // `node owner add <node> <id>` / `node owner list <node>`
             match (args.get(3).map(String::as_str), args.len()) {

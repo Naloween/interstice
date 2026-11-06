@@ -1234,10 +1234,9 @@ impl Runtime {
 struct ModuleState {
     /// Whether the module should be auto-loaded when the node starts.
     loaded: bool,
-    /// Authorities granted to it (DESIGN §7.4). `None`: written before
-    /// grants existed, so whatever it holds counts as granted.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    granted: Option<Vec<Authority>>,
+    /// Authorities granted to it (DESIGN §7.4).
+    #[serde(default)]
+    granted: Vec<Authority>,
 }
 
 fn read_module_state(module_dir: &Path) -> Option<ModuleState> {
@@ -1264,36 +1263,24 @@ pub(crate) fn ungranted_authorities(runtime: &Runtime, schema: &ModuleSchema) ->
         .modules_path
         .as_ref()
         .and_then(|p| read_module_state(&p.join(&schema.name)));
-    match state {
-        Some(ModuleState { granted: None, .. }) => Vec::new(),
-        Some(ModuleState { granted: Some(granted), .. }) => {
-            schema.authorities.iter().filter(|a| !granted.contains(a)).cloned().collect()
-        }
-        None => schema.authorities.clone(),
-    }
+    let granted = state.map(|s| s.granted).unwrap_or_default();
+    schema.authorities.iter().filter(|a| !granted.contains(a)).cloned().collect()
 }
 
 /// Record that `schema`'s authorities are granted; returns the new ones.
 fn record_grants(module_dir: &Path, schema: &ModuleSchema) -> Vec<Authority> {
     let mut state = read_module_state(module_dir).unwrap_or_default();
-    let before = state.granted.clone().unwrap_or_default();
-    let new: Vec<Authority> = schema.authorities.iter().filter(|a| !before.contains(a)).cloned().collect();
-    let mut granted = before;
-    granted.extend(new.iter().cloned());
-    state.granted = Some(granted);
+    let new: Vec<Authority> =
+        schema.authorities.iter().filter(|a| !state.granted.contains(a)).cloned().collect();
+    state.granted.extend(new.iter().cloned());
     save_module_state(module_dir, &state);
     new
 }
 
-/// Whether the module in `module_dir` should be auto-loaded on node startup.
-/// Defaults to `true` when no `state.toml` is present (backward compatible).
+/// Whether the module in `module_dir` is loaded on node startup: every
+/// successful load writes `state.toml`, so without one it never loaded.
 pub(crate) fn module_should_load(module_dir: &Path) -> bool {
-    match std::fs::read_to_string(module_dir.join("state.toml")) {
-        Ok(contents) => toml::from_str::<ModuleState>(&contents)
-            .map(|state| state.loaded)
-            .unwrap_or(true),
-        Err(_) => true,
-    }
+    read_module_state(module_dir).is_some_and(|state| state.loaded)
 }
 
 fn setup_file_watches(
