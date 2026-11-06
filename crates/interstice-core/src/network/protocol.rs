@@ -10,10 +10,19 @@ pub enum NetworkPacket {
         address: String,
     },
     Close,
+    /// With a `request_id`, the node answers with a `ReducerResult` once the
+    /// call has committed or failed (DESIGN §7.1).
     ReducerCall {
+        request_id: Option<u64>,
         module_name: String,
         reducer_name: String,
         input: IntersticeValue,
+    },
+    /// The outcome of a `ReducerCall` that asked for one: `Ok` once its
+    /// writes are committed, or the error that rolled it back.
+    ReducerResult {
+        request_id: u64,
+        outcome: Result<(), String>,
     },
     QueryCall {
         request_id: String,

@@ -94,6 +94,7 @@ async fn run_simple(args: &[String]) -> Result<(), IntersticeError> {
     write_packet(
         &mut stream,
         &NetworkPacket::ReducerCall {
+                request_id: None,
             module_name: module.clone(),
             reducer_name: "bench_begin_run".to_string(),
             input: IntersticeValue::Vec(vec![
@@ -117,6 +118,7 @@ async fn run_simple(args: &[String]) -> Result<(), IntersticeError> {
             write_packet(
                 &mut stream,
                 &NetworkPacket::ReducerCall {
+                request_id: None,
                     module_name: module.clone(),
                     reducer_name: "bench_tx_insert".to_string(),
                     input: IntersticeValue::Vec(vec![
@@ -132,6 +134,7 @@ async fn run_simple(args: &[String]) -> Result<(), IntersticeError> {
         write_packet(
             &mut stream,
             &NetworkPacket::ReducerCall {
+                request_id: None,
                 module_name: module.clone(),
                 reducer_name: "bench_end_run".to_string(),
                 input: IntersticeValue::Vec(vec![
@@ -147,6 +150,7 @@ async fn run_simple(args: &[String]) -> Result<(), IntersticeError> {
             write_packet(
                 &mut stream,
                 &NetworkPacket::ReducerCall {
+                request_id: None,
                     module_name: module.clone(),
                     reducer_name: "bench_tx".to_string(),
                     input: IntersticeValue::Vec(vec![

@@ -1,7 +1,9 @@
 use crate::node_client::handshake_with_node;
 use crate::node_registry::NodeRegistry;
 use interstice_core::{
-    IntersticeError, NetworkPacket, interstice_abi::IntersticeValue, packet::write_packet,
+    IntersticeError, NetworkPacket,
+    interstice_abi::IntersticeValue,
+    packet::{read_packet, write_packet},
 };
 
 pub async fn call_reducer(
@@ -17,17 +19,31 @@ pub async fn call_reducer(
     // connect to node
     let (mut stream, _handshake) = handshake_with_node(&node_address).await?;
 
-    // Send call reducer packet to node
+    // Call, and wait for the commit or the error.
     let packet = NetworkPacket::ReducerCall {
+        request_id: Some(1),
         module_name,
         reducer_name,
         input,
     };
     write_packet(&mut stream, &packet).await?;
+    let outcome = loop {
+        match read_packet(&mut stream).await? {
+            NetworkPacket::ReducerResult { request_id: 1, outcome } => break outcome,
+            NetworkPacket::Error(err) => break Err(err),
+            _ => {}
+        }
+    };
 
     // Close connection properly
     let packet = NetworkPacket::Close;
     write_packet(&mut stream, &packet).await?;
 
-    Ok(())
+    match outcome {
+        Ok(()) => {
+            println!("committed");
+            Ok(())
+        }
+        Err(err) => Err(IntersticeError::Internal(format!("reducer failed: {err}"))),
+    }
 }

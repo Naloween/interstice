@@ -98,6 +98,7 @@ impl Runtime {
                 OutboxEntry::Remote {
                     node_id,
                     packet: NetworkPacket::ReducerCall {
+                        request_id: None,
                         module_name: module_name.clone(),
                         reducer_name: call_reducer_request.reducer_name,
                         input,

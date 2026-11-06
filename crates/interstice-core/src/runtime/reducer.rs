@@ -47,6 +47,8 @@ pub struct ReducerJob {
     /// `client_connected`.
     pub admission: Option<crate::network::peer::Admission>,
     pub completion: Option<CompletionToken>,
+    /// A network caller's request id: answer with a `ReducerResult`.
+    pub reply: Option<u64>,
 }
 
 /// What the scheduler runs (DESIGN §6.6, Jobs).

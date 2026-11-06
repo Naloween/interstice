@@ -530,6 +530,7 @@ impl Runtime {
                     caller_module_name: String::new(),
                     admission,
                     completion,
+                    reply: None,
                 };
                 // Push to the ordered ingress (unbounded → never blocks this
                 // current-thread runtime). A single forwarder thread does the

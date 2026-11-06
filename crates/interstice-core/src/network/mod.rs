@@ -129,19 +129,28 @@ impl NetworkHandle {
         Ok(())
     }
 
+    /// Queue `packet` for `node_id`. Packets sent from one thread reach the
+    /// peer in order: the bounded channel takes them directly, and when it is
+    /// full a worker thread waits for room instead of spawning a task that
+    /// could be overtaken.
     pub fn send_packet(&self, node_id: NodeId, packet: NetworkPacket) {
-        let peers = self.peers.clone();
-        // Use the stored handle so this works even when called from a non-tokio thread
-        // (e.g. wasm-reducer-* OS threads).
-        self.tokio_handle.spawn(async move {
-            let peer = {
-                let peers = peers.lock();
-                peers.get(&node_id).cloned()
-            };
-            if let Some(peer) = peer {
+        let Some(peer) = self.peers.lock().get(&node_id).cloned() else {
+            return;
+        };
+        let packet = match peer.sender.try_send(packet) {
+            Ok(()) => return,
+            Err(mpsc::error::TrySendError::Closed(_)) => return,
+            Err(mpsc::error::TrySendError::Full(packet)) => packet,
+        };
+        if tokio::runtime::Handle::try_current().is_err() {
+            // A plain OS thread (a reducer worker): blocking keeps the order.
+            let _ = peer.sender.blocking_send(packet);
+        } else {
+            // On the runtime itself blocking would stall the event loop.
+            self.tokio_handle.spawn(async move {
                 let _ = peer.send(packet).await;
-            }
-        });
+            });
+        }
     }
 
     pub fn get_node_id_from_adress(&self, address: &String) -> Result<NodeId, IntersticeError> {
@@ -303,6 +312,8 @@ impl Network {
                     NetworkPacket::Close => {
                         self.disconnect_peer_remote(node_id);
                     }
+                    // Nodes never ask each other for reducer results.
+                    NetworkPacket::ReducerResult { .. } => {}
                     NetworkPacket::ReducerCall { .. } => {
                         // ReducerCall is now dispatched directly in connection_task's read_loop
                         // (via reducer_sender) — this path should not be reached.
@@ -637,7 +648,7 @@ async fn connection_task(
                 }
                 packet = read_packet(&mut reader) => {
                     match packet {
-                        Ok(NetworkPacket::ReducerCall { module_name, reducer_name, input }) => {
+                        Ok(NetworkPacket::ReducerCall { request_id, module_name, reducer_name, input }) => {
                             // Hot path: bypass the intermediate packet channel — dispatch
                             // directly to the crossbeam reducer queue for zero-copy dispatch.
                             // Must use blocking `send`: `try_send` dropped work when the queue
@@ -651,6 +662,7 @@ async fn connection_task(
                                 caller_module_name: String::new(),
                                 admission: None,
                                 completion: None,
+                                reply: request_id,
                             };
                             let sender = reducer_sender.clone();
                             tokio::task::block_in_place(move || {

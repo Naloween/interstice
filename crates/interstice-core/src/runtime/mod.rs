@@ -335,6 +335,13 @@ impl Runtime {
                                         rt.network_handle.disconnect_peer(admission.peer);
                                     }
                                 }
+                                if let Some(request_id) = job.reply {
+                                    let outcome = result.as_ref().map(|_| ()).map_err(|e| e.to_string());
+                                    rt.network_handle.send_packet(
+                                        job.caller_node_id,
+                                        crate::network::protocol::NetworkPacket::ReducerResult { request_id, outcome },
+                                    );
+                                }
                                 if let Err(err) = result {
                                     // The target module is not loaded: a call to a
                                     // wrong name, or a job queued (e.g. an event)
@@ -416,6 +423,7 @@ impl Runtime {
                                 caller_module_name: String::new(),
                                 admission: None,
                                 completion: None,
+                                reply: None,
                             };
                             let _ = timer_reducer_sender.send(job.into());
                         }
@@ -495,6 +503,7 @@ impl Runtime {
                     caller_module_name: String::new(),
                     admission: None,
                     completion: None,
+                    reply: None,
                 };
                 let _ = runtime.reducer_ingress.send(job.into());
             }

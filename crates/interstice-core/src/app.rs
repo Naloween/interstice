@@ -132,6 +132,7 @@ impl ApplicationHandler for App {
                         caller_module_name: String::new(),
                         admission: None,
                         completion: Some(token),
+                        reply: None,
                     }.into());
                     self.wait_for_render_completion(done_rx);
                 }

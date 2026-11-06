@@ -463,7 +463,7 @@ The rows marked *closed* are closed by the isolation and ordering design (§6.6)
 | Access keys weren't normalised | A module's own `Current.t` and another module's `m.t` were different keys, so a writer and a foreign reader of one table never conflicted | *closed*: keys use the owner's name, lower-cased |
 | Event emission happens after the lock is released | Under parallelism, the event order can differ from the commit order | *closed*: commit-ordered emission (§6.6) |
 | Admission rescanned the whole waiting queue | O(n²) under contention: 590 tx/s with 20 000 queued updates | *closed*: per-key queues (§6.2), 38 700 tx/s |
-| `send_packet` spawns one task per packet | Two packets to the same peer may overtake each other | open (§7.4 network work) |
+| `send_packet` spawned one task per packet | Two packets to the same peer could overtake each other | *closed* for reducer workers: packets go straight into the peer's channel, and a worker waits when it is full; only an event-loop sender facing a full channel still spawns |
 
 ### 6.4 Instances and memory
 
@@ -859,6 +859,7 @@ they are a deterministic function of it, like any table read.
 | Reducer or query → local query | Synchronous, on the target module's query instance. |
 | Reducer or query → remote query | Synchronous and blocking. ⚠ No timeout, and an error reply carries no request id, so the caller can hang forever. |
 | Query → reducer | Refused. |
+| Client → reducer (network) | Queued like any job. A `ReducerCall` with a `request_id` gets a `ReducerResult`: `Ok` once its writes are committed, or the error that rolled it back (unknown module or reducer, refused by visibility, `Err` returned, trap, commit conflict). "Committed" means applied and handed to the logger; the disk write follows within the flush interval (§3.2). Without a `request_id` the call is fire-and-forget. |
 
 **Re-entrancy:** a query call into a module whose query is already on the
 call stack is refused. Reducer calls are deferred, so they cannot re-enter, and
