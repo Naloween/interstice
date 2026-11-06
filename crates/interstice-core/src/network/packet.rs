@@ -2,27 +2,35 @@ use crate::{error::IntersticeError, network::protocol::NetworkPacket};
 use interstice_abi::{decode, encode};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+/// Write one frame (u32 length, then the encoded packet) and flush it.
 pub async fn write_packet<W: AsyncWriteExt + Unpin>(
+    writer: &mut W,
+    packet: &NetworkPacket,
+) -> Result<(), IntersticeError> {
+    write_packet_unflushed(writer, packet).await?;
+    // A TLS stream may hold the last record back until flushed.
+    writer
+        .flush()
+        .await
+        .map_err(|err| IntersticeError::Internal(format!("Failed to write packet: {err}")))
+}
+
+/// Write one frame without flushing, for a writer that sends several
+/// packets and then flushes once.
+pub async fn write_packet_unflushed<W: AsyncWriteExt + Unpin>(
     writer: &mut W,
     packet: &NetworkPacket,
 ) -> Result<(), IntersticeError> {
     let bytes = encode(packet).map_err(|err| {
         IntersticeError::Internal(format!("Couldn't encode network packet: {}", err))
     })?;
+    let mut frame = Vec::with_capacity(4 + bytes.len());
+    frame.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
+    frame.extend_from_slice(&bytes);
     writer
-        .write_u32(bytes.len() as u32)
+        .write_all(&frame)
         .await
-        .map_err(|err| IntersticeError::Internal(format!("Failed to write packet: {err}")))?;
-    writer
-        .write_all(&bytes)
-        .await
-        .map_err(|err| IntersticeError::Internal(format!("Failed to write packet: {err}")))?;
-    // A TLS stream may hold the last record back until flushed.
-    writer
-        .flush()
-        .await
-        .map_err(|err| IntersticeError::Internal(format!("Failed to write packet: {err}")))?;
-    Ok(())
+        .map_err(|err| IntersticeError::Internal(format!("Failed to write packet: {err}")))
 }
 
 pub async fn read_packet<R: AsyncReadExt + Unpin>(

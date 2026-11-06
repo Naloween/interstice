@@ -606,7 +606,20 @@ async fn connection_task(
                 packet = receiver.recv() => {
                     match packet {
                         Some(packet) => {
-                            if let Err(e) = write_packet(&mut writer, &packet).await {
+                            // Write what is queued, then flush once.
+                            let mut result = packet::write_packet_unflushed(&mut writer, &packet).await;
+                            while result.is_ok() {
+                                match receiver.try_recv() {
+                                    Ok(next) => result = packet::write_packet_unflushed(&mut writer, &next).await,
+                                    Err(_) => break,
+                                }
+                            }
+                            if result.is_ok() {
+                                result = tokio::io::AsyncWriteExt::flush(&mut writer)
+                                    .await
+                                    .map_err(|e| IntersticeError::Internal(format!("Failed to flush: {e}")));
+                            }
+                            if let Err(e) = result {
                                 write_logger.log(
                                     &format!("Write error to {}: {:?}", node_id, e),
                                     LogSource::Network,
@@ -662,7 +675,7 @@ async fn connection_task(
                                 caller_module_name: String::new(),
                                 admission: None,
                                 completion: None,
-                                reply: request_id,
+                                reply: request_id.map(crate::runtime::reducer::Reply::Network),
                             };
                             let sender = reducer_sender.clone();
                             tokio::task::block_in_place(move || {

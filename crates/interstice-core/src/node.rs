@@ -290,6 +290,29 @@ impl Node {
         decide: Option<Decide>,
         bundle: Option<BundleManifest>,
     ) -> Result<(), IntersticeError> {
+        let (app, run_app_notify, _handle) = self.boot(given, decide, bundle).await?;
+        run_app_notify.notified().await;
+        app.run();
+        Ok(())
+    }
+
+    /// Start the node without a window and return once `modules` are loaded
+    /// (DESIGN §10, Embedding). The node keeps running on its own threads;
+    /// the handle calls its reducers and queries in process, as the kernel.
+    /// A module asking for the GPU or input authority gets no window.
+    pub async fn start_headless(self, modules: &[&[u8]]) -> Result<NodeHandle, IntersticeError> {
+        let given = modules.iter().map(|b| b.to_vec()).collect();
+        let (_app, _notify, handle) = self.boot(given, None, None).await?;
+        Ok(handle)
+    }
+
+    /// Everything but the window: config, network, runtime loop, modules.
+    async fn boot(
+        self,
+        given: Vec<Vec<u8>>,
+        decide: Option<Decide>,
+        bundle: Option<BundleManifest>,
+    ) -> Result<(App, Arc<Notify>, NodeHandle), IntersticeError> {
         let Node {
             id,
             runtime,
@@ -313,6 +336,13 @@ impl Node {
             LogSource::Node,
             LogLevel::Info,
         );
+        // Phase breakdown (DESIGN §6.8): printed every 10 s while on.
+        if crate::runtime::profile::init_from_env() {
+            thread::spawn(|| loop {
+                thread::sleep(std::time::Duration::from_secs(10));
+                eprintln!("{}", crate::runtime::profile::report());
+            });
+        }
 
         // Run network events
         network.listen().await?;
@@ -376,9 +406,8 @@ impl Node {
             )?;
         }
 
-        run_app_notify.notified().await;
-        app.run();
-        Ok(())
+        let handle = NodeHandle { id, runtime };
+        Ok((app, run_app_notify, handle))
     }
 
     pub async fn schema(&self, name: String) -> NodeSchema {
@@ -574,5 +603,79 @@ impl Node {
             }
             Err(err) => Err(err),
         }
+    }
+}
+
+use crate::runtime::reducer::ReducerJob;
+use interstice_abi::IntersticeValue;
+
+/// A running node, driven in process (DESIGN §10, Embedding). Calls go
+/// through the scheduler like any other job, as the kernel: visibility
+/// does not apply.
+#[derive(Clone)]
+pub struct NodeHandle {
+    pub id: NodeId,
+    runtime: Arc<Runtime>,
+}
+
+impl NodeHandle {
+    /// Call a reducer; resolves once it has committed, or with its error.
+    pub async fn call_reducer(
+        &self,
+        module: &str,
+        reducer: &str,
+        input: IntersticeValue,
+    ) -> Result<(), IntersticeError> {
+        let rx = self.submit_reducer(module, reducer, input)?;
+        rx.await
+            .map_err(|_| IntersticeError::Internal("reducer job dropped".into()))?
+            .map_err(IntersticeError::Internal)
+    }
+
+    /// Queue a reducer call without waiting; the receiver yields its outcome.
+    /// Blocks while the reducer queue is full.
+    pub fn submit_reducer(
+        &self,
+        module: &str,
+        reducer: &str,
+        input: IntersticeValue,
+    ) -> Result<tokio::sync::oneshot::Receiver<Result<(), String>>, IntersticeError> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.runtime
+            .reducer_sender
+            .send(
+                ReducerJob {
+                    module_name: module.to_string(),
+                    reducer_name: reducer.to_string(),
+                    input,
+                    caller_node_id: self.id,
+                    caller_module_name: String::new(),
+                    admission: None,
+                    completion: None,
+                    reply: Some(crate::runtime::reducer::Reply::Local(tx)),
+                }
+                .into(),
+            )
+            .map_err(|_| IntersticeError::Internal("node stopped".into()))?;
+        Ok(rx)
+    }
+
+    /// Call a query on a blocking thread.
+    pub async fn call_query(
+        &self,
+        module: &str,
+        query: &str,
+        input: IntersticeValue,
+    ) -> Result<IntersticeValue, IntersticeError> {
+        let runtime = self.runtime.clone();
+        let (module, query, id) = (module.to_string(), query.to_string(), self.id);
+        tokio::task::spawn_blocking(move || runtime.call_query(&module, &query, input, id, ""))
+            .await
+            .map_err(|e| IntersticeError::Internal(e.to_string()))?
+    }
+
+    /// The names of the loaded modules.
+    pub fn modules(&self) -> Vec<String> {
+        self.runtime.modules.lock().keys().cloned().collect()
     }
 }

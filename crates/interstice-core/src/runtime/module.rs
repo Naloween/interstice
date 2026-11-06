@@ -194,6 +194,7 @@ impl Module {
         // those warm. This is purely a performance property: any instance can
         // serve any call, and caches are rebuilt from tables when missing.
         let (lock, cvar) = &*self.instance_pool;
+        let waiting = crate::runtime::profile::span(crate::runtime::profile::Phase::Instance);
         let mut instance = {
             let mut pool = lock.lock();
             while pool.is_empty() {
@@ -205,7 +206,11 @@ impl Module {
                 .unwrap_or(0);
             pool.remove(idx).0
         };
-        let result = instance.call_reducer(&func_name, input);
+        drop(waiting);
+        let result = {
+            let _wasm = crate::runtime::profile::span(crate::runtime::profile::Phase::Wasm);
+            instance.call_reducer(&func_name, input)
+        };
         self.recycle(&mut instance, &result);
         // Return the instance to the pool and wake a waiting thread if any.
         {

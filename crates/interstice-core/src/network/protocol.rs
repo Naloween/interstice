@@ -30,9 +30,10 @@ pub enum NetworkPacket {
         query_name: String,
         input: IntersticeValue,
     },
+    /// The answer to a `QueryCall`: its value, or why it failed.
     QueryResponse {
         request_id: String,
-        result: IntersticeValue,
+        result: Result<IntersticeValue, String>,
     },
     RequestSubscription(RequestSubscription),
     RequestUnsubscription(RequestSubscription),

@@ -23,7 +23,7 @@ Repository layout
 - The WASM ABI and types: [crates/interstice-abi](crates/interstice-abi)
 - The Rust SDK and macros: [crates/interstice-sdk\*](crates/interstice-sdk)
 - The CLI: [crates/interstice-cli](crates/interstice-cli)
-- Example modules: [modules/examples/desktop](modules/examples/desktop) (the showcase), [modules/examples/notes](modules/examples/notes), [modules/hello](modules/hello), [modules/caller](modules/caller), [modules/graphics](modules/graphics), [modules/audio](modules/audio), [modules/examples/benchmark-workload](modules/examples/benchmark-workload)
+- Example modules: [modules/examples/desktop](modules/examples/desktop) (the showcase), [modules/examples/notes](modules/examples/notes), [modules/hello](modules/hello), [modules/caller](modules/caller), [modules/graphics](modules/graphics), [modules/audio](modules/audio)
 
 ---
 
@@ -86,12 +86,6 @@ Start the caller example to simulate remote interactions:
 
 ```bash
 interstice example caller
-```
-
-Start the benchmark workload example:
-
-```bash
-interstice example benchmark
 ```
 
 ---
@@ -454,7 +448,6 @@ You can omit the target argument if the .cargo/config.toml is already well confi
   - Scriptable: `interstice call_reducer desktop-example desktop-example open notes`.
 - `modules/examples/notes`
   - A UI over `hello`'s time-travelling `Notes` table: add and erase notes, undo, redo, and click any commit to rewind to it (the future is kept as a branch). Runs standalone with `interstice example notes` or as a desktop app.
-- `modules/examples/benchmark-workload`
   - Benchmark-oriented reducers/queries for noop, insert/update/delete/mix workloads across ephemeral/stateful/logged tables, event fanout, and scheduler pressure.
 
 Reproduce
@@ -508,8 +501,8 @@ There is no manual way to load a module onto an already running node. See the CL
 
 ## Example command
 
-- `interstice example <hello|caller|graphics|audio|agar-server|agar-client|ui|desktop|notes|benchmark-workload|http-get|browser>`
-- Built-in ports are fixed by example name: `hello=8080`, `caller=8081`, `graphics=8082`, `audio=8083`, `agar-server=8086`, `agar-client=8084`, `ui=8088`, `desktop=8089`, `benchmark-workload=8087`, `http-get=8090`, `browser=8091`, `notes=8092`.
+- `interstice example <hello|caller|graphics|audio|agar-server|agar-client|ui|desktop|notes|http-get|browser>`
+- Built-in ports are fixed by example name: `hello=8080`, `caller=8081`, `graphics=8082`, `audio=8083`, `agar-server=8086`, `agar-client=8084`, `ui=8088`, `desktop=8089`, `http-get=8090`, `browser=8091`, `notes=8092`.
 - `http-get` demonstrates the **shared network broker**: instead of holding the `Network` authority itself, it asks the default `network` module to `http_get("example.com", "/")`. The broker resolves DNS, opens the TCP socket, sends the request and assembles the response, then returns it as a row in its public `HttpResponse` table (see [modules/examples/http-get](modules/examples/http-get) and [modules/defaults/network](modules/defaults/network)).
 - `browser` is the flagship app tying the whole model together: it fetches pages over the shared `network` broker, parses static HTML with `tl`, translates the DOM into a `UiElement` tree (via the reusable [`interstice-ui`](crates/interstice-ui) engine) and renders through the graphics ABI. Click links to navigate, type a URL and press Enter to go there, scroll with the wheel; `<img>` tags are really fetched and decoded (PNG/JPEG) into textures. Scope is static HTML only — no JavaScript or CSS engine; styling is a small built-in user-agent stylesheet plus inline `style="color:…"` (see [modules/examples/browser](modules/examples/browser)). Starts pointed at `http://info.cern.ch/`.
 - Running the same example command multiple times recreates the example node (removes existing data and registry entry, then creates the node afresh with the example modules).
@@ -531,69 +524,18 @@ If the target node is a local node that is not currently running, the command **
 - `interstice remove <node> <module_name>` (deletes data)
 - `interstice call_reducer <node> <module_name> <reducer_name> [args...]`
 - `interstice call_query <node> <module_name> <query_name> [args...]`
-- `interstice benchmark <...>`
 - `interstice update`
 
 ## Benchmarking
 
-- List built-in benchmark profiles:
-
-```bash
-interstice benchmark list-profiles
-```
-
-- Run a built-in profile against a node (defaults to `benchmark-workload` module):
-
-```bash
-interstice benchmark profile durability benchmark-example
-```
-
-- Run a custom benchmark directly against any module reducer:
-
-```bash
-interstice benchmark run benchmark-example benchmark-workload tx_insert_logged \
-  --connections 8 \
-  --duration-ms 30000 \
-  --warmup-ms 5000 \
-  --args-json '["$client", "$seq", 64, false]' \
-  --output benchmarks/results/custom-run.json
-```
-
-- Run one or more scenarios from TOML:
-
-```bash
-interstice benchmark scenario benchmarks/scenarios/durability.toml
-```
-
-Template placeholders supported in JSON args include `$seq`, `$worker`, `$op`, `$client`, `$now_ms`, `$max_seq`, `$max_client`, `$total_sent`.
-
-### Reliable benchmark protocol
-
-To get comparable numbers, treat benchmarking as a controlled experiment:
-
-1. **Use a fresh node process** for each run series (avoid stale module binaries and residual state).
-2. **Use node-authoritative metrics** (`bench_start` / `bench_stop` / `bench_metrics_snapshot`) as the source of truth.
-3. **Keep args type-correct** in reducer calls (`$now_ms` must resolve to numeric input, not a quoted string payload type mismatch).
-4. **Run multiple repetitions** (at least 5) and report median + p95, not a single best run.
-5. **Pin runtime conditions** (same CPU governor, no heavy background load, same build profile, same connection count and payload).
-6. **Reject inconsistent runs** where node committed counts diverge materially from expected in-window activity.
-
-Suggested reporting set:
-
-- Throughput: `node_committed.measured / duration`
-- Latency: node-side p50/p95/p99 from `bench_metrics_snapshot`
-- Context: module/reducer, connections, payload bytes, warmup/duration, build mode, machine
+See [benchmarks/README.md](benchmarks/README.md): micro-benchmarks with the
+same matrix as SpacetimeDB's (`cargo bench -p interstice-bench`) and the
+keynote transfer load (`interstice-bench transfer`).
 
 # Security
 
 - Loading doesn't require any privilege by default, so anyone can load and remove modules, even remotely.
 - To prevent this default behavior, the node should load a module with the Module authority. In this case, all requests are forwarded to this module, which can enforce custom policies for load/remove and access.
-
----
-
-# Benchmark interpretation
-
-Absolute throughput values depend heavily on workload shape and machine conditions. Prefer publishing reproducible scenario configs and run metadata over static headline numbers.
 
 ---
 

@@ -4,6 +4,7 @@ mod deterministic_random;
 pub mod event;
 pub mod host_calls;
 pub mod migration;
+pub mod profile;
 pub mod module;
 mod query;
 pub mod reducer;
@@ -77,7 +78,7 @@ pub struct Runtime {
     pub(crate) app_initialized: Arc<Mutex<bool>>,
     /// Sync mpsc channels — lets the dedicated WASM thread do a blocking recv for remote queries.
     pub(crate) pending_query_responses:
-        Arc<Mutex<HashMap<String, std_mpsc::Sender<IntersticeValue>>>>,
+        Arc<Mutex<HashMap<String, std_mpsc::Sender<Result<IntersticeValue, String>>>>>,
     pub(crate) pending_schema_responses: Arc<Mutex<HashMap<String, oneshot::Sender<NodeSchema>>>>,
     pub(crate) tokio_handle: tokio::runtime::Handle,
     pub(crate) reducer_sender: CbSender<Job>,
@@ -216,7 +217,8 @@ impl Runtime {
     }
 
     pub async fn run(runtime: Arc<Runtime>, mut event_receiver: UnboundedReceiver<(EventInstance, Option<CompletionToken>)>) {
-        let (ready_tx, ready_rx) = crossbeam_channel::unbounded::<(u64, Job)>();
+        let (ready_tx, ready_rx) =
+            crossbeam_channel::unbounded::<(u64, Job, Option<std::time::Instant>)>();
         let (done_tx, done_rx) = crossbeam_channel::unbounded::<u64>();
 
         {
@@ -235,7 +237,8 @@ impl Runtime {
                                 };
                                 let accesses = job_accesses(&rt, &job);
                                 if let Some(runnable) = scheduler.enqueue(job, accesses) {
-                                    if ready_tx.send((runnable.id, runnable.payload)).is_err() {
+                                    profile::since(profile::Phase::Blocked, runnable.born);
+                                    if ready_tx.send((runnable.id, runnable.payload, profile::now())).is_err() {
                                         return;
                                     }
                                 }
@@ -246,7 +249,8 @@ impl Runtime {
                                     Err(_) => break,
                                 };
                                 for runnable in scheduler.complete(done_id) {
-                                    if ready_tx.send((runnable.id, runnable.payload)).is_err() {
+                                    profile::since(profile::Phase::Blocked, runnable.born);
+                                    if ready_tx.send((runnable.id, runnable.payload, profile::now())).is_err() {
                                         return;
                                     }
                                 }
@@ -298,10 +302,11 @@ impl Runtime {
                 .stack_size(WASM_STACK_SIZE + 8 * 1024 * 1024)
                 .spawn(move || {
                     loop {
-                        let (job_id, job) = match receiver.recv() {
+                        let (job_id, job, ready_at) = match receiver.recv() {
                             Ok(j) => j,
                             Err(_) => break,
                         };
+                        profile::since(profile::Phase::Ready, ready_at);
                         // Fork the token into TLS so that everything this job
                         // emits (events, call batches) holds its own fork. We use
                         // fork() — not clone() — so the count is incremented and
@@ -335,12 +340,18 @@ impl Runtime {
                                         rt.network_handle.disconnect_peer(admission.peer);
                                     }
                                 }
-                                if let Some(request_id) = job.reply {
+                                if let Some(reply) = job.reply {
+                                    let _reply = profile::span(profile::Phase::Reply);
                                     let outcome = result.as_ref().map(|_| ()).map_err(|e| e.to_string());
-                                    rt.network_handle.send_packet(
-                                        job.caller_node_id,
-                                        crate::network::protocol::NetworkPacket::ReducerResult { request_id, outcome },
-                                    );
+                                    match reply {
+                                        crate::runtime::reducer::Reply::Network(request_id) => rt.network_handle.send_packet(
+                                            job.caller_node_id,
+                                            crate::network::protocol::NetworkPacket::ReducerResult { request_id, outcome },
+                                        ),
+                                        crate::runtime::reducer::Reply::Local(sender) => {
+                                            let _ = sender.send(outcome);
+                                        }
+                                    }
                                 }
                                 if let Err(err) = result {
                                     // The target module is not loaded: a call to a
@@ -523,7 +534,7 @@ impl Runtime {
                                 requesting_node_id,
                                 crate::network::protocol::NetworkPacket::QueryResponse {
                                     request_id,
-                                    result: value,
+                                    result: Ok(value),
                                 },
                             );
                         }
@@ -538,7 +549,10 @@ impl Runtime {
                             );
                             runtime.network_handle.send_packet(
                                 requesting_node_id,
-                                crate::network::protocol::NetworkPacket::Error(err.to_string()),
+                                crate::network::protocol::NetworkPacket::QueryResponse {
+                                    request_id,
+                                    result: Err(err.to_string()),
+                                },
                             );
                         }
                     }

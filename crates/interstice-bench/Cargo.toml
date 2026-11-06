@@ -1,0 +1,21 @@
+[package]
+name = "interstice-bench"
+version = "0.5.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Benchmarks of the Interstice engine, comparable to SpacetimeDB's (benchmarks/README.md)"
+
+[dependencies]
+interstice-core = { path = "../interstice-core" }
+interstice-client = { path = "../interstice-client" }
+tokio = { version = "1.49", features = ["full"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+tempfile = "3"
+
+[dev-dependencies]
+criterion = { version = "0.7", features = ["async_tokio"] }
+
+[[bench]]
+name = "generic"
+harness = false

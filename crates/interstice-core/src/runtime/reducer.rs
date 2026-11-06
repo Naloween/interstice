@@ -47,8 +47,17 @@ pub struct ReducerJob {
     /// `client_connected`.
     pub admission: Option<crate::network::peer::Admission>,
     pub completion: Option<CompletionToken>,
-    /// A network caller's request id: answer with a `ReducerResult`.
-    pub reply: Option<u64>,
+    /// Who waits for the outcome, if anyone.
+    pub reply: Option<Reply>,
+}
+
+/// Who waits for a reducer job's outcome: `Ok` once committed, or the error.
+#[derive(Debug)]
+pub enum Reply {
+    /// A network caller's request id: answered with a `ReducerResult`.
+    Network(u64),
+    /// An embedder ([`crate::NodeHandle::call_reducer`]).
+    Local(tokio::sync::oneshot::Sender<Result<(), String>>),
 }
 
 /// What the scheduler runs (DESIGN §6.6, Jobs).
@@ -292,6 +301,7 @@ impl Runtime {
         caller_module_name: &str,
         parent_scope: Option<Arc<BlobScope>>,
     ) -> Result<(), IntersticeError> {
+        let prepare = crate::runtime::profile::span(crate::runtime::profile::Phase::Prepare);
         let module = self.modules.lock().get(module_name).cloned().ok_or_else(|| {
             IntersticeError::ModuleNotFound(
                 module_name.into(),
@@ -335,7 +345,10 @@ impl Runtime {
             module.state_epoch(),
         );
         let call_result = match interstice_abi::encode(&(reducer_context, args)) {
-            Ok(input) => module.call_reducer_encoded(reducer_name, &input),
+            Ok(input) => {
+                drop(prepare);
+                module.call_reducer_encoded(reducer_name, &input)
+            }
             Err(err) => Err(IntersticeError::Internal(format!(
                 "failed to serialize reducer arguments: {err}"
             ))),
@@ -365,6 +378,7 @@ impl Runtime {
                 scope: frame.scope.clone(),
             })
         });
+        let _commit = crate::runtime::profile::span(crate::runtime::profile::Phase::Commit);
         self.apply_all_transactions(
             frame.transactions,
             &frame.overlays,

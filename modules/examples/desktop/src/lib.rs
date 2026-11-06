@@ -18,7 +18,7 @@ interstice_module!(visibility: Public);
 // and no blur.
 //
 // The example wasms are baked in because bytes can't ride a CLI string
-// argument. `build_modules.bash` builds them before this module.
+// argument. `scripts/build_modules.sh` builds them before this module.
 
 macro_rules! example_wasm {
     ($file:literal) => {

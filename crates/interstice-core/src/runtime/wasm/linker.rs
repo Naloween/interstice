@@ -160,6 +160,7 @@ pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> 
          resp_ptr: i32,
          resp_cap: i32|
          -> i32 {
+            let _span = crate::runtime::profile::span(crate::runtime::profile::Phase::HostInsert);
             let memory = match caller.get_export("memory") {
                 Some(wasmtime::Extern::Memory(mem)) => mem,
                 _ => return -1,
@@ -248,6 +249,7 @@ pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> 
          row_ptr: i32,
          row_len: i32|
          -> i32 {
+            let _span = crate::runtime::profile::span(crate::runtime::profile::Phase::HostUpdate);
             let memory = match caller.get_export("memory") {
                 Some(wasmtime::Extern::Memory(mem)) => mem,
                 _ => return -1,
@@ -286,6 +288,7 @@ pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> 
          pk_ptr: i32,
          pk_len: i32|
          -> i32 {
+            let _span = crate::runtime::profile::span(crate::runtime::profile::Phase::HostDelete);
             let memory = match caller.get_export("memory") {
                 Some(wasmtime::Extern::Memory(mem)) => mem,
                 _ => return -1,
@@ -319,6 +322,7 @@ pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> 
         "interstice",
         "interstice_clear_table",
         |mut caller: Caller<'_, StoreState>, table_ptr: i32, table_len: i32| -> i32 {
+            let _span = crate::runtime::profile::span(crate::runtime::profile::Phase::HostOther);
             let memory = match caller.get_export("memory") {
                 Some(wasmtime::Extern::Memory(mem)) => mem,
                 _ => return -1,
@@ -355,6 +359,7 @@ pub fn define_host_calls(linker: &mut Linker<StoreState>) -> anyhow::Result<()> 
          resp_ptr: i32,
          resp_cap: i32|
          -> i32 {
+            let _span = crate::runtime::profile::span(crate::runtime::profile::Phase::HostGet);
             let memory = match caller.get_export("memory") {
                 Some(wasmtime::Extern::Memory(mem)) => mem,
                 _ => return -1,

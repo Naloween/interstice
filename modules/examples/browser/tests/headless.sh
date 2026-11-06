@@ -9,12 +9,23 @@
 #   cargo build -p browser-example --target wasm32-unknown-unknown --release
 #   cp target/wasm32-unknown-unknown/release/browser_example.wasm crates/interstice-cli/module_examples/
 #   cargo build -p interstice-cli --release
-# It opens a real window (1280x900); the content area starts at y = 85.
+# The window is 1280x900; the content area starts at y = 85. With `xvfb-run`
+# installed (`sudo apt install xvfb`) it opens on a virtual display, so the
+# tests neither pop up on the desktop nor take its keyboard input; set
+# HEADLESS_DISPLAY=host to use the real display anyway.
 set -u
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 BIN="$ROOT/target/release/interstice"
 TIMEOUT="${TIMEOUT:-20}"
 [ -x "$BIN" ] || { echo "missing $BIN (cargo build -p interstice-cli --release)"; exit 2; }
+
+# Where the windows open (see above).
+if [ "${HEADLESS_DISPLAY:-}" != host ] && command -v xvfb-run > /dev/null; then
+    WRAP=(env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1280x900x24")
+else
+    WRAP=()
+    [ "${HEADLESS_DISPLAY:-}" = host ] || echo "note: windows open on the desktop (install xvfb to avoid it)"
+fi
 
 page() { printf 'data:text/html;base64,%s' "$(printf '%s' "$1" | base64 -w0)"; }
 
@@ -26,7 +37,7 @@ run() {
     local dir; dir=$(mktemp -d)
     page "$html" > "$dir/browser_home"
     printf '%s\n' "$script" > "$dir/browser_script"
-    (cd "$dir" && INTERSTICE_WINDOW_SIZE=1280x900 timeout "$TIMEOUT" "$BIN" example browser > log 2>&1)
+    (cd "$dir" && INTERSTICE_WINDOW_SIZE=1280x900 "${WRAP[@]}" timeout "$TIMEOUT" "$BIN" example browser > log 2>&1)
     local ok=1
     while read -r frame want; do
         [ -z "$frame" ] && continue

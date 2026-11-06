@@ -1,8 +1,9 @@
 [package]
-name = "benchmark-workload"
+name = "bench"
 version = "0.1.0"
 edition = "2024"
 publish = false
+description = "The workloads of the interstice-bench suite (benchmarks/README.md)"
 
 [lib]
 crate-type = ["cdylib"]

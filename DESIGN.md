@@ -848,6 +848,21 @@ they are a deterministic function of it, like any table read.
 
 ---
 
+### 6.8 Phase breakdown (profiling)
+
+`runtime/profile.rs` keeps a count, a total and a maximum per phase of a call:
+- `blocked` (in the scheduler) and `ready` (waiting for a worker);
+- `prepare` (security, frame, encoding) and `instance wait`;
+- `wasm` (host calls included), and each host call by kind: insert, update,
+  delete, get, scan, other;
+- `commit`, and the `persist` work inside it;
+- `reply`.
+
+It is on with `INTERSTICE_PROFILE=1`, in which case the node prints the table
+to stderr every 10 s. An embedder turns it on with `profile::enable()`. When
+it is off, each probe costs one relaxed atomic load. Totals are summed over
+threads, so they are CPU time per phase, not wall time.
+
 ## 7. Cross-module and cross-node interaction
 
 ### 7.1 Calls
@@ -857,7 +872,7 @@ they are a deterministic function of it, like any table read.
 | Reducer → local reducer | **Deferred message** (§6.6). The call is recorded and released only if the caller commits. All calls of one commit run as one scheduled batch, in issue order, each callee as its own transaction. The result returned to the caller covers dispatch only (unknown module or reducer). |
 | Reducer → remote reducer | Deferred the same way, then fire-and-forget over the network. |
 | Reducer or query → local query | Synchronous, on the target module's query instance. |
-| Reducer or query → remote query | Synchronous and blocking. ⚠ No timeout, and an error reply carries no request id, so the caller can hang forever. |
+| Reducer or query → remote query | Synchronous and blocking, up to 30 s. The reply carries the request id with the value or the error. |
 | Query → reducer | Refused. |
 | Client → reducer (network) | Queued like any job. A `ReducerCall` with a `request_id` gets a `ReducerResult`: `Ok` once its writes are committed, or the error that rolled it back (unknown module or reducer, refused by visibility, `Err` returned, trap, commit conflict). "Committed" means applied and handed to the logger; the disk write follows within the flush interval (§3.2). Without a `request_id` the call is fire-and-forget. |
 
@@ -1480,7 +1495,7 @@ bundle appended, which runs that node when started.
 
 ## 10. ABI, SDK and CLI
 
-**ABI** (`crates/interstice-abi`, `ABI_VERSION = 14`):
+**ABI** (`crates/interstice-abi`, `ABI_VERSION = 15`):
 - Everything is postcard-encoded.
 - Byte vectors travel as `IntersticeValue::Bytes(Vec<u8>)` (v8), a single
   length + raw bytes, not one `U8` value per byte. It validates as
@@ -1516,9 +1531,46 @@ bundle appended, which runs that node when started.
 - Calls: `call_reducer` and `call_query`.
 - `bindings add module|node`.
 - `example <name>` starts a fresh node with embedded default and example WASM
-  files; `build_modules.bash` refreshes those. An example is an in-memory
+  files; `scripts/build_modules.sh` refreshes those. An example is an in-memory
   bundle (§9.1).
 - `bundle create|inspect|run|exe`: whole nodes as files or programs (§9.1).
+- `call_reducer` waits for the `ReducerResult` (§7.1) and reports
+  "committed" or the error.
+
+**Embedding** (`interstice_core::NodeHandle`): `Node::start_headless(modules)`
+boots everything but the window (config, network, runtime loop, modules) and
+returns once the modules are loaded. The handle's `call_reducer` resolves when
+the call has committed, `submit_reducer` queues without waiting (for many calls
+in flight), and `call_query` runs a query. Calls go through the scheduler as
+the kernel would, so visibility does not apply. The benchmark suite drives
+nodes this way, and so would a host that runs Interstice as its kernel.
+
+**Clients** (`crates/interstice-client`): programs that are not modules
+connect with their own key over mutual TLS, like a node.
+- `call_reducer` waits for the `ReducerResult`.
+- `submit_reducer` pipelines calls, sent in order, each resolving to its
+  outcome.
+- `call_query` and `schema`.
+- One task routes replies by request id. Another writes packets and
+  flushes only when its queue is empty, so pipelined calls share TLS
+  records. The node's writer for each peer batches flushes the same way.
+
+**SDK macros and `macro_rules!`**: a type that reaches a macro through a `$t:ty`
+fragment is wrapped in an invisible group. Every attribute macro unwraps those
+first, so generated tables and reducers type-check like hand-written ones.
+
+**Benchmarks** (`crates/interstice-bench`, `modules/benchmarks/bench`): see
+`benchmarks/README.md`.
+- The micro matrix is SpacetimeDB's `crates/bench`:
+  - three targets: the raw table store, the module called in process, SQLite;
+  - schemas `u32_u64_str` and `u32_u64_u64`; indexes `unique_0` and
+    `btree_each_column`; memory or disk;
+  - empty, insert_bulk, update_bulk, iterate and filter, one transaction per
+    sample;
+  - Criterion.
+- The keynote transfer load: Zipf-picked account pairs and many calls in
+  flight. Only committed calls count, at the client, per second, with p50, p95
+  and p99 latency, and the total balance is checked afterwards.
 
 ### 10.1 SDK bugs to fix
 
@@ -1941,7 +1993,13 @@ but explicitly out of scope for now.
 - [x] A shorthand for "full access to these tables": `CanAll<T>`, tuple rows
       in `where` clauses, and `caps!` named sets (§5). The browser's
       engine reducers share `BrowserCaps`.
-- [ ] Benchmarks for the overlay / re-validation path and pool affinity.
+- [x] Benchmark suite (`benchmarks/README.md`): SpacetimeDB's micro matrix
+      (raw / module / SQLite) and keynote transfer load, a phase breakdown
+      (§6.8), results recorded.
+- [x] Reducer results for network callers (§7.1); `interstice-client` for
+      programs that are not modules; headless embedding (`NodeHandle`).
+- [ ] Optimise from the breakdown: per-host-call and per-row boundary cost,
+      one log append per transaction, row-level conflicts.
 - [x] Bulk data between modules: call-scoped `Blob` handles (§7.1). The
       GPU authority uploads straight from the host buffer; a 4 MB texture
       went from ~15 ms to ~2 ms.

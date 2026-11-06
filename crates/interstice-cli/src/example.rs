@@ -57,10 +57,6 @@ const UI_EXAMPLE_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/module_examples/ui_example.wasm"
 ));
-const BENCHMARK_WORKLOAD_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/module_examples/benchmark_workload.wasm"
-));
 const DESKTOP_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/module_examples/desktop_example.wasm"
@@ -131,11 +127,6 @@ fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> 
                 ExampleModule { bytes: DEFAULT_GRAPHICS_BYTES },
                 ExampleModule { bytes: AGAR_CLIENT_BYTES },
             ],
-        }),
-        "benchmark-workload" => Ok(ExampleConfig {
-            name: "benchmark-workload",
-            port: 8087,
-            modules: vec![ExampleModule { bytes: BENCHMARK_WORKLOAD_BYTES }],
         }),
         "ui" => Ok(ExampleConfig {
             name: "ui-example",
@@ -208,7 +199,7 @@ fn example_config(example_name: &str) -> Result<ExampleConfig, IntersticeError> 
             ],
         }),
         _ => Err(IntersticeError::Internal(format!(
-            "Unknown example '{example_name}'. Expected hello, caller, graphics, audio, agar-server, agar-client, benchmark-workload, ui, notes, desktop, http-get or browser."
+            "Unknown example '{example_name}'. Expected hello, caller, graphics, audio, agar-server, agar-client, ui, notes, desktop, http-get or browser."
         ))),
     }
 }

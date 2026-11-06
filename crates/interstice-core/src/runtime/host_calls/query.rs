@@ -2,6 +2,10 @@ use interstice_abi::{CallQueryRequest, IntersticeValue, ModuleSelection, NodeSel
 
 use crate::{IntersticeError, NetworkPacket, runtime::Runtime};
 
+
+/// How long a reducer or query waits for a remote query (DESIGN §7.1).
+const REMOTE_QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 impl Runtime {
     pub(crate) fn handle_call_query(
         &self,
@@ -51,7 +55,7 @@ impl Runtime {
                 let request_id = uuid::Uuid::new_v4().to_string();
 
                 // Use a sync channel so the WASM thread can do a blocking recv.
-                let (sender, receiver) = std::sync::mpsc::channel::<IntersticeValue>();
+                let (sender, receiver) = std::sync::mpsc::channel::<Result<IntersticeValue, String>>();
                 self.pending_query_responses
                     .lock()
                     .insert(request_id.clone(), sender);
@@ -66,10 +70,18 @@ impl Runtime {
                     },
                 );
 
-                // Block the WASM thread until the tokio event loop delivers the response.
-                receiver.recv().map_err(|_| {
-                    IntersticeError::ProtocolError("Query response channel closed".into())
-                })
+                // Block the WASM thread until the tokio event loop delivers
+                // the response, or the timeout (DESIGN §7.1).
+                let reply = receiver.recv_timeout(REMOTE_QUERY_TIMEOUT);
+                self.pending_query_responses.lock().remove(&request_id);
+                match reply {
+                    Ok(result) => result.map_err(|e| IntersticeError::Internal(format!("remote query failed: {e}"))),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(IntersticeError::Internal(format!(
+                        "remote query '{}' timed out after {:?}",
+                        call_query_request.query_name, REMOTE_QUERY_TIMEOUT
+                    ))),
+                    Err(_) => Err(IntersticeError::ProtocolError("Query response channel closed".into())),
+                }
             }
         }
     }

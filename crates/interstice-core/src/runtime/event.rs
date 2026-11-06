@@ -89,7 +89,7 @@ pub enum EventInstance {
     },
     RemoteQueryResponse {
         request_id: String,
-        result: IntersticeValue,
+        result: Result<IntersticeValue, String>,
     },
     RemoteSchemaResponse {
         request_id: String,

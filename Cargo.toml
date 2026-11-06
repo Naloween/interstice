@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "modules/defaults/*", "modules/examples/*"]
+members = ["crates/*", "modules/defaults/*", "modules/examples/*", "modules/benchmarks/*"]
 resolver = "3"
 
 [patch.crates-io]

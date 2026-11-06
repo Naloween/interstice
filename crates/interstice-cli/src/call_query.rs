@@ -35,9 +35,13 @@ pub async fn call_query(
         NetworkPacket::QueryResponse {
             request_id: _response_request_id,
             result,
-        } => {
-            println!("Query response: {}", result);
-        }
+        } => match result {
+            Ok(value) => println!("Query response: {}", value),
+            Err(err) => {
+                let _ = write_packet(&mut stream, &NetworkPacket::Close).await;
+                return Err(IntersticeError::Internal(format!("query failed: {err}")));
+            }
+        },
         _ => {
             println!("Unexpected packet received: {:?}", response_packet);
         }

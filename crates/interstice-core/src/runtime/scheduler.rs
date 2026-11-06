@@ -32,6 +32,8 @@ pub struct ScheduledJob<T> {
     pub id: u64,
     pub payload: T,
     pub accesses: Arc<[TableAccess]>,
+    /// When it was enqueued, if profiling (DESIGN §6.8).
+    pub born: Option<std::time::Instant>,
 }
 
 /// The operations one job performs on one key, as a bit set.
@@ -130,7 +132,7 @@ impl<T> ReducerScheduler<T> {
         }
         self.keys.insert(id, sets);
 
-        let job = ScheduledJob { id, payload, accesses };
+        let job = ScheduledJob { id, payload, accesses, born: crate::runtime::profile::now() };
         if blocked == 0 {
             Some(job)
         } else {

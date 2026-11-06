@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -e
+# Run from the repository root wherever it is called from.
+cd "$(dirname "$0")/.."
 
 # Build default example modules in release mode and copy to CLI module_defaults folder
 
@@ -45,7 +47,7 @@ set -e
 # desktop-example bakes in the app wasms via include_bytes!, so the apps it
 # bundles must be built AND copied before it: the loop below copies each wasm
 # right after building it.
-MODULES=("audio-example" "caller-example" "graphics-example" "hello-example" "agar-server" "agar-client" "benchmark-workload" "http-get-example" "browser-example" "ui-example" "notes" "desktop-example")
+MODULES=("audio-example" "caller-example" "graphics-example" "hello-example" "agar-server" "agar-client" "http-get-example" "browser-example" "ui-example" "notes" "desktop-example")
 # Respect CARGO_TARGET_DIR so WASM is copied from the same tree `cargo build` wrote to.
 : "${CARGO_TARGET_DIR:=target}"
 TARGET_DIR="${CARGO_TARGET_DIR}/wasm32-unknown-unknown/release"
@@ -81,3 +83,7 @@ done
 
 echo ""
 echo "Done! Example modules built and copied to $DEST_DIR"
+
+echo ""
+echo "Building the benchmark workload (used in place by interstice-bench)..."
+cargo build -p bench --target wasm32-unknown-unknown --release

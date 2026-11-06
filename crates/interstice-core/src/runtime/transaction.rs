@@ -131,6 +131,7 @@ impl Runtime {
                             }
                             match &persistence_kind {
                                 PersistenceKind::Stateful => {
+                                let _persist = crate::runtime::profile::span(crate::runtime::profile::Phase::Persist);
                                     let pk = row_primary_key(&row)?;
                                     self.persistence.persist_stateful_insert(
                                         &module_name,
@@ -140,6 +141,7 @@ impl Runtime {
                                     )?;
                                 }
                                 PersistenceKind::Logged => {
+                                let _persist = crate::runtime::profile::span(crate::runtime::profile::Phase::Persist);
                                     let pk = row_primary_key(&row)?;
                                     if let Some(plan) = self.log_logged(
                                         &module_name,
@@ -183,6 +185,7 @@ impl Runtime {
                         }
                         match persistence_kind {
                             PersistenceKind::Stateful => {
+                                let _persist = crate::runtime::profile::span(crate::runtime::profile::Phase::Persist);
                                 let pk = row_primary_key(&update_row)?;
                                 self.persistence.persist_stateful_update(
                                     &module_name,
@@ -192,6 +195,7 @@ impl Runtime {
                                 )?;
                             }
                             PersistenceKind::Logged => {
+                                let _persist = crate::runtime::profile::span(crate::runtime::profile::Phase::Persist);
                                 let pk = row_primary_key(&update_row)?;
                                 if let Some(plan) = self.log_logged(
                                     &module_name,
@@ -234,6 +238,7 @@ impl Runtime {
                         }
                         match persistence_kind {
                             PersistenceKind::Stateful => {
+                                let _persist = crate::runtime::profile::span(crate::runtime::profile::Phase::Persist);
                                 self.persistence.persist_stateful_delete(
                                     &module_name,
                                     &table_name,
@@ -241,6 +246,7 @@ impl Runtime {
                                 )?;
                             }
                             PersistenceKind::Logged => {
+                                let _persist = crate::runtime::profile::span(crate::runtime::profile::Phase::Persist);
                                 if let Some(plan) = self.log_logged(
                                     &module_name,
                                     table,
@@ -281,10 +287,12 @@ impl Runtime {
                         }
                         match persistence_kind {
                             PersistenceKind::Stateful => {
+                                let _persist = crate::runtime::profile::span(crate::runtime::profile::Phase::Persist);
                                 self.persistence
                                     .persist_stateful_clear(&module_name, &table_name)?;
                             }
                             PersistenceKind::Logged => {
+                                let _persist = crate::runtime::profile::span(crate::runtime::profile::Phase::Persist);
                                 if let Some(plan) = self.log_logged(
                                     &module_name,
                                     table,
@@ -418,6 +426,7 @@ impl Runtime {
                 if log_transaction {
                     match persistence_kind {
                         PersistenceKind::Logged => {
+                                let _persist = crate::runtime::profile::span(crate::runtime::profile::Phase::Persist);
                             let pk = row_primary_key(&new_row)?;
                             log_operation = LogOperation::Insert {
                                 primary_key: pk,
@@ -434,6 +443,7 @@ impl Runtime {
                             }
                         }
                         PersistenceKind::Stateful => {
+                                let _persist = crate::runtime::profile::span(crate::runtime::profile::Phase::Persist);
                             let pk = row_primary_key(&new_row)?;
                             self.persistence.persist_stateful_insert(
                                 &module_name_for_persistence,
@@ -500,6 +510,7 @@ impl Runtime {
                 if log_transaction {
                     match persistence_kind {
                         PersistenceKind::Logged => {
+                                let _persist = crate::runtime::profile::span(crate::runtime::profile::Phase::Persist);
                             let pk = row_primary_key(&update_row)?;
                             log_operation = LogOperation::Update {
                                 primary_key: pk,
@@ -516,6 +527,7 @@ impl Runtime {
                             }
                         }
                         PersistenceKind::Stateful => {
+                                let _persist = crate::runtime::profile::span(crate::runtime::profile::Phase::Persist);
                             let pk = row_primary_key(&update_row)?;
                             self.persistence.persist_stateful_update(
                                 &module_name_for_persistence,
@@ -580,6 +592,7 @@ impl Runtime {
                 if log_transaction {
                     match persistence_kind {
                         PersistenceKind::Logged => {
+                                let _persist = crate::runtime::profile::span(crate::runtime::profile::Phase::Persist);
                             log_operation = LogOperation::Delete {
                                 primary_key: deleted_row_id.clone(),
                             };
@@ -594,6 +607,7 @@ impl Runtime {
                             }
                         }
                         PersistenceKind::Stateful => {
+                                let _persist = crate::runtime::profile::span(crate::runtime::profile::Phase::Persist);
                             self.persistence.persist_stateful_delete(
                                 &module_name_for_persistence,
                                 &table_name_for_persistence,
@@ -658,6 +672,7 @@ impl Runtime {
                 if log_transaction {
                     match persistence_kind {
                         PersistenceKind::Logged => {
+                                let _persist = crate::runtime::profile::span(crate::runtime::profile::Phase::Persist);
                             log_operation = LogOperation::Clear;
                             if let Some(plan) = self.log_logged(
                                 &module_name_for_persistence,
@@ -670,6 +685,7 @@ impl Runtime {
                             }
                         }
                         PersistenceKind::Stateful => {
+                                let _persist = crate::runtime::profile::span(crate::runtime::profile::Phase::Persist);
                             self.persistence.persist_stateful_clear(
                                 &module_name_for_persistence,
                                 &table_name_for_persistence,

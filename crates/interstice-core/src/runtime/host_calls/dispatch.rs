@@ -28,6 +28,12 @@ impl Runtime {
                 IntersticeError::Internal(format!("Failed to decode host call: {err}"))
             })?
         };
+        use crate::runtime::profile::{Phase, span};
+        let _span = span(match host_call {
+            HostCall::TableScan(_) | HostCall::TableIndexScan(_) => Phase::HostScan,
+            HostCall::TableGetByPrimaryKey(_) => Phase::HostGet,
+            _ => Phase::HostOther,
+        });
         self.perform_host_call(host_call, memory, caller, caller_module_schema)
     }
 

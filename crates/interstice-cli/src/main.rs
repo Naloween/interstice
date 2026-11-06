@@ -4,7 +4,6 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use interstice_cli::{
-    benchmark::handle_benchmark_command,
     bindings::handle_bindings_command,
     bundle::{RunOptions, handle_bundle_command, print_bundle_help, run_bundle},
     call_query::call_query,
@@ -130,7 +129,6 @@ async fn main() -> Result<(), IntersticeError> {
             let input = IntersticeValue::Vec(input_vec);
             call_query(node_ref, module_name, query_name, input.into()).await
         }
-        "benchmark" => handle_benchmark_command(&args).await,
         "help" | "-h" | "--help" => {
             print_help();
             Ok(())
@@ -183,7 +181,6 @@ fn print_help() {
     println!(
         "  call_query <node> <module_name> <query_name>        Call a query of a module on a node"
     );
-    println!("  benchmark simple <...>             Run simple benchmark workload");
     println!("  help                             Show this help message");
     println!();
     println!("OPTIONS:");
