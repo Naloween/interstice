@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (0.6.1)
+## 0.6.1 (2026-11-07)
 
 ### Fixed
 - **HTTPS from the network module** (the browser, `http-get`) panicked in

@@ -2946,7 +2946,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-abi"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bitflags 2.13.2",
  "interstice-abi-macros",
@@ -2957,7 +2957,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-abi-macros"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -2967,7 +2967,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-bench"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "criterion",
  "interstice-client",
@@ -2979,7 +2979,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-cli"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "directories",
  "interstice-client",
@@ -2996,7 +2996,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-client"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "interstice-core",
  "parking_lot",
@@ -3006,7 +3006,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "aws-lc-rs",
@@ -3036,7 +3036,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-sdk"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "interstice-abi",
  "interstice-sdk-core",
@@ -3050,7 +3050,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-sdk-core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "interstice-abi",
  "lazy_static",
@@ -3061,7 +3061,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-sdk-macros"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "interstice-abi",
  "interstice-sdk-core",
@@ -3073,7 +3073,7 @@ dependencies = [
 
 [[package]]
 name = "interstice-ui"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "ab_glyph",
  "interstice-sdk",

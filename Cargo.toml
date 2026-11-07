@@ -4,7 +4,7 @@ resolver = "3"
 
 # Shared by the published crates (RELEASING.md): one version to bump.
 [workspace.package]
-version = "0.6.0"
+version = "0.6.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/naloween/interstice"
