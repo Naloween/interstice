@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased (0.6.1)
+
+### Fixed
+- **HTTPS from the network module** (the browser, `http-get`) panicked in
+  0.6.0: the CLI's switch to rustls brought a second crypto backend, and
+  the module's TLS config relied on rustls choosing a default. It now names
+  its backend, as node links do; a test runs with both backends.
+
 ## 0.6.0 (2026-11-07)
 
 Everything since 0.5.0 (2026-06-05). Module ABI 17: **every module must be

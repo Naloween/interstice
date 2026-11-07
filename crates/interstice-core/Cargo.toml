@@ -34,3 +34,8 @@ aws-lc-rs = "1"
 webpki = { package = "rustls-webpki", version = "0.103" }
 webpki-roots = "0.26"
 image = { version = "0.25", default-features = false, features = ["png"] }
+
+[dev-dependencies]
+# Both rustls backends, as in the CLI (reqwest brings ring): rustls has no
+# default provider then, so the tests catch a config that relies on one.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }

@@ -88,7 +88,13 @@ fn tls_client_config() -> Arc<ClientConfig> {
         .get_or_init(|| {
             let mut roots = RootCertStore::empty();
             roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-            let config = ClientConfig::builder()
+            // The provider is named, as for node links (identity.rs): with
+            // more than one rustls backend in the process (the CLI's
+            // reqwest brings ring), there is no default to fall back on.
+            let provider = Arc::new(tokio_rustls::rustls::crypto::aws_lc_rs::default_provider());
+            let config = ClientConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .expect("aws-lc-rs supports the default TLS versions")
                 .with_root_certificates(roots)
                 .with_no_client_auth();
             Arc::new(config)
@@ -472,5 +478,16 @@ impl Runtime {
     #[cfg(not(target_os = "linux"))]
     fn net_system_dns(&self, _req: SystemDnsRequest) -> SystemDnsResponse {
         SystemDnsResponse::Err("system DNS discovery not implemented on this platform".into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn tls_config_names_its_provider() {
+        // With two backends in the process (see the dev-dependency), a config
+        // that relies on rustls' default provider panics here.
+        let config = super::tls_client_config();
+        assert!(!config.crypto_provider().cipher_suites.is_empty());
     }
 }

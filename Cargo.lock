@@ -3019,6 +3019,7 @@ dependencies = [
  "parking_lot",
  "pollster",
  "rcgen",
+ "rustls",
  "rustls-webpki",
  "serde",
  "sha2",
