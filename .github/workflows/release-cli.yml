@@ -4,10 +4,19 @@ on:
   push:
     tags:
       - "v*"
+  # By hand: Actions → release-cli → Run workflow, with the release's tag.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.6.0)"
+        required: true
 
 permissions:
   contents: write
+
+# The release's tag, whether pushed or given by hand.
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   # `interstice example` downloads the example modules from the release of
@@ -17,6 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -25,6 +36,7 @@ jobs:
       - name: Attach them to the release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.TAG }}
           files: dist/examples/*.wasm
 
   build:
@@ -50,6 +62,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
 
       - name: Install system dependencies (Linux only)
         if: matrix.os == 'ubuntu-latest'
@@ -73,8 +87,7 @@ jobs:
         if: matrix.archive == 'tar.gz'
         shell: bash
         run: |
-          # Trim leading 'v' from tag
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${TAG#v}"
           TARGET="${{ matrix.target }}"
           OUTPUT="interstice-${VERSION}-${TARGET}.tar.gz"
           tar -C "target/${TARGET}/release" -czf "$OUTPUT" interstice
@@ -86,7 +99,7 @@ jobs:
         if: matrix.archive == 'zip'
         shell: pwsh
         run: |
-          $version = $Env:GITHUB_REF_NAME.TrimStart('v')
+          $version = $Env:TAG.TrimStart('v')
           $target = "${{ matrix.target }}"
           $dest = "interstice-$version-$target.zip"
           Compress-Archive -Path "target/$target/release/interstice.exe" -DestinationPath $dest
@@ -99,10 +112,12 @@ jobs:
         if: matrix.archive == 'tar.gz'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.TAG }}
           files: ${{ env.ARTIFACT_FILE }}
 
       - name: Upload zip artifact (Windows)
         if: matrix.archive == 'zip'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.TAG }}
           files: ${{ env.ARTIFACT_FILE }}

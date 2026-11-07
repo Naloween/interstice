@@ -24,12 +24,19 @@ All published crates share one version (`[workspace.package]` in the root
    new version.
 4. **Bump, commit and tag:**
    ```bash
-   cargo ws version minor   # or patch / major / custom X.Y.Z
+   cargo ws version minor --no-individual-tags   # or patch / major / custom X.Y.Z
    ```
    This updates `[workspace.package]` and `[workspace.dependencies]` (the
-   modules follow through `workspace = true`), commits, tags `vX.Y.Z` and
-   pushes. The tag triggers `release-cli.yml`, which attaches the CLI
-   binaries and the example modules to a GitHub release.
+   modules follow through `workspace = true`), commits every uncommitted
+   change (the changelog edit included), tags `vX.Y.Z` and pushes. The tag
+   triggers `release-cli.yml`, which attaches the CLI binaries and the
+   example modules to a GitHub release.
+
+   `--no-individual-tags` matters: without it cargo-workspaces also tags
+   every crate (`interstice-cli@X.Y.Z`, …), and GitHub starts no workflow
+   for a push of more than three tags. If the release didn't start, run it
+   by hand: Actions → release-cli → Run workflow, with the tag `vX.Y.Z` as
+   input.
 5. **Publish**, in dependency order:
    ```bash
    cargo publish --workspace --allow-dirty
