@@ -102,6 +102,34 @@ interstice load dev .                                          # in another term
 interstice call_reducer dev counter bump clicks                # → committed
 ```
 
+## Performance
+
+For reference, on an i7-1360P laptop (16 threads, Linux, release build,
+2026-11-07, version 0.6.0). The methods are SpacetimeDB's, so the numbers
+compare with theirs; [benchmarks/README.md](benchmarks/README.md) has the
+full matrix, how to run it and the history.
+
+| Benchmark | Interstice | SQLite (in memory) |
+|---|---:|---:|
+| Empty reducer call | 8.1 µs | – |
+| Insert 256 rows in a reducer | 0.59–0.84 ms | 64–273 µs |
+| Update 256 rows by id | 0.81–0.91 ms | 76–77 µs |
+| Scan 256 rows | 37–57 µs | 14 µs |
+| Index lookup, ~256 rows out of 2048 | 47–69 µs | 34 µs |
+
+SpacetimeDB's transfer load (100 000 accounts, 2 560 calls in flight, every
+call committed and confirmed):
+
+| Mode | Transfers/s | p50 latency |
+|---|---:|---:|
+| In process | 142 000 | 17 ms |
+| Over TLS, 64 connections | 94 000–99 000 | 23 ms |
+
+The tables alone match SQLite; inside a module, the cost per row of crossing
+the WASM boundary dominates. Transfers run one at a time because they all
+write one table: SpacetimeDB reports about 280 000/s for this load on an
+i9-14900K.
+
 ## Documentation
 
 | | |

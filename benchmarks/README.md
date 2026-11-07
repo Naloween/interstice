@@ -84,89 +84,64 @@ about 3 000 for SQLite.
 ## 3. Results
 
 Measured on an i7-1360P laptop (4 P-cores + 8 E-cores, 16 threads), Linux
-7.0, release build. Results on another machine are not comparable with
+7.0, release build, on 2026-11-07 at commit `895e660` (ABI 17), with the
+machine otherwise idle. Results on another machine are not comparable with
 these.
 
-### Micro matrix (2026-11-06, commit after `ca63955`)
+### Micro matrix
+
+Criterion medians, 256 rows per operation:
 
 | benchmark | raw/mem | module/mem | module/disk | sqlite/mem | sqlite/disk |
 |---|---:|---:|---:|---:|---:|
-| `empty` | – | 9.1 µs | – | – | – |
-| `insert_bulk/u32_u64_str/btree_each_column/load=2048/count=256` | 128.8 µs | 1.10 ms | 1.36 ms | 265.7 µs | 302.5 µs |
-| `insert_bulk/u32_u64_str/unique_0/load=2048/count=256` | 59.5 µs | 929.6 µs | 1.11 ms | 74.9 µs | 76.9 µs |
-| `insert_bulk/u32_u64_u64/btree_each_column/load=2048/count=256` | 106.5 µs | 990.5 µs | 1.25 ms | 246.6 µs | 266.9 µs |
-| `insert_bulk/u32_u64_u64/unique_0/load=2048/count=256` | 43.2 µs | 963.1 µs | 955.6 µs | 60.6 µs | 65.6 µs |
-| `update_bulk/u32_u64_str/unique_0/load=2048/count=256` | 77.9 µs | 1.59 ms | 1.14 ms | 78.9 µs | 91.1 µs |
-| `update_bulk/u32_u64_u64/unique_0/load=2048/count=256` | 52.7 µs | 1.18 ms | 1.10 ms | 74.7 µs | 83.6 µs |
-| `iterate/u32_u64_str/unique_0/count=256` | 284 ns | 159.1 µs | 163.3 µs | 15.0 µs | 14.2 µs |
-| `iterate/u32_u64_u64/unique_0/count=256` | 263 ns | 118.6 µs | 123.1 µs | 14.3 µs | 16.0 µs |
-| `filter/u32_u64_str/btree_each_column/load=2048/buckets=8` | 537 ns | 135.3 µs | 178.1 µs | 35.6 µs | 38.5 µs |
-| `filter/u32_u64_u64/btree_each_column/load=2048/buckets=8` | 481 ns | 130.1 µs | 104.1 µs | 35.6 µs | 39.2 µs |
+| `empty` | – | 8.1 µs | – | – | – |
+| `insert_bulk/u32_u64_str/btree_each_column/load=2048/count=256` | 122.6 µs | 838 µs | 894 µs | 273.2 µs | 276.2 µs |
+| `insert_bulk/u32_u64_str/unique_0/load=2048/count=256` | 50.9 µs | 629 µs | 764 µs | 65.7 µs | 72.6 µs |
+| `insert_bulk/u32_u64_u64/btree_each_column/load=2048/count=256` | 93.0 µs | 588 µs | 670 µs | 253.0 µs | 272.5 µs |
+| `insert_bulk/u32_u64_u64/unique_0/load=2048/count=256` | 42.6 µs | 655 µs | 738 µs | 63.8 µs | 65.6 µs |
+| `update_bulk/u32_u64_str/unique_0/load=2048/count=256` | 74.0 µs | 909 µs | 1.02 ms | 76.8 µs | 87.7 µs |
+| `update_bulk/u32_u64_u64/unique_0/load=2048/count=256` | 50.3 µs | 811 µs | 975 µs | 75.9 µs | 82.6 µs |
+| `iterate/u32_u64_str/unique_0/count=256` | 287 ns | 56.8 µs | 52.0 µs | 13.6 µs | 14.0 µs |
+| `iterate/u32_u64_u64/unique_0/count=256` | 256 ns | 37.2 µs | 26.4 µs | 14.0 µs | 14.6 µs |
+| `filter/u32_u64_str/btree_each_column/load=2048/buckets=8` | 444 ns | 69.1 µs | 57.6 µs | 34.6 µs | 40.5 µs |
+| `filter/u32_u64_u64/btree_each_column/load=2048/buckets=8` | 419 ns | 46.8 µs | 40.3 µs | 33.7 µs | 38.4 µs |
 
-**Reading it.** On the raw store, Interstice's tables match or beat SQLite
-in memory. The module column is where the time goes:
-- inserting or updating 256 rows costs ~1 ms, about 3.5 µs per row against
-  0.2 µs raw;
-- reading 256 rows costs 120–160 µs, against 15 µs in SQLite.
+**Reading it.**
+- On the raw store, Interstice's tables match or beat SQLite in memory.
+- In a module, a write costs 2.3–3.5 µs per row against 0.2–0.5 µs raw.
+  It is mostly the host call per row: validation, the overlay and the index
+  updates.
+- A read costs 0.1–0.3 µs per row, 1.4–4× SQLite.
+- Logging (`disk`) adds 10–20% to writes, and nothing to reads.
 
-So each host call and each row crossing the WASM boundary is the bottleneck,
-not the tables. That is what to optimise first.
+### Transfer
 
-**ABI 17 (values without names, direct encoding, §10.2)**, module/mem, same
-machine but busy (load 3), so ±20%:
-
-| benchmark | before | after |
-|---|---:|---:|
-| `insert_bulk/u32_u64_str/unique_0` | 930 µs | 501 µs |
-| `insert_bulk/u32_u64_u64/btree_each_column` | 991 µs | 650 µs |
-| `update_bulk/u32_u64_str/unique_0` | 1.59 ms | 777 µs |
-| `iterate/u32_u64_str/unique_0` | 159 µs | 61 µs |
-| `iterate/u32_u64_u64/unique_0` | 119 µs | 37 µs |
-| `filter/u32_u64_str/btree_each_column` | 135 µs | 58 µs |
-| `filter/u32_u64_u64/btree_each_column` | 130 µs | 44 µs |
-
-Writes now cost ~2 µs per row, mostly the host call per row (validation,
-the overlay, the index updates); reads ~0.15–0.25 µs per row.
-
-### Transfer (2026-11-06)
+30 s after a 5 s warmup, 100 000 accounts, 64 clients with 40 calls in
+flight each; the total balance was unchanged after every run:
 
 | Mode | alpha | committed/s | p50 | p99 |
 |---|---:|---:|---:|---:|
-| in process | 0 | 58 900 ± 2 300 | 43 ms | 61 ms |
-| in process | 1.5 | 64 900 ± 6 900 | 35 ms | 91 ms |
-| TLS, 64 connections | 0 | 44 500 ± 1 700 | 56 ms | 90 ms |
-| TLS, 64 connections | 1.5 | 44 300 ± 2 900 | 57 ms | 87 ms |
+| in process | 0 | 142 800 ± 6 400 | 17 ms | 28 ms |
+| in process | 1.5 | 141 800 ± 6 200 | 17 ms | 27 ms |
+| TLS, 64 connections | 0 | 94 500 ± 11 700 | 23 ms | 57 ms |
+| TLS, 64 connections | 1.5 | 99 200 ± 8 400 | 23 ms | 45 ms |
 
 Every transfer writes the `account` table, and conflicts are detected per
-table (§6.2), so transfers run one at a time, as in SpacetimeDB. With 2 560
-calls in flight, the latency is the queue: about 17 µs per transfer times
-the queue length. The phase breakdown of the in-process run, per transfer:
+table (§6.2), so transfers run one at a time, as in SpacetimeDB; alpha
+doesn't change the throughput. With 2 560 calls in flight, the latency is
+the queue: about 7 µs per transfer times the queue length.
 
-| Phase | Mean |
-|---|---:|
-| waiting for a worker | 1.4 µs |
-| prepare (security, frame, encoding) | 0.8 µs |
-| WASM, host calls included | 4.9 µs |
-| host calls (2 gets + 2 updates) | 2.7 µs |
-| commit | 4.8 µs |
-| persistence (logged writes) | 4.2 µs |
-| reply | 1.0 µs |
+### History
 
-**Since then:**
-- One log write per commit (§3.2): in process, 83 000 ± 3 100/s
-  (alpha 0), p50 29 ms; the commit fell from 4.8 to 2.2 µs.
-- Workers complete their own jobs and run the job that releases (§6.1):
+Same machine, module/mem and in-process transfers at alpha 0:
 
-  | Mode | alpha | committed/s | p50 | p99 |
-  |---|---:|---:|---:|---:|
-  | in process | 0 | 140 000 ± 2 300 | 17 ms | 28 ms |
-  | in process | 1.5 | 147 400 ± 2 100 | 17 ms | 26 ms |
-  | TLS, 64 connections | 0 | 96 300 ± 7 500 | 24 ms | 50 ms |
-  | TLS, 64 connections | 1.5 | 100 700 ± 7 900 | 23 ms | 45 ms |
+| Change | `insert_bulk` (str, unique) | `iterate` (str) | transfer/s |
+|---|---:|---:|---:|
+| 2026-11-06, first full run | 930 µs | 159 µs | 58 900 |
+| One log write per commit (§3.2) | | | 83 000 |
+| Workers run the job they release (§6.1) | | | 140 000 |
+| ABI 17: values without names, direct encoding (§10.2) | 629 µs | 57 µs | 142 800 |
 
 The leads, in order:
-1. ~~one log append per transaction~~ (done);
-2. ~~values with names~~ (done, ABI 17);
-3. row-level conflicts would let uniform transfers run in parallel;
-4. the per-host-call cost of writes (see the micro matrix).
-
+1. row-level conflicts, so that uniform transfers run in parallel;
+2. the per-host-call cost of writes, for example a batched insert.

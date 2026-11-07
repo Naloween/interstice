@@ -32,8 +32,13 @@ All published crates share one version (`[workspace.package]` in the root
    binaries and the example modules to a GitHub release.
 5. **Publish**, in dependency order:
    ```bash
-   cargo ws publish --from-git
+   cargo publish --workspace --allow-dirty
    ```
+   `--allow-dirty` is needed because the CLI's package includes the default
+   modules, which git ignores. `cargo publish --workspace --dry-run
+   --allow-dirty` checks everything first; it resolves the crates against
+   each other, which `cargo ws publish --dry-run` can't do for a version
+   that isn't on crates.io yet.
 
 ## Module ABI
 
