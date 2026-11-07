@@ -1,12 +1,13 @@
 # Changelog
 
-## Unreleased (0.6.0)
+## 0.6.0 (2026-11-07)
 
 Everything since 0.5.0 (2026-06-05). Module ABI 17: **every module must be
 rebuilt**, and data stored by earlier versions is deleted on the next load,
 after confirmation. A node skips stored modules of another ABI at boot.
 
 ### Values (ABI 17, DESIGN §10.2)
+
 - **Values carry no names**: a struct is its fields in order, an enum its
   variant index. Names live in the schema; the CLI prints results with them.
 - **Modules encode and decode values directly**, without building a value
@@ -16,6 +17,7 @@ after confirmation. A node skips stored modules of another ABI at boot.
 - One ABI: no compatibility range, no legacy decoding paths.
 
 ### Engine
+
 - **Isolation and ordering** (DESIGN §6.6):
   - reducer calls are deferred messages released on commit;
   - events are emitted in commit order;
@@ -40,6 +42,7 @@ after confirmation. A node skips stored modules of another ABI at boot.
 - **Scans encode rows without copying them.**
 
 ### Security and distribution
+
 - **Kernel and module manager**: the kernel enforces, and the holder of the
   Module authority decides on loads and grants.
 - **Call visibility**: `public`, `local` and `internal`.
@@ -56,6 +59,7 @@ after confirmation. A node skips stored modules of another ABI at boot.
 - **Bundles**: a whole node in one `.itb` file, or as a program.
 
 ### Protocol, clients and CLI
+
 - **Reducer results**: a network caller can ask for the commit or the error.
 - **Query errors** carry their request id, and remote queries time out after
   30 s.
@@ -77,6 +81,7 @@ after confirmation. A node skips stored modules of another ABI at boot.
   `scripts/build_modules.sh` builds them.
 
 ### SDK
+
 - **Capability shorthands**: `CanAll<T>`, tuple rows, `caps!`.
 - **Reads return `Result`**, and reducers and queries may return `Result`;
   the caller gets the `Err` message.
@@ -88,12 +93,14 @@ after confirmation. A node skips stored modules of another ABI at boot.
 - **Call-scoped `Blob` handles** for bulk data.
 
 ### Examples
+
 - **Desktop**: compositor, launcher, services, notes with time travel.
 - **Browser**: Blitz, a JavaScript runtime and tests.
 - **Default network module**: TCP, DNS and HTTP.
 - **Brand**: the brand board's look, applied everywhere.
 
 ### Tooling
+
 - **Benchmarks** (`benchmarks/README.md`): SpacetimeDB's micro matrix and the
   keynote transfer load.
 - **CI**: tests, the benchmark comparison workflow, and browser tests on Xvfb.

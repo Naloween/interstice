@@ -4,20 +4,20 @@ resolver = "3"
 
 # Shared by the published crates (RELEASING.md): one version to bump.
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/naloween/interstice"
 
 # The internal crates, by path for the workspace and by version for crates.io.
 [workspace.dependencies]
-interstice-abi = { path = "crates/interstice-abi", version = "0.5.0" }
-interstice-abi-macros = { path = "crates/interstice-abi-macros", version = "0.5.0" }
-interstice-core = { path = "crates/interstice-core", version = "0.5.0" }
-interstice-client = { path = "crates/interstice-client", version = "0.5.0" }
-interstice-sdk = { path = "crates/interstice-sdk", version = "0.5.0" }
-interstice-sdk-core = { path = "crates/interstice-sdk-core", version = "0.5.0" }
-interstice-sdk-macros = { path = "crates/interstice-sdk-macros", version = "0.5.0" }
+interstice-abi = { path = "crates/interstice-abi", version = "0.6.0" }
+interstice-abi-macros = { path = "crates/interstice-abi-macros", version = "0.6.0" }
+interstice-core = { path = "crates/interstice-core", version = "0.6.0" }
+interstice-client = { path = "crates/interstice-client", version = "0.6.0" }
+interstice-sdk = { path = "crates/interstice-sdk", version = "0.6.0" }
+interstice-sdk-core = { path = "crates/interstice-sdk-core", version = "0.6.0" }
+interstice-sdk-macros = { path = "crates/interstice-sdk-macros", version = "0.6.0" }
 interstice-ui = { path = "crates/interstice-ui" }  # not published
 
 [patch.crates-io]
